@@ -146,11 +146,11 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
         Set<Slot> aProjectSlots = aProjects.stream().map(NamedExpression::toSlot)
                 .collect(Collectors.toSet());
         aConditionSlots.stream().filter(slot -> !aProjectSlots.contains(slot)).forEach(newAProject::add);
-        Plan newLeft = CBOUtils.projectOrSelf(newAProject.build(), join.left());
+        Plan newLeft = new LogicalProject<>(newAProject.build(), join.left());
 
         if (!rightContains) {
             Plan newJoin = join.withChildren(newLeft, join.right());
-            return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
+            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
         }
 
         Builder<NamedExpression> newBProject = ImmutableList.<NamedExpression>builder().addAll(bProjects);
@@ -158,10 +158,10 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
         Set<Slot> bProjectSlots = bProjects.stream().map(NamedExpression::toSlot)
                 .collect(Collectors.toSet());
         bConditionSlots.stream().filter(slot -> !bProjectSlots.contains(slot)).forEach(newBProject::add);
-        Plan newRight = CBOUtils.projectOrSelf(newBProject.build(), join.right());
+        Plan newRight = new LogicalProject<>(newBProject.build(), join.right());
 
         Plan newJoin = join.withChildren(newLeft, newRight);
-        return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
+        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
     }
 
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_frontend") {
+suite("test_frontend", "nonconcurrent") {
     def address = "127.0.0.1"
     def notExistPort = 12345
 
@@ -24,19 +24,29 @@ suite("test_frontend") {
         logger.debug("result:${result}")
 
         sql """ALTER SYSTEM ADD FOLLOWER "${address}:${notExistPort}";"""
+        waitAddFeFinished(address, notExistPort);
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
 
         sql """ALTER SYSTEM DROP FOLLOWER "${address}:${notExistPort}";"""
+        waitDropFeFinished(address, notExistPort);
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
 
         sql """ALTER SYSTEM ADD OBSERVER "${address}:${notExistPort}";"""
+        waitAddFeFinished(address, notExistPort);
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
 
         sql """ALTER SYSTEM DROP OBSERVER "${address}:${notExistPort}";"""
+        waitDropFeFinished(address, notExistPort);
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
     }
+
+    def res = sql """SHOW FRONTENDS DISKS"""
+    assertTrue(res.size() != 0)
+
+    def res2 = sql """SHOW FRONTENDS Disks"""
+    assertTrue(res2.size() != 0)
 }

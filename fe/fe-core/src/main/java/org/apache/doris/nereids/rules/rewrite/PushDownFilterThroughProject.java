@@ -22,17 +22,21 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeStrToInteger;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -48,30 +52,29 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalFilter(logicalProject())
-                        .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
-                                expr -> expr.anyMatch(WindowExpression.class::isInstance)))
-                        .whenNot(filter -> filter.child().hasPushedDownToProjectionFunctions())
-                        .then(PushDownFilterThroughProject::pushdownFilterThroughProject)
+                logicalFilter(logicalProject().whenNot(LogicalProject::containsNoneMovableFunction))
+                        .whenNot(filter -> ExpressionUtils.containsWindowExpression(filter.child().getProjects()))
+                        .then(PushDownFilterThroughProject::pushDownFilterThroughProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT),
                 // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
                 // then we should change filter(limit(project)) to project(filter(limit))
-                logicalFilter(logicalLimit(logicalProject()))
-                        .whenNot(filter -> filter.child().child().getProjects().stream()
-                                .anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance)))
-                        .whenNot(filter -> filter.child().child().hasPushedDownToProjectionFunctions())
-                        .then(PushDownFilterThroughProject::pushdownFilterThroughLimitProject)
+                // TODO maybe we could remove this rule, because translator already support filter(limit(project))
+                logicalFilter(logicalLimit(logicalProject().whenNot(LogicalProject::containsNoneMovableFunction)))
+                        .whenNot(filter ->
+                                ExpressionUtils.containsWindowExpression(filter.child().child().getProjects())
+                        )
+                        .then(PushDownFilterThroughProject::pushDownFilterThroughLimitProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT)
         );
     }
 
-    /** pushdown Filter through project */
-    private static Plan pushdownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
-        LogicalProject<Plan> project = filter.child();
+    /** push down Filter through project */
+    private static Plan pushDownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
+        LogicalProject<? extends Plan> project = filter.child();
         Set<Slot> childOutputs = project.getOutputSet();
-        // we need run this rule before subquey unnesting
+        // we need run this rule before subquery unnesting
         // therefore the conjuncts may contain slots from outer query
-        // we should only push down conjuncts without any outer query's slot
+        // we should only push down conjuncts without any outer query's slot,
         // so we split the conjuncts into two parts:
         // splitConjuncts.first -> conjuncts having outer query slots which should NOT be pushed down
         // splitConjuncts.second -> conjuncts without any outer query slots which should be pushed down
@@ -82,13 +85,20 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             // just return unchanged plan
             return null;
         }
-        project = (LogicalProject<Plan>) project.withChildren(new LogicalFilter<>(
-                ExpressionUtils.replace(splitConjuncts.second, project.getAliasToProducer()),
+        Set<Expression> conjuncts;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableCompressMaterialize) {
+            conjuncts = ExpressionUtils.replace(eliminateDecodeAndEncode(splitConjuncts.second),
+                    project.getAliasToProducer());
+        } else {
+            conjuncts = ExpressionUtils.replace(splitConjuncts.second,
+                    project.getAliasToProducer());
+        }
+        project = (LogicalProject<? extends Plan>) project.withChildren(new LogicalFilter<>(conjuncts,
                 project.child()));
         return PlanUtils.filterOrSelf(splitConjuncts.first, project);
     }
 
-    private static Plan pushdownFilterThroughLimitProject(
+    private static Plan pushDownFilterThroughLimitProject(
             LogicalFilter<LogicalLimit<LogicalProject<Plan>>> filter) {
         LogicalLimit<LogicalProject<Plan>> limit = filter.child();
         LogicalProject<Plan> project = limit.child();
@@ -99,10 +109,17 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         if (splitConjuncts.second.isEmpty()) {
             return null;
         }
+        Set<Expression> conjuncts;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableCompressMaterialize) {
+            conjuncts = ExpressionUtils.replace(eliminateDecodeAndEncode(splitConjuncts.second),
+                    project.getAliasToProducer());
+        } else {
+            conjuncts = ExpressionUtils.replace(splitConjuncts.second,
+                    project.getAliasToProducer());
+        }
         project = project.withProjectsAndChild(project.getProjects(),
                 new LogicalFilter<>(
-                        ExpressionUtils.replace(splitConjuncts.second,
-                                project.getAliasToProducer()),
+                        conjuncts,
                         limit.withChildren(project.child())));
         return PlanUtils.filterOrSelf(splitConjuncts.first, project);
     }
@@ -111,14 +128,44 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             Set<Expression> conjuncts, Set<Slot> childOutputs) {
         Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
         Set<Expression> remainPredicates = Sets.newLinkedHashSet();
-        conjuncts.forEach(conjunct -> {
+        for (Expression conjunct : conjuncts) {
             Set<Slot> conjunctSlots = conjunct.getInputSlots();
             if (childOutputs.containsAll(conjunctSlots)) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);
             }
-        });
+        }
         return Pair.of(remainPredicates, pushDownPredicates);
+    }
+
+    private static Set<Expression> eliminateDecodeAndEncode(Set<Expression> expressions) {
+        LinkedHashSet<Expression> eliminated = new LinkedHashSet<Expression>();
+        // keep expression order
+        for (Expression expression : expressions) {
+            eliminated.add(eliminateDecodeAndEncode(expression));
+        }
+        return eliminated;
+    }
+
+    private static Expression eliminateDecodeAndEncode(Expression expression) {
+        if (expression instanceof DecodeAsVarchar && expression.child(0) instanceof EncodeStrToInteger) {
+            return expression.child(0).child(0);
+        }
+        boolean hasNewChild = false;
+        List<Expression> newChildren = Lists.newArrayList();
+        for (Expression child : expression.children()) {
+            Expression replace = eliminateDecodeAndEncode(child);
+            if (replace != child) {
+                hasNewChild = true;
+                newChildren.add(replace);
+            } else {
+                newChildren.add(child);
+            }
+        }
+        if (hasNewChild) {
+            return expression.withChildren(newChildren);
+        }
+        return expression;
     }
 }

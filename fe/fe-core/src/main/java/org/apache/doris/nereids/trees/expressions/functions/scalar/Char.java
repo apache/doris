@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -43,6 +45,18 @@ public class Char extends ScalarFunction
 
     public Char(Expression... varArgs) {
         super("char", varArgs);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!(child(0) instanceof StringLikeLiteral)) {
+            throw new AnalysisException("char charset name must be a constant: " + child(0).toSql());
+        }
+        StringLikeLiteral stringLiteral = (StringLikeLiteral) child(0);
+        if (!"utf8".equalsIgnoreCase(stringLiteral.getStringValue())) {
+            throw new AnalysisException(
+                    "char function currently only support charset name 'utf8': " + child(0).toSql());
+        }
     }
 
     /**

@@ -28,6 +28,8 @@
 #include <string_view>
 #include <thread>
 
+#include "meta-service/txn_lazy_committer.h"
+#include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
 namespace brpc {
@@ -37,8 +39,26 @@ class Server;
 namespace doris::cloud {
 class TxnKv;
 class InstanceRecycler;
-class ObjStoreAccessor;
+class StorageVaultAccessor;
 class Checker;
+class SimpleThreadPool;
+struct RecyclerThreadPoolGroup {
+    RecyclerThreadPoolGroup() = default;
+    RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
+                            std::shared_ptr<SimpleThreadPool> recycle_tablet_pool,
+                            std::shared_ptr<SimpleThreadPool> group_recycle_function_pool)
+            : s3_producer_pool(std::move(s3_producer_pool)),
+              recycle_tablet_pool(std::move(recycle_tablet_pool)),
+              group_recycle_function_pool(std::move(group_recycle_function_pool)) {}
+    ~RecyclerThreadPoolGroup() = default;
+    RecyclerThreadPoolGroup(const RecyclerThreadPoolGroup&) = default;
+    RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup& other) = default;
+    RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup&& other) = default;
+    RecyclerThreadPoolGroup(RecyclerThreadPoolGroup&&) = default;
+    std::shared_ptr<SimpleThreadPool> s3_producer_pool;
+    std::shared_ptr<SimpleThreadPool> recycle_tablet_pool;
+    std::shared_ptr<SimpleThreadPool> group_recycle_function_pool;
+};
 
 class Recycler {
 public:
@@ -58,6 +78,8 @@ private:
     void instance_scanner_callback();
 
     void lease_recycle_jobs();
+
+    void check_recycle_tasks();
 
 private:
     friend class RecyclerServiceImpl;
@@ -80,13 +102,20 @@ private:
 
     WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
+
+    RecyclerThreadPoolGroup _thread_pool_group;
+
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 class InstanceRecycler {
 public:
-    explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance);
+    explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
+                              RecyclerThreadPoolGroup thread_pool_group,
+                              std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~InstanceRecycler();
 
+    // returns 0 for success otherwise error
     int init();
 
     void stop() { stopped_.store(true, std::memory_order_release); }
@@ -155,7 +184,15 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
+    bool check_recycle_tasks();
+
 private:
+    // returns 0 for success otherwise error
+    int init_obj_store_accessors();
+
+    // returns 0 for success otherwise error
+    int init_storage_vault_accessors();
+
     /**
      * Scan key-value pairs between [`begin`, `end`), and perform `recycle_func` on each key-value pair.
      *
@@ -176,18 +213,26 @@ private:
     int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
 
     /**
-     * Get stage storage info from instance and init ObjStoreAccessor
+     * Get stage storage info from instance and init StorageVaultAccessor
      * @return 0 if accessor is successfully inited, 1 if stage not found, negative for error
      */
     int init_copy_job_accessor(const std::string& stage_id, const StagePB::StageType& stage_type,
-                               std::shared_ptr<ObjStoreAccessor>* accessor);
+                               std::shared_ptr<StorageVaultAccessor>* accessor);
+
+    void register_recycle_task(const std::string& task_name, int64_t start_time);
+
+    void unregister_recycle_task(const std::string& task_name);
 
 private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
     InstanceInfoPB instance_info_;
-    std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
+
+    // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
+    std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
+    using InvertedIndexInfo =
+            std::pair<InvertedIndexStorageFormatPB, std::vector<std::pair<int64_t, std::string>>>;
 
     class InvertedIndexIdCache;
     std::unique_ptr<InvertedIndexIdCache> inverted_index_id_cache_;
@@ -195,6 +240,14 @@ private:
     std::mutex recycled_tablets_mtx_;
     // Store recycled tablets, we can skip deleting rowset data of these tablets because these data has already been deleted.
     std::unordered_set<int64_t> recycled_tablets_;
+
+    std::mutex recycle_tasks_mutex;
+    // <task_name, start_time>>
+    std::map<std::string, int64_t> running_recycle_tasks;
+
+    RecyclerThreadPoolGroup _thread_pool_group;
+
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 } // namespace doris::cloud

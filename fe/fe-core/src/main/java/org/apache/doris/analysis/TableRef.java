@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -33,6 +34,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -40,6 +42,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -84,6 +87,7 @@ import java.util.regex.Matcher;
  */
 public class TableRef implements ParseNode, Writable {
     private static final Logger LOG = LogManager.getLogger(TableRef.class);
+    @SerializedName("n")
     protected TableName name;
     // Legal aliases of this table ref. Contains the explicit alias as its sole element if
     // there is one. Otherwise, contains the two implicit aliases. Implicit aliases are set
@@ -91,6 +95,7 @@ public class TableRef implements ParseNode, Writable {
     // analysis. By convention, for table refs with multiple implicit aliases, aliases_[0]
     // contains the fully-qualified implicit alias to ensure that aliases_[0] always
     // uniquely identifies this table ref regardless of whether it has an explicit alias.
+    @SerializedName("a")
     protected String[] aliases;
     protected List<Long> sampleTabletIds;
     // Indicates whether this table ref is given an explicit alias,
@@ -128,6 +133,7 @@ public class TableRef implements ParseNode, Writable {
     protected List<TupleId> correlatedTupleIds = Lists.newArrayList();
     // analysis output
     protected TupleDescriptor desc;
+    @SerializedName("p")
     private PartitionNames partitionNames = null;
     private ArrayList<String> joinHints;
     private ArrayList<String> sortHints;
@@ -973,23 +979,20 @@ public class TableRef implements ParseNode, Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        name.write(out);
-        if (partitionNames == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            partitionNames.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
 
-        if (hasExplicitAlias()) {
-            out.writeBoolean(true);
-            Text.writeString(out, getExplicitAlias());
+    public static TableRef read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            TableRef ref = new TableRef();
+            ref.readFields(in);
+            return ref;
         } else {
-            out.writeBoolean(false);
+            return GsonUtils.GSON.fromJson(Text.readString(in), TableRef.class);
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         name = new TableName();
         name.readFields(in);
         if (in.readBoolean()) {

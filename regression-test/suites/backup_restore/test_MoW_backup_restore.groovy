@@ -35,63 +35,47 @@ suite("test_MoW_backup_restore", "p1") {
     // version1 (1,1)(2,2)
     sql """insert into ${tableName} values(1,1),(2,2)"""
     sql """backup snapshot ${context.dbName}.snapshot1 to ${repo} on (${tableName}) properties("type"="full")"""
-    while(checkSnapshotFinish()==false){
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish()
     qt_3 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     sql """insert into ${tableName} values(1,10)"""
     sql """backup snapshot ${context.dbName}.snapshot2 to ${repo} on (${tableName}) properties("type"="full")"""
-    while(checkSnapshotFinish()==false){
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish()
     qt_4 """select * from ${tableName} order by user_id"""
 
     // version3 (1,100)(2,2)
     sql """update ${tableName} set value = 100 where user_id = 1"""
     sql """backup snapshot ${context.dbName}.snapshot3 to ${repo} on (${tableName}) properties("type"="full")"""
-    while(checkSnapshotFinish()==false){
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish()
     qt_5 """select * from ${tableName} order by user_id"""
 
     // version4 (2,2)
     sql """delete from ${tableName} where user_id = 1"""
     sql """backup snapshot ${context.dbName}.snapshot4 to ${repo} on (${tableName}) properties("type"="full")"""
-    while(checkSnapshotFinish()==false){
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish()
     qt_6 """select * from ${tableName} order by user_id"""
 
     // version1 (1,1)(2,2)
     assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_7 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_8 """select * from ${tableName} order by user_id"""
     // version3 (1,100)(2,2)
     assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_9 """select * from ${tableName} order by user_id"""
     // version4 (2,2)
     assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_10 """select * from ${tableName} order by user_id"""
 
     sql """drop table if exists ${tableName}"""
@@ -107,30 +91,22 @@ suite("test_MoW_backup_restore", "p1") {
     // version1 (1,1)(2,2)
     assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_11 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_12 """select * from ${tableName} order by user_id"""
     // version3 (1,100)(2,2)
     assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_13 """select * from ${tableName} order by user_id"""
     // version4 (2,2)
     assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
-    while (checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish()
     qt_14 """select * from ${tableName} order by user_id"""
 }

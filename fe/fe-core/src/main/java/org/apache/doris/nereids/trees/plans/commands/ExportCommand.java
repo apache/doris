@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.BrokerMgr;
@@ -59,7 +60,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * EXPORT statement, export data to dirs by broker.
@@ -74,6 +74,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
+    public static final String COMPRESS_TYPE = "compress_type";
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
@@ -91,6 +92,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .add(OutFileClause.PROP_WITH_BOM)
+            .add(COMPRESS_TYPE)
             .build();
 
     private final List<String> nameParts;
@@ -129,8 +131,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 qualifiedTableName.get(2));
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tblName.getDb(), tblName.getTbl(),
-                PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ctx, tblName.getCtl(), tblName.getDb(), tblName.getTbl(),
+                        PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                     ctx.getQualifiedUser(),
                     ctx.getRemoteIP(),
@@ -238,7 +241,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
-        ExportJob exportJob = new ExportJob();
+        ExportJob exportJob = new ExportJob(Env.getCurrentEnv().getNextId());
         // set export job and check catalog/db/table
         CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
@@ -248,9 +251,6 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setTableName(tblName);
         exportJob.setExportTable(table);
         exportJob.setTableId(table.getId());
-        if (ctx.getExecutor() != null) {
-            exportJob.setOrigStmt(ctx.getExecutor().getOriginStmt());
-        }
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
@@ -313,14 +313,16 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
         // set data consistency
-        String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
-        if (dataConsistencyStr != null) {
-            if (!dataConsistencyStr.equalsIgnoreCase(ExportJob.CONSISTENT_PARTITION)) {
-                throw new AnalysisException("The value of data_consistency is invalid, only partition is allowed!");
+        if (fileProperties.containsKey(DATA_CONSISTENCY)) {
+            String dataConsistencyStr = fileProperties.get(DATA_CONSISTENCY);
+            if (ExportJob.CONSISTENT_NONE.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_NONE);
+            } else if (ExportJob.CONSISTENT_PARTITION.equalsIgnoreCase(dataConsistencyStr)) {
+                exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
+            } else {
+                throw new AnalysisException("The value of data_consistency is invalid, please use `"
+                        + ExportJob.CONSISTENT_PARTITION + "`/`" + ExportJob.CONSISTENT_NONE + "`");
             }
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_PARTITION);
-        } else {
-            exportJob.setDataConsistency(ExportJob.CONSISTENT_ALL);
         }
 
         // Must copy session variable, because session variable may be changed during export job running.
@@ -337,8 +339,12 @@ public class ExportCommand extends Command implements ForwardWithSync {
         } catch (NumberFormatException e) {
             throw new UserException("The value of timeout is invalid!");
         }
-
         exportJob.setTimeoutSecond(timeoutSecond);
+
+        // set compress_type
+        if (fileProperties.containsKey(COMPRESS_TYPE)) {
+            exportJob.setCompressType(fileProperties.get(COMPRESS_TYPE));
+        }
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));
@@ -347,38 +353,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private void checkFileProperties(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
-        // check user specified columns
-        if (fileProperties.containsKey(LoadStmt.KEY_IN_PARAM_COLUMNS)) {
-            checkColumns(ctx, fileProperties.get(LoadStmt.KEY_IN_PARAM_COLUMNS), tblName);
-        }
-
         // check user specified label
         if (fileProperties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(fileProperties.get(LABEL));
-        }
-    }
-
-    private void checkColumns(ConnectContext ctx, String columns, TableName tblName)
-            throws AnalysisException, UserException {
-        if (columns.isEmpty()) {
-            throw new AnalysisException("columns can not be empty");
-        }
-
-        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
-        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
-        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
-
-        // As for external table
-        // their base schemas are equals to full schemas
-        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
-                .collect(Collectors.toList());
-        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-
-        List<String> columnsSpecified = split.splitToList(columns.toLowerCase());
-        for (String columnName : columnsSpecified) {
-            if (!tableColumns.contains(columnName)) {
-                throw new AnalysisException("unknown column [" + columnName + "] in table [" + tblName.getTbl() + "]");
-            }
         }
     }
 
@@ -393,5 +370,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitExportCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXPORT;
     }
 }

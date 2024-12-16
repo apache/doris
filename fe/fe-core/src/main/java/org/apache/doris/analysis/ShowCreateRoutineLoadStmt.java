@@ -23,7 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE ROUTINE LOAD statement.
-public class ShowCreateRoutineLoadStmt extends ShowStmt {
+public class ShowCreateRoutineLoadStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

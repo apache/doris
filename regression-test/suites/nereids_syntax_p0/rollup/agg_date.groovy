@@ -44,6 +44,7 @@ suite("agg_date", "rollup") {
             AGGREGATE KEY (datek1, datetimek1, datetimek2, datetimek3)
             DISTRIBUTED BY HASH(datek1) BUCKETS 5 properties("replication_num" = "1");
         """
+    sql """alter table test_rollup_agg_date1 modify column datek1 set stats ('row_count'='2');"""
     sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_date(datek1,datetimek2,datetimek1,datetimek3,datev1,datetimev1,datetimev2,datetimev3);"""
     int max_try_secs = 60
     while (max_try_secs--) {
@@ -81,10 +82,16 @@ suite("agg_date", "rollup") {
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values('2022-08-22', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111');"
     sql "insert into ${tbName} values('2022-08-23', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111', '2022-08-23 11:11:11.111111');"
-    explain {
-        sql("SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3")
-        contains("(rollup_date)")
-    }
+
+    sql "analyze table ${tbName} with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3",
+            "rollup_date")
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3",
+            "rollup_date")
+
     qt_sql """ SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3 order by datek1 desc; """
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_date;"
     sql "DROP TABLE ${tbName} FORCE;"

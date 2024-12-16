@@ -43,15 +43,20 @@ suite ("aggOnAggMV10") {
 
     sql """insert into aggOnAggMV10 values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from aggOnAggMV10 order by empid;")
-        contains "(aggOnAggMV10)"
-    }
+    sql "analyze table aggOnAggMV10 with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from aggOnAggMV10 order by empid;", "aggOnAggMV10_mv")
     order_qt_select_star "select * from aggOnAggMV10 order by empid;"
 
-    explain {
-        sql("select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission);")
-        contains "(aggOnAggMV10_mv)"
-    }
+    mv_rewrite_success("select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission);",
+            "aggOnAggMV10_mv")
     order_qt_select_mv "select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission) order by 1,2;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table aggOnAggMV10 modify column time_col set stats ('row_count'='4');"""
+    mv_rewrite_fail("select * from aggOnAggMV10 order by empid;", "aggOnAggMV10_mv")
+
+    mv_rewrite_success("select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission);",
+            "aggOnAggMV10_mv")
 }

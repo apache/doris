@@ -27,6 +27,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <typeinfo>
@@ -34,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -74,7 +76,9 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
         : elems(elems_), names(names_), have_explicit_names(true) {
     size_t size = elems.size();
     if (names.size() != size) {
-        LOG(FATAL) << "Wrong number of names passed to constructor of DataTypeStruct";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Wrong number of names passed to constructor of DataTypeStruct");
+        __builtin_unreachable();
     }
 
     Status st = check_tuple_names(names);
@@ -251,42 +255,6 @@ void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWrit
     ostr.write("}", 1);
 }
 
-static inline IColumn& extract_element_column(IColumn& column, size_t idx) {
-    return assert_cast<ColumnStruct&>(column).get_column(idx);
-}
-
-template <typename F>
-void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
-    /// We use the assumption that tuples of zero size do not exist.
-    size_t old_size = column.size();
-
-    try {
-        impl();
-
-        // Check that all columns now have the same size.
-        size_t new_size = column.size();
-
-        for (auto i = 0; i < elems.size(); i++) {
-            const auto& element_column = extract_element_column(column, i);
-            if (element_column.size() != new_size) {
-                // This is not a logical error because it may work with
-                // user-supplied data.
-                LOG(FATAL) << "Cannot read a tuple because not all elements are present";
-            }
-        }
-    } catch (...) {
-        for (auto i = 0; i < elems.size(); i++) {
-            auto& element_column = extract_element_column(column, i);
-
-            if (element_column.size() > old_size) {
-                element_column.pop_back(1);
-            }
-        }
-
-        throw;
-    }
-}
-
 MutableColumnPtr DataTypeStruct::create_column() const {
     size_t size = elems.size();
     MutableColumns tuple_columns(size);
@@ -303,14 +271,6 @@ Field DataTypeStruct::get_default() const {
         t.push_back(elems[i]->get_default());
     }
     return t;
-}
-
-void DataTypeStruct::insert_default_into(IColumn& column) const {
-    add_element_safe(elems, column, [&] {
-        for (auto i = 0; i < elems.size(); i++) {
-            elems[i]->insert_default_into(extract_element_column(column, i));
-        }
-    });
 }
 
 bool DataTypeStruct::equals(const IDataType& rhs) const {
@@ -341,7 +301,9 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
             return i;
         }
     }
-    LOG(FATAL) << "Struct doesn't have element with name '" + name + "'";
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                           "Struct doesn't have element with name  " + name);
+    __builtin_unreachable();
 }
 
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {
@@ -355,50 +317,90 @@ std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& nam
 }
 
 String DataTypeStruct::get_name_by_position(size_t i) const {
-    if (i == 0 || i > names.size()) {
-        fmt::memory_buffer error_msg;
-        fmt::format_to(error_msg, "Index of tuple element ({}) if out range ([1, {}])", i,
-                       names.size());
-        LOG(FATAL) << fmt::to_string(error_msg);
-    }
-
-    return names[i - 1];
+    return names[i];
 }
 
+// binary : const flag| row num | read saved num| childs
+// childs : child1 | child2 ...
 int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
-    DCHECK(elems.size() == struct_column.tuple_size());
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+        bool is_const_column = is_column_const(column);
+        const IColumn* data_column = &column;
+        if (is_const_column) {
+            const auto& const_column = assert_cast<const ColumnConst&>(column);
+            data_column = &(const_column.get_data_column());
+        }
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*data_column);
+        DCHECK(elems.size() == struct_column.tuple_size());
+        int64_t bytes = 0;
+        for (size_t i = 0; i < elems.size(); ++i) {
+            bytes += elems[i]->get_uncompressed_serialized_bytes(struct_column.get_column(i),
+                                                                 be_exec_version);
+        }
+        return size + bytes;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+        DCHECK(elems.size() == struct_column.tuple_size());
 
-    int64_t bytes = 0;
-    for (size_t i = 0; i < elems.size(); ++i) {
-        bytes += elems[i]->get_uncompressed_serialized_bytes(struct_column.get_column(i),
-                                                             be_exec_version);
+        int64_t bytes = 0;
+        for (size_t i = 0; i < elems.size(); ++i) {
+            bytes += elems[i]->get_uncompressed_serialized_bytes(struct_column.get_column(i),
+                                                                 be_exec_version);
+        }
+        return bytes;
     }
-    return bytes;
 }
 
 char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
-    DCHECK(elems.size() == struct_column.tuple_size());
+    if (be_exec_version >= USE_CONST_SERDE) {
+        const auto* data_column = &column;
+        [[maybe_unused]] size_t real_need_copy_num = 0;
+        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-    for (size_t i = 0; i < elems.size(); ++i) {
-        buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*data_column);
+        DCHECK(elems.size() == struct_column.tuple_size());
+        for (size_t i = 0; i < elems.size(); ++i) {
+            buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+        }
+        return buf;
+    } else {
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+        DCHECK(elems.size() == struct_column.tuple_size());
+
+        for (size_t i = 0; i < elems.size(); ++i) {
+            buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
+        }
+        return buf;
     }
-    return buf;
 }
-
-const char* DataTypeStruct::deserialize(const char* buf, IColumn* column,
+const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
-    auto* struct_column = assert_cast<ColumnStruct*>(column);
-    DCHECK(elems.size() == struct_column->tuple_size());
+    if (be_exec_version >= USE_CONST_SERDE) {
+        auto* origin_column = column->get();
+        [[maybe_unused]] size_t real_have_saved_num = 0;
+        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-    for (size_t i = 0; i < elems.size(); ++i) {
-        buf = elems[i]->deserialize(buf, &struct_column->get_column(i), be_exec_version);
+        auto* struct_column = assert_cast<ColumnStruct*>(origin_column);
+        DCHECK(elems.size() == struct_column->tuple_size());
+        for (size_t i = 0; i < elems.size(); ++i) {
+            auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+            buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+        }
+        return buf;
+    } else {
+        auto* struct_column = assert_cast<ColumnStruct*>(column->get());
+        DCHECK(elems.size() == struct_column->tuple_size());
+
+        for (size_t i = 0; i < elems.size(); ++i) {
+            auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+            buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+        }
+        return buf;
     }
-    return buf;
 }
 
 void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {
@@ -423,14 +425,6 @@ bool DataTypeStruct::have_maximum_size_of_value() const {
 bool DataTypeStruct::is_comparable() const {
     return std::all_of(elems.begin(), elems.end(),
                        [](auto&& elem) { return elem->is_comparable(); });
-}
-
-size_t DataTypeStruct::get_maximum_size_of_value_in_memory() const {
-    size_t res = 0;
-    for (const auto& elem : elems) {
-        res += elem->get_maximum_size_of_value_in_memory();
-    }
-    return res;
 }
 
 size_t DataTypeStruct::get_size_of_value_in_memory() const {

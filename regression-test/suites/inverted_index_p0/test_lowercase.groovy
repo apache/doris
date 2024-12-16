@@ -56,6 +56,7 @@ suite("test_lowercase"){
                 "replication_allocation" = "tag.location.default: 1"
         );
     """
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "INSERT INTO $indexTblName2 VALUES (1, 'hello 我来到北京清华大学'), (2, 'HELLO 我爱你中国'), (3, 'Hello 人民可以得到更多实惠');"
     qt_sql "SELECT * FROM $indexTblName2 WHERE c MATCH 'hello' ORDER BY id";

@@ -30,7 +30,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
-public class ShowIndexStmt extends ShowStmt {
+public class ShowIndexStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Table", ScalarType.createVarchar(64)))
@@ -46,7 +46,6 @@ public class ShowIndexStmt extends ShowStmt {
                     .addColumn(new Column("Index_type", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Properties", ScalarType.createVarchar(200)))
-                    .addColumn(new Column("Index_id", ScalarType.createVarchar(30)))
                     .build();
     private String dbName;
     private TableName tableName;

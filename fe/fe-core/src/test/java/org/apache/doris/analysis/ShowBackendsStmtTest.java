@@ -71,7 +71,7 @@ public class ShowBackendsStmtTest {
     public void getMetaData() {
         ShowBackendsStmt stmt = new ShowBackendsStmt();
         ShowResultSetMetaData result = stmt.getMetaData();
-        Assertions.assertEquals(result.getColumnCount(), 25);
+        Assertions.assertEquals(result.getColumnCount(), 27);
         result.getColumns().forEach(col -> Assertions.assertEquals(col.getType(), ScalarType.createVarchar(30)));
     }
 

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_right_join") {
-    sql """set enable_nereids_planner=false"""
+    sql """set disable_join_reorder=true"""
     sql """set parallel_fragment_exec_instance_num=1"""
     sql "use regression_test_tpcds_sf1_p1"
 

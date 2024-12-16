@@ -18,7 +18,7 @@
 suite("test_backup_restore_partition", "backup_restore") {
     String suiteName = "test_backup_restore_partition"
     String dbName = "${suiteName}_db"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableName = "${suiteName}_table"
 
@@ -65,9 +65,7 @@ suite("test_backup_restore_partition", "backup_restore") {
         )
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -87,9 +85,7 @@ suite("test_backup_restore_partition", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
 
@@ -106,9 +102,7 @@ suite("test_backup_restore_partition", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
 

@@ -33,7 +33,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -104,7 +103,7 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
+        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV, Privilege.STAGE_USAGE_PRIV);
     }
 
     public boolean containsDbTablePriv() {
@@ -158,10 +157,15 @@ public class PrivBitSet implements Writable {
         StringBuilder sb = new StringBuilder();
         Privilege.privileges.keySet().forEach(idx -> {
             if (get(idx)) {
-                sb.append(Privilege.getPriv(idx)).append(" ");
+                sb.append(Privilege.getPriv(idx)).append(",");
             }
         });
-        return sb.toString();
+        String res = sb.toString();
+        if (res.length() > 0) {
+            return res.substring(0, res.length() - 1);
+        } else {
+            return res;
+        }
     }
 
     public static PrivBitSet read(DataInput in) throws IOException {
@@ -179,19 +183,18 @@ public class PrivBitSet implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static Set<Privilege> convertResourcePrivToCloudPriv(ResourcePattern resourcePattern,
-                                                                Set<Privilege> privileges) {
-        PrivBitSet privs = PrivBitSet.of();
-        for (Privilege privilege : privileges) {
-            if (resourcePattern.isGeneralResource()) {
-                privs.or(PrivBitSet.of(privilege));
-                continue;
-            }
-
-            if (resourcePattern.isClusterResource()) {
-                privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV));
-            }
+    public static void convertResourcePrivToCloudPriv(ResourcePattern resourcePattern, Set<Privilege> privileges) {
+        switch (resourcePattern.getResourceType()) {
+            case CLUSTER:
+                privileges.clear();
+                privileges.add(Privilege.CLUSTER_USAGE_PRIV);
+                break;
+            case STAGE:
+                privileges.clear();
+                privileges.add(Privilege.STAGE_USAGE_PRIV);
+                break;
+            default:
+                break;
         }
-        return new HashSet<>(privs.toPrivilegeList());
     }
 }

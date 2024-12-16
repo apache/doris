@@ -39,6 +39,7 @@ class JsonbValue;
 namespace vectorized {
 class IColumn;
 class Arena;
+#include "common/compile_check_begin.h"
 
 inline void escape_string(const char* src, size_t& len, char escape_char) {
     const char* start = src;
@@ -68,25 +69,97 @@ class DataTypeStringSerDeBase : public DataTypeSerDe {
 public:
     DataTypeStringSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
         auto result = check_column_const_set_readability(column, row_num);
         ColumnPtr ptr = result.first;
         row_num = result.second;
+        const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
 
         if (_nesting_level > 1) {
             bw.write('"');
         }
-
-        const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
-        bw.write(value.data, value.size);
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            if (options.escape_char != 0) {
+                // we should make deal with some special characters in json str if we have escape_char
+                StringRef str_ref = value;
+                write_with_escaped_char_to_json(str_ref, bw);
+            } else {
+                bw.write(value.data, value.size);
+            }
+        } else {
+            bw.write(value.data, value.size);
+        }
         if (_nesting_level > 1) {
             bw.write('"');
+        }
+
+        return Status::OK();
+    }
+
+    Status serialize_one_cell_to_hive_text(
+            const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override {
+        auto result = check_column_const_set_readability(column, row_num);
+        ColumnPtr ptr = result.first;
+        row_num = result.second;
+        const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            if (options.escape_char != 0) {
+                StringRef str_ref = value;
+                write_with_escaped_char_to_hive_text(str_ref, bw, options.escape_char,
+                                                     options.need_escape);
+            } else {
+                bw.write(value.data, value.size);
+            }
+        } else {
+            bw.write(value.data, value.size);
         }
         return Status::OK();
     }
 
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    inline void write_with_escaped_char_to_json(StringRef value, BufferWritable& bw) const {
+        for (char it : value) {
+            switch (it) {
+            case '\b':
+                bw.write("\\b", 2);
+                break;
+            case '\f':
+                bw.write("\\f", 2);
+                break;
+            case '\n':
+                bw.write("\\n", 2);
+                break;
+            case '\r':
+                bw.write("\\r", 2);
+                break;
+            case '\t':
+                bw.write("\\t", 2);
+                break;
+            case '\\':
+                bw.write("\\\\", 2);
+                break;
+            case '"':
+                bw.write("\\\"", 2);
+                break;
+            default:
+                bw.write(it);
+            }
+        }
+    }
+
+    inline void write_with_escaped_char_to_hive_text(StringRef value, BufferWritable& bw,
+                                                     char escape_char,
+                                                     const bool need_escape[]) const {
+        for (char it : value) {
+            if (need_escape[it & 0xff]) {
+                bw.write(escape_char);
+            }
+            bw.write(it);
+        }
+    }
+
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
         SERIALIZE_COLUMN_TO_JSON();
     }
@@ -114,6 +187,16 @@ public:
         return Status::OK();
     }
 
+    Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override {
+        if (options.escape_char != 0) {
+            escape_string(slice.data, slice.size, options.escape_char);
+        }
+        assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
+        return Status::OK();
+    }
+
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override {
@@ -121,9 +204,9 @@ public:
         return Status::OK();
     }
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override {
+        result.mutable_string_value()->Reserve(cast_set<int>(end - start));
         auto* ptype = result.mutable_type();
         ptype->set_id(PGenericType::STRING);
         for (size_t row_num = start; row_num < end; ++row_num) {
@@ -132,17 +215,48 @@ public:
         }
         return Status::OK();
     }
+
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override {
+        if (rows < 1) [[unlikely]] {
+            return Status::OK();
+        }
+        Status st = deserialize_one_cell_from_json(column, slice, options);
+        if (!st.ok()) {
+            return st;
+        }
+
+        DataTypeStringSerDeBase::insert_column_last_value_multiple_times(column, rows - 1);
+        *num_deserialized = rows;
+        return Status::OK();
+    }
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override {
+        if (times < 1) [[unlikely]] {
+            return;
+        }
+        auto& col = static_cast<ColumnString&>(column);
+        auto sz = col.size();
+
+        StringRef ref = col.get_data_at(sz - 1);
+        String str(ref.data, ref.size);
+        std::vector<StringRef> refs(times, {str.data(), str.size()});
+
+        col.insert_many_strings(refs.data(), refs.size());
+    }
+
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        column.reserve(arg.string_value_size());
+        auto& column_dest = assert_cast<ColumnType&>(column);
+        column_dest.reserve(column_dest.size() + arg.string_value_size());
         for (int i = 0; i < arg.string_value_size(); ++i) {
-            assert_cast<ColumnType&>(column).insert_data(arg.string_value(i).c_str(),
-                                                         arg.string_value(i).size());
+            column_dest.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
         }
         return Status::OK();
     }
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int row_num) const override {
-        result.writeKey(col_id);
+                                 int32_t col_id, int64_t row_num) const override {
+        result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
         const auto& data_ref = column.get_data_at(row_num);
         result.writeStartBinary();
         result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
@@ -156,8 +270,8 @@ public:
     }
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override {
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                               const cctz::time_zone& ctz) const override {
         const auto& string_column = assert_cast<const ColumnType&>(column);
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t string_i = start; string_i < end; ++string_i) {
@@ -167,8 +281,9 @@ public:
                 continue;
             }
             auto string_ref = string_column.get_data_at(string_i);
-            checkArrowStatus(builder.Append(string_ref.data, string_ref.size), column.get_name(),
-                             array_builder->type()->name());
+            checkArrowStatus(
+                    builder.Append(string_ref.data, cast_set<int, size_t, false>(string_ref.size)),
+                    column.get_name(), array_builder->type()->name());
         }
     }
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -205,21 +320,23 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int64_t row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int64_t row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
+                               int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override {
         auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-        for (size_t row_id = start; row_id < end; row_id++) {
+        for (auto row_id = start; row_id < end; row_id++) {
             const auto& ele = assert_cast<const ColumnType&>(column).get_data_at(row_id);
             cur_batch->data[row_id] = const_cast<char*>(ele.data);
             cur_batch->length[row_id] = ele.size;
@@ -228,53 +345,41 @@ public:
         cur_batch->numElements = end - start;
         return Status::OK();
     }
-    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                rapidjson::Document::AllocatorType& allocator,
-                                int row_num) const override {
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                  int64_t row_num) const override {
         const auto& col = assert_cast<const ColumnType&>(column);
         const auto& data_ref = col.get_data_at(row_num);
-        result.SetString(data_ref.data, data_ref.size);
+        result.SetString(data_ref.data, cast_set<rapidjson::SizeType>(data_ref.size));
+        return Status::OK();
     }
-    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
+    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
         auto& col = assert_cast<ColumnType&>(column);
         if (!result.IsString()) {
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             result.Accept(writer);
             col.insert_data(buffer.GetString(), buffer.GetSize());
-            return;
+            return Status::OK();
         }
         col.insert_data(result.GetString(), result.GetStringLength());
+        return Status::OK();
     }
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const {
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const {
         const auto col_index = index_check_const(row_idx, col_const);
         const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                if (UNLIKELY(0 != result.push_string(tmp_val, string_val.size))) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                if (UNLIKELY(0 != result.push_null())) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            }
-        } else {
-            if (UNLIKELY(0 != result.push_string(string_val.data, string_val.size))) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
+        result.push_string(string_val.data, string_val.size);
         return Status::OK();
     }
 };
 
 using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;
 using DataTypeFixedLengthObjectSerDe = DataTypeStringSerDeBase<ColumnFixedLengthObject>;
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

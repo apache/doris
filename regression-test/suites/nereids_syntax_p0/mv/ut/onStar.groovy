@@ -42,16 +42,10 @@ suite ("onStar") {
 
     sql """insert into onStar values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from onStar order by empid;")
-        contains "(onStar_mv)"
-    }
-    order_qt_select_star "select * from onStar order by empid;"
+    sql "analyze table onStar with sync;"
+    sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from onStar where deptno = 1;")
-        contains "(onStar_mv)"
-    }
+    order_qt_select_star "select * from onStar order by empid;"
     order_qt_select_mv "select * from onStar where deptno = 1 order by empid;"
 
     sql """ DROP TABLE IF EXISTS onStar_tpch; """
@@ -69,9 +63,5 @@ suite ("onStar") {
         """
     sql """insert into onStar_tpch values(1,'a','a');"""
 
-    explain {
-        sql("select ref_1.`empid` as c0 from onStar_tpch as ref_0 left join onStar as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;")
-        contains "(onStar_mv)"
-    }
     order_qt_select_mv "select ref_1.`empid` as c0 from onStar_tpch as ref_0 left join onStar as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;"
 }

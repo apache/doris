@@ -20,13 +20,13 @@ package org.apache.doris.common.jni.utils;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
+import org.apache.doris.thrift.TPrimitiveType;
 
-import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
-import com.vesoft.nebula.client.graph.data.DateWrapper;
-import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
 
@@ -38,8 +38,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Set;
 
 public class UdfUtils {
@@ -114,8 +113,11 @@ public class UdfUtils {
         // Check if the evaluate method return type is compatible with the return type from
         // the function definition. This happens when both of them map to the same primitive
         // type.
-        Object[] res = javaTypes.stream().filter(
-                t -> t.getPrimitiveType() == retType.getPrimitiveType().toThrift()).toArray();
+        Object[] res = javaTypes.stream().filter(t -> {
+            TPrimitiveType t1 = t.getPrimitiveType();
+            TPrimitiveType ret = retType.getPrimitiveType().toThrift();
+            return (t1 == ret) || (t1 == TPrimitiveType.STRING && ret == TPrimitiveType.VARCHAR);
+        }).toArray();
 
         JavaUdfDataType result = new JavaUdfDataType(
                 res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
@@ -141,6 +143,9 @@ public class UdfUtils {
             if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
                 result.setValueScale(((ScalarType) valuType).getScalarScale());
             }
+        } else if (retType.isStructType()) {
+            StructType structType = (StructType) retType;
+            result.setFields(structType.getFields());
         }
         return Pair.of(res.length != 0, result);
     }
@@ -159,8 +164,11 @@ public class UdfUtils {
         for (int i = 0; i < parameterTypes.length; ++i) {
             Set<JavaUdfDataType> javaTypes = JavaUdfDataType.getCandidateTypes(udfArgTypes[i + firstPos]);
             int finalI = i;
-            Object[] res = javaTypes.stream().filter(
-                    t -> t.getPrimitiveType() == parameterTypes[finalI].getPrimitiveType().toThrift()).toArray();
+            Object[] res = javaTypes.stream().filter(t -> {
+                TPrimitiveType t1 = t.getPrimitiveType();
+                TPrimitiveType param = parameterTypes[finalI].getPrimitiveType().toThrift();
+                return (t1 == param) || (t1 == TPrimitiveType.STRING && param == TPrimitiveType.VARCHAR);
+            }).toArray();
             inputArgTypes[i] = new JavaUdfDataType(
                     res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
             if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()) {
@@ -184,6 +192,16 @@ public class UdfUtils {
                 }
                 if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
                     inputArgTypes[i].setValueScale(((ScalarType) valuType).getScalarScale());
+                }
+            } else if (parameterTypes[finalI].isStructType()) {
+                StructType structType = (StructType) parameterTypes[finalI];
+                ArrayList<StructField> fields = structType.getFields();
+                inputArgTypes[i].setFields(fields);
+            } else if (parameterTypes[finalI].isIP()) {
+                if (parameterTypes[finalI].isIPv4()) {
+                    inputArgTypes[i] = new JavaUdfDataType(JavaUdfDataType.IPV4);
+                } else {
+                    inputArgTypes[i] = new JavaUdfDataType(JavaUdfDataType.IPV6);
                 }
             }
             if (res.length == 0) {
@@ -230,57 +248,5 @@ public class UdfUtils {
             bytes[length - 1 - i] = temp;
         }
         return bytes;
-    }
-
-    // only used by nebula-graph
-    // transfer to an object that can copy to the block
-    public static Object convertObject(ValueWrapper value) {
-        try {
-            if (value.isLong()) {
-                return value.asLong();
-            }
-            if (value.isBoolean()) {
-                return value.asBoolean();
-            }
-            if (value.isDouble()) {
-                return value.asDouble();
-            }
-            if (value.isString()) {
-                return value.asString();
-            }
-            if (value.isTime()) {
-                return value.asTime().toString();
-            }
-            if (value.isDate()) {
-                DateWrapper date = value.asDate();
-                return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
-            }
-            if (value.isDateTime()) {
-                DateTimeWrapper dateTime = value.asDateTime();
-                return LocalDateTime.of(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay(),
-                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getMicrosec() * 1000);
-            }
-            if (value.isVertex()) {
-                return value.asNode().toString();
-            }
-            if (value.isEdge()) {
-                return value.asRelationship().toString();
-            }
-            if (value.isPath()) {
-                return value.asPath().toString();
-            }
-            if (value.isList()) {
-                return value.asList().toString();
-            }
-            if (value.isSet()) {
-                return value.asSet().toString();
-            }
-            if (value.isMap()) {
-                return value.asMap().toString();
-            }
-            return null;
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

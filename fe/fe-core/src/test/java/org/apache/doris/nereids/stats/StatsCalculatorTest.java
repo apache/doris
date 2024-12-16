@@ -22,7 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -63,7 +63,7 @@ public class StatsCalculatorTest {
     private Group newFakeGroup() {
         GroupExpression groupExpression = new GroupExpression(scan);
         Group group = new Group(null, groupExpression,
-                new LogicalProperties(Collections::emptyList, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
+                new LogicalProperties(Collections::emptyList, () -> DataTrait.EMPTY_TRAIT));
         group.getLogicalExpressions().remove(0);
         return group;
     }
@@ -145,13 +145,13 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals((10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(49.945, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
-        Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
+        Assertions.assertEquals(1448.555,
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
@@ -252,7 +252,7 @@ public class StatsCalculatorTest {
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> DataTrait.EMPTY_TRAIT)), ImmutableList.of());
 
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of());
         Group ownerGroup = new Group(null, groupExpression, null);

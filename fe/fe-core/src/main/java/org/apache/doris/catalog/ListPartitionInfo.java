@@ -24,17 +24,18 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ListUtil;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,7 +65,12 @@ public class ListPartitionInfo extends PartitionInfo {
         }
     }
 
+    @Deprecated
     public static PartitionInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), ListPartitionInfo.class);
+        }
+
         PartitionInfo partitionInfo = new ListPartitionInfo();
         partitionInfo.readFields(in);
         return partitionInfo;
@@ -135,29 +141,7 @@ public class ListPartitionInfo extends PartitionInfo {
         ListUtil.checkListsConflict(list1, list2);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        // partition columns
-        out.writeInt(partitionColumns.size());
-        for (Column column : partitionColumns) {
-            column.write(out);
-        }
-
-        out.writeInt(idToItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        out.writeInt(idToTempItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToTempItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -196,31 +180,19 @@ public class ListPartitionInfo extends PartitionInfo {
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
-        int idx = 0;
         if (enableAutomaticPartition()) {
-            sb.append("AUTO PARTITION BY LIST ");
-            for (Expr e : partitionExprs) {
-                boolean isSlotRef = (e instanceof SlotRef);
-                if (isSlotRef) {
-                    sb.append("(");
-                }
-                sb.append(e.toSql());
-                if (isSlotRef) {
-                    sb.append(")");
-                }
-            }
-            sb.append("\n(");
-        } else {
-            sb.append("PARTITION BY LIST(");
-            for (Column column : partitionColumns) {
-                if (idx != 0) {
-                    sb.append(", ");
-                }
-                sb.append("`").append(column.getName()).append("`");
-                idx++;
-            }
-            sb.append(")\n(");
+            sb.append("AUTO ");
         }
+        sb.append("PARTITION BY LIST (");
+        int idx = 0;
+        for (Column column : partitionColumns) {
+            if (idx != 0) {
+                sb.append(", ");
+            }
+            sb.append("`").append(column.getName()).append("`");
+            idx++;
+        }
+        sb.append(")\n(");
 
         // sort list
         List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
@@ -246,13 +218,6 @@ public class ListPartitionInfo extends PartitionInfo {
                 idxInternal++;
             }
             sb.append(")");
-
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
-                    sb.append(p).append("\")");
-                }
-            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

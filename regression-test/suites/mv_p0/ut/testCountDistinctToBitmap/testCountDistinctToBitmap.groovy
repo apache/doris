@@ -36,17 +36,21 @@ suite ("testCountDistinctToBitmap") {
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
+    sql "analyze table user_tags with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags order by time_col,tag_id;"
 
-    explain {
-        sql("select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;")
-        contains "(user_tags_mv)"
-    }
+    mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;",
+            "user_tags_mv")
     qt_select_mv "select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
+
+    mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;",
+            "user_tags_mv")
 
 
     sql """ DROP TABLE IF EXISTS user_tags2; """
@@ -62,19 +66,24 @@ suite ("testCountDistinctToBitmap") {
     sql """insert into user_tags2 values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags2 values("2020-01-02",2,"b",2);"""
 
+
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
+    sql """alter table user_tags2 modify column time_col set stats ('row_count'='3');"""
+
     createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags2 group by user_id;")
 
     sql """insert into user_tags2 values("2020-01-01",1,"a",2);"""
 
-    explain {
-        sql("select * from user_tags2 order by time_col;")
-        contains "(user_tags2)"
-    }
+    mv_rewrite_fail("select * from user_tags2 order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags2 order by time_col,tag_id;"
 
-    explain {
-        sql("select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;")
-        contains "(user_tags_mv)"
-    }
+    mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;",
+            "user_tags_mv")
     qt_select_mv "select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;"
+
+    sql """set enable_stats=false;"""
+    mv_rewrite_fail("select * from user_tags2 order by time_col;", "user_tags_mv")
+
+    mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;",
+            "user_tags_mv")
 }

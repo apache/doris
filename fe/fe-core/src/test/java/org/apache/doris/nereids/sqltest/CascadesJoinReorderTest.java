@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Test;
 class CascadesJoinReorderTest extends SqlTestBase {
     @Test
     void testStartThreeJoin() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Three join
         // (n-1)! * 2^(n-1) = 8
         String sql = "SELECT * FROM T1 "
@@ -55,7 +56,30 @@ class CascadesJoinReorderTest extends SqlTestBase {
     }
 
     @Test
+    void testStartThreeJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        // Three join
+        // (n-1)! * 2^(n-1) = 8
+        String sql = "SELECT * FROM T1 "
+                + "JOIN T2 ON T1.id = T2.id "
+                + "JOIN T3 ON T1.id = T3.id";
+
+        int plansNumber = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .printlnAllTree()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .plansNumber();
+
+        Assertions.assertEquals(8, plansNumber);
+    }
+
+    @Test
     void testStarFourJoinZigzag() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join
         // (n-1)! * 2^(n-1) = 48
         String sql = "SELECT * FROM T1 "
@@ -81,6 +105,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testStarFourJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join
         // (n-1)! * 2^(n-1) = 48
         String sql = "SELECT * FROM T1 "
@@ -106,6 +131,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testChainFourJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Four join
         // 2^(n-1) * C(n-1) = 40
         String sql = "SELECT * FROM T1 "
@@ -131,6 +157,7 @@ class CascadesJoinReorderTest extends SqlTestBase {
 
     @Test
     void testChainFiveJoinBushy() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // Five join
         // 2^(n-1) * C(n-1) = 224
         String sql = "SELECT * FROM T1 "

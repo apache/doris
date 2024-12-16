@@ -4,22 +4,18 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject
-----------hashAgg[LOCAL]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
-----------------PhysicalProject
-------------------filter((lineitem.l_shipdate > '1995-03-15'))
---------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-----------------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
+--------------PhysicalProject
+----------------filter((lineitem.l_shipdate > '1995-03-15'))
+------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < '1995-03-15'))
-----------------------------PhysicalOlapScan[orders] apply RFs: RF0
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((customer.c_mktsegment = 'BUILDING'))
-----------------------------PhysicalOlapScan[customer]
+--------------------filter((orders.o_orderdate < '1995-03-15'))
+----------------------PhysicalOlapScan[orders] apply RFs: RF0
+------------------PhysicalProject
+--------------------filter((customer.c_mktsegment = 'BUILDING'))
+----------------------PhysicalOlapScan[customer]
 

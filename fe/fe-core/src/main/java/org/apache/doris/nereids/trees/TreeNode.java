@@ -28,11 +28,13 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * interface for all node in Nereids, include plan node and expression.
@@ -47,6 +49,21 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     NODE_TYPE child(int index);
 
     int arity();
+
+    <T> Optional<T> getMutableState(String key);
+
+    /** getOrInitMutableState */
+    default <T> T getOrInitMutableState(String key, Supplier<T> initState) {
+        Optional<T> mutableState = getMutableState(key);
+        if (!mutableState.isPresent()) {
+            T state = initState.get();
+            setMutableState(key, state);
+            return state;
+        }
+        return mutableState.get();
+    }
+
+    void setMutableState(String key, Object value);
 
     default NODE_TYPE withChildren(NODE_TYPE... children) {
         return withChildren(Utils.fastToImmutableList(children));
@@ -213,16 +230,33 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * iterate top down and test predicate if all matched. Top-down traverse implicitly.
+     * @param predicate predicate
+     * @return true if all predicate return true
+     */
+    default boolean allMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (!predicate.test(this)) {
+            return false;
+        }
+        for (NODE_TYPE child : children()) {
+            if (!child.allMatch(predicate)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Collect the nodes that satisfied the predicate.
      */
-    default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
+    default <T> Set<T> collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
         ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
         foreach(node -> {
             if (predicate.test(node)) {
                 result.add(node);
             }
         });
-        return (T) result.build();
+        return (Set<T>) result.build();
     }
 
     /**
@@ -254,7 +288,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     /**
      * Collect the nodes that satisfied the predicate firstly.
      */
-    default <T> List<T> collectFirst(Predicate<TreeNode<NODE_TYPE>> predicate) {
+    default <T> Optional<T> collectFirst(Predicate<TreeNode<NODE_TYPE>> predicate) {
         List<TreeNode<NODE_TYPE>> result = new ArrayList<>();
         foreach(node -> {
             if (result.isEmpty() && predicate.test(node)) {
@@ -262,7 +296,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
             return !result.isEmpty();
         });
-        return (List<T>) ImmutableList.copyOf(result);
+        return result.isEmpty() ? Optional.empty() : Optional.of((T) result.get(0));
     }
 
     /**

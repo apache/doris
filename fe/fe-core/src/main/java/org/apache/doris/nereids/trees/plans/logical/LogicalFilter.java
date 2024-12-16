@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,10 +37,10 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -149,22 +148,32 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        Builder fdBuilder = new Builder(
-                child().getLogicalProperties().getFunctionalDependencies());
-        getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
+    public void computeUnique(Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+    public void computeUniform(Builder builder) {
+        for (Expression e : getConjuncts()) {
+            Map<Slot, Expression> uniformSlots = ExpressionUtils.extractUniformSlot(e);
+            for (Map.Entry<Slot, Expression> entry : uniformSlots.entrySet()) {
+                builder.addUniformSlotAndLiteral(entry.getKey(), entry.getValue());
+            }
+        }
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+    }
 
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
-        builder.addAll(childItems);
+    @Override
+    public void computeEqualSet(Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+        for (Expression expression : getConjuncts()) {
+            Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+            equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+        }
+    }
 
-        return builder.build();
+    @Override
+    public void computeFd(Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

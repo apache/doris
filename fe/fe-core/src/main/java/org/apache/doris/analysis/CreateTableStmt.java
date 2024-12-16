@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -35,15 +36,21 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -53,19 +60,24 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-public class CreateTableStmt extends DdlStmt {
+@Deprecated
+public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
+    private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
+            ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     protected boolean ifNotExists;
     private boolean isExternal;
@@ -116,7 +128,7 @@ public class CreateTableStmt extends DdlStmt {
             distributionDesc.setBuckets(FeConstants.default_bucket_num);
         } else {
             long partitionSize = ParseUtil
-                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+                    .analyzeDataVolume(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
             distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
@@ -166,6 +178,7 @@ public class CreateTableStmt extends DdlStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
@@ -189,6 +202,7 @@ public class CreateTableStmt extends DdlStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
@@ -289,7 +303,8 @@ public class CreateTableStmt extends DdlStmt {
         FeNameFormat.checkTableName(tableName.getTbl());
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
@@ -305,6 +320,11 @@ public class CreateTableStmt extends DdlStmt {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
             }
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
@@ -315,6 +335,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableSkipBitmapColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // olap table
@@ -400,10 +421,30 @@ public class CreateTableStmt extends DdlStmt {
                 }
             }
 
+            if (properties != null) {
+                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                        && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                            + "only be set in merge-on-write unique table.");
+                }
+                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
+                // and its value should be consistent with whether the table's full schema contains
+                // the skip bitmap hidden column
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    enableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                                new HashMap<>(properties));
+                }
+            }
+
             keysDesc.analyze(columnDefs);
-            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
-                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
-                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
+                if (!enableUniqueKeyMergeOnWrite) {
+                    throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                            + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
@@ -436,8 +477,7 @@ public class CreateTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
         // add a hidden column as delete flag for unique table
-        if (Config.enable_batch_delete_by_default && keysDesc != null
-                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+        if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             if (enableUniqueKeyMergeOnWrite) {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.NONE));
             } else {
@@ -467,18 +507,27 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
+        if (enableSkipBitmapColumn && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE));
+            }
+            // TODO(bobhan1): add support for mor table
+        }
+
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME));
 
             if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                        && columnDef.getAggregateType() != AggregateType.REPLACE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
                     throw new AnalysisException(
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
                 }
-                if (columnDef.isKey()) {
+                if (columnDef.isKey() || columnDef.getClusterKeyId() != -1) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
                             + " can only be used in the non-key column of the duplicate table at present.");
                 }
@@ -510,7 +559,7 @@ public class CreateTableStmt extends DdlStmt {
 
             // analyze distribution
             if (distributionDesc == null) {
-                throw new AnalysisException("Create olap table should contain distribution desc");
+                distributionDesc = new RandomDistributionDesc(FeConstants.default_bucket_num, true);
             }
             distributionDesc.analyze(columnSet, columnDefs, keysDesc);
             if (distributionDesc.type == DistributionInfo.DistributionInfoType.RANDOM) {
@@ -550,7 +599,9 @@ public class CreateTableStmt extends DdlStmt {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-
+            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -560,7 +611,8 @@ public class CreateTableStmt extends DdlStmt {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(), enableUniqueKeyMergeOnWrite);
+                            indexDef.checkColumn(column, getKeysDesc().getKeysType(),
+                                                    enableUniqueKeyMergeOnWrite, disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }
@@ -570,7 +622,8 @@ public class CreateTableStmt extends DdlStmt {
                     }
                 }
                 indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(), indexDef.getColumns(),
-                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment()));
+                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment(),
+                        indexDef.getColumnUniqueIds()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(Pair.of(indexDef.getIndexType(),
                         indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList())));
@@ -582,6 +635,7 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("same index columns have multiple same type index is not allowed.");
             }
         }
+        generatedColumnCheck(analyzer);
     }
 
     private void analyzeEngineName() throws AnalysisException {
@@ -709,5 +763,159 @@ public class CreateTableStmt extends DdlStmt {
     @Override
     public boolean needAuditEncryption() {
         return !engineName.equals("olap");
+    }
+
+    private void generatedColumnCheck(Analyzer analyzer) throws AnalysisException {
+        generatedColumnCommonCheck();
+        Map<String, Pair<ColumnDef, Integer>> nameToColumnDef = Maps.newHashMap();
+        for (int i = 0; i < columnDefs.size(); i++) {
+            ColumnDef columnDef = columnDefs.get(i);
+            nameToColumnDef.put(columnDef.getName(), Pair.of(columnDef, i));
+        }
+        List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
+        for (int i = 0; i < columnDefs.size(); i++) {
+            ColumnDef columnDef = columnDefs.get(i);
+            if (!columnDef.getGeneratedColumnInfo().isPresent()) {
+                continue;
+            }
+            SlotRefRewriteRule slotRefRewriteRule = new SlotRefRewriteRule(i, nameToColumnDef);
+            ExprRewriter rewriter = new ExprRewriter(slotRefRewriteRule);
+            GeneratedColumnInfo generatedColumnInfo = columnDef.getGeneratedColumnInfo().get();
+            Expr expr = rewriter.rewrite(generatedColumnInfo.getExpr(), analyzer);
+            expr.foreach(e -> {
+                if (e instanceof LambdaFunctionCallExpr) {
+                    throw new AnalysisException("Generated column does not support lambda.");
+                } else if (e instanceof Subquery) {
+                    throw new AnalysisException("Generated column does not support subquery.");
+                }
+            });
+            try {
+                expr.analyze(analyzer);
+            } catch (AnalysisException e) {
+                throw new AnalysisException("In generated column '" + columnDef.getName() + "', "
+                        + Utils.convertFirstChar(e.getDetailMessage()));
+            }
+            expr.foreach(e -> {
+                if (e instanceof VariableExpr) {
+                    throw new AnalysisException("Generated column expression cannot contain variable.");
+                } else if (e instanceof SlotRef && nameToColumnDef.containsKey(((SlotRef) e).getColumnName())) {
+                    ColumnDef refColumnDef = nameToColumnDef.get(((SlotRef) e).getColumnName()).first;
+                    if (refColumnDef.getAutoIncInitValue() != -1) {
+                        throw new AnalysisException("Generated column '" + columnDef.getName()
+                                + "' cannot refer to auto-increment column.");
+                    }
+                } else if (e instanceof FunctionCallExpr && !checkFunctionInGeneratedColumn((FunctionCallExpr) e)) {
+                    throw new AnalysisException(
+                            "Expression of generated column '"
+                                    + columnDef.getName() + "' contains a disallowed function:'"
+                                    + ((FunctionCallExpr) e).getFnName() + "'");
+                } else if (e instanceof AnalyticExpr) {
+                    throw new AnalysisException(
+                            "Expression of generated column '"
+                                    + columnDef.getName() + "' contains a disallowed expression:'"
+                                    + ((AnalyticExpr) e).toSqlWithoutTbl() + "'");
+                }
+            });
+            if (!Type.canCastTo(expr.getType(), columnDef.getType())) {
+                throw new AnalysisException("can not cast from origin type "
+                        + expr.getType() + " to target type=" + columnDef.getType());
+            }
+            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(expr, columnDef.getName()));
+        }
+
+        // for alter drop column
+        Map<String, List<String>> columnToListOfGeneratedColumnsThatReferToThis = new HashMap<>();
+        for (ColumnDef column : columnDefs) {
+            Optional<GeneratedColumnInfo> info = column.getGeneratedColumnInfo();
+            if (!info.isPresent()) {
+                continue;
+            }
+            Expr generatedExpr = info.get().getExpr();
+            Set<Expr> slotRefsInGeneratedExpr = new HashSet<>();
+            generatedExpr.collect(e -> e instanceof SlotRef, slotRefsInGeneratedExpr);
+            for (Expr slotRefExpr : slotRefsInGeneratedExpr) {
+                String name = ((SlotRef) slotRefExpr).getColumnName();
+                columnToListOfGeneratedColumnsThatReferToThis
+                        .computeIfAbsent(name, k -> new ArrayList<>())
+                        .add(column.getName());
+            }
+        }
+        for (Map.Entry<String, List<String>> entry : columnToListOfGeneratedColumnsThatReferToThis.entrySet()) {
+            ColumnDef col = nameToColumnDef.get(entry.getKey()).first;
+            col.addGeneratedColumnsThatReferToThis(entry.getValue());
+        }
+
+        GeneratedColumnUtil.rewriteColumns(exprAndnames);
+        for (GeneratedColumnUtil.ExprAndname exprAndname : exprAndnames) {
+            if (nameToColumnDef.containsKey(exprAndname.getName())) {
+                ColumnDef columnDef = nameToColumnDef.get(exprAndname.getName()).first;
+                Optional<GeneratedColumnInfo> info = columnDef.getGeneratedColumnInfo();
+                info.ifPresent(columnInfo -> columnInfo.setExpandExprForLoad(exprAndname.getExpr()));
+            }
+        }
+    }
+
+    private boolean checkFunctionInGeneratedColumn(FunctionCallExpr funcExpr) {
+        if (!funcExpr.isScalarFunction()) {
+            return false;
+        }
+        if (funcExpr.fn.isUdf()) {
+            return false;
+        }
+        if (funcExpr instanceof GroupingFunctionCallExpr) {
+            return false;
+        }
+        return true;
+    }
+
+    public static final class SlotRefRewriteRule implements ExprRewriteRule {
+        private final Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap;
+        private final int index;
+
+        public SlotRefRewriteRule(int index, Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap) {
+            this.index = index;
+            this.nameToColumnDefMap = nameToColumnDefMap;
+        }
+
+        @Override
+        public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+            if (!(expr instanceof SlotRef)) {
+                return expr;
+            }
+            SlotRef slotRef = (SlotRef) expr;
+            if (!nameToColumnDefMap.containsKey(slotRef.getColumnName())) {
+                throw new AnalysisException("Unknown column '" + slotRef.getColumnName()
+                        + "' in 'generated column function'");
+            }
+            Pair<ColumnDef, Integer> columnAndIdx = nameToColumnDefMap.get(slotRef.getColumnName());
+            ColumnDef columnDef = columnAndIdx.first;
+            if (columnDef.getGeneratedColumnInfo().isPresent() && columnAndIdx.second >= index) {
+                throw new AnalysisException(
+                        "Generated column can refer only to generated columns defined prior to it.");
+            }
+            slotRef.setType(columnDef.getType());
+            slotRef.setAnalyzed(true);
+            return slotRef;
+        }
+    }
+
+    private void generatedColumnCommonCheck() throws AnalysisException {
+        for (ColumnDef column : columnDefs) {
+            if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS
+                    && column.getGeneratedColumnInfo().isPresent()
+                    && (!column.isKey() && !GENERATED_COLUMN_ALLOW_AGG_TYPE.contains(column.getAggregateType()))) {
+                throw new AnalysisException("The generated columns can be key columns, "
+                        + "or value columns of replace and replace_if_not_null aggregation type.");
+            }
+            if (column.getGeneratedColumnInfo().isPresent() && !engineName.equalsIgnoreCase("olap")) {
+                throw new AnalysisException(
+                        "Tables can only have generated columns if the olap engine is used");
+            }
+        }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

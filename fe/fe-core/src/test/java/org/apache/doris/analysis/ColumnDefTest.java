@@ -38,6 +38,7 @@ public class ColumnDefTest {
     private TypeDef stringCol;
     private TypeDef floatCol;
     private TypeDef booleanCol;
+    private TypeDef bitmapCol;
     private ConnectContext ctx;
 
     @Before
@@ -46,6 +47,7 @@ public class ColumnDefTest {
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
+        bitmapCol = new TypeDef(ScalarType.createType(PrimitiveType.BITMAP));
 
         ctx = new ConnectContext();
         new MockUp<ConnectContext>() {
@@ -61,7 +63,7 @@ public class ColumnDefTest {
         ColumnDef column = new ColumnDef("col", intCol);
         column.analyze(true);
 
-        Assert.assertEquals("`col` INT NOT NULL COMMENT \"\"", column.toString());
+        Assert.assertEquals("`col` int NOT NULL COMMENT \"\"", column.toString());
         Assert.assertEquals("col", column.getName());
         Assert.assertEquals(PrimitiveType.INT, column.getType().getPrimitiveType());
         Assert.assertNull(column.getAggregateType());
@@ -72,31 +74,43 @@ public class ColumnDefTest {
         column.analyze(true);
         Assert.assertNull(column.getAggregateType());
         Assert.assertEquals("10", column.getDefaultValue());
-        Assert.assertEquals("`col` INT NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+        Assert.assertEquals("`col` int NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
 
         // agg
         column = new ColumnDef("col", floatCol, false, AggregateType.SUM, false, new DefaultValue(true, "10"), "");
         column.analyze(true);
         Assert.assertEquals("10", column.getDefaultValue());
         Assert.assertEquals(AggregateType.SUM, column.getAggregateType());
-        Assert.assertEquals("`col` FLOAT SUM NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+        Assert.assertEquals("`col` float SUM NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+
+        // agg none
+        column = new ColumnDef("col", bitmapCol, false, AggregateType.NONE, false, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE, "");
+
+        Assert.assertEquals(AggregateType.NONE, column.getAggregateType());
+        Assert.assertEquals("`col` bitmap NOT NULL DEFAULT BITMAP_EMPTY COMMENT \"\"", column.toSql());
     }
 
     @Test
     public void testReplaceIfNotNull() throws AnalysisException {
         { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
-            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, DefaultValue.NOT_SET, "");
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, true, DefaultValue.NOT_SET, "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
-            Assert.assertEquals("`col` INT REPLACE_IF_NOT_NULL NULL DEFAULT \"null\" COMMENT \"\"", column.toSql());
+            Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT NULL COMMENT \"\"", column.toSql());
         } // CHECKSTYLE IGNORE THIS LINE
         { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
-            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, new DefaultValue(true, "10"), "");
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, true, new DefaultValue(true, "10"), "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
-            Assert.assertEquals("`col` INT REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+            Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, true, DefaultValue.NULL_DEFAULT_VALUE, "");
+            column.analyze(true);
+            Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
+            Assert.assertEquals("`col` int REPLACE_IF_NOT_NULL NULL DEFAULT NULL COMMENT \"\"", column.toSql());
         } // CHECKSTYLE IGNORE THIS LINE
     }
 

@@ -72,7 +72,7 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
-    void _init_agg_state(const ReaderParams& read_params);
+    Status _init_agg_state(const ReaderParams& read_params);
 
     Status _insert_data_normal(MutableColumns& columns);
 
@@ -86,7 +86,8 @@ private:
 
     bool _get_next_row_same();
 
-    bool _rowsets_overlapping(const ReaderParams& read_params);
+    // return true if keys of rowsets are mono ascending and disjoint
+    bool _rowsets_mono_asc_disjoint(const ReaderParams& read_params);
 
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};

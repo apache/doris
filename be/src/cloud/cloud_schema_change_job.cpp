@@ -19,7 +19,9 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <chrono>
 #include <memory>
+#include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -34,6 +36,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -41,11 +44,10 @@ using namespace ErrorCode;
 static constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
 static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
-static std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer,
-                                                      bool sc_sorting) {
+std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
+                                               int64_t mem_limit) {
     if (sc_sorting) {
-        return std::make_unique<VBaseSchemaChangeWithSorting>(
-                changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+        return std::make_unique<VBaseSchemaChangeWithSorting>(changer, mem_limit);
     }
     // else sc_directly
     return std::make_unique<VSchemaChangeDirectly>(changer);
@@ -60,10 +62,6 @@ CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_eng
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
 Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
-    LOG(INFO) << "Begin to alter tablet. base_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_id
-              << ", alter_version=" << request.alter_version << ", job_id=" << _job_id;
-
     // new tablet has to exist
     _new_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.new_tablet_id));
     if (_new_tablet->tablet_state() == TABLET_RUNNING) {
@@ -87,19 +85,64 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     RETURN_IF_ERROR(_base_tablet->sync_rowsets(request.alter_version));
     // ATTN: Only convert rowsets of version larger than 1, MUST let the new tablet cache have rowset [0-1]
     _output_cumulative_point = _base_tablet->cumulative_layer_point();
-
     std::vector<RowSetSplits> rs_splits;
     int64_t base_max_version = _base_tablet->max_version_unlocked();
+    cloud::TabletJobInfoPB job;
+    auto* idx = job.mutable_idx();
+    idx->set_tablet_id(_base_tablet->tablet_id());
+    idx->set_table_id(_base_tablet->table_id());
+    idx->set_index_id(_base_tablet->index_id());
+    idx->set_partition_id(_base_tablet->partition_id());
+    auto* sc_job = job.mutable_schema_change();
+    sc_job->set_id(_job_id);
+    sc_job->set_initiator(BackendOptions::get_localhost() + ':' +
+                          std::to_string(config::heartbeat_service_port));
+    sc_job->set_alter_version(base_max_version);
+    auto* new_tablet_idx = sc_job->mutable_new_tablet_idx();
+    new_tablet_idx->set_tablet_id(_new_tablet->tablet_id());
+    new_tablet_idx->set_table_id(_new_tablet->table_id());
+    new_tablet_idx->set_index_id(_new_tablet->index_id());
+    new_tablet_idx->set_partition_id(_new_tablet->partition_id());
+    cloud::StartTabletJobResponse start_resp;
+    auto st = _cloud_storage_engine.meta_mgr().prepare_tablet_job(job, &start_resp);
+    if (!st.ok()) {
+        if (start_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
+            st = _new_tablet->sync_rowsets();
+            if (!st.ok()) {
+                LOG_WARNING("failed to sync new tablet")
+                        .tag("tablet_id", _new_tablet->tablet_id())
+                        .error(st);
+            }
+            return Status::OK();
+        }
+        return st;
+    }
     if (request.alter_version > 1) {
         // [0-1] is a placeholder rowset, no need to convert
-        RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, base_max_version}, &rs_splits, false));
+        RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
+                                                         &rs_splits, false));
     }
+    Defer defer {[&]() {
+        _new_tablet->set_alter_version(-1);
+        _base_tablet->set_alter_version(-1);
+    }};
+    _new_tablet->set_alter_version(start_resp.alter_version());
+    _base_tablet->set_alter_version(start_resp.alter_version());
+    LOG(INFO) << "Begin to alter tablet. base_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_id
+              << ", alter_version=" << start_resp.alter_version() << ", job_id=" << _job_id;
+    sc_job->set_alter_version(start_resp.alter_version());
+
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 
     // Create a new tablet schema, should merge with dropped columns in light weight schema change
     _base_tablet_schema = std::make_shared<TabletSchema>();
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
     _new_tablet_schema = _new_tablet->tablet_schema();
+
+    std::vector<ColumnId> return_columns;
+    return_columns.resize(_base_tablet_schema->num_columns());
+    std::iota(return_columns.begin(), return_columns.end(), 0);
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
@@ -111,11 +154,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
             delete_predicates.push_back(rs_meta);
         }
     }
-    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates, base_max_version));
-
-    std::vector<ColumnId> return_columns;
-    return_columns.resize(_base_tablet_schema->num_columns());
-    std::iota(return_columns.begin(), return_columns.end(), 0);
+    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
+                                        start_resp.alter_version()));
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
@@ -128,7 +168,16 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
-    reader_context.version = Version(0, base_max_version);
+    reader_context.version = Version(0, start_resp.alter_version());
+    std::vector<uint32_t> cluster_key_idxes;
+    if (!_base_tablet_schema->cluster_key_uids().empty()) {
+        for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+            cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+        }
+        reader_context.read_orderby_key_columns = &cluster_key_idxes;
+        reader_context.is_unique = false;
+        reader_context.sequence_id_idx = -1;
+    }
 
     for (auto& split : rs_splits) {
         RETURN_IF_ERROR(split.rs_reader->init(&reader_context));
@@ -155,8 +204,9 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
         break;
     }
+    sc_params.vault_id = request.storage_vault_id;
     if (!request.__isset.materialized_view_params) {
-        return _convert_historical_rowsets(sc_params);
+        return _convert_historical_rowsets(sc_params, job);
     }
     for (auto item : request.materialized_view_params) {
         AlterMaterializedViewParam mv_param;
@@ -176,10 +226,11 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                 std::make_pair(to_lower(item.column_name), mv_param));
     }
     sc_params.enable_unique_key_merge_on_write = _new_tablet->enable_unique_key_merge_on_write();
-    return _convert_historical_rowsets(sc_params);
+    return _convert_historical_rowsets(sc_params, job);
 }
 
-Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
+Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                                         cloud::TabletJobInfoPB& job) {
     LOG(INFO) << "Begin to convert historical rowsets for new_tablet from base_tablet. base_tablet="
               << _base_tablet->tablet_id() << ", new_tablet=" << _new_tablet->tablet_id()
               << ", job_id=" << _job_id;
@@ -201,38 +252,16 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 "Don't support to add materialized view by linked schema change");
     }
 
-    // 2. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(changer, sc_sorting);
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
 
-    cloud::TabletJobInfoPB job;
-    auto* idx = job.mutable_idx();
-    idx->set_tablet_id(_base_tablet->tablet_id());
-    idx->set_table_id(_base_tablet->table_id());
-    idx->set_index_id(_base_tablet->index_id());
-    idx->set_partition_id(_base_tablet->partition_id());
-    auto* sc_job = job.mutable_schema_change();
-    sc_job->set_id(_job_id);
-    sc_job->set_initiator(BackendOptions::get_localhost() + ':' +
-                          std::to_string(config::heartbeat_service_port));
-    auto* new_tablet_idx = sc_job->mutable_new_tablet_idx();
-    new_tablet_idx->set_tablet_id(_new_tablet->tablet_id());
-    new_tablet_idx->set_table_id(_new_tablet->table_id());
-    new_tablet_idx->set_index_id(_new_tablet->index_id());
-    new_tablet_idx->set_partition_id(_new_tablet->partition_id());
-    cloud::StartTabletJobResponse start_resp;
-    auto st = _cloud_storage_engine.meta_mgr().prepare_tablet_job(job, &start_resp);
-    if (!st.ok()) {
-        if (start_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
-            st = _new_tablet->sync_rowsets();
-            if (!st.ok()) {
-                LOG_WARNING("failed to sync new tablet")
-                        .tag("tablet_id", _new_tablet->tablet_id())
-                        .error(st);
-            }
-            return Status::OK();
-        }
-        return st;
-    }
+    // 2. Generate historical data converter
+    auto sc_procedure = get_sc_procedure(
+            changer, sc_sorting,
+            _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
+
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
 
     // 3. Convert historical data
     bool already_exist_any_version = false;
@@ -246,9 +275,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
-        context.original_tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = _cloud_storage_engine.latest_fs();
+        context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        if (!context.storage_resource) {
+            return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                         sc_params.vault_id);
+        }
+
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 
@@ -263,8 +296,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 DCHECK(existed_rs_meta != nullptr);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                                             existed_rs_meta, &rowset));
+                RETURN_IF_ERROR(
+                        RowsetFactory::create_rowset(nullptr, "", existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 already_exist_any_version = true;
                 continue;
@@ -273,9 +306,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             }
         }
 
-        RETURN_IF_ERROR(sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet,
-                                              _base_tablet, _base_tablet_schema,
-                                              _new_tablet_schema));
+        st = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet, _base_tablet,
+                                   _base_tablet_schema, _new_tablet_schema);
+        if (!st.ok()) {
+            return Status::InternalError(
+                    "failed to process schema change on rowset, version=[{}-{}], status={}",
+                    rs_reader->version().first, rs_reader->version().second, st.to_string());
+        }
 
         RowsetSharedPtr new_rowset;
         st = rowset_writer->build(new_rowset);
@@ -295,8 +332,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 DCHECK(existed_rs_meta != nullptr);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                                             existed_rs_meta, &rowset));
+                RETURN_IF_ERROR(
+                        RowsetFactory::create_rowset(nullptr, "", existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 continue;
             } else {
@@ -307,29 +344,33 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
 
         VLOG_TRACE << "Successfully convert a history version " << rs_reader->version();
     }
-
-    if (sc_params.ref_rowset_readers.empty()) {
-        sc_job->set_alter_version(1); // no rowset to convert implies alter_version == 1
-    } else {
+    auto* sc_job = job.mutable_schema_change();
+    if (!sc_params.ref_rowset_readers.empty()) {
         int64_t num_output_rows = 0;
         int64_t size_output_rowsets = 0;
         int64_t num_output_segments = 0;
+        int64_t index_size_output_rowsets = 0;
+        int64_t segment_size_output_rowsets = 0;
         for (auto& rs : _output_rowsets) {
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
-            size_output_rowsets += rs->data_disk_size();
+            size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
+            index_size_output_rowsets += rs->index_disk_size();
+            segment_size_output_rowsets += rs->data_disk_size();
         }
         sc_job->set_num_output_rows(num_output_rows);
         sc_job->set_size_output_rowsets(size_output_rowsets);
         sc_job->set_num_output_segments(num_output_segments);
         sc_job->set_num_output_rowsets(_output_rowsets.size());
-        sc_job->set_alter_version(_output_rowsets.back()->end_version());
+        sc_job->set_index_size_output_rowsets(index_size_output_rowsets);
+        sc_job->set_segment_size_output_rowsets(segment_size_output_rowsets);
     }
     _output_cumulative_point = std::min(_output_cumulative_point, sc_job->alter_version() + 1);
     sc_job->set_output_cumulative_point(_output_cumulative_point);
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob.process_alter_tablet.sleep", DBUG_BLOCK);
     // process delete bitmap if the table is MOW
     if (_new_tablet->enable_unique_key_merge_on_write()) {
         int64_t initiator = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
@@ -337,14 +378,15 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // If there are historical versions of rowsets, we need to recalculate their delete
         // bitmaps, otherwise we will miss the delete bitmaps of incremental rowsets
         int64_t start_calc_delete_bitmap_version =
-                already_exist_any_version ? 0 : sc_job->alter_version() + 1;
+                // [0-1] is a placeholder rowset, start from 2.
+                already_exist_any_version ? 2 : sc_job->alter_version() + 1;
         RETURN_IF_ERROR(_process_delete_bitmap(sc_job->alter_version(),
                                                start_calc_delete_bitmap_version, initiator));
         sc_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
     cloud::FinishTabletJobResponse finish_resp;
-    st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);
+    auto st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
             st = _new_tablet->sync_rowsets();

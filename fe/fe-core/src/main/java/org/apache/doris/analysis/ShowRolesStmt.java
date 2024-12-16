@@ -27,13 +27,14 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowRolesStmt extends ShowStmt {
+public class ShowRolesStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA;
 
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         builder.addColumn(new Column("Name", ScalarType.createVarchar(100)));
+        builder.addColumn(new Column("Comment", ScalarType.createVarchar(100)));
         builder.addColumn(new Column("Users", ScalarType.createVarchar(100)));
         builder.addColumn(new Column("GlobalPrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("CatalogPrivs", ScalarType.createVarchar(300)));
@@ -41,6 +42,10 @@ public class ShowRolesStmt extends ShowStmt {
         builder.addColumn(new Column("TablePrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("ResourcePrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("CloudClusterPrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("CloudStagePrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("StorageVaultPrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("WorkloadGroupPrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("ComputeGroupPrivs", ScalarType.createVarchar(300)));
 
         META_DATA = builder.build();
     }

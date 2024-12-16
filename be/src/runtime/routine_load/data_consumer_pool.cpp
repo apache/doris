@@ -108,8 +108,9 @@ Status DataConsumerPool::get_consumer_grp(std::shared_ptr<StreamLoadContext> ctx
 void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     std::unique_lock<std::mutex> l(_lock);
 
-    if (_pool.size() == _max_pool_size) {
-        VLOG_NOTICE << "data consumer pool is full: " << _pool.size() << "-" << _max_pool_size
+    if (_pool.size() == config::routine_load_consumer_pool_size) {
+        VLOG_NOTICE << "data consumer pool is full: " << _pool.size() << "-"
+                    << config::routine_load_consumer_pool_size
                     << ", discard the returned consumer: " << consumer->id();
         return;
     }

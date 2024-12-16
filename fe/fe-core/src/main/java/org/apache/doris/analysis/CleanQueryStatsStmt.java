@@ -33,7 +33,7 @@ import org.apache.commons.lang3.StringUtils;
  * CLEAN DATABASE QUERY STATS FROM db;
  * CLEAN TABLE QUERY STATS FROM db.table;
  */
-public class CleanQueryStatsStmt extends DdlStmt {
+public class CleanQueryStatsStmt extends DdlStmt implements NotFallbackInParser {
     private String dbName;
     private TableName tableName;
     private Scope scope;
@@ -95,7 +95,8 @@ public class CleanQueryStatsStmt extends DdlStmt {
 
                 Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(dbName);
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.ALTER)) {
+                        .checkDbPriv(ConnectContext.get(), tableName.getCtl(), dbName,
+                                PrivPredicate.ALTER)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             "CLEAN DATABASE QUERY STATS FOR " + ClusterNamespace.getNameFromFullName(dbName));
                 }
@@ -109,7 +110,8 @@ public class CleanQueryStatsStmt extends DdlStmt {
                 DatabaseIf db = Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(dbName);
                 db.getTableOrAnalysisException(tableName.getTbl());
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), dbName, tableName.getTbl(), PrivPredicate.ALTER)) {
+                        .checkTblPriv(ConnectContext.get(), tableName.getCtl(), dbName, tableName.getTbl(),
+                                PrivPredicate.ALTER)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             "CLEAN TABLE QUERY STATS FROM " + tableName);
                 }
@@ -138,5 +140,10 @@ public class CleanQueryStatsStmt extends DdlStmt {
      */
     public enum Scope {
         ALL, DB, TABLE
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CLEAN;
     }
 }

@@ -16,9 +16,6 @@
 // under the License.
 
 suite("load") {
-    sql "SET enable_nereids_planner=true"
-    sql "set forbid_unknown_col_stats=false"
-    sql "SET enable_fallback_to_original_planner=false"
     // init query case data
     def dbName = "nereids_test_query_db"
     sql "DROP DATABASE IF EXISTS ${dbName}"

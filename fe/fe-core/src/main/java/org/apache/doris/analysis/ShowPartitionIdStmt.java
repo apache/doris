@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PARTITION ID
-public class ShowPartitionIdStmt extends ShowStmt {
+public class ShowPartitionIdStmt extends ShowStmt implements NotFallbackInParser {
     private long partitionId;
 
     public ShowPartitionIdStmt(long partitionId) {

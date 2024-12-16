@@ -25,13 +25,13 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class PipelineFragmentContext;
 class Pipeline;
 
@@ -41,110 +41,50 @@ using PipelineId = uint32_t;
 
 class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineTask;
-    friend class PipelineXTask;
-    friend class PipelineXFragmentContext;
+    friend class PipelineFragmentContext;
 
 public:
-    Pipeline() = delete;
-    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
-                      std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _context(std::move(context)), _num_tasks(num_tasks) {
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks, int num_tasks_of_parent)
+            : _pipeline_id(pipeline_id),
+              _num_tasks(num_tasks),
+              _num_tasks_of_parent(num_tasks_of_parent) {
         _init_profile();
+        _tasks.resize(_num_tasks, nullptr);
     }
-
-    void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
-        pipeline->_parents.emplace_back(_operator_builders.size(), weak_from_this());
-        _dependencies.emplace_back(_operator_builders.size(), pipeline);
-    }
-
-    // If all dependencies are finished, this pipeline task should be scheduled.
-    // e.g. Hash join probe task will be scheduled once Hash join build task is finished.
-    void finish_one_dependency(int dep_opr, int dependency_core_id) {
-        std::lock_guard l(_depend_mutex);
-        if (!_operators.empty() && _operators[dep_opr - 1]->can_terminate_early()) {
-            _always_can_read = true;
-            _always_can_write = (dep_opr == _operators.size());
-
-            for (int i = 0; i < _dependencies.size(); ++i) {
-                if (dep_opr == _dependencies[i].first) {
-                    _dependencies.erase(_dependencies.begin(), _dependencies.begin() + i + 1);
-                    break;
-                }
-            }
-        } else {
-            for (int i = 0; i < _dependencies.size(); ++i) {
-                if (dep_opr == _dependencies[i].first) {
-                    _dependencies.erase(_dependencies.begin() + i);
-                    break;
-                }
-            }
-        }
-
-        if (_dependencies.empty()) {
-            _previous_schedule_id = dependency_core_id;
-        }
-    }
-
-    bool has_dependency() {
-        std::lock_guard l(_depend_mutex);
-        return !_dependencies.empty();
-    }
-
-    Status add_operator(OperatorBuilderPtr& op);
 
     // Add operators for pipelineX
-    Status add_operator(OperatorXPtr& op);
+    Status add_operator(OperatorPtr& op, const int parallelism);
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink_builder(OperatorBuilderPtr& sink_operator_builder);
-    Status set_sink(DataSinkOperatorXPtr& sink_operator);
+    Status set_sink(DataSinkOperatorPtr& sink_operator);
 
-    OperatorBuilderBase* get_sink_builder() { return _sink_builder.get(); }
-    DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
-    OperatorXs& operator_xs() { return operatorXs; }
-    DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
-
-    Status build_operators();
-
-    RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
+    DataSinkOperatorXBase* sink() { return _sink.get(); }
+    Operators& operators() { return _operators; }
+    DataSinkOperatorPtr sink_shared_pointer() { return _sink; }
 
     [[nodiscard]] const RowDescriptor& output_row_desc() const {
-        return operatorXs.back()->row_desc();
+        return _operators.back()->row_desc();
     }
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
-    void set_is_root_pipeline() { _is_root_pipeline = true; }
-    bool is_root_pipeline() const { return _is_root_pipeline; }
 
     static bool is_hash_exchange(ExchangeType idx) {
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
 
-    bool need_to_local_exchange(const DataDistribution target_data_distribution) const {
-        if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
-            target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
-            return true;
-        } else if (operatorXs.front()->ignore_data_hash_distribution()) {
-            if (_data_distribution.distribution_type ==
-                        target_data_distribution.distribution_type &&
-                (_data_distribution.partition_exprs.empty() ||
-                 target_data_distribution.partition_exprs.empty())) {
-                return true;
-            }
-            return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type &&
-                   !(is_hash_exchange(_data_distribution.distribution_type) &&
-                     is_hash_exchange(target_data_distribution.distribution_type));
-        } else {
-            return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type &&
-                   !(is_hash_exchange(_data_distribution.distribution_type) &&
-                     is_hash_exchange(target_data_distribution.distribution_type));
-        }
+    // For HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, and ADAPTIVE_PASSTHROUGH,
+    // data is processed and shuffled on the sink.
+    // Compared to PASSTHROUGH, this is a relatively heavy operation.
+    static bool heavy_operations_on_the_sink(ExchangeType idx) {
+        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE ||
+               idx == ExchangeType::ADAPTIVE_PASSTHROUGH;
     }
+
+    bool need_to_local_exchange(const DataDistribution target_data_distribution,
+                                const int idx) const;
     void init_data_distribution() {
-        set_data_distribution(operatorXs.front()->required_data_distribution());
+        set_data_distribution(_operators.front()->required_data_distribution());
     }
     void set_data_distribution(const DataDistribution& data_distribution) {
         _data_distribution = data_distribution;
@@ -153,44 +93,61 @@ public:
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
-    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) {
+        _children = std::move(children);
+    }
 
-    void incr_created_tasks() { _num_tasks_created++; }
-    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
+    void incr_created_tasks(int i, PipelineTask* task) {
+        _num_tasks_created++;
+        _num_tasks_running++;
+        DCHECK_LT(i, _tasks.size());
+        _tasks[i] = task;
+    }
+
+    void make_all_runnable();
+
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
-        for (auto& op : operatorXs) {
+        _tasks.resize(_num_tasks, nullptr);
+        for (auto& op : _operators) {
             op->set_parallel_tasks(_num_tasks);
         }
+
+#ifndef NDEBUG
+        if (num_tasks > 1 &&
+            std::any_of(_operators.begin(), _operators.end(),
+                        [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
+            DCHECK(false) << debug_string();
+        }
+#endif
     }
     int num_tasks() const { return _num_tasks; }
+    bool close_task() { return _num_tasks_running.fetch_sub(1) == 1; }
 
-    std::string debug_string() {
+    std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
                        _num_tasks, _num_tasks_created);
-        for (size_t i = 0; i < operatorXs.size(); i++) {
-            fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
+        for (int i = 0; i < _operators.size(); i++) {
+            fmt::format_to(debug_string_buffer, "\n{}", _operators[i]->debug_string(i));
         }
-        fmt::format_to(debug_string_buffer, "\n{}", _sink_x->debug_string(operatorXs.size()));
+        fmt::format_to(debug_string_buffer, "\n{}",
+                       _sink->debug_string(cast_set<int>(_operators.size())));
         return fmt::to_string(debug_string_buffer);
     }
+
+    int num_tasks_of_parent() const { return _num_tasks_of_parent; }
 
 private:
     void _init_profile();
 
-    OperatorBuilders _operator_builders; // left is _source, right is _root
-    OperatorBuilderPtr _sink_builder;    // put block to sink
-
-    std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
     std::vector<std::pair<int, std::shared_ptr<Pipeline>>> _dependencies;
 
     std::vector<std::shared_ptr<Pipeline>> _children;
 
     PipelineId _pipeline_id;
-    std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
 
     // pipline id + operator names. init when:
@@ -202,39 +159,10 @@ private:
 
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
-    OperatorXs operatorXs;
-    DataSinkOperatorXPtr _sink_x = nullptr;
+    Operators _operators;
+    DataSinkOperatorPtr _sink = nullptr;
 
     std::shared_ptr<ObjectPool> _obj_pool;
-
-    Operators _operators;
-    /**
-     * Consider the query plan below:
-     *
-     *      ExchangeSource     JoinBuild1
-     *            \              /
-     *         JoinProbe1 (Right Outer)    JoinBuild2
-     *                   \                   /
-     *                 JoinProbe2 (Right Outer)
-     *                          |
-     *                        Sink
-     *
-     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
-     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
-     *
-     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
-     * produce more data.
-     *
-     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
-     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
-     *
-     * In a nutshell, we should follow the rules:
-     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
-     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
-     */
-    bool _always_can_read = false;
-    bool _always_can_write = false;
-    bool _is_root_pipeline = false;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.
@@ -243,7 +171,13 @@ private:
     // How many tasks should be created ?
     int _num_tasks = 1;
     // How many tasks are already created?
-    int _num_tasks_created = 0;
+    std::atomic<int> _num_tasks_created = 0;
+    // How many tasks are already created and not finished?
+    std::atomic<int> _num_tasks_running = 0;
+    // Tasks in this pipeline.
+    std::vector<PipelineTask*> _tasks;
+    // Parallelism of parent pipeline.
+    const int _num_tasks_of_parent;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

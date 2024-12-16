@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.qe.HelpTopic;
+import org.apache.doris.qe.help.HelpTopic;
 
 import com.google.common.collect.Maps;
 

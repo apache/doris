@@ -18,10 +18,11 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mv_with_view") {
-    sql """ DROP TABLE IF EXISTS mv_with_view; """
+
+    sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
-            create table mv_with_view (
+            create table d_table (
                 k1 int null,
                 k2 int not null,
                 k3 bigint null,
@@ -32,48 +33,58 @@ suite ("mv_with_view") {
             properties("replication_num" = "1");
         """
 
-    sql """insert into mv_with_view select 1,1,1,'a';"""
-    sql """insert into mv_with_view select 2,2,2,'b';"""
+    sql """insert into d_table select 1,1,1,'a';"""
+    sql """insert into d_table select 2,2,2,'b';"""
 
-    createMV("create materialized view k132 as select k1,k3,k2 from mv_with_view;")
+    createMV("create materialized view k312 as select k3,k1,k2 from d_table;")
 
-    sleep(3000)
+    sql """insert into d_table select 3,-3,null,'c';"""
 
-    sql """insert into mv_with_view select 3,-3,null,'c';"""
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
-    sql "SET experimental_enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
-
-    explain {
-        sql("select * from mv_with_view order by k1;")
-        contains "(mv_with_view)"
-    }
-    order_qt_select_star "select * from mv_with_view order by k1;"
+    mv_rewrite_fail("select * from d_table order by k1;", "k312")
+    qt_select_star "select * from d_table order by k1;"
 
     sql """
-        drop view if exists v_k132;
+        drop view if exists v_k312;
     """
 
     sql """
-        create view v_k132 as select k1,k3,k2 from mv_with_view where k1 = 1;
+        create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
     """
-    explain {
-        sql("select * from v_k132 order by k1;")
-        contains "(k132)"
-    }
-    order_qt_select_mv "select * from v_k132 order by k1;"
+    mv_rewrite_success("select * from v_k312 order by k1;", "k312")
+    qt_select_mv "select * from v_k312 order by k1;"
 
     sql """
         drop view if exists v_k124;
     """
 
     sql """
-        create view v_k124 as select k1,k2,k4 from mv_with_view where k1 = 1;
+        create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
     """
-    explain {
-        sql("select * from v_k124 order by k1;")
-        contains "(mv_with_view)"
-    }
-    order_qt_select_mv "select * from v_k124 order by k1;"
+    mv_rewrite_fail("select * from v_k124 order by k1;", "k312")
+    qt_select_mv "select * from v_k124 order by k1;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
+    mv_rewrite_fail("select * from d_table order by k1;", "k312")
+
+    sql """
+        drop view if exists v_k312;
+    """
+
+    sql """
+        create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
+    """
+    mv_rewrite_success("select * from v_k312 order by k1;", "k312")
+
+    sql """
+        drop view if exists v_k124;
+    """
+
+    sql """
+        create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
+    """
+    mv_rewrite_fail("select * from v_k124 order by k1;", "k312")
 }

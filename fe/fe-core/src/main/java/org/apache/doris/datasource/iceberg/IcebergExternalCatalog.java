@@ -17,11 +17,13 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -38,6 +40,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_HADOOP = "hadoop";
     public static final String ICEBERG_GLUE = "glue";
     public static final String ICEBERG_DLF = "dlf";
+    public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -45,18 +48,16 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
     }
 
-    @Override
-    protected void init() {
-        super.init();
-    }
-
     // Create catalog based on catalog type
     protected abstract void initCatalog();
 
     @Override
     protected void initLocalObjectsImpl() {
+        preExecutionAuthenticator = new PreExecutionAuthenticator();
         initCatalog();
-        metadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
+        metadataOps = ops;
     }
 
     public Catalog getCatalog() {

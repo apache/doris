@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.jni.utils;
 
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -26,6 +27,8 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -41,8 +44,6 @@ public class JavaUdfDataType {
     public static final JavaUdfDataType BIGINT = new JavaUdfDataType("BIGINT", TPrimitiveType.BIGINT, 8);
     public static final JavaUdfDataType FLOAT = new JavaUdfDataType("FLOAT", TPrimitiveType.FLOAT, 4);
     public static final JavaUdfDataType DOUBLE = new JavaUdfDataType("DOUBLE", TPrimitiveType.DOUBLE, 8);
-    public static final JavaUdfDataType CHAR = new JavaUdfDataType("CHAR", TPrimitiveType.CHAR, 0);
-    public static final JavaUdfDataType VARCHAR = new JavaUdfDataType("VARCHAR", TPrimitiveType.VARCHAR, 0);
     public static final JavaUdfDataType STRING = new JavaUdfDataType("STRING", TPrimitiveType.STRING, 0);
     public static final JavaUdfDataType DATE = new JavaUdfDataType("DATE", TPrimitiveType.DATE, 8);
     public static final JavaUdfDataType DATETIME = new JavaUdfDataType("DATETIME", TPrimitiveType.DATETIME, 8);
@@ -55,8 +56,12 @@ public class JavaUdfDataType {
     public static final JavaUdfDataType DECIMAL64 = new JavaUdfDataType("DECIMAL64", TPrimitiveType.DECIMAL64, 8);
     public static final JavaUdfDataType DECIMAL128 = new JavaUdfDataType("DECIMAL128", TPrimitiveType.DECIMAL128I,
             16);
+
+    public static final JavaUdfDataType IPV4 = new JavaUdfDataType("IPV4", TPrimitiveType.IPV4, 4);
+    public static final JavaUdfDataType IPV6 = new JavaUdfDataType("IPV6", TPrimitiveType.IPV6, 16);
     public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfDataType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
     public static final JavaUdfDataType MAP_TYPE = new JavaUdfDataType("MAP_TYPE", TPrimitiveType.MAP, 0);
+    public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfDataType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
 
     private static Set<JavaUdfDataType> JavaUdfDataTypeSet = new HashSet<>();
 
@@ -69,8 +74,6 @@ public class JavaUdfDataType {
         JavaUdfDataTypeSet.add(BIGINT);
         JavaUdfDataTypeSet.add(FLOAT);
         JavaUdfDataTypeSet.add(DOUBLE);
-        JavaUdfDataTypeSet.add(CHAR);
-        JavaUdfDataTypeSet.add(VARCHAR);
         JavaUdfDataTypeSet.add(STRING);
         JavaUdfDataTypeSet.add(DATE);
         JavaUdfDataTypeSet.add(DATETIME);
@@ -83,6 +86,9 @@ public class JavaUdfDataType {
         JavaUdfDataTypeSet.add(DECIMAL128);
         JavaUdfDataTypeSet.add(ARRAY_TYPE);
         JavaUdfDataTypeSet.add(MAP_TYPE);
+        JavaUdfDataTypeSet.add(STRUCT_TYPE);
+        JavaUdfDataTypeSet.add(IPV4);
+        JavaUdfDataTypeSet.add(IPV6);
     }
 
     private final String description;
@@ -95,6 +101,7 @@ public class JavaUdfDataType {
     private Type valueType;
     private int keyScale;
     private int valueScale;
+    private ArrayList<StructField> fields = new ArrayList<>();
 
     public JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
         this.description = description;
@@ -137,7 +144,9 @@ public class JavaUdfDataType {
         } else if (c == double.class || c == Double.class) {
             return Sets.newHashSet(JavaUdfDataType.DOUBLE);
         } else if (c == char.class || c == Character.class) {
-            return Sets.newHashSet(JavaUdfDataType.CHAR);
+            // some users case have create UDF use varchar as parameter not
+            // string type, but evaluate is String Class, so set TPrimitiveType is STRING
+            return Sets.newHashSet(JavaUdfDataType.STRING);
         } else if (c == String.class) {
             return Sets.newHashSet(JavaUdfDataType.STRING);
         } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
@@ -150,9 +159,11 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
                     JavaUdfDataType.DECIMAL128);
         } else if (c == java.util.ArrayList.class) {
-            return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE);
+            return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE, JavaUdfDataType.STRUCT_TYPE);
         } else if (c == java.util.HashMap.class) {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
+        } else if (c == InetAddress.class) {
+            return Sets.newHashSet(JavaUdfDataType.IPV4, JavaUdfDataType.IPV6);
         }
         return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
     }
@@ -165,6 +176,10 @@ public class JavaUdfDataType {
             if (javaType.getPrimitiveType() == t.getPrimitiveType().toThrift()) {
                 return true;
             }
+        }
+        if (t.getPrimitiveType().toThrift() == TPrimitiveType.VARCHAR
+                || t.getPrimitiveType().toThrift() == TPrimitiveType.CHAR) {
+            return true;
         }
         return false;
     }
@@ -231,5 +246,17 @@ public class JavaUdfDataType {
 
     public int getValueScale() {
         return valueScale;
+    }
+
+    public void setFields(ArrayList<StructField> fields) {
+        this.fields = fields;
+    }
+
+    public ArrayList<String> getFieldNames() {
+        ArrayList<String> names = new ArrayList<>();
+        for (StructField filed : fields) {
+            names.add(filed.getName());
+        }
+        return names;
     }
 }

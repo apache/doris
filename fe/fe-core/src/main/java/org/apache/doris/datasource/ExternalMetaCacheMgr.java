@@ -30,15 +30,23 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
+import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.paimon.PaimonMetadataCache;
+import org.apache.doris.datasource.paimon.PaimonMetadataCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 
+import com.github.benmanes.caffeine.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -50,30 +58,82 @@ import java.util.concurrent.ExecutorService;
 public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
 
+    /**
+     * Executors for loading caches
+     * 1. rowCountRefreshExecutor
+     * For row count cache.
+     * Row count cache is an async loading cache, and we can ignore the result
+     * if cache missing or thread pool is full.
+     * So use a separate executor for this cache.
+     * <p>
+     * 2.  commonRefreshExecutor
+     * For other caches. Other caches are sync loading cache.
+     * But commonRefreshExecutor will be used for async refresh.
+     * That is, if cache entry is missing, the cache value will be loaded in caller thread, sychronously.
+     * if cache entry need refresh, it will be reloaded in commonRefreshExecutor.
+     * <p>
+     * 3. fileListingExecutor
+     * File listing is a heavy operation, so use a separate executor for it.
+     * For fileCache, the refresh operation will still use commonRefreshExecutor to trigger refresh.
+     * And fileListingExecutor will be used to list file.
+     */
+    private ExecutorService rowCountRefreshExecutor;
+    private ExecutorService commonRefreshExecutor;
+    private ExecutorService fileListingExecutor;
+    private ExecutorService scheduleExecutor;
+
     // catalog id -> HiveMetaStoreCache
     private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     // hudi partition manager
     private final HudiPartitionMgr hudiPartitionMgr;
-    private ExecutorService executor;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
     // all external table row count cache.
     private ExternalRowCountCache rowCountCache;
     private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
+    private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
     public ExternalMetaCacheMgr() {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(
+        rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "ExternalMetaCacheMgr", 120, true);
-        hudiPartitionMgr = HudiPartitionMgr.get(executor);
-        fsCache = new FileSystemCache(executor);
-        rowCountCache = new ExternalRowCountCache(executor);
-        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
+                "RowCountRefreshExecutor", 0, true);
+
+        commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 10000,
+                "CommonRefreshExecutor", 10, true);
+
+        // The queue size should be large enough,
+        // because there may be thousands of partitions being queried at the same time.
+        fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "FileListingExecutor", 10, true);
+
+        scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "scheduleExecutor", 10, true);
+
+        fsCache = new FileSystemCache();
+        rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
+
+        hudiPartitionMgr = new HudiPartitionMgr(commonRefreshExecutor);
+        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
+        paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
+    }
+
+    public ExecutorService getFileListingExecutor() {
+        return fileListingExecutor;
+    }
+
+    public ExecutorService getScheduleExecutor() {
+        return scheduleExecutor;
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -81,7 +141,8 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (cacheMap) {
                 if (!cacheMap.containsKey(catalog.getId())) {
-                    cacheMap.put(catalog.getId(), new HiveMetaStoreCache(catalog, executor));
+                    cacheMap.put(catalog.getId(),
+                            new HiveMetaStoreCache(catalog, commonRefreshExecutor, fileListingExecutor));
                 }
                 cache = cacheMap.get(catalog.getId());
             }
@@ -94,7 +155,7 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (schemaCacheMap) {
                 if (!schemaCacheMap.containsKey(catalog.getId())) {
-                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog));
+                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog, commonRefreshExecutor));
                 }
                 cache = schemaCacheMap.get(catalog.getId());
             }
@@ -108,6 +169,10 @@ public class ExternalMetaCacheMgr {
 
     public IcebergMetadataCache getIcebergMetadataCache() {
         return icebergMetadataCacheMgr.getIcebergMetadataCache();
+    }
+
+    public PaimonMetadataCache getPaimonMetadataCache() {
+        return paimonMetadataCacheMgr.getPaimonMetadataCache();
     }
 
     public MaxComputeMetadataCache getMaxComputeMetadataCache(long catalogId) {
@@ -132,6 +197,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.removePartitionProcessor(catalogId);
         icebergMetadataCacheMgr.removeCache(catalogId);
         maxComputeMetadataCacheMgr.removeCache(catalogId);
+        paimonMetadataCacheMgr.removeCache(catalogId);
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -147,6 +213,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.cleanTablePartitions(catalogId, dbName, tblName);
         icebergMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         maxComputeMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
+        paimonMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
         }
@@ -165,6 +232,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
         icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
+        paimonMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
         }
@@ -182,6 +250,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.cleanPartitionProcess(catalogId);
         icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
         maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
+        paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid catalog cache for {}", catalogId);
         }
@@ -229,5 +298,26 @@ public class ExternalMetaCacheMgr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, tableName, catalogId);
         }
+    }
+
+    public <T> MetaCache<T> buildMetaCache(String name,
+            OptionalLong expireAfterWriteSec, OptionalLong refreshAfterWriteSec, long maxSize,
+            CacheLoader<String, List<String>> namesCacheLoader,
+            CacheLoader<String, Optional<T>> metaObjCacheLoader,
+            RemovalListener<String, Optional<T>> removalListener) {
+        MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterWriteSec, refreshAfterWriteSec,
+                maxSize, namesCacheLoader, metaObjCacheLoader, removalListener);
+        return metaCache;
+    }
+
+    public static Map<String, String> getCacheStats(CacheStats cacheStats, long estimatedSize) {
+        Map<String, String> stats = Maps.newHashMap();
+        stats.put("hit_ratio", String.valueOf(cacheStats.hitRate()));
+        stats.put("hit_count", String.valueOf(cacheStats.hitCount()));
+        stats.put("read_count", String.valueOf(cacheStats.hitCount() + cacheStats.missCount()));
+        stats.put("eviction_count", String.valueOf(cacheStats.evictionCount()));
+        stats.put("average_load_penalty", String.valueOf(cacheStats.averageLoadPenalty()));
+        stats.put("estimated_size", String.valueOf(estimatedSize));
+        return stats;
     }
 }

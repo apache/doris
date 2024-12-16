@@ -24,10 +24,14 @@
 BvarLatencyRecorderWithTag g_bvar_ms_begin_txn("ms", "begin_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn("ms", "precommit_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_txn("ms", "commit_txn");
+BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually("ms", "commit_txn_eventually");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_txn("ms", "abort_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn("ms", "get_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id("ms", "get_current_max_txn_id");
+BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn("ms", "begin_sub_txn");
+BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn("ms", "abort_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict("ms", "check_txn_conflict");
+BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator("ms", "abort_txn_with_coordinator");
 BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label("ms", "clean_txn_label");
 BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
@@ -48,6 +52,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_drop_partition("ms", "drop_partition");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats("ms", "get_tablet_stats");
 BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info("ms", "get_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info("ms", "alter_obj_store_info");
+BvarLatencyRecorderWithTag g_bvar_ms_alter_storage_vault("ms", "alter_storage_vault");
 BvarLatencyRecorderWithTag g_bvar_ms_create_instance("ms", "create_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_instance("ms", "alter_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_cluster("ms", "alter_cluster");
@@ -68,12 +73,20 @@ BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap("ms", "update_delete_b
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap("ms", "get_delete_bitmap");
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock("ms",
                                                                    "get_delete_bitmap_update_lock");
+BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap("ms", "remove_delete_bitmap");
+BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock(
+        "ms", "remove_delete_bitmap_update_lock");
 BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
+BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
+BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");
+BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id("ms", "get_txn_id");
 
 BvarLatencyRecorderWithTag g_bvar_ms_start_tablet_job("ms", "start_tablet_job");
 BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job("ms", "finish_tablet_job");
 BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
+
+BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
@@ -88,6 +101,8 @@ bvar::LatencyRecorder g_bvar_txn_kv_range_remove("txn_kv", "range_remove");
 bvar::LatencyRecorder g_bvar_txn_kv_get_read_version("txn_kv", "get_read_version");
 bvar::LatencyRecorder g_bvar_txn_kv_get_committed_version("txn_kv", "get_committed_version");
 bvar::LatencyRecorder g_bvar_txn_kv_batch_get("txn_kv", "batch_get");
+
+bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized("txn_kv", "get_count_normalized");
 
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute(
@@ -168,6 +183,8 @@ bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz(
         "fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz(
         "fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent(
+        "fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
 
 // checker's bvars
 BvarStatusWithTag<long> g_bvar_checker_num_scanned("checker", "num_scanned");
@@ -178,3 +195,13 @@ BvarStatusWithTag<long> g_bvar_checker_check_cost_s("checker", "check_cost_secon
 BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s("checker", "enqueue_cost_seconds");
 BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms("checker", "last_success_time_ms");
 BvarStatusWithTag<long> g_bvar_checker_instance_volume("checker", "instance_volume");
+BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
+BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed("checker",
+                                                                 "num_inverted_check_failed");
+
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker",
+                                                                         "leaked_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps(
+        "checker", "abnormal_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned(
+        "checker", "delete_bitmap_keys_scanned");

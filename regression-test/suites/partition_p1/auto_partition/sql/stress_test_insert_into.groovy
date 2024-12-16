@@ -21,7 +21,7 @@ import java.nio.file.Paths
 import java.net.URL
 import java.io.File
 
-suite("stress_test_insert_into") {
+suite("stress_test_insert_into", "p1,nonConcurrent") { // stress case should use resource fully
     // get doris-db from s3
     def dirPath = context.file.parent
     def fatherPath = context.file.parentFile.parentFile.getPath()
@@ -93,6 +93,7 @@ suite("stress_test_insert_into") {
         def sout = new StringBuilder(), serr = new StringBuilder()
         proc.consumeProcessOutput(sout, serr)
         proc.waitForOrKill(1800000)
+        logger.info("std out: " + sout + ", std err: " + serr)
     }
 
     def database_name = "regression_test_auto_partition_concurrent"

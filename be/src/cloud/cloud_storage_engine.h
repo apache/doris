@@ -25,18 +25,25 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud_txn_delete_bitmap_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "util/threadpool.h"
 
 namespace doris {
 namespace cloud {
 class CloudMetaMgr;
 }
+namespace io {
+class FileCacheBlockDownloader;
+}
 
 class CloudTabletMgr;
 class CloudCumulativeCompaction;
 class CloudBaseCompaction;
 class CloudFullCompaction;
+class TabletHotspot;
+class CloudWarmUpManager;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -50,28 +57,50 @@ public:
 
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     Status set_cluster_id(int32_t cluster_id) override {
         _effective_cluster_id = cluster_id;
         return Status::OK();
     }
 
-    cloud::CloudMetaMgr& meta_mgr() { return *_meta_mgr; }
+    cloud::CloudMetaMgr& meta_mgr() const { return *_meta_mgr; }
 
-    CloudTabletMgr& tablet_mgr() { return *_tablet_mgr; }
+    CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
 
-    CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() { return *_txn_delete_bitmap_cache; }
-    std::unique_ptr<ThreadPool>& calc_tablet_delete_bitmap_task_thread_pool() {
-        return _calc_tablet_delete_bitmap_task_thread_pool;
+    CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
+    ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
+        return *_calc_tablet_delete_bitmap_task_thread_pool;
+    }
+    void _check_file_cache_ttl_block_valid();
+
+    std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
+        LOG(INFO) << "Getting storage resource for vault_id: " << vault_id;
+
+        bool synced = false;
+        do {
+            if (vault_id.empty() && latest_fs() != nullptr) {
+                return StorageResource {latest_fs()};
+            }
+            if (auto storage_resource = doris::get_storage_resource(vault_id); storage_resource) {
+                return storage_resource->first;
+            }
+            if (synced) {
+                break;
+            }
+            sync_storage_vault();
+            synced = true;
+        } while (true);
+
+        return std::nullopt;
     }
 
-    io::FileSystemSPtr latest_fs() const {
+    io::RemoteFileSystemSPtr latest_fs() const {
         std::lock_guard lock(_latest_fs_mtx);
         return _latest_fs;
     }
 
-    void set_latest_fs(const io::FileSystemSPtr& fs) {
+    void set_latest_fs(const io::RemoteFileSystemSPtr& fs) {
         std::lock_guard lock(_latest_fs_mtx);
         _latest_fs = fs;
     }
@@ -79,13 +108,41 @@ public:
     void get_cumu_compaction(int64_t tablet_id,
                              std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
-    CloudSizeBasedCumulativeCompactionPolicy* cumu_compaction_policy() const {
-        return _cumulative_compaction_policy.get();
-    }
-
     Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
 
     Status get_compaction_status_json(std::string* result);
+
+    bool has_base_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_base_compactions.contains(tablet_id);
+    }
+
+    bool has_cumu_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_cumu_compactions.contains(tablet_id);
+    }
+
+    bool has_full_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _submitted_full_compactions.contains(tablet_id);
+    }
+
+    std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
+            std::string_view compaction_policy);
+
+    void sync_storage_vault();
+
+    io::FileCacheBlockDownloader& file_cache_block_downloader() const {
+        return *_file_cache_block_downloader;
+    }
+
+    CloudWarmUpManager& cloud_warm_up_manager() const { return *_cloud_warm_up_manager; }
+
+    TabletHotspot& tablet_hotspot() const { return *_tablet_hotspot; }
+
+    ThreadPool& sync_load_for_tablets_thread_pool() const {
+        return *_sync_load_for_tablets_thread_pool;
+    }
 
 private:
     void _refresh_storage_vault_info_thread_callback();
@@ -94,7 +151,7 @@ private:
     void _compaction_tasks_producer_callback();
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
-    void _adjust_compaction_thread_num();
+    Status _adjust_compaction_thread_num();
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
@@ -107,9 +164,16 @@ private:
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
 
+    // Components for cache warmup
+    std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;
+    // Depended by `FileCacheBlockDownloader`
+    std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
+    std::unique_ptr<TabletHotspot> _tablet_hotspot;
+    std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;
-    io::FileSystemSPtr _latest_fs;
+    io::RemoteFileSystemSPtr _latest_fs;
 
     std::vector<scoped_refptr<Thread>> _bg_threads;
 
@@ -128,7 +192,9 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
 
-    std::shared_ptr<CloudSizeBasedCumulativeCompactionPolicy> _cumulative_compaction_policy;
+    using CumuPolices =
+            std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
+    CumuPolices _cumulative_compaction_policies;
 };
 
 } // namespace doris

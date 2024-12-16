@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "mysql_scanner.h"
+#include "util/md5.h"
 
 namespace doris::vectorized {
 
@@ -65,9 +66,12 @@ Status MysqlScanner::open() {
                                       _my_param.passwd.c_str(), _my_param.db.c_str(),
                                       atoi(_my_param.port.c_str()), nullptr,
                                       _my_param.client_flag)) {
+        Md5Digest pwd;
+        pwd.update(static_cast<const void*>(_my_param.passwd.c_str()), _my_param.passwd.length());
+        pwd.digest();
         LOG(WARNING) << "connect Mysql: "
                      << "Host: " << _my_param.host << " user: " << _my_param.user
-                     << " passwd: " << _my_param.passwd << " db: " << _my_param.db
+                     << " passwd: " << pwd.hex() << " db: " << _my_param.db
                      << " port: " << _my_param.port;
 
         return _error_status("mysql real connect failed.");

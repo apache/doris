@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
+import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
@@ -94,7 +95,7 @@ public class AlterTest {
         Config.enable_odbc_mysql_broker_table = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
-        List<Backend> backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
 
         Map<String, String> tagMap = Maps.newHashMap();
         tagMap.put(Tag.TYPE_LOCATION, "group_a");
@@ -163,11 +164,12 @@ public class AlterTest {
                 + "PROPERTIES\n"
                 + "(\n"
                 + "\"colocate_with\" = \"group_3\",\n"
+                + "\"replication_num\" = \"1\",\n"
                 + "\"dynamic_partition.enable\" = \"true\",\n"
                 + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
                 + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
-                + "\"dynamic_partition.buckets\" = \"32\",\n"
+                + "\"dynamic_partition.buckets\" = \"3\",\n"
                 + "\"dynamic_partition.replication_num\" = \"1\",\n"
                 + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
                 + "\"dynamic_partition.start\" = \"-3\"\n"
@@ -243,6 +245,10 @@ public class AlterTest {
         createTable("create table test.unique_sequence_col (k1 int, v1 int, v2 date) ENGINE=OLAP "
                 + " UNIQUE KEY(`k1`)  DISTRIBUTED BY HASH(`k1`) BUCKETS 1"
                 + " PROPERTIES (\"replication_num\" = \"1\", \"function_column.sequence_col\" = \"v1\");");
+
+        createTable("CREATE TABLE test.tbl_storage(k1 int) ENGINE=OLAP UNIQUE KEY (k1)\n"
+                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'true');");
     }
 
     @AfterClass
@@ -254,7 +260,12 @@ public class AlterTest {
     private static void createTable(String sql) throws Exception {
         Config.enable_odbc_mysql_broker_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        try {
+            Env.getCurrentEnv().createTable(createTableStmt);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     private static void createRemoteStorageResource(String sql) throws Exception {
@@ -370,7 +381,7 @@ public class AlterTest {
         // empty comment
         stmt = "alter table test.tbl5 modify comment ''";
         alterTable(stmt, false);
-        Assert.assertEquals("OLAP", tbl.getComment());
+        Assert.assertEquals("", tbl.getComment());
 
         // empty column comment
         stmt = "alter table test.tbl5 modify column k1 comment '', modify column v1 comment 'v111'";
@@ -440,7 +451,7 @@ public class AlterTest {
         // add temp partition when dynamic partition is enable
         stmt = "alter table test.tbl1 add temporary partition tp3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, false);
-        Assert.assertEquals(1, tbl.getTempPartitions().size());
+        Assert.assertEquals(1, tbl.getAllTempPartitions().size());
 
         // disable the dynamic partition
         stmt = "alter table test.tbl1 set ('dynamic_partition.enable' = 'false')";
@@ -541,7 +552,7 @@ public class AlterTest {
         stmt = "alter table test.tbl6 add temporary partition tp3 values less than('2020-04-01 00:00:00') distributed"
                 + " by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, false);
-        Assert.assertEquals(1, tbl.getTempPartitions().size());
+        Assert.assertEquals(1, tbl.getAllTempPartitions().size());
 
         // disable the dynamic partition
         stmt = "alter table test.tbl6 set ('dynamic_partition.enable' = 'false')";
@@ -984,7 +995,9 @@ public class AlterTest {
         Assert.assertEquals("replace2", replace2.getIndexNameById(replace2.getBaseIndexId()));
 
         // replace with no swap
-        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false')";
+        // tablet check will be done in this testcase. so
+        // we need to use force . behaviour same as older version
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false') force";
         alterTable(replaceStmt, false);
         replace1 = (OlapTable) db.getTableNullable("replace1");
         replace2 = (OlapTable) db.getTableNullable("replace2");
@@ -1426,5 +1439,18 @@ public class AlterTest {
     public void testModifySequenceCol() {
         String stmt = "alter table test.unique_sequence_col modify column v1 Date";
         alterTable(stmt, true);
+    }
+
+    @Test
+    public void testModifyTableForStoragePolicy() throws Exception {
+        String sql = "ALTER TABLE test.tbl_storage SET ('storage_policy' = 'testPolicy')";
+        alterTableWithExceptionMsg(sql, "errCode = 2, detailMessage = Can not set UNIQUE KEY table that enables "
+                + "Merge-On-write with storage policy(testPolicy)");
+        String showSQl = "show create table  test.tbl_storage";
+        ShowCreateTableStmt showStmt = (ShowCreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(showSQl, connectContext);
+        ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
+        List<List<String>> resultRows = executor.execute().getResultRows();
+        String createSql = resultRows.get(0).get(1);
+        Assert.assertFalse(createSql.contains("storage_policy"));
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.trinoconnector;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.trinoconnector.TrinoConnectorPluginManager;
 
 import com.google.common.util.concurrent.MoreExecutors;
@@ -31,9 +32,18 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.SimpleFormatter;
 
+// Noninstancetiable utility class
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
+
+    // Suppress default constructor for noninstantiability
+    private TrinoConnectorPluginLoader() {
+        throw new AssertionError();
+    }
 
     private static class TrinoConnectorPluginLoad {
         private static FeaturesConfig featuresConfig = new FeaturesConfig();
@@ -44,6 +54,18 @@ public class TrinoConnectorPluginLoader {
 
         static {
             try {
+                // Trino uses jul as its own log system, so the attributes of JUL are configured here
+                System.setProperty("java.util.logging.SimpleFormatter.format",
+                        "%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS %4$s: %5$s%6$s%n");
+                java.util.logging.Logger logger = java.util.logging.Logger.getLogger("");
+                logger.setUseParentHandlers(false);
+                FileHandler fileHandler = new FileHandler(EnvUtils.getDorisHome() + "/log/trinoconnector%g.log",
+                        500000000, 10, true);
+                fileHandler.setLevel(Level.INFO);
+                fileHandler.setFormatter(new SimpleFormatter());
+                logger.addHandler(fileHandler);
+                java.util.logging.LogManager.getLogManager().addLogger(logger);
+
                 typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
                 ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
                         .setInstalledPluginsDir(new File(Config.trino_connector_plugin_dir));

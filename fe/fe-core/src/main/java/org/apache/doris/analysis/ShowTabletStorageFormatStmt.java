@@ -27,7 +27,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowTabletStorageFormatStmt extends ShowStmt {
+public class ShowTabletStorageFormatStmt extends ShowStmt implements NotFallbackInParser {
     private boolean verbose;
 
     public ShowTabletStorageFormatStmt(boolean verbose) {
@@ -38,10 +38,8 @@ public class ShowTabletStorageFormatStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
-                    toSql(),
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), "ADMIN Privilege needed.");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
         }
 
         super.analyze(analyzer);

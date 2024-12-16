@@ -39,18 +39,18 @@ suite ("testOrderByQueryOnProjectView") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-
-    explain {
-        sql("select empid from emps order by deptno;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select empid from emps where deptno > 0 order by deptno;", "emps_mv")
     qt_select_mv "select empid from emps order by deptno;"
 
+    sql """set enable_stats=true;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
+    mv_rewrite_success("select empid from emps where deptno > 0 order by deptno;", "emps_mv")
 }

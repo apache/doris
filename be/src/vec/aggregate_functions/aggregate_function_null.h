@@ -25,12 +25,14 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_distinct.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename NestFunction, bool result_is_nullable, typename Derived>
 class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived> {
@@ -74,6 +76,7 @@ public:
                                     const DataTypes& arguments)
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)} {
+        DCHECK(nested_function_ != nullptr);
         if (result_is_nullable) {
             prefix_size = nested_function->align_of_data();
         } else {
@@ -164,7 +167,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         if constexpr (result_is_nullable) {
-            ColumnNullable& to_concrete = assert_cast<ColumnNullable&>(to);
+            auto& to_concrete = assert_cast<ColumnNullable&>(to);
             if (get_flag(place)) {
                 nested_function->insert_result_into(nested_place(place),
                                                     to_concrete.get_nested_column());
@@ -176,12 +179,6 @@ public:
             nested_function->insert_result_into(nested_place(place), to);
         }
     }
-
-    bool allocates_memory_in_arena() const override {
-        return nested_function->allocates_memory_in_arena();
-    }
-
-    bool is_state() const override { return nested_function->is_state(); }
 };
 
 /** There are two cases: for single argument and variadic.
@@ -202,12 +199,26 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        const auto* column =
+                assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (!column->is_null_at(row_num)) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
         }
+    }
+
+    IAggregateFunction* transmit_to_stable() override {
+        auto f = AggregateFunctionNullBaseInline<
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
+        if (!f) {
+            return nullptr;
+        }
+        return new AggregateFunctionNullUnaryInline<
+                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
+                f, IAggregateFunction::argument_types);
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
@@ -239,7 +250,7 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
         bool has_null = column->has_null();
 
         if (has_null) {
@@ -256,7 +267,7 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena* arena, bool has_null) override {
-        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
 
         if (has_null) {
             for (size_t i = batch_begin; i <= batch_end; ++i) {
@@ -286,12 +297,14 @@ public:
                       nested_function_, arguments),
               number_of_arguments(arguments.size()) {
         if (number_of_arguments == 1) {
-            LOG(FATAL)
-                    << "Logical error: single argument is passed to AggregateFunctionNullVariadic";
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Logical error: single argument is passed to AggregateFunctionNullVariadic");
         }
 
         if (number_of_arguments > MAX_ARGS) {
-            LOG(FATAL) << fmt::format(
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
                     "Maximum number of arguments for aggregate function with Nullable types is {}",
                     size_t(MAX_ARGS));
         }
@@ -301,15 +314,29 @@ public:
         }
     }
 
+    IAggregateFunction* transmit_to_stable() override {
+        auto f = AggregateFunctionNullBaseInline<
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
+        if (!f) {
+            return nullptr;
+        }
+        return new AggregateFunctionNullVariadicInline<
+                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
+                f, IAggregateFunction::argument_types);
+    }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         /// This container stores the columns we really pass to the nested function.
-        const IColumn* nested_columns[number_of_arguments];
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
-                const ColumnNullable& nullable_col =
-                        assert_cast<const ColumnNullable&>(*columns[i]);
+                const auto& nullable_col =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
                 if (nullable_col.is_null_at(row_num)) {
                     /// If at least one column has a null value in the current row,
                     /// we don't process this row.
@@ -322,11 +349,8 @@ public:
         }
 
         this->set_flag(place);
-        this->nested_function->add(this->nested_place(place), nested_columns, row_num, arena);
-    }
-
-    bool allocates_memory_in_arena() const override {
-        return this->nested_function->allocates_memory_in_arena();
+        this->nested_function->add(this->nested_place(place), nested_columns.data(), row_num,
+                                   arena);
     }
 
 private:
@@ -338,3 +362,5 @@ private:
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

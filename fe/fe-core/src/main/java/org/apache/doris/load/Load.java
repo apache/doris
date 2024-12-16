@@ -37,17 +37,14 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -61,8 +58,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.ExprUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -70,20 +68,19 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -257,7 +254,8 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false, false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false,
+                TUniqueKeyUpdateMode.UPSERT);
     }
 
     /*
@@ -267,11 +265,12 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
-            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean isPartialUpdate)
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns,
+            TUniqueKeyUpdateMode uniquekeyUpdateMode)
             throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
-                srcSlotIds, formatType, hiddenColumns, true, isPartialUpdate);
+                srcSlotIds, formatType, hiddenColumns, true, uniquekeyUpdateMode);
     }
 
     /*
@@ -286,7 +285,7 @@ public class Load {
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
             List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns,
-            boolean needInitSlotAndAnalyzeExprs, boolean isPartialUpdate) throws UserException {
+            boolean needInitSlotAndAnalyzeExprs, TUniqueKeyUpdateMode uniquekeyUpdateMode) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
@@ -302,10 +301,15 @@ public class Load {
                 copiedColumnExprs.add(importColumnDesc);
             }
         }
-        // check whether the OlapTable has sequenceCol
+        // check whether the OlapTable has sequenceCol and skipBitmapCol
         boolean hasSequenceCol = false;
-        if (tbl instanceof OlapTable && ((OlapTable) tbl).hasSequenceCol()) {
-            hasSequenceCol = true;
+        boolean hasSequenceMapCol = false;
+        boolean hasSkipBitmapColumn = false;
+        if (tbl instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tbl;
+            hasSequenceCol = olapTable.hasSequenceCol();
+            hasSequenceMapCol = (olapTable.getSequenceMapCol() != null);
+            hasSkipBitmapColumn = olapTable.hasSkipBitmapColumn();
         }
 
         // If user does not specify the file field names, generate it by using base schema of table.
@@ -328,6 +332,25 @@ public class Load {
                     LOG.debug("add base column {} to stream load task", column.getName());
                 }
                 copiedColumnExprs.add(columnDesc);
+            }
+            if (hasSkipBitmapColumn && uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                Preconditions.checkArgument(!specifyFileFieldNames);
+                Preconditions.checkArgument(hiddenColumns == null);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add hidden column {} to stream load task", Column.DELETE_SIGN);
+                }
+                copiedColumnExprs.add(new ImportColumnDesc(Column.DELETE_SIGN));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add hidden column {} to stream load task", Column.SKIP_BITMAP_COL);
+                }
+                // allow to specify __DORIS_SEQUENCE_COL__ if table has sequence type column
+                if (hasSequenceCol && !hasSequenceMapCol) {
+                    copiedColumnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("add hidden column {} to stream load task", Column.SEQUENCE_COL);
+                    }
+                }
+                copiedColumnExprs.add(new ImportColumnDesc(Column.SKIP_BITMAP_COL));
             }
             if (hiddenColumns != null) {
                 for (String columnName : hiddenColumns) {
@@ -353,6 +376,11 @@ public class Load {
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
             colToType.put(columnName, column.getType());
+            if (column.getGeneratedColumnInfo() != null) {
+                GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+                exprsByName.put(column.getName(), info.getExpandExprForLoad());
+                continue;
+            }
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
@@ -364,7 +392,7 @@ public class Load {
                 exprsByName.put(column.getName(), NullLiteral.create(column.getType()));
                 continue;
             }
-            if (isPartialUpdate) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
                 continue;
             }
             if (column.isAutoInc()) {
@@ -436,9 +464,32 @@ public class Load {
                 if (formatType == TFileFormatType.FORMAT_ARROW) {
                     slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && hasSkipBitmapColumn) {
+                        // we store the unique ids of missing columns in skip bitmap column in flexible partial update
+                        int colUniqueId = tblColumn.getUniqueId();
+                        Column slotColumn = null;
+                        if (realColName.equals(Column.SKIP_BITMAP_COL)) {
+                            // don't change the skip_bitmap_col's type to varchar becasue we will fill this column
+                            // in NewJsonReader manually rather than reading them from files as varchar type and then
+                            // converting them to their real type
+                            slotColumn = new Column(realColName, PrimitiveType.BITMAP);
+                        } else {
+                            // columns default be varchar type
+                            slotColumn = new Column(realColName, PrimitiveType.VARCHAR);
+                        }
+                        // In flexible partial update, every row can update different columns, we should check
+                        // key columns intergrity for every row in XXXReader on BE rather than checking it on FE
+                        // directly for all rows like in fixed columns partial update. So we should set if a slot
+                        // is key column here
+                        slotColumn.setIsKey(tblColumn.isKey());
+                        slotColumn.setUniqueId(colUniqueId);
+                        slotDesc.setAutoInc(tblColumn.isAutoInc());
+                        slotDesc.setColumn(slotColumn);
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    }
                 }
 
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
@@ -550,11 +601,11 @@ public class Load {
                 }
             }
 
-            // Array type do not support cast now
+            // Array/Map/Struct type do not support cast now
             Type exprReturnType = expr.getType();
-            if (exprReturnType.isArrayType()) {
+            if (exprReturnType.isComplexType()) {
                 Type schemaType = tbl.getColumn(entry.getKey()).getType();
-                if (exprReturnType != schemaType) {
+                if (!exprReturnType.matchesType(schemaType)) {
                     throw new AnalysisException("Don't support load from type:" + exprReturnType + " to type:"
                             + schemaType + " for column:" + entry.getKey());
                 }
@@ -570,8 +621,13 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            exprsByName.get(slot.getColumnName())));
+                    if (tbl.getColumn(slot.getColumnName()).getType()
+                            .equals(exprsByName.get(slot.getColumnName()).getType())) {
+                        smap.getRhs().add(exprsByName.get(slot.getColumnName()));
+                    } else {
+                        smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
+                                exprsByName.get(slot.getColumnName())));
+                    }
                 } else if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(
@@ -611,30 +667,13 @@ public class Load {
                         importColumnDesc.setExpr(derivativeColumns.get(columnName));
                     }
                 } else {
-                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
+                    ExprUtil.recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
                 }
                 derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
             }
         }
 
         columnDescs.isColumnDescsRewrited = true;
-    }
-
-    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
-        if (CollectionUtils.isEmpty(expr.getChildren())) {
-            return;
-        }
-        for (int i = 0; i < expr.getChildren().size(); i++) {
-            Expr e = expr.getChild(i);
-            if (e instanceof SlotRef) {
-                String columnName = ((SlotRef) e).getColumnName();
-                if (derivativeColumns.containsKey(columnName)) {
-                    expr.setChild(i, derivativeColumns.get(columnName));
-                }
-            } else {
-                recursiveRewrite(e, derivativeColumns);
-            }
-        }
     }
 
     /**
@@ -1007,6 +1046,7 @@ public class Load {
             List<LoadJob> loadJobs = new ArrayList<>();
             for (Long dbId : dbToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -1042,6 +1082,7 @@ public class Load {
             List<LoadJob> loadJobs = new ArrayList<>();
             for (Long dbId : dbToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -1065,8 +1106,9 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 boolean auth = true;
                 for (String tblName : tableNames) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                            tblName, PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    tblName, PrivPredicate.LOAD)) {
                         auth = false;
                         break;
                     }
@@ -1231,15 +1273,17 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
-                            PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                                tblName, PrivPredicate.LOAD)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                        tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }
@@ -1291,91 +1335,6 @@ public class Load {
         }
 
         return jobId;
-    }
-
-    public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
-        LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-
-        LoadJob loadJob = getLoadJob(jobId);
-        if (loadJob == null
-                || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
-            return infos;
-        }
-
-        long dbId = loadJob.getDbId();
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            return infos;
-        }
-
-
-        readLock();
-        try {
-            Map<Long, TabletLoadInfo> tabletMap = loadJob.getIdToTabletLoadInfo();
-            for (long tabletId : tabletMap.keySet()) {
-                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                if (tabletMeta == null) {
-                    // tablet may be dropped during loading
-                    continue;
-                }
-
-                long tableId = tabletMeta.getTableId();
-
-                OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                if (table == null) {
-                    continue;
-                }
-                table.readLock();
-                try {
-                    long partitionId = tabletMeta.getPartitionId();
-                    Partition partition = table.getPartition(partitionId);
-                    if (partition == null) {
-                        continue;
-                    }
-
-                    long indexId = tabletMeta.getIndexId();
-                    MaterializedIndex index = partition.getIndex(indexId);
-                    if (index == null) {
-                        continue;
-                    }
-
-                    Tablet tablet = index.getTablet(tabletId);
-                    if (tablet == null) {
-                        continue;
-                    }
-
-                    PartitionLoadInfo partitionLoadInfo = loadJob.getPartitionLoadInfo(tableId, partitionId);
-                    long version = partitionLoadInfo.getVersion();
-
-                    for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, false)) {
-                            continue;
-                        }
-
-                        List<Comparable> info = Lists.newArrayList();
-                        info.add(replica.getBackendId());
-                        info.add(tabletId);
-                        info.add(replica.getId());
-                        info.add(replica.getVersion());
-                        info.add(partitionId);
-                        info.add(version);
-
-                        infos.add(info);
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-
-        // sort by version, backendId
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(3, 0);
-        Collections.sort(infos, comparator);
-
-        return infos;
     }
 
     public static class JobInfo {

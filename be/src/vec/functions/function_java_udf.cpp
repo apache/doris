@@ -42,11 +42,9 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
 Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
 
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+        SCOPED_TIMER(context->get_udf_execute_timer());
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
         context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
 
@@ -55,11 +53,15 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
         {
             std::string local_location;
             auto function_cache = UserFunctionCache::instance();
-            RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
-                                                        &local_location));
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn_);
-            ctor_params.__set_location(local_location);
+            // get jar path if both file path location and checksum are null
+            if (!fn_.hdfs_location.empty() && !fn_.checksum.empty()) {
+                RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
+                                                            &local_location));
+                ctor_params.__set_location(local_location);
+            }
+
             jbyteArray ctor_params_bytes;
 
             // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -89,13 +91,13 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
 }
 
 Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
-                                      const ColumnNumbers& arguments, size_t result,
+                                      const ColumnNumbers& arguments, uint32_t result,
                                       size_t num_rows) const {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-
+    SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(JniConnector::to_java_table(&block, num_rows, arguments, input_table));
     auto input_table_schema = JniConnector::parse_table_schema(&block, arguments, true);

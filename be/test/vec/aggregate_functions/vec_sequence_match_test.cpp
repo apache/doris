@@ -55,9 +55,9 @@ public:
                 std::make_shared<DataTypeString>(), std::make_shared<DataTypeDateTime>(),
                 std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>()};
-        agg_function_sequence_match = factory.get("sequence_match", data_types, false);
+        agg_function_sequence_match = factory.get("sequence_match", data_types, false, -1);
         EXPECT_NE(agg_function_sequence_match, nullptr);
-        agg_function_sequence_count = factory.get("sequence_count", data_types, false);
+        agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
         EXPECT_NE(agg_function_sequence_count, nullptr);
     }
 
@@ -132,7 +132,7 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -191,7 +191,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     DataTypes data_types = {std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                             std::make_shared<DataTypeUInt8>()};
-    agg_function_sequence_count = factory.get("sequence_count", data_types, false);
+    agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
     EXPECT_NE(agg_function_sequence_count, nullptr);
 
     const int NUM_CONDS = 4;
@@ -203,7 +203,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -256,7 +256,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     DataTypes data_types = {std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                             std::make_shared<DataTypeUInt8>()};
-    agg_function_sequence_match = factory.get("sequence_match", data_types, false);
+    agg_function_sequence_match = factory.get("sequence_match", data_types, false, -1);
     EXPECT_NE(agg_function_sequence_match, nullptr);
 
     const int NUM_CONDS = 2;
@@ -268,7 +268,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -309,7 +309,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     auto column_timestamp2 = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
         column_timestamp2->insert_data((char*)&time_value, 0);
     }
 
@@ -345,7 +345,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     DataTypes data_types = {std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                             std::make_shared<DataTypeUInt8>()};
-    agg_function_sequence_count = factory.get("sequence_count", data_types, false);
+    agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
     EXPECT_NE(agg_function_sequence_count, nullptr);
 
     const int NUM_CONDS = 2;
@@ -357,7 +357,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
@@ -398,7 +398,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     auto column_timestamp2 = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
+        time_value.unchecked_set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
         column_timestamp2->insert_data((char*)&time_value, 0);
     }
 

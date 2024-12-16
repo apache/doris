@@ -26,7 +26,6 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.List;
 
 public class AlterJobV2Factory {
@@ -56,21 +55,6 @@ public class AlterJobV2Factory {
             return new RollupJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                     rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
                     baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
-        }
-    }
-
-    public static AlterJobV2 rebuildAlterJobV2(AlterJobV2 job) throws AnalysisException {
-        try {
-            if (Config.isCloudMode()) {
-                if (job.getType() == AlterJobV2.JobType.SCHEMA_CHANGE) {
-                    job = CloudSchemaChangeJobV2.buildCloudSchemaChangeJobV2((SchemaChangeJobV2) job);
-                } else if (job.getType() == AlterJobV2.JobType.ROLLUP) {
-                    job = CloudRollupJobV2.buildCloudRollupJobV2((RollupJobV2) job);
-                }
-            }
-            return job;
-        } catch (IOException e) {
-            throw new AnalysisException(e.getMessage());
         }
     }
 }

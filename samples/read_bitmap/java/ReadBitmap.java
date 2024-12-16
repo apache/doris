@@ -36,7 +36,7 @@ import java.sql.Statement;
  * {@code
  * CREATE TABLE `t_bitmap` (
  *   `rn` int(11) NULL,
- *   `uids` bitmap BITMAP_UNION NULL
+ *   `uids` bitmap BITMAP_UNION 
  * ) AGGREGATE KEY(`rn`)
  * DISTRIBUTED BY HASH(`rn`) BUCKETS 1
  * PROPERTIES (

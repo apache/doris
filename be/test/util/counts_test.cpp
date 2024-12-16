@@ -20,6 +20,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstdint>
+
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -27,7 +29,7 @@ namespace doris {
 class TCountsTest : public testing::Test {};
 
 TEST_F(TCountsTest, TotalTest) {
-    Counts counts;
+    Counts<int64_t> counts;
     // 1 1 1 2 5 7 7 9 9 19
     // >>> import numpy as np
     // >>> a = np.array([1,1,1,2,5,7,7,9,9,19])
@@ -42,26 +44,39 @@ TEST_F(TCountsTest, TotalTest) {
 
     double result = counts.terminate(0.2);
     EXPECT_EQ(1, result);
-    uint8_t* writer = new uint8_t[counts.serialized_size()];
-    uint8_t* type_reader = writer;
-    counts.serialize(writer);
 
-    Counts other;
-    other.unserialize(type_reader);
+    auto cs = vectorized::ColumnString::create();
+    vectorized::BufferWritable bw(*cs);
+    counts.serialize(bw);
+    bw.commit();
+
+    Counts<int64_t> other;
+    StringRef res(cs->get_chars().data(), cs->get_chars().size());
+    vectorized::BufferReadable br(res);
+    other.unserialize(br);
     double result1 = other.terminate(0.2);
     EXPECT_EQ(result, result1);
 
-    Counts other1;
+    Counts<int64_t> other1;
     other1.increment(1, 1);
     other1.increment(100, 3);
     other1.increment(50, 3);
     other1.increment(10, 1);
     other1.increment(99, 2);
 
-    counts.merge(&other1);
+    // deserialize other1
+    cs->clear();
+    other1.serialize(bw);
+    bw.commit();
+    Counts<int64_t> other1_deserialized;
+    vectorized::BufferReadable br1(res);
+    other1_deserialized.unserialize(br1);
+
+    Counts<int64_t> merge_res;
+    merge_res.merge(&other);
+    merge_res.merge(&other1_deserialized);
     // 1 1 1 1 2 5 7 7 9 9 10 19 50 50 50 99 99 100 100 100
-    EXPECT_EQ(counts.terminate(0.3), 6.4);
-    delete[] writer;
+    EXPECT_EQ(merge_res.terminate(0.3), 6.4);
 }
 
 } // namespace doris

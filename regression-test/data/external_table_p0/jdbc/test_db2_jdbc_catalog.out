@@ -57,6 +57,7 @@ SYSSTAT
 SYSTOOLS
 TEST
 information_schema
+mysql
 
 -- !select_xml --
 1000	<catalog><book><author> Gambardella Matthew</author><title>XML Developers Guide</title><genre>Computer</genre><price>44.95</price><publish_date>2000-10-01</publish_date><description>An in-depth look at creating application\n                          with XML</description></book></catalog>

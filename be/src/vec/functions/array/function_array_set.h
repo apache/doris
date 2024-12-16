@@ -21,7 +21,6 @@
 
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function_helpers.h"
@@ -48,7 +47,7 @@ template <SetOperation operation, typename ColumnType>
 struct OpenSetImpl {
     using Element = typename ColumnType::value_type;
     using ElementNativeType = typename NativeType<Element>::Type;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Set = phmap::flat_hash_set<ElementNativeType>;
     using Action = typename ActionImpl<Set, Element, operation>::Action;
     Action action;
     Set set;
@@ -85,7 +84,7 @@ struct OpenSetImpl {
 
 template <SetOperation operation>
 struct OpenSetImpl<operation, ColumnString> {
-    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    using Set = phmap::flat_hash_set<StringRef>;
     using Action = typename ActionImpl<Set, StringRef, operation>::Action;
     Action action;
     Set set;
@@ -181,7 +180,11 @@ private:
         constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
         size_t current = 0;
         Impl impl;
-        for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+        size_t row_size = left_data.offsets_ptr->size();
+        if constexpr (LCONST) {
+            row_size = right_data.offsets_ptr->size();
+        }
+        for (size_t row = 0; row < row_size; ++row) {
             size_t count = 0;
             size_t left_off = (*left_data.offsets_ptr)[index_check_const(row, LCONST) - 1];
             size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST)] - left_off;

@@ -43,7 +43,7 @@ import java.util.Set;
 //
 // Syntax:
 //      SHOW VIEW { FROM | IN } table [ FROM db ]
-public class ShowViewStmt extends ShowStmt {
+public class ShowViewStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("View", ScalarType.createVarchar(30)))
@@ -93,7 +93,7 @@ public class ShowViewStmt extends ShowStmt {
 
         String dbName = tbl.getDb();
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
-                ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
+                ConnectContext.get(), tbl.getCtl(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),

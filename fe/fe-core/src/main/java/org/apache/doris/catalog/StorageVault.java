@@ -17,16 +17,24 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
+import com.google.protobuf.TextFormat;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.IntStream;
 
 public abstract class StorageVault {
     private static final Logger LOG = LogManager.getLogger(StorageVault.class);
@@ -51,10 +59,14 @@ public abstract class StorageVault {
         }
     }
 
+    protected static final String VAULT_NAME = "VAULT_NAME";
     protected String name;
     protected StorageVaultType type;
     protected String id;
     private boolean ifNotExists;
+    private boolean setAsDefault;
+    private int pathVersion = 0;
+    private int numShard = 0;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -77,22 +89,32 @@ public abstract class StorageVault {
     public StorageVault() {
     }
 
-    public StorageVault(String name, StorageVaultType type, boolean ifNotExists) {
+    public StorageVault(String name, StorageVaultType type, boolean ifNotExists, boolean setAsDefault) {
         this.name = name;
         this.type = type;
         this.ifNotExists = ifNotExists;
+        this.setAsDefault = setAsDefault;
     }
 
-    public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException {
-        StorageVault storageVault = getStorageVaultInstance(stmt);
-        storageVault.setProperties(stmt.getProperties());
-        return storageVault;
+    public static StorageVault fromStmt(CreateStorageVaultStmt stmt) throws DdlException, UserException {
+        return getStorageVaultInstance(stmt);
     }
 
     public boolean ifNotExists() {
         return this.ifNotExists;
     }
 
+    public boolean setAsDefault() {
+        return this.setAsDefault;
+    }
+
+    public int getPathVersion() {
+        return pathVersion;
+    }
+
+    public int getNumShard() {
+        return numShard;
+    }
 
     public String getId() {
         return this.id;
@@ -109,19 +131,29 @@ public abstract class StorageVault {
      * @return
      * @throws DdlException
      */
-    private static StorageVault getStorageVaultInstance(CreateStorageVaultStmt stmt) throws DdlException {
+    private static StorageVault
+            getStorageVaultInstance(CreateStorageVaultStmt stmt) throws DdlException, UserException {
         StorageVaultType type = stmt.getStorageVaultType();
         String name = stmt.getStorageVaultName();
         boolean ifNotExists = stmt.isIfNotExists();
+        boolean setAsDefault = stmt.setAsDefault();
         StorageVault vault;
         switch (type) {
             case HDFS:
-                vault = new HdfsStorageVault(name, ifNotExists);
+                vault = new HdfsStorageVault(name, ifNotExists, setAsDefault);
+                vault.modifyProperties(stmt.getProperties());
+                break;
+            case S3:
+                CreateResourceStmt resourceStmt =
+                        new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
+                resourceStmt.analyzeResourceType();
+                vault = new S3StorageVault(name, ifNotExists, setAsDefault, resourceStmt);
                 break;
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
-
+        vault.pathVersion = stmt.getPathVersion();
+        vault.numShard = stmt.getNumShard();
         return vault;
     }
 
@@ -153,10 +185,63 @@ public abstract class StorageVault {
         }
     }
 
-    /**
-     * Set and check the properties in child resources
-     */
-    protected abstract void setProperties(Map<String, String> properties) throws DdlException;
-
     public abstract Map<String, String> getCopiedProperties();
+
+    public static final ShowResultSetMetaData STORAGE_VAULT_META_DATA =
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("Name", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Id", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
+                .addColumn(new Column("IsDefault", ScalarType.createVarchar(5)))
+                .build();
+
+    public static List<String> convertToShowStorageVaultProperties(Cloud.StorageVaultPB vault) {
+        List<String> row = new ArrayList<>();
+        row.add(vault.getName());
+        row.add(vault.getId());
+        TextFormat.Printer printer = TextFormat.printer();
+        if (vault.hasHdfsInfo()) {
+            Cloud.HdfsVaultInfo.Builder builder = Cloud.HdfsVaultInfo.newBuilder();
+            builder.mergeFrom(vault.getHdfsInfo());
+            row.add(printer.shortDebugString(builder));
+        }
+        if (vault.hasObjInfo()) {
+            Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+            builder.mergeFrom(vault.getObjInfo());
+            builder.clearId();
+            builder.setSk("xxxxxxx");
+            row.add(printer.shortDebugString(builder));
+        }
+        row.add("false");
+        return row;
+    }
+
+    public static void setDefaultVaultToShowVaultResult(List<List<String>> rows, String vaultId) {
+        List<Column> columns = STORAGE_VAULT_META_DATA.getColumns();
+
+        int isDefaultIndex = IntStream.range(0, columns.size())
+                .filter(i -> columns.get(i).getName().equals("IsDefault"))
+                .findFirst()
+                .orElse(-1);
+
+        if (isDefaultIndex == -1) {
+            return;
+        }
+
+        int vaultIdIndex = IntStream.range(0, columns.size())
+                .filter(i -> columns.get(i).getName().equals("Id"))
+                .findFirst()
+                .orElse(-1);
+
+        if (vaultIdIndex == -1) {
+            return;
+        }
+
+        for (int cnt = 0; cnt < rows.size(); cnt++) {
+            if (rows.get(cnt).get(vaultIdIndex).equals(vaultId)) {
+                List<String> defaultVaultRow = rows.get(cnt);
+                defaultVaultRow.set(isDefaultIndex, "true");
+            }
+        }
+    }
 }

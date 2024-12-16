@@ -126,7 +126,9 @@ rm -rf "${ORI_OUTPUT}"
 
 FE="fe"
 BE="be"
+CLOUD="ms"
 EXT="extensions"
+TOOLS="tools"
 PACKAGE="apache-doris-${VERSION}-bin-${ARCH}"
 
 if [[ "${_USE_AVX2}" == "0" ]]; then
@@ -137,29 +139,38 @@ OUTPUT="${ORI_OUTPUT}/${PACKAGE}"
 OUTPUT_FE="${OUTPUT}/${FE}"
 OUTPUT_EXT="${OUTPUT}/${EXT}"
 OUTPUT_BE="${OUTPUT}/${BE}"
+OUTPUT_CLOUD="${OUTPUT}/${CLOUD}"
+OUTPUT_TOOLS="${OUTPUT}/${TOOLS}"
 
 echo "Package Name:"
-echo "FE:   ${OUTPUT_FE}"
-echo "BE:   ${OUTPUT_BE}"
-echo "JAR:  ${OUTPUT_EXT}"
+echo "FE:    ${OUTPUT_FE}"
+echo "BE:    ${OUTPUT_BE}"
+echo "CLOUD: ${OUTPUT_CLOUD}"
+echo "JAR:   ${OUTPUT_EXT}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
-    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool
+    USE_AVX2="${_USE_AVX2}" sh build.sh --be --meta-tool --be-extension-ignore avro-scanner
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
-mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}"
+mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}" "${OUTPUT_CLOUD}" "${OUTPUT_TOOLS}"
 
 # FE
 cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
 
 # EXT
 cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
-cp -R "${ORI_OUTPUT}"/audit_loader "${OUTPUT_EXT}"/audit_loader
 
 # BE
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/
+
+# CLOUD
+if [[ "${ARCH}" == "arm64" ]]; then
+    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
+else
+    cp -R "${ORI_OUTPUT}"/ms/* "${OUTPUT_CLOUD}"/
+fi
 
 if [[ "${TAR}" -eq 1 ]]; then
     echo "Begin to compress"
@@ -167,6 +178,9 @@ if [[ "${TAR}" -eq 1 ]]; then
     tar -cf - "${PACKAGE}" | xz -T0 -z - >"${PACKAGE}".tar.xz
     cd -
 fi
+
+# TOOL
+cp -R "${ORI_OUTPUT}"/tools/* "${OUTPUT_TOOLS}"/
 
 echo "Output dir: ${OUTPUT}"
 exit 0

@@ -27,11 +27,14 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -40,11 +43,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Util for plan
@@ -92,6 +95,30 @@ public class PlanUtils {
     }
 
     /**
+     * For the columns whose output exists in grouping sets, they need to be assigned as nullable.
+     */
+    public static List<NamedExpression> adjustNullableForRepeat(
+            List<List<Expression>> groupingSets,
+            List<NamedExpression> outputs) {
+        Set<Slot> groupingSetsUsedSlots = groupingSets.stream()
+                .flatMap(Collection::stream)
+                .map(Expression::getInputSlots)
+                .flatMap(Set::stream)
+                .collect(Collectors.toSet());
+        Builder<NamedExpression> nullableOutputs = ImmutableList.builderWithExpectedSize(outputs.size());
+        for (NamedExpression output : outputs) {
+            Expression nullableOutput = output.rewriteUp(expr -> {
+                if (expr instanceof Slot && groupingSetsUsedSlots.contains(expr)) {
+                    return ((Slot) expr).withNullable(true);
+                }
+                return expr;
+            });
+            nullableOutputs.add((NamedExpression) nullableOutput);
+        }
+        return nullableOutputs.build();
+    }
+
+    /**
      * merge childProjects with parentProjects
      */
     public static List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
@@ -115,10 +142,7 @@ public class PlanUtils {
     }
 
     public static Set<LogicalCatalogRelation> getLogicalScanFromRootPlan(LogicalPlan rootPlan) {
-        Set<LogicalCatalogRelation> tableSet = new HashSet<>();
-        tableSet.addAll((Collection<? extends LogicalCatalogRelation>) rootPlan
-                .collect(LogicalCatalogRelation.class::isInstance));
-        return tableSet;
+        return rootPlan.collect(LogicalCatalogRelation.class::isInstance);
     }
 
     /**
@@ -153,6 +177,30 @@ public class PlanUtils {
             output.addAll(child.getOutput());
         }
         return output.build();
+    }
+
+    /** fastGetInputSlots */
+    public static Set<Slot> fastGetInputSlots(List<? extends Expression> expressions) {
+        switch (expressions.size()) {
+            case 1: return expressions.get(0).getInputSlots();
+            case 0: return ImmutableSet.of();
+            default: {
+            }
+        }
+
+        int inputSlotsNum = 0;
+        // child.inputSlots is cached by Expression.inputSlots,
+        // we can compute output num without the overhead of re-compute output
+        for (Expression expr : expressions) {
+            Set<Slot> output = expr.getInputSlots();
+            inputSlotsNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        ImmutableSet.Builder<Slot> inputSlots = ImmutableSet.builderWithExpectedSize(inputSlotsNum);
+        for (Expression expr : expressions) {
+            inputSlots.addAll(expr.getInputSlots());
+        }
+        return inputSlots.build();
     }
 
     /**
@@ -210,6 +258,43 @@ public class PlanUtils {
                     return false;
                 }
             });
+        }
+    }
+
+    /**OutermostPlanFinderContext*/
+    public static class OutermostPlanFinderContext {
+        public Plan outermostPlan = null;
+        public boolean found = false;
+    }
+
+    /**OutermostPlanFinder*/
+    public static class OutermostPlanFinder extends
+            DefaultPlanVisitor<Void, OutermostPlanFinderContext> {
+        public static final OutermostPlanFinder INSTANCE = new OutermostPlanFinder();
+
+        @Override
+        public Void visit(Plan plan, OutermostPlanFinderContext ctx) {
+            if (ctx.found) {
+                return null;
+            }
+            ctx.outermostPlan = plan;
+            ctx.found = true;
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+                OutermostPlanFinderContext ctx) {
+            if (ctx.found) {
+                return null;
+            }
+            return super.visit(cteAnchor, ctx);
+        }
+
+        @Override
+        public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
+                OutermostPlanFinderContext ctx) {
+            return null;
         }
     }
 }

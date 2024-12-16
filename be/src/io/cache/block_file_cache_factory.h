@@ -21,7 +21,9 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/status.h"
@@ -29,6 +31,10 @@
 #include "io/cache/file_cache_common.h"
 namespace doris {
 class TUniqueId;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 namespace io {
 
@@ -46,7 +52,8 @@ public:
 
     size_t try_release(const std::string& base_path);
 
-    const std::string& get_cache_path() {
+    std::string_view pick_one_cache_path() {
+        DCHECK(!_caches.empty());
         size_t cur_index = _next_index.fetch_add(1);
         return _caches[cur_index % _caches.size()]->get_base_path();
     }
@@ -55,16 +62,40 @@ public:
 
     [[nodiscard]] size_t get_cache_instance_size() const { return _caches.size(); }
 
+    std::vector<std::string> get_cache_file_by_path(const UInt128Wrapper& hash);
+
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);
     std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
-    void clear_file_caches(bool sync);
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param sync wait until all data cleared
+     * @return summary message
+     */
+    std::string clear_file_caches(bool sync);
+
+    std::vector<std::string> get_base_paths();
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param path file cache absolute path
+     * @param new_capacity
+     * @return summary message
+     */
+    std::string reset_capacity(const std::string& path, int64_t new_capacity);
+
+    void get_cache_stats_block(vectorized::Block* block);
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
+    std::mutex _mtx;
     std::vector<std::unique_ptr<BlockFileCache>> _caches;
     std::unordered_map<std::string, BlockFileCache*> _path_to_cache;
     size_t _capacity = 0;

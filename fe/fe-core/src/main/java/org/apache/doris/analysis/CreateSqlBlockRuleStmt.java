@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
       )
 */
 @Getter
-public class CreateSqlBlockRuleStmt extends DdlStmt {
+public class CreateSqlBlockRuleStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final String SQL_PROPERTY = "sql";
 
@@ -165,5 +165,10 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
         sb.append("CREATE SQL_BLOCK_RULE ").append(ruleName).append(" \nPROPERTIES(\n")
                 .append(new PrintableMap<>(properties, " = ", true, true, true)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

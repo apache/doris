@@ -20,13 +20,13 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.Lists;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 public class JdbcDB2Client extends JdbcClient {
@@ -35,41 +35,37 @@ public class JdbcDB2Client extends JdbcClient {
         super(jdbcClientConfig);
     }
 
+    public String getTestQuery() {
+        return "select 1 from sysibm.sysdummy1";
+    }
+
     @Override
     public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
-        Statement stmt = null;
+        Connection conn = null;
         ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
-            while (rs.next()) {
-                remoteDatabaseNames.add(rs.getString("TABLE_SCHEM").trim());
+            conn = getConnection();
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getSchema().trim();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_SCHEM").trim());
+                }
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(rs, stmt, conn);
+            close(rs, conn);
         }
         return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
-    protected String getDatabaseQuery() {
-        return "SELECT schemaname FROM syscat.schemata WHERE DEFINER = CURRENT USER;";
-    }
-
-    @Override
-    protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
-    }
-
-    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String db2Type = fieldSchema.getDataTypeName();
+        String db2Type = fieldSchema.getDataTypeName().orElse("unknown");
         switch (db2Type) {
             case "SMALLINT":
                 return Type.SMALLINT;
@@ -79,8 +75,8 @@ public class JdbcDB2Client extends JdbcClient {
                 return Type.BIGINT;
             case "DECFLOAT":
             case "DECIMAL": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 return createDecimalOrStringType(precision, scale);
             }
             case "DOUBLE":
@@ -89,18 +85,18 @@ public class JdbcDB2Client extends JdbcClient {
                 return Type.FLOAT;
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
+                charType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return charType;
             case "VARCHAR":
             case "LONG VARCHAR":
                 ScalarType varcharType = ScalarType.createType(PrimitiveType.VARCHAR);
-                varcharType.setLength(fieldSchema.columnSize);
+                varcharType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return varcharType;
             case "DATE":
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits();
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }

@@ -20,43 +20,21 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/field.h"
-#include "vec/exec/vsort_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class SortSinkOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
-public:
-    SortSinkOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class SortSinkOperator final : public StreamingOperator<vectorized::VSortNode> {
-public:
-    SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-
-    bool can_write() override { return true; }
-};
-
-enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
+namespace doris::pipeline {
 
 class SortSinkOperatorX;
 
 class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
+    using Base = PipelineXSinkLocalState<SortSharedState>;
 
 public:
-    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortSharedState>(parent, state) {}
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SortSinkOperatorX;
@@ -68,12 +46,14 @@ private:
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
+    RuntimeProfile::Counter* _append_blocks_timer = nullptr;
+    RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 };
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                      const DescriptorTbl& descs);
+                      const DescriptorTbl& descs, const bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);
@@ -81,22 +61,21 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
-            return _is_colocate
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
+        } else {
+            return {ExchangeType::NOOP};
         }
-        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
-
-    bool is_full_sort() const { return _algorithm == SortAlgorithm::FULL_SORT; }
+    bool require_data_distribution() const override { return _is_colocate; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
@@ -118,18 +97,16 @@ private:
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
-    bool _reuse_mem;
     const int64_t _limit;
-    const bool _use_topn_opt;
-    SortAlgorithm _algorithm;
 
     const RowDescriptor _row_descriptor;
-    const bool _use_two_phase_read;
     const bool _merge_by_exchange;
     const bool _is_colocate = false;
+    const bool _require_bucket_distribution = false;
     const bool _is_analytic_sort = false;
     const std::vector<TExpr> _partition_exprs;
+    const TSortAlgorithm::type _algorithm;
+    const bool _reuse_mem;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

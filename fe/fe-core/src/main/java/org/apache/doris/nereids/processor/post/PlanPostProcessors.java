@@ -59,11 +59,18 @@ public class PlanPostProcessors {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
+        builder.add(new RemoveUselessProjectPostProcessor());
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
-        builder.add(new AddOffsetIntoDistribute());
+        if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
+            builder.add(new ProjectAggregateExpressionsForCse());
+        }
+        builder.add(new CommonSubExpressionOpt());
+        // DO NOT replace PLAN NODE from here
+        if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
+            builder.add(new PushTopnToAgg());
+        }
         builder.add(new TopNScanOpt());
-        // after generate rf, DO NOT replace PLAN NODE
         builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {

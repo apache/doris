@@ -19,8 +19,9 @@ package org.apache.doris.metric;
 
 public class GaugeMetricImpl<T> extends GaugeMetric<T> {
 
-    public GaugeMetricImpl(String name, MetricUnit unit, String description) {
+    public GaugeMetricImpl(String name, MetricUnit unit, String description, T defaultValue) {
         super(name, unit, description);
+        this.value = defaultValue;
     }
 
     private T value;

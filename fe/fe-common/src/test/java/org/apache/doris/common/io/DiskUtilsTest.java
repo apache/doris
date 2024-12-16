@@ -23,28 +23,34 @@ import org.junit.Test;
 public class DiskUtilsTest {
     @Test
     public void testSiseFormat() {
-        long [] keys = new long[]{
-            1L,
-            1L * 1024,
-            1L * 1024 * 1024,
-            1L * 1024 * 1024 * 1024,
-            1L * 1024 * 1024 * 1024 * 1024,
-            1L * 1024 * 1024 * 1024 * 1024 * 1024,
-            1L * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
+        long[] keys = new long[] {
+                1L,
+                1L * 1024,
+                1L * 1024 * 1024,
+                1L * 1024 * 1024 * 1024,
+                1L * 1024 * 1024 * 1024 * 1024,
+                1L * 1024 * 1024 * 1024 * 1024 * 1024,
+                1L * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
         };
 
-        String[] values = new String[]{
-            "1",
-            "1K",
-            "1M",
-            "1G",
-            "1T",
-            "1P",
-            "1024P",
+        String[] values = new String[] {
+                "1",
+                "1K",
+                "1M",
+                "1G",
+                "1T",
+                "1P",
+                "1024P",
         };
 
         for (int i = 0; i < values.length; i++) {
             Assert.assertEquals(values[i], DiskUtils.sizeFormat(keys[i]));
         }
+    }
+
+    @Test
+    public void testDf() {
+        DiskUtils.Df d = DiskUtils.df("/proc");
+        Assert.assertTrue(d.fileSystem.length() != 0);
     }
 }

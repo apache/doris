@@ -39,6 +39,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/binary_cast.hpp"
+#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
@@ -51,8 +52,8 @@ class TRuntimeProfileTree;
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
 
 #define ADD_LABEL_COUNTER(profile, name) (profile)->add_counter(name, TUnit::NONE)
-#define ADD_LABEL_COUNTER_WITH_LEVEL(profile, name, type) \
-    (profile)->add_counter_with_level(name, TUnit::NONE, type)
+#define ADD_LABEL_COUNTER_WITH_LEVEL(profile, name, level) \
+    (profile)->add_counter_with_level(name, TUnit::NONE, level)
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_COUNTER_WITH_LEVEL(profile, name, type, level) \
     (profile)->add_counter_with_level(name, type, level)
@@ -99,6 +100,8 @@ public:
                 : _value(value), _type(type), _level(level) {}
         virtual ~Counter() = default;
 
+        virtual Counter* clone() const { return new Counter(type(), value(), _level); }
+
         virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
 
         void bit_or(int64_t delta) { _value.fetch_or(delta, std::memory_order_relaxed); }
@@ -116,9 +119,27 @@ public:
             return binary_cast<int64_t, double>(_value.load(std::memory_order_relaxed));
         }
 
+        virtual void to_thrift(const std::string& name, std::vector<TCounter>& tcounters,
+                               std::map<std::string, std::set<std::string>>& child_counters_map) {
+            TCounter counter;
+            counter.name = name;
+            counter.value = this->value();
+            counter.type = this->type();
+            counter.__set_level(this->level());
+            tcounters.push_back(std::move(counter));
+        }
+
+        virtual void pretty_print(std::ostream* s, const std::string& prefix,
+                                  const std::string& name) const {
+            std::ostream& stream = *s;
+            stream << prefix << "   - " << name << ": "
+                   << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type())
+                   << std::endl;
+        }
+
         TUnit::type type() const { return _type; }
 
-        virtual int64_t level() { return _level; }
+        virtual int64_t level() const { return _level; }
 
     private:
         friend class RuntimeProfile;
@@ -132,14 +153,55 @@ public:
     /// as value()) and the current value.
     class HighWaterMarkCounter : public Counter {
     public:
-        HighWaterMarkCounter(TUnit::type unit, int64_t level = 2)
-                : Counter(unit, 0, level), current_value_(0) {}
+        HighWaterMarkCounter(TUnit::type unit, int64_t level, const std::string& parent_name,
+                             int64_t value = 0, int64_t current_value = 0)
+                : Counter(unit, value, level),
+                  current_value_(current_value),
+                  _parent_name(parent_name) {}
 
-        virtual void add(int64_t delta) {
+        virtual Counter* clone() const override {
+            return new HighWaterMarkCounter(type(), level(), parent_name(), value(),
+                                            current_value());
+        }
+
+        void add(int64_t delta) {
             current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
                 UpdateMax(current_value_);
             }
+        }
+        virtual void update(int64_t delta) override { add(delta); }
+
+        virtual void to_thrift(
+                const std::string& name, std::vector<TCounter>& tcounters,
+                std::map<std::string, std::set<std::string>>& child_counters_map) override {
+            {
+                TCounter counter;
+                counter.name = name;
+                counter.value = this->current_value();
+                counter.type = this->type();
+                counter.__set_level(this->level());
+                tcounters.push_back(std::move(counter));
+            }
+            {
+                TCounter counter;
+                std::string peak_name = name + "Peak";
+                counter.name = peak_name;
+                counter.value = this->value();
+                counter.type = this->type();
+                counter.__set_level(this->level());
+                tcounters.push_back(std::move(counter));
+                child_counters_map[_parent_name].insert(peak_name);
+            }
+        }
+
+        virtual void pretty_print(std::ostream* s, const std::string& prefix,
+                                  const std::string& name) const override {
+            std::ostream& stream = *s;
+            stream << prefix << "   - " << name
+                   << " Current: " << PrettyPrinter::print(current_value(), type()) << " (Peak: "
+                   << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type()) << ")"
+                   << std::endl;
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
@@ -164,6 +226,8 @@ public:
 
         int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }
 
+        std::string parent_name() const { return _parent_name; }
+
     private:
         /// Set '_value' to 'v' if 'v' is larger than '_value'. The entire operation is
         /// atomic.
@@ -184,6 +248,8 @@ public:
         /// The current value of the counter. _value in the super class represents
         /// the high water mark.
         std::atomic<int64_t> current_value_;
+
+        const std::string _parent_name;
     };
 
     using DerivedCounterFunction = std::function<int64_t()>;
@@ -192,13 +258,45 @@ public:
     // Do not call Set() and Update().
     class DerivedCounter : public Counter {
     public:
-        DerivedCounter(TUnit::type type, const DerivedCounterFunction& counter_fn)
-                : Counter(type, 0), _counter_fn(counter_fn) {}
+        DerivedCounter(TUnit::type type, const DerivedCounterFunction& counter_fn,
+                       int64_t value = 0, int64_t level = 1)
+                : Counter(type, value, level), _counter_fn(counter_fn) {}
+
+        virtual Counter* clone() const override {
+            return new DerivedCounter(type(), _counter_fn, value(), level());
+        }
 
         int64_t value() const override { return _counter_fn(); }
 
     private:
         DerivedCounterFunction _counter_fn;
+    };
+
+    // NonZeroCounter will not be converted to Thrift if the value is 0.
+    class NonZeroCounter : public Counter {
+    public:
+        NonZeroCounter(TUnit::type type, int64_t level, const std::string& parent_name,
+                       int64_t value = 0)
+                : Counter(type, value, level), _parent_name(parent_name) {}
+
+        virtual Counter* clone() const override {
+            return new NonZeroCounter(type(), level(), parent_name(), value());
+        }
+
+        void to_thrift(const std::string& name, std::vector<TCounter>& tcounters,
+                       std::map<std::string, std::set<std::string>>& child_counters_map) override {
+            if (this->_value > 0) {
+                Counter::to_thrift(name, tcounters, child_counters_map);
+            } else {
+                // remove it
+                child_counters_map[_parent_name].erase(name);
+            }
+        }
+
+        std::string parent_name() const { return _parent_name; }
+
+    private:
+        const std::string _parent_name;
     };
 
     // An EventSequence captures a sequence of events (each added by
@@ -263,14 +361,6 @@ public:
     /// otherwise appended after other child profiles.
     RuntimeProfile* create_child(const std::string& name, bool indent = true, bool prepend = false);
 
-    // Sorts all children according to a custom comparator. Does not
-    // invalidate pointers to profiles.
-    template <class Compare>
-    void sort_childer(const Compare& cmp) {
-        std::lock_guard<std::mutex> l(_children_lock);
-        std::sort(_children.begin(), _children.end(), cmp);
-    }
-
     // Merges the src profile into this one, combining counters that have an identical
     // path. Info strings from profiles are not merged. 'src' would be a const if it
     // weren't for locking.
@@ -298,6 +388,10 @@ public:
     Counter* add_counter_with_level(const std::string& name, TUnit::type type, int64_t level) {
         return add_counter(name, type, "", level);
     }
+
+    NonZeroCounter* add_nonzero_counter(const std::string& name, TUnit::type type,
+                                        const std::string& parent_counter_name = "",
+                                        int64_t level = 2);
 
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
@@ -535,10 +629,6 @@ private:
     static void print_child_counters(const std::string& prefix, const std::string& counter_name,
                                      const CounterMap& counter_map,
                                      const ChildCounterMap& child_counter_map, std::ostream* s);
-
-    static std::string print_counter(Counter* counter) {
-        return PrettyPrinter::print(counter->value(), counter->type());
-    }
 };
 
 // Utility class to update the counter at object construction and destruction.

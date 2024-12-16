@@ -35,9 +35,20 @@ void DumpStackTraceToString(std::string* stacktrace);
 
 namespace doris {
 
-std::string get_stack_trace(int start_pointers_index) {
-#ifdef ENABLE_STACKTRACE
+std::string get_stack_trace(int start_pointers_index, std::string dwarf_location_info_mode) {
+#ifndef BE_TEST
+    if (!config::enable_stacktrace) {
+        return "no enable stacktrace";
+    }
+#endif
+    if (dwarf_location_info_mode.empty()) {
+        dwarf_location_info_mode = config::dwarf_location_info_mode;
+    }
+#ifdef BE_TEST
+    auto tool = std::string {"libunwind"};
+#else
     auto tool = config::get_stack_trace_tool;
+#endif
     if (tool == "glog") {
         return get_stack_trace_by_glog();
     } else if (tool == "boost") {
@@ -48,12 +59,10 @@ std::string get_stack_trace(int start_pointers_index) {
 #if defined(__APPLE__) // TODO
         return get_stack_trace_by_glog();
 #endif
-        return get_stack_trace_by_libunwind(start_pointers_index);
+        return get_stack_trace_by_libunwind(start_pointers_index, dwarf_location_info_mode);
     } else {
         return "no stack";
     }
-#endif
-    return "no enable stack";
 }
 
 std::string get_stack_trace_by_glog() {
@@ -80,8 +89,9 @@ std::string get_stack_trace_by_glibc() {
     return out.str();
 }
 
-std::string get_stack_trace_by_libunwind(int start_pointers_index) {
-    return "\n" + StackTrace().toString(start_pointers_index);
+std::string get_stack_trace_by_libunwind(int start_pointers_index,
+                                         const std::string& dwarf_location_info_mode) {
+    return "\n" + StackTrace().toString(start_pointers_index, dwarf_location_info_mode);
 }
 
 } // namespace doris

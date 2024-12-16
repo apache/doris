@@ -18,10 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -34,37 +35,37 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** MultiDistinctCount */
-public class MultiDistinctCount extends AggregateFunction
-        implements AlwaysNotNullable, ExplicitlyCastableSignature, MultiDistinction {
-
+public class MultiDistinctCount extends NotNullableAggregateFunction
+        implements ExplicitlyCastableSignature, MultiDistinction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
+    private final boolean mustUseMultiDistinctAgg;
 
     // MultiDistinctCount is created in AggregateStrategies phase
     // can't change getSignatures to use type coercion rule to add a cast expr
     // because AggregateStrategies phase is after type coercion
     public MultiDistinctCount(Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
-                .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
-                .collect(ImmutableList.toImmutableList()));
+        this(false, arg0, varArgs);
     }
 
     public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
-                .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
+        this(false, false, ExpressionUtils.mergeArguments(arg0, varArgs));
+    }
+
+    private MultiDistinctCount(boolean mustUseMultiDistinctAgg, boolean distinct, List<Expression> children) {
+        super("multi_distinct_count", false, children
+                .stream()
+                .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
+                        ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(ImmutableList.toImmutableList()));
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() > 0);
-        if (children.size() > 1) {
-            return new MultiDistinctCount(distinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        } else {
-            return new MultiDistinctCount(distinct, children.get(0));
-        }
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, distinct, children);
     }
 
     @Override
@@ -75,5 +76,20 @@ public class MultiDistinctCount extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return mustUseMultiDistinctAgg;
+    }
+
+    @Override
+    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
+        return new MultiDistinctCount(mustUseMultiDistinctAgg, false, children);
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new BigIntLiteral(0);
     }
 }

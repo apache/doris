@@ -20,14 +20,12 @@
 #include <gmock/gmock-spec-builders.h>
 #include <gtest/gtest-matchers.h>
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "exprs/mock_vexpr.h"
-#include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -46,8 +44,8 @@ using ::testing::SetArgPointee;
 
 class TableFunctionTest : public testing::Test {
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    void SetUp() override {}
+    void TearDown() override {}
 
     void clear() {
         _ctx = nullptr;
@@ -99,7 +97,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     // explode_outer(Array<String>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
+        Array vec = {Field(std::string("abc")), Field(std::string("")), Field(std::string("def"))};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
         InputTypeSet output_types = {TypeIndex::String};
@@ -118,8 +116,8 @@ TEST_F(TableFunctionTest, vexplode_outer) {
         InputTypeSet output_types = {TypeIndex::Decimal128V2};
         InputDataSet output_set = {{Null()},
                                    {Null()},
-                                   {ut_type::DECIMAL(17014116.67)},
-                                   {ut_type::DECIMAL(-17014116.67)}};
+                                   {ut_type::DECIMALV2(17014116.67)},
+                                   {ut_type::DECIMALV2(-17014116.67)}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -146,7 +144,7 @@ TEST_F(TableFunctionTest, vexplode) {
     // explode(Array<String>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
+        Array vec = {Field(std::string("abc")), Field(std::string("")), Field(std::string("def"))};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
         InputTypeSet output_types = {TypeIndex::String};

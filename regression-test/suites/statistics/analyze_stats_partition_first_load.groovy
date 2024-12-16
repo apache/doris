@@ -20,6 +20,7 @@ import java.util.stream.Collectors
 
 suite("test_analyze_partition_first_load") {
     String tbl = "partition_first_load_test"
+    sql """set global force_sample_analyze=false"""
 
     sql """
         DROP TABLE IF EXISTS `$tbl`
@@ -56,6 +57,9 @@ suite("test_analyze_partition_first_load") {
     assertEquals(partition_result.new_partition[0], "true")
     sql """analyze table `$tbl`(id) with sync"""
     partition_result = sql_return_maparray """show table stats `$tbl`"""
+    assertEquals(partition_result.new_partition[0], "true")
+    sql """analyze table `$tbl` with sync"""
+    partition_result = sql_return_maparray """show table stats `$tbl`"""
     assertEquals(partition_result.new_partition[0], "false")
     sql """insert into `$tbl` values (102, '1', '1')"""
     partition_result = sql_return_maparray """show table stats `$tbl`"""
@@ -83,7 +87,7 @@ suite("test_analyze_partition_first_load") {
         assertEquals(partition_result.new_partition[0], "true") // last chance, still failure?
     }
 
-    sql """analyze table `$tbl`(id) with sync"""
+    sql """analyze table `$tbl` with sync"""
     partition_result = sql_return_maparray """show table stats `$tbl`"""
     assertEquals(partition_result.new_partition[0], "false")
 }

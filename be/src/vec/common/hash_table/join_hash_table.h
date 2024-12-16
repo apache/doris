@@ -19,9 +19,10 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <limits>
+
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
@@ -35,7 +36,8 @@ public:
 
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
-        return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;
+        return std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
+                        static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
     }
 
     size_t get_byte_size() const {
@@ -68,20 +70,16 @@ public:
 
     std::vector<uint8_t>& get_visited() { return visited; }
 
-    template <int JoinOpType, bool with_other_conjuncts>
-    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
-               size_t num_elem) {
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums, size_t num_elem,
+               bool keep_null_key) {
         build_keys = keys;
         for (size_t i = 1; i < num_elem; i++) {
             uint32_t bucket_num = bucket_nums[i];
             next[i] = first[bucket_num];
             first[bucket_num] = i;
         }
-        if constexpr ((JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                       JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) ||
-                      !with_other_conjuncts) {
-            /// Only null aware join with other conjuncts need to access the null value in hash table
-            first[bucket_size] = 0; // index = bucket_num means null
+        if (!keep_null_key) {
+            first[bucket_size] = 0; // index = bucket_size means null
         }
     }
 
@@ -89,18 +87,36 @@ public:
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
                     int probe_idx, uint32_t build_idx, int probe_rows,
                     uint32_t* __restrict probe_idxs, bool& probe_visited,
-                    uint32_t* __restrict build_idxs) {
-        if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                    uint32_t* __restrict build_idxs, bool has_mark_join_conjunct = false) {
+        if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
             if (_empty_build_side) {
-                return _process_null_aware_left_anti_join_for_empty_build_side<
-                        JoinOpType, with_other_conjuncts, is_mark_join>(probe_idx, probe_rows,
-                                                                        probe_idxs, build_idxs);
+                return _process_null_aware_left_half_join_for_empty_build_side<JoinOpType>(
+                        probe_idx, probe_rows, probe_idxs, build_idxs);
             }
         }
 
         if constexpr (with_other_conjuncts ||
                       (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
-            return _find_batch_conjunct<JoinOpType, need_judge_null>(
+            if constexpr (!with_other_conjuncts) {
+                constexpr bool is_null_aware_join =
+                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
+                constexpr bool is_left_half_join = JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
+                                                   JoinOpType == TJoinOp::LEFT_ANTI_JOIN;
+
+                /// For null aware join or left half(semi/anti) join without other conjuncts and without
+                /// mark join conjunct.
+                /// If one row on probe side has one match in build side, we should stop searching the
+                /// hash table for this row.
+                if (is_null_aware_join || (is_left_half_join && !has_mark_join_conjunct)) {
+                    return _find_batch_conjunct<JoinOpType, need_judge_null, true>(
+                            keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs,
+                            build_idxs);
+                }
+            }
+
+            return _find_batch_conjunct<JoinOpType, need_judge_null, false>(
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
 
@@ -121,7 +137,7 @@ public:
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             return _find_batch_right_semi_anti(keys, build_idx_map, probe_idx, probe_rows);
         }
-        return std::tuple {0, 0U, 0};
+        return std::tuple {0, 0U, 0U};
     }
 
     /**
@@ -142,7 +158,7 @@ public:
                                               uint32_t* __restrict build_idxs,
                                               uint8_t* __restrict null_flags,
                                               bool picking_null_keys) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
@@ -247,12 +263,13 @@ public:
     }
 
 private:
-    template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join>
-    auto _process_null_aware_left_anti_join_for_empty_build_side(int probe_idx, int probe_rows,
+    template <int JoinOpType>
+    auto _process_null_aware_left_half_join_for_empty_build_side(int probe_idx, int probe_rows,
                                                                  uint32_t* __restrict probe_idxs,
                                                                  uint32_t* __restrict build_idxs) {
-        static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN);
-        auto matched_cnt = 0;
+        static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
@@ -278,14 +295,14 @@ private:
             }
             probe_idx++;
         }
-        return std::tuple {probe_idx, 0U, 0};
+        return std::tuple {probe_idx, 0U, 0U};
     }
 
     template <int JoinOpType, bool need_judge_null>
     auto _find_batch_left_semi_anti(const Key* __restrict keys,
                                     const uint32_t* __restrict build_idx_map, int probe_idx,
                                     int probe_rows, uint32_t* __restrict probe_idxs) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
@@ -308,11 +325,11 @@ private:
         return std::tuple {probe_idx, 0U, matched_cnt};
     }
 
-    template <int JoinOpType, bool need_judge_null>
+    template <int JoinOpType, bool need_judge_null, bool only_need_to_match_one>
     auto _find_batch_conjunct(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
                               int probe_idx, uint32_t build_idx, int probe_rows,
                               uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
@@ -338,6 +355,11 @@ private:
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
                     matched_cnt++;
+
+                    if constexpr (only_need_to_match_one) {
+                        build_idx = 0;
+                        break;
+                    }
                 }
                 build_idx = next[build_idx];
             }
@@ -378,7 +400,7 @@ private:
                                       uint32_t build_idx, int probe_rows,
                                       uint32_t* __restrict probe_idxs, bool& probe_visited,
                                       uint32_t* __restrict build_idxs) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
@@ -441,4 +463,7 @@ private:
     bool _has_null_key = false;
     bool _empty_build_side = true;
 };
+
+template <typename Key, typename Hash = DefaultHash<Key>>
+using JoinHashMap = JoinHashTable<Key, Hash>;
 } // namespace doris

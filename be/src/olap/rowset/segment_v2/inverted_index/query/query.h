@@ -26,6 +26,8 @@
 
 #include <memory>
 
+#include "common/status.h"
+#include "io/io_common.h"
 #include "roaring/roaring.hh"
 
 CL_NS_USE(index)
@@ -34,9 +36,30 @@ CL_NS_USE(util)
 
 namespace doris::segment_v2 {
 
+struct InvertedIndexQueryInfo {
+    std::wstring field_name;
+    std::vector<std::string> terms;
+    std::vector<std::vector<std::string>> additional_terms;
+    int32_t slop = 0;
+    bool ordered = false;
+
+    std::string to_string() {
+        std::string s;
+        s += std::to_string(terms.size()) + ", ";
+        s += std::to_string(additional_terms.size()) + ", ";
+        s += std::to_string(slop) + ", ";
+        s += std::to_string(ordered);
+        return s;
+    }
+};
+
 class Query {
 public:
     virtual ~Query() = default;
+
+    virtual void add(const InvertedIndexQueryInfo& query_info) {
+        add(query_info.field_name, query_info.terms);
+    }
 
     // a unified data preparation interface that provides the field names to be queried and the terms for the query.
     // @param field_name The name of the field within the data source to search against.

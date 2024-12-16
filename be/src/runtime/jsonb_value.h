@@ -43,7 +43,7 @@ struct JsonBinaryValue {
     JsonbParser parser;
 
     JsonBinaryValue() : ptr(nullptr), len(0) {}
-    JsonBinaryValue(char* ptr, int len) {
+    JsonBinaryValue(char* ptr, size_t len) {
         static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
     }
     JsonBinaryValue(const std::string& s) {
@@ -62,49 +62,60 @@ struct JsonBinaryValue {
 
     bool operator==(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
     // !=
     bool ne(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
     // <=
     bool le(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
     // >=
     bool ge(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
     // <
     bool lt(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
     // >
     bool gt(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
 
     bool operator!=(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
 
     bool operator<=(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
 
     bool operator>=(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
 
     bool operator<(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
 
     bool operator>(const JsonBinaryValue& other) const {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
+        __builtin_unreachable();
     }
 
-    Status from_json_string(const char* s, int len);
+    Status from_json_string(const char* s, size_t len);
 
     std::string to_json_string() const;
 

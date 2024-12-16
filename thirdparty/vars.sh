@@ -253,10 +253,10 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-13.0.0.tar.gz"
-ARROW_NAME="apache-arrow-13.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-13.0.0"
-ARROW_MD5SUM="8ec1ec6a119514bcaea1cf7aabc9df1f"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
+ARROW_NAME="apache-arrow-17.0.0.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-17.0.0"
+ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
@@ -313,7 +313,7 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
 LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
 LIBUNWIND_SOURCE="libunwind-1.6.2"
 LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
@@ -412,11 +412,11 @@ BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
-# for arrow-13.0.0, if arrow upgrade, this version may also need to be changed
-XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/9.0.1.tar.gz"
-XSIMD_NAME="xsimd-9.0.1.tar.gz"
-XSIMD_SOURCE=xsimd-9.0.1
-XSIMD_MD5SUM="59f38fe3364acd7ed137771258812d6c"
+# for arrow-17.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/13.0.0.tar.gz"
+XSIMD_NAME="13.0.0.tar.gz"
+XSIMD_SOURCE=xsimd-13.0.0
+XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
 
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
@@ -461,16 +461,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.1-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.1-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.1-for-doris"
-HADOOP_LIBS_MD5SUM="8a4455b07f5df2bb10a2718c957972b8"
-
-# libdragonbox for faster double/float to string
-DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
-DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
-DRAGONBOX_SOURCE=dragonbox-1.1.3
-DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.4-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.6.4-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.4-for-doris"
+HADOOP_LIBS_MD5SUM="6993de49713eb0892e42c8ec57fbdc6c"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -513,6 +507,18 @@ BASE64_DOWNLOAD="https://github.com/aklomp/base64/archive/refs/tags/v0.5.2.tar.g
 BASE64_NAME="v0.5.2.tar.gz"
 BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
+
+# azure blob
+AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.10.3.tar.gz"
+AZURE_NAME="azure-core_1.10.3.tar.gz"
+AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
+AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
+
+# libdragonbox for faster double/float to string
+DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
+DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
+DRAGONBOX_SOURCE=dragonbox-1.1.3
+DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -582,7 +588,6 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
-    'DRAGONBOX'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
@@ -590,6 +595,8 @@ export TP_ARCHIVES=(
     'LIBUUID'
     'ALI_SDK'
     'BASE64'
+    'AZURE'
+    'DRAGONBOX'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

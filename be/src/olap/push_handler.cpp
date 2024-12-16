@@ -117,6 +117,10 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     }
 
     std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+    DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
+        return Status::Error<TRY_LOCK_FAILED>(
+                "PushHandler::_do_streaming_ingestion get lock failed");
+    })
     if (!base_migration_rlock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>(
                 "PushHandler::_do_streaming_ingestion get lock failed");
@@ -159,9 +163,23 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // check if version number exceed limit
     if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
-                "failed to push data. version count: {}, exceed limit: {}, tablet: {}",
+                "failed to push data. version count: {}, exceed limit: {}, tablet: {}. Please "
+                "reduce the frequency of loading data or adjust the max_tablet_version_num in "
+                "be.conf to a larger value.",
                 tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
     }
+
+    int version_count = tablet->version_count() + tablet->stale_version_count();
+    if (tablet->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
+                tablet->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, tablet->tablet_id());
+    }
+
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
@@ -228,7 +246,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         context.rowset_state = PREPARED;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema;
-        context.original_tablet_schema = tablet_schema;
         context.newest_write_timestamp = UnixSeconds();
         auto rowset_writer = DORIS_TRY(cur_tablet->create_rowset_writer(context, false));
         _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
@@ -370,15 +387,17 @@ Status PushBrokerReader::init() {
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
+    std::shared_ptr<MemTrackerLimiter> tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::LOAD,
+            fmt::format("PushBrokerReader:dummy_id={}", print_id(dummy_id)));
     _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
-                                                 ExecEnv::GetInstance(), nullptr);
+                                                 ExecEnv::GetInstance(), nullptr, tracker);
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
         return Status::Error<PUSH_INIT_ERROR>("Failed to create descriptor table, msg: {}", status);
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    _runtime_state->init_mem_trackers(dummy_id, "PushBrokerReader");
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
 
@@ -452,7 +471,7 @@ Status PushBrokerReader::_init_src_block() {
 }
 
 Status PushBrokerReader::_cast_to_input_block() {
-    size_t idx = 0;
+    uint32_t idx = 0;
     for (auto& slot_desc : _src_slot_descs) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             continue;

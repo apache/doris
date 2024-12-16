@@ -17,6 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -46,7 +47,7 @@ public class BDBJournalCursor implements JournalCursor {
 
     public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey) {
         if (toKey < fromKey || fromKey < 0) {
-            System.out.println("Invalid key range!");
+            LOG.warn("Invalid key range! fromKey:{} toKey:{}", fromKey, toKey);
             return null;
         }
         BDBJournalCursor cursor = null;
@@ -93,6 +94,9 @@ public class BDBJournalCursor implements JournalCursor {
             return null;
         }
 
+        if (Env.getCurrentEnv().getForceSkipJournalIds().contains(String.valueOf(currentKey))) {
+            return Pair.of(currentKey++, null);
+        }
         Long key = currentKey;
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);

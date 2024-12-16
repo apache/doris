@@ -33,24 +33,11 @@ suite("test_in_null") {
     sql """ INSERT INTO db VALUES(3); """
     sql """ INSERT INTO db VALUES(0); """
     sql """ INSERT INTO db VALUES(NULL); """
-    
 
-    sql """
-        set enable_nereids_planner=false;
-    """
     qt_select1 """
         select id,id IN (NULL)  from db order by id;
     """
     qt_select2 """
-        select id,id in (2,null)  from db order by id;
-    """
-    sql """
-        set enable_nereids_planner=true;
-    """
-    qt_select3 """
-        select id,id IN (NULL)  from db order by id;
-    """ 
-    qt_select4 """
         select id,id in (2,null)  from db order by id;
     """
 }

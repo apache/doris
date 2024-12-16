@@ -49,6 +49,7 @@ class JoinExchangeBothProjectTest implements MemoPatternMatchSupported {
                                 .project(ImmutableList.of(0, 2))
                                 .build(),
                         JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 1)))
+                .projectAll()
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

@@ -77,6 +77,8 @@ public class CreateTableStmtTest {
      **/
     @Before
     public void setUp() {
+        MockedAuth.mockedAccess(accessManager);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         // analyzer
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // table name
@@ -98,9 +100,6 @@ public class CreateTableStmtTest {
         invalidColsName.add("col1");
         invalidColsName.add("col2");
         invalidColsName.add("col2");
-
-        MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -400,8 +399,8 @@ public class CreateTableStmtTest {
     @Test
     public void testToSql() {
         List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
-        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT)));
         String engineName = "olap";
         ArrayList<String> aggKeys = Lists.newArrayList("a");
         KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
@@ -417,8 +416,8 @@ public class CreateTableStmtTest {
                 properties, null, "", null);
 
         String createTableSql = "CREATE TABLE IF NOT EXISTS `demo`.`testTosql1` (\n"
-                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
-                + "  `b` INT NOT NULL COMMENT \"\"\n"
+                + "  `a` bigint NOT NULL COMMENT \"\",\n"
+                + "  `b` int NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"
                 + "AGGREGATE KEY(`a`)\n"
                 + "PROPERTIES (\"replication_num\"  =  \"1\")";
@@ -426,12 +425,12 @@ public class CreateTableStmtTest {
         Assert.assertEquals(createTableStmt.toSql(), createTableSql);
 
 
-        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
-        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
-        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
-        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
-        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
-        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128)));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE)));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT)));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN)));
 
         aggKeys = Lists.newArrayList("a", "d", "f");
         keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
@@ -446,14 +445,14 @@ public class CreateTableStmtTest {
                 tableName, columnDefs, engineName, keysDesc, null, null,
                 properties, null, "", null);
         createTableSql = "CREATE TABLE `demo`.`testTosql2` (\n"
-                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
-                + "  `b` INT NOT NULL COMMENT \"\",\n"
-                + "  `c` TEXT NULL COMMENT \"\",\n"
-                + "  `d` DOUBLE NULL COMMENT \"\",\n"
-                + "  `e` DECIMALV3(38, 0) NOT NULL COMMENT \"\",\n"
-                + "  `f` DATE NOT NULL COMMENT \"\",\n"
-                + "  `g` SMALLINT NOT NULL COMMENT \"\",\n"
-                + "  `h` BOOLEAN NOT NULL COMMENT \"\"\n"
+                + "  `a` bigint NOT NULL COMMENT \"\",\n"
+                + "  `b` int NOT NULL COMMENT \"\",\n"
+                + "  `c` text NULL COMMENT \"\",\n"
+                + "  `d` double NULL COMMENT \"\",\n"
+                + "  `e` decimalv3(38,0) NOT NULL COMMENT \"\",\n"
+                + "  `f` date NOT NULL COMMENT \"\",\n"
+                + "  `g` smallint NOT NULL COMMENT \"\",\n"
+                + "  `h` boolean NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"
                 + "DUPLICATE KEY(`a`, `d`, `f`)\n"
                 + "PROPERTIES (\"replication_num\"  =  \"10\")";
@@ -464,8 +463,8 @@ public class CreateTableStmtTest {
     @Test
     public void testToSqlWithComment() {
         List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
-        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT)));
         String engineName = "olap";
         ArrayList<String> aggKeys = Lists.newArrayList("a");
         KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
@@ -480,8 +479,8 @@ public class CreateTableStmtTest {
                 tableName, columnDefs, engineName, keysDesc, null, null,
                 properties, null, "xxx", null);
         String createTableSql = "CREATE TABLE IF NOT EXISTS `demo`.`testToSqlWithComment1` (\n"
-                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
-                + "  `b` INT NOT NULL COMMENT \"\"\n"
+                + "  `a` bigint NOT NULL COMMENT \"\",\n"
+                + "  `b` int NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"
                 + "AGGREGATE KEY(`a`)\n"
                 + "COMMENT \"xxx\"\n"
@@ -489,12 +488,12 @@ public class CreateTableStmtTest {
         Assert.assertEquals(createTableStmt.toSql(), createTableSql);
 
 
-        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
-        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
-        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
-        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
-        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
-        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128)));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE)));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT)));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN)));
         aggKeys = Lists.newArrayList("a", "d", "f");
         keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
         properties = new HashMap<String, String>() {
@@ -508,14 +507,14 @@ public class CreateTableStmtTest {
                 tableName, columnDefs, engineName, keysDesc, null, null,
                 properties, null, "xxx", null);
         createTableSql = "CREATE TABLE `demo`.`testToSqlWithComment2` (\n"
-                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
-                + "  `b` INT NOT NULL COMMENT \"\",\n"
-                + "  `c` TEXT NULL COMMENT \"\",\n"
-                + "  `d` DOUBLE NULL COMMENT \"\",\n"
-                + "  `e` DECIMALV3(38, 0) NOT NULL COMMENT \"\",\n"
-                + "  `f` DATE NOT NULL COMMENT \"\",\n"
-                + "  `g` SMALLINT NOT NULL COMMENT \"\",\n"
-                + "  `h` BOOLEAN NOT NULL COMMENT \"\"\n"
+                + "  `a` bigint NOT NULL COMMENT \"\",\n"
+                + "  `b` int NOT NULL COMMENT \"\",\n"
+                + "  `c` text NULL COMMENT \"\",\n"
+                + "  `d` double NULL COMMENT \"\",\n"
+                + "  `e` decimalv3(38,0) NOT NULL COMMENT \"\",\n"
+                + "  `f` date NOT NULL COMMENT \"\",\n"
+                + "  `g` smallint NOT NULL COMMENT \"\",\n"
+                + "  `h` boolean NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"
                 + "DUPLICATE KEY(`a`, `d`, `f`)\n"
                 + "COMMENT \"xxx\"\n"

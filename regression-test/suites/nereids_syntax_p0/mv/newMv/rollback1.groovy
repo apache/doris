@@ -44,6 +44,9 @@ suite ("rollback1") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table rollback1 with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from rollback1 order by k1;"
 

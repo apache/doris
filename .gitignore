@@ -56,9 +56,12 @@ thirdparty/doris-thirdparty*.tar.xz
 docker/thirdparties/docker-compose/mysql/data
 docker/thirdparties/docker-compose/hive/scripts/tpch1.db/
 docker/thirdparties/docker-compose/hive/scripts/paimon1
+docker/thirdparties/docker-compose/hive/scripts/tvf_data
 
 fe_plugins/output
 fe_plugins/**/.factorypath
+
+docker/thirdparties/docker-compose/hive/scripts/data/*/*/data
 
 fs_brokers/apache_hdfs_broker/src/main/resources/
 fs_brokers/apache_hdfs_broker/src/main/thrift/
@@ -100,7 +103,6 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 be/src/apache-orc/
-zoneinfo/
 
 # Cloud
 cloud/build*/
@@ -131,5 +133,13 @@ lru_cache_test
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
 
+# docker
+docker/thirdparties/docker-compose/*/data
+docker/thirdparties/docker-compose/*/logs
+docker/thirdparties/docker-compose/*/*.yaml
+docker/runtime/be/resource/apache-doris/
+
 # other
 compile_commands.json
+.github
+

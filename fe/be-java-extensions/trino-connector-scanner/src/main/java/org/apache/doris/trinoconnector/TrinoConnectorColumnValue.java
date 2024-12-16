@@ -36,7 +36,6 @@ import io.trino.spi.type.SqlTimestamp;
 import io.trino.spi.type.SqlTimestampWithTimeZone;
 import io.trino.spi.type.TimeType;
 import io.trino.spi.type.Type;
-import io.trino.util.DateTimeUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +43,6 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class TrinoConnectorColumnValue implements ColumnValue {
@@ -155,7 +153,7 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     // block is IntArrayBlock
     @Override
     public LocalDate getDate() {
-        return LocalDate.parse(DateTimeUtils.printDate(block.getInt(position, 0)), DateTimeFormatter.ISO_DATE);
+        return LocalDate.ofEpochDay(block.getInt(position, 0));
     }
 
     // block is LongArrayBlock

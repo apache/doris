@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -59,6 +58,7 @@ public class DiskRebalancer extends Rebalancer {
     public DiskRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         super(infoService, invertedIndex, backendsWorkingSlots);
+        canBalanceColocateTable = true;
     }
 
     public List<BackendLoadStatistic> filterByPrioBackends(List<BackendLoadStatistic> bes) {
@@ -163,12 +163,6 @@ public class DiskRebalancer extends Rebalancer {
             return alternativeTablets;
         }
 
-        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
-        // so in clone ut recycleBin need to set to null.
-        CatalogRecycleBin recycleBin = null;
-        if (!FeConstants.runningUnitTest) {
-            recycleBin = Env.getCurrentRecycleBin();
-        }
         Set<Long> alternativeTabletIds = Sets.newHashSet();
         Set<Long> unbalancedBEs = Sets.newHashSet();
         // choose tablets from backends randomly.
@@ -217,7 +211,12 @@ public class DiskRebalancer extends Rebalancer {
                         && invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
                     continue;
                 }
-                Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
+                Replica replica = null;
+                try {
+                    replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
+                } catch (IllegalStateException e) {
+                    continue;
+                }
                 if (replica == null) {
                     continue;
                 }
@@ -238,11 +237,7 @@ public class DiskRebalancer extends Rebalancer {
                 long replicaPathHash = replica.getPathHash();
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        continue;
-                    }
-                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+                    if (!canBalanceTablet(tabletMeta)) {
                         continue;
                     }
 
@@ -304,7 +299,12 @@ public class DiskRebalancer extends Rebalancer {
             throw new SchedException(Status.UNRECOVERABLE,
                 "src does not appear to be set correctly, something goes wrong");
         }
-        Replica replica = invertedIndex.getReplica(tabletCtx.getTabletId(), tabletCtx.getTempSrcBackendId());
+        Replica replica = null;
+        try {
+            replica = invertedIndex.getReplica(tabletCtx.getTabletId(), tabletCtx.getTempSrcBackendId());
+        } catch (IllegalStateException e) {
+            replica = null;
+        }
         // check src replica still there
         if (replica == null || replica.getPathHash() != tabletCtx.getTempSrcPathHash()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "src replica may be rebalanced");
@@ -315,10 +315,10 @@ public class DiskRebalancer extends Rebalancer {
         }
 
         // check src slot
-        PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+        PathSlot slot = backendsWorkingSlots.get(replica.getBackendIdWithoutException());
         if (slot == null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("BE does not have slot: {}", replica.getBackendId());
+                LOG.debug("BE does not have slot: {}", replica.getBackendIdWithoutException());
             }
             throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
         }
@@ -329,7 +329,7 @@ public class DiskRebalancer extends Rebalancer {
         // after take src slot, we can set src replica now
         tabletCtx.setSrc(replica);
 
-        BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(replica.getBackendId());
+        BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(replica.getBackendIdWithoutException());
         if (!beStat.isAvailable()) {
             throw new SchedException(Status.UNRECOVERABLE, "the backend is not available");
         }

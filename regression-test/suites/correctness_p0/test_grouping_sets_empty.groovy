@@ -52,11 +52,6 @@ suite("test_grouping_sets_empty") {
     """
 
 
-    sql """ 
-        set experimental_enable_pipeline_x_engine=false;
-    """
-
-
     qt_select5 """
         select count(a) from test_grouping_sets_empty group by grouping sets (());
     """

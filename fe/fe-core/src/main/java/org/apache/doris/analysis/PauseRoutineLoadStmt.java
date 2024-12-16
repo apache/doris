@@ -29,7 +29,7 @@ import com.google.common.base.Strings;
   syntax:
       PAUSE ROUTINE LOAD [database.]name
  */
-public class PauseRoutineLoadStmt extends DdlStmt {
+public class PauseRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private final LabelName labelName;
     private String db;
@@ -62,5 +62,10 @@ public class PauseRoutineLoadStmt extends DdlStmt {
             }
             db = analyzer.getDefaultDb();
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.PAUSE;
     }
 }

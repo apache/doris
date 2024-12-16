@@ -17,10 +17,15 @@
 
 suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "test_hive_statistics_all_type_p0"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_${hivePrefix}_statistics_all_type_p0"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -29,10 +34,35 @@ suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_d
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
-            sql """analyze table orc_all_types with sync"""
+            sql """analyze table orc_all_types with sync with sample rows 4000000"""
             def result = sql """show column stats orc_all_types;"""
             assertEquals(16, result.size())
 
+            result = sql """show column stats orc_all_types (int_col);"""
+            assertEquals("int_col", result[0][0])
+            assertEquals("3600.0", result[0][2])
+            assertEquals("3240.0", result[0][3])
+            assertEquals("361.0", result[0][4])
+            assertEquals("14400.0", result[0][5])
+
+            result = sql """show column stats orc_all_types (string_col);"""
+            assertEquals("string_col", result[0][0])
+            assertEquals("3600.0", result[0][2])
+            assertEquals("3254.0", result[0][3])
+            assertEquals("347.0", result[0][4])
+            assertEquals("453634.0", result[0][5])
+
+            result = sql """show column stats orc_all_types (varchar_col);"""
+            assertEquals("varchar_col", result[0][0])
+            assertEquals("3600.0", result[0][2])
+            assertEquals("6.0", result[0][3])
+            assertEquals("0.0", result[0][4])
+            assertEquals("35950.0", result[0][5])
+
+            sql """drop stats orc_all_types"""
+            sql """analyze table orc_all_types with sync"""
+            result = sql """show column stats orc_all_types;"""
+            assertEquals(16, result.size())
             result = sql """show column stats orc_all_types (int_col);"""
             assertEquals("int_col", result[0][0])
             assertEquals("3600.0", result[0][2])

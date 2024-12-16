@@ -28,7 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowBackendsStmt extends ShowStmt {
+public class ShowBackendsStmt extends ShowStmt implements NotFallbackInParser {
 
     public ShowBackendsStmt() {
     }

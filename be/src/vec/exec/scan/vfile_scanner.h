@@ -55,21 +55,17 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-class NewFileScanNode;
-
 class VFileScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(VFileScanner);
 
 public:
     static constexpr const char* NAME = "VFileScanner";
 
-    VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 ShardedKVCache* kv_cache);
-
     VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 ShardedKVCache* kv_cache);
+                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                 std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
 
@@ -77,9 +73,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(const VExprContextSPtrs& conjuncts,
-                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-                   const std::unordered_map<std::string, int>* colname_to_slot_id);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return VFileScanner::NAME; }
 
@@ -88,6 +82,8 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
+    Status _get_block_wrapped(RuntimeState* state, Block* block, bool* eof);
+
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.
@@ -95,10 +91,15 @@ protected:
 
     void _collect_profile_before_close() override;
 
+    // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
+    // and the current load is a flexible partial update
+    bool _should_process_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
-    const std::vector<TFileRangeDesc>& _ranges;
-    int _next_range;
+    std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
+    bool _first_scan_range = false;
+    TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
@@ -170,17 +171,21 @@ protected:
             _partition_col_descs;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
+    // idx of skip_bitmap_col in _input_tuple_desc
+    int32_t _skip_bitmap_col_idx {-1};
+    int32_t _sequence_map_col_uid {-1};
+    int32_t _sequence_col_uid {-1};
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
-    RuntimeProfile::Counter* _fill_path_columns_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
-    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -209,7 +214,6 @@ private:
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_fill_columns();
-    Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
@@ -219,29 +223,17 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
-    TPushAggOp::type _get_push_down_agg_type() {
-        if (get_parent() != nullptr) {
-            return _parent->get_push_down_agg_type();
-        } else {
-            return _local_state->get_push_down_agg_type();
-        }
-    }
+    TPushAggOp::type _get_push_down_agg_type() { return _local_state->get_push_down_agg_type(); }
 
-    int64_t _get_push_down_count() {
-        if (get_parent() != nullptr) {
-            return _parent->get_push_down_count();
-        } else {
-            return _local_state->get_push_down_count();
-        }
-    }
+    int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0
     // 2. the file number is less than 1/3 of cache's capacibility
     // Otherwise, the cache miss rate will be high
-    bool _shoudl_enable_file_meta_cache() {
+    bool _should_enable_file_meta_cache() {
         return config::max_external_file_meta_cache_num > 0 &&
-               _ranges.size() < config::max_external_file_meta_cache_num / 3;
+               _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };
 } // namespace doris::vectorized

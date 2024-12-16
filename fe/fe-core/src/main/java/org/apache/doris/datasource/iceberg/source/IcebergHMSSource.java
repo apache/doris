@@ -22,15 +22,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.thrift.TFileAttributes;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
-
-import org.apache.iceberg.TableProperties;
 
 import java.util.Map;
 
@@ -42,7 +37,7 @@ public class IcebergHMSSource implements IcebergSource {
     private final org.apache.iceberg.Table icebergTable;
 
     public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc,
-                            Map<String, ColumnRange> columnNameToRange) {
+            Map<String, ColumnRange> columnNameToRange) {
         this.hmsTable = hmsTable;
         this.desc = desc;
         this.columnNameToRange = columnNameToRange;
@@ -59,8 +54,7 @@ public class IcebergHMSSource implements IcebergSource {
 
     @Override
     public String getFileFormat() throws DdlException, MetaNotFoundException {
-        return hmsTable.getRemoteTable().getParameters()
-            .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        return IcebergUtils.getFileFormat(icebergTable).name();
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
@@ -70,18 +64,6 @@ public class IcebergHMSSource implements IcebergSource {
     @Override
     public TableIf getTargetTable() {
         return hmsTable;
-    }
-
-    @Override
-    public TFileAttributes getFileAttributes() throws UserException {
-        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        textParams.setColumnSeparator(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
-                .getOrDefault(HiveScanNode.PROP_FIELD_DELIMITER, HiveScanNode.DEFAULT_FIELD_DELIMITER));
-        textParams.setLineDelimiter(HiveScanNode.DEFAULT_LINE_DELIMITER);
-        TFileAttributes fileAttributes = new TFileAttributes();
-        fileAttributes.setTextParams(textParams);
-        fileAttributes.setHeaderType("");
-        return fileAttributes;
     }
 
     @Override

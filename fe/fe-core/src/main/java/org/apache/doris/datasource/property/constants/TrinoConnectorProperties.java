@@ -18,5 +18,5 @@
 package org.apache.doris.datasource.property.constants;
 
 public class TrinoConnectorProperties {
-    public static final String TRINO_CONNECTOR_NAME = "connector.name";
+    public static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
 }

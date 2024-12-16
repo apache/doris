@@ -105,7 +105,7 @@ public class DbBinlogTest {
             if (dbBinlog == null) {
                 dbBinlog = new DBBinlog(binlogConfigCache, testBinlogs.get(i));
             }
-            dbBinlog.addBinlog(testBinlogs.get(i));
+            dbBinlog.addBinlog(testBinlogs.get(i), null);
         }
 
         // trigger gc
@@ -185,7 +185,7 @@ public class DbBinlogTest {
             if (dbBinlog == null) {
                 dbBinlog = new DBBinlog(binlogConfigCache, binlog);
             }
-            dbBinlog.addBinlog(binlog);
+            dbBinlog.addBinlog(binlog, null);
         }
 
         // trigger gc
@@ -236,7 +236,7 @@ public class DbBinlogTest {
             if (dbBinlog == null) {
                 dbBinlog = new DBBinlog(binlogConfigCache, binlog);
             }
-            dbBinlog.addBinlog(binlog);
+            dbBinlog.addBinlog(binlog, null);
         }
 
         // trigger gc
@@ -286,7 +286,7 @@ public class DbBinlogTest {
             binlog.setType(type);
             DBBinlog dbBinlog = new DBBinlog(new BinlogConfigCache(), binlog);
 
-            dbBinlog.addBinlog(binlog);
+            dbBinlog.addBinlog(binlog, null);
 
             TreeSet<TBinlog> allbinlogs = (TreeSet<TBinlog>) allBinlogsField.get(dbBinlog);
             Map<Long, TableBinlog> tableBinlogMap = (Map<Long, TableBinlog>) tableBinlogMapField.get(dbBinlog);

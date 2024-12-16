@@ -16,7 +16,6 @@
 
 #include "gutil/stl_util.h"
 #include "gutil/strings/memutil.h"
-#include "gutil/hash/legacy_hash.h"
 
 using std::copy;
 using std::max;
@@ -25,10 +24,6 @@ using std::reverse;
 using std::sort;
 using std::swap;
 using std::string;
-
-size_t std::hash<StringPiece>::operator()(StringPiece s) const {
-    return HashTo32(s.data(), s.size());
-}
 
 std::ostream& operator<<(std::ostream& o, StringPiece piece) {
     o.write(piece.data(), piece.size());

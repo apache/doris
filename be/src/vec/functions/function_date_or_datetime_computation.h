@@ -27,6 +27,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -60,6 +61,7 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -288,16 +290,25 @@ struct TimeDiffImpl {
     using ReturnType = DataTypeTimeV2;
 
     static constexpr auto name = "timediff";
-    static constexpr auto is_nullable = false;
+    static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
                                                 bool& is_null) {
         const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
         const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         if constexpr (UsingTimev2) {
-            return ts0.microsecond_diff(ts1);
+            // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+            // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
+            int64_t diff_m = ts0.microsecond_diff(ts1);
+            if (diff_m > limit_value) {
+                return (double)limit_value;
+            } else if (diff_m < -1 * limit_value) {
+                return (double)(-1 * limit_value);
+            } else {
+                return (double)diff_m;
+            }
         } else {
-            return (1000 * 1000) * ts0.second_diff(ts1);
+            return TimeValue::from_second(ts0.second_diff(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {
@@ -526,7 +537,7 @@ struct DateTimeOp {
 
 template <typename FromType1, typename Transform, typename FromType2 = FromType1>
 struct DateTimeAddIntervalImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t input_rows_count) {
         using ToType = typename Transform::ReturnType::FieldType;
         using Op = DateTimeOp<FromType1, FromType2, ToType, Transform>;
@@ -636,7 +647,7 @@ struct DateTimeAddIntervalImpl {
                                         col_to->get_data(), null_map->get_data(),
                                         delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType2>(),
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), null_map->get_data(),
                                         *not_nullable_column_ptr_arg1);
                 }
@@ -666,16 +677,17 @@ struct DateTimeAddIntervalImpl {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType2>(),
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(),
                                         *block.get_by_position(arguments[1]).column);
                 }
                 block.replace_by_position(result, std::move(col_to));
             }
         } else {
-            return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument and type {} of function {}",
+                    block.get_by_position(arguments[0]).column->get_name(),
+                    block.get_by_position(arguments[0]).type->get_name(), Transform::name);
         }
         return Status::OK();
     }
@@ -703,16 +715,17 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() != 2 && arguments.size() != 3) {
-            LOG(FATAL) << fmt::format(
-                    "Number of arguments for function {} doesn't match: passed {} , should be 2 or "
-                    "3",
-                    get_name(), arguments.size());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Number of arguments for function {} doesn't match: passed {} , "
+                                   "should be 2 or 3",
+                                   get_name(), arguments.size());
         }
 
         if (arguments.size() == 2) {
             if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
                 !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
                         arguments[0].type->get_name(), get_name());
@@ -721,7 +734,8 @@ public:
             if (!WhichDataType(remove_nullable(arguments[0].type)).is_date_time() ||
                 !WhichDataType(remove_nullable(arguments[0].type)).is_date_time_v2() ||
                 !WhichDataType(remove_nullable(arguments[2].type)).is_string()) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument must be number. The 3rd argument "
                         "(optional) must be a constant string with timezone name. The timezone "
@@ -733,62 +747,17 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;
         const auto& second_arg_type = block.get_by_position(arguments[1]).type;
         WhichDataType which1(remove_nullable(first_arg_type));
         WhichDataType which2(remove_nullable(second_arg_type));
 
-        if (which1.is_date() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDate::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_v2()) {
+        if (which1.is_date_v2() && which2.is_date_v2()) {
             return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
                                            DataTypeDateV2::FieldType>::execute(block, arguments,
                                                                                result,
                                                                                input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
         } else if (which1.is_date_time_v2() && which2.is_date_time_v2()) {
             return DateTimeAddIntervalImpl<
                     DataTypeDateTimeV2::FieldType, Transform,
@@ -799,16 +768,6 @@ public:
                                            DataTypeDateTime::FieldType>::execute(block, arguments,
                                                                                  result,
                                                                                  input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDateTime::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
         } else if (which1.is_date_v2() && which2.is_date_time_v2()) {
             return DateTimeAddIntervalImpl<
                     DataTypeDateV2::FieldType, Transform,
@@ -866,7 +825,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
@@ -885,7 +844,7 @@ struct CurrentDateTimeImpl {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if constexpr (WithPrecision) {
             DCHECK(which.is_date_time_v2() || which.is_date_v2());
@@ -912,7 +871,7 @@ struct CurrentDateTimeImpl {
 
     template <typename DateValueType, typename NativeType>
     static Status executeImpl(FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, size_t result,
+                              const ColumnNumbers& arguments, uint32_t result,
                               size_t input_rows_count) {
         auto col_to = ColumnVector<NativeType>::create();
         DateValueType dtv;
@@ -920,7 +879,7 @@ struct CurrentDateTimeImpl {
         if constexpr (WithPrecision) {
             if (const auto* const_column = check_and_get_column<ColumnConst>(
                         block.get_by_position(arguments[0]).column)) {
-                int scale = const_column->get_int(0);
+                int64_t scale = const_column->get_int(0);
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->nano_seconds(),
                                   context->state()->timezone_obj(), scale);
@@ -935,13 +894,14 @@ struct CurrentDateTimeImpl {
             } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
                                block.get_by_position(arguments[0]).column)) {
                 const auto& null_map = nullable_column->get_null_map_data();
-                const auto& nested_column = nullable_column->get_nested_column_ptr();
+                const auto& nested_column = assert_cast<const ColumnInt32*>(
+                        nullable_column->get_nested_column_ptr().get());
                 for (int i = 0; i < input_rows_count; i++) {
                     if (!null_map[i]) {
                         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                           context->state()->nano_seconds(),
                                           context->state()->timezone_obj(),
-                                          nested_column->get64(i));
+                                          nested_column->get_element(i));
                         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                             reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                         }
@@ -957,11 +917,12 @@ struct CurrentDateTimeImpl {
                 }
                 use_const = false;
             } else {
-                auto& int_column = block.get_by_position(arguments[0]).column;
+                const auto* int_column = assert_cast<const ColumnInt32*>(
+                        block.get_by_position(arguments[0]).column.get());
                 for (int i = 0; i < input_rows_count; i++) {
                     dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                       context->state()->nano_seconds(),
-                                      context->state()->timezone_obj(), int_column->get64(i));
+                                      context->state()->timezone_obj(), int_column->get_element(i));
                     if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                         reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                     }
@@ -998,7 +959,7 @@ struct CurrentDateImpl {
     using ReturnType = DateType;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto col_to = ColumnVector<NativeType>::create();
         if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             DateV2Value<DateV2ValueType> dtv;
@@ -1029,14 +990,13 @@ struct CurrentTimeImpl {
     using ReturnType = DataTypeTimeV2;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
-        auto col_to = ColumnVector<Float64>::create();
+                          uint32_t result, size_t input_rows_count) {
+        auto col_to = ColumnFloat64::create();
         VecDateTimeValue dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());
-        double time = dtv.hour() * 3600l + dtv.minute() * 60l + dtv.second();
-        time *= (1000 * 1000);
-        col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
+        auto time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        col_to->insert_value(time);
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
         return Status::OK();
@@ -1044,17 +1004,19 @@ struct CurrentTimeImpl {
 };
 
 struct TimeToSecImpl {
+    // rethink the func should return int32
     using ReturnType = DataTypeInt32;
     static constexpr auto name = "time_to_sec";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto res_col = ColumnInt32::create(input_rows_count);
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnFloat64&>(*arg_col);
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000);
+            res_data[i] = cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) /
+                                        (TimeValue::ONE_SECOND_MICROSECONDS));
         }
         block.replace_by_position(result, std::move(res_col));
 
@@ -1066,14 +1028,14 @@ struct SecToTimeImpl {
     using ReturnType = DataTypeTimeV2;
     static constexpr auto name = "sec_to_time";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt32&>(*arg_col);
 
         auto res_col = ColumnFloat64::create(input_rows_count);
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = (1000 * 1000) * static_cast<double>(column_data.get_element(i));
+            res_data[i] = TimeValue::from_second(column_data.get_element(i));
         }
 
         block.replace_by_position(result, std::move(res_col));
@@ -1108,7 +1070,7 @@ struct TimestampToDateTime : IFunction {
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
         auto res_col = ColumnUInt64::create();
@@ -1147,7 +1109,7 @@ struct UtcTimestampImpl {
     using ReturnType = DataTypeDateTime;
     static constexpr auto name = "utc_timestamp";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
             return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
@@ -1161,7 +1123,7 @@ struct UtcTimestampImpl {
     }
 
     template <typename DateValueType, typename NativeType>
-    static Status executeImpl(FunctionContext* context, Block& block, size_t result,
+    static Status executeImpl(FunctionContext* context, Block& block, uint32_t result,
                               size_t input_rows_count) {
         auto col_to = ColumnVector<Int64>::create();
         DateValueType dtv;

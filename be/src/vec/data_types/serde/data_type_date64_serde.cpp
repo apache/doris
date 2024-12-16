@@ -26,14 +26,15 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
-Status DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                     int end_idx, BufferWritable& bw,
+Status DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                     int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -89,12 +90,12 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-Status DataTypeDateTimeSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                       int end_idx, BufferWritable& bw,
+Status DataTypeDateTimeSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                       int64_t end_idx, BufferWritable& bw,
                                                        FormatOptions& options) const {
         SERIALIZE_COLUMN_TO_JSON()}
 
-Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                          BufferWritable& bw,
                                                          FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -159,19 +160,19 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
 }
 
 void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end) const {
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
         const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
+        size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
+            checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)), column.get_name(),
                              array_builder->type()->name());
         }
     }
@@ -242,23 +243,24 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 template <bool is_binary_format>
 Status DataTypeDate64SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
-                                                   int row_idx, bool col_const) const {
+                                                   int64_t row_idx, bool col_const,
+                                                   const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnVector<Int64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
     VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
     // _nesting_level >= 2 means this datetimev2 is in complex type
     // and we should add double quotes
-    if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
     if (UNLIKELY(0 != result.push_vec_datetime(time_val))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
@@ -266,58 +268,44 @@ Status DataTypeDate64SerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeDate64SerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                  bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                  MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
+                                                  bool col_const,
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDate64SerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                  MysqlRowBuffer<false>& row_buffer,
+                                                  int64_t row_idx, bool col_const,
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                 const NullMap* null_map,
-                                                orc::ColumnVectorBatch* orc_col_batch, int start,
-                                                int end,
+                                                orc::ColumnVectorBatch* orc_col_batch,
+                                                int64_t start, int64_t end,
                                                 std::vector<StringRef>& buffer_list) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-    if (!ptr) {
-        return Status::InternalError(
-                "malloc memory error when write largeint column data to orc file.");
-    }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = BUFFER_UNIT_SIZE;
-    size_t offset = 0;
-    const size_t begin_off = offset;
+    INIT_MEMORY_FOR_ORC_WRITER()
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
 
-        int len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
-                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
+        size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
+                             .to_buffer(const_cast<char*>(bufferRef.data) + offset);
 
         REALLOC_MEMORY_FOR_ORC_WRITER()
 
+        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
-    size_t data_off = 0;
-    for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 1) {
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
-            data_off += cur_batch->length[row_id];
-        }
-    }
 
-    buffer_list.emplace_back(bufferRef);
     cur_batch->numElements = end - start;
     return Status::OK();
 }

@@ -18,13 +18,15 @@
 #pragma once
 
 #include <fmt/core.h>
-#include <stddef.h>
+
+#include <cstddef>
 
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
@@ -53,17 +55,8 @@ public:
         _cur_offset = 0;
     }
 
-    virtual void get_value(MutableColumnPtr& column) = 0;
-
-    virtual int get_value(MutableColumnPtr& column, int max_step) {
-        max_step = std::max(1, std::min(max_step, (int)(_cur_size - _cur_offset)));
-        int i = 0;
-        for (; i < max_step && !eos(); i++) {
-            get_value(column);
-            forward();
-        }
-        return i;
-    }
+    virtual void get_same_many_values(MutableColumnPtr& column, int length = 0) = 0;
+    virtual int get_value(MutableColumnPtr& column, int max_step) = 0;
 
     virtual Status close() { return Status::OK(); }
 
@@ -110,4 +103,6 @@ protected:
     bool _is_nullable = false;
     bool _is_const = false;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

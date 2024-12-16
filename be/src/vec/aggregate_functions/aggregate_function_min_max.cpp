@@ -26,11 +26,13 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 /// min, max, any
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
-                                                            const bool result_is_nullable) {
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr) {
     assert_unary(name, argument_types);
 
     AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionsSingleValue, Data,

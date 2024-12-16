@@ -30,7 +30,7 @@
 
 namespace doris {
 namespace vectorized {
-
+#include "common/compile_check_begin.h"
 // Type map的基本结构
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
@@ -71,20 +71,30 @@ using DORIS_NUMERIC_ARROW_BUILDER =
 
 template <typename T>
 void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder, int start,
-                                                   int end) const {
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
     auto arrow_null_map = revert_null_map(null_map, start, end);
     auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(
-                builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
-    } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, IPv6>) {
+        auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
+        if (null_builder) {
+            for (size_t i = start; i < end; ++i) {
+                checkArrowStatus(null_builder->AppendNull(), column.get_name(),
+                                 null_builder->type()->name());
+            }
+        } else {
+            ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+            checkArrowStatus(
+                    builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
+                                         end - start,
+                                         reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                    column.get_name(), array_builder->type()->name());
+        }
+
+    } else if constexpr (std::is_same_v<T, Int128>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
             auto& data_value = col_data[i];
@@ -93,11 +103,13 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                 checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
             } else {
-                checkArrowStatus(string_builder.Append(value_str.data(), value_str.length()),
-                                 column.get_name(), array_builder->type()->name());
+                checkArrowStatus(
+                        string_builder.Append(value_str.data(),
+                                              cast_set<int, size_t, false>(value_str.length())),
+                        column.get_name(), array_builder->type()->name());
             }
         }
-    } else if constexpr (std::is_same_v<T, UInt128>) {
+    } else if constexpr (std::is_same_v<T, UInt128> || std::is_same_v<T, IPv6>) {
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
@@ -144,14 +156,14 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                        int end_idx, BufferWritable& bw,
+Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                        int64_t end_idx, BufferWritable& bw,
                                                         FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                           BufferWritable& bw,
                                                           FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -224,12 +236,41 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     const auto* raw_data = reinterpret_cast<const T*>(buffer->data()) + start;
     col_data.insert(raw_data, raw_data + row_count);
 }
+template <typename T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+
+    DataTypeNumberSerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
+template <typename T>
+void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
+                                                                     int times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
+    auto& col = static_cast<ColumnVector<T>&>(column);
+    auto sz = col.size();
+    T val = col.get_element(sz - 1);
+    col.insert_many_vals(val, times);
+}
 
 template <typename T>
 template <bool is_binary_format>
 Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<is_binary_format>& result,
-                                                      int row_idx, bool col_const) const {
+                                                      int64_t row_idx, bool col_const,
+                                                      const FormatOptions& options) const {
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
@@ -244,9 +285,19 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (std::is_same_v<T, Int128>) {
         buf_ret = result.push_largeint(data[col_index]);
     } else if constexpr (std::is_same_v<T, float>) {
-        buf_ret = result.push_float(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for float, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_float(data[col_index]);
+        }
     } else if constexpr (std::is_same_v<T, double>) {
-        buf_ret = result.push_double(data[col_index]);
+        if (std::isnan(data[col_index])) {
+            // Handle NaN for double, we should push null value
+            buf_ret = result.push_null();
+        } else {
+            buf_ret = result.push_double(data[col_index]);
+        }
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");
@@ -257,16 +308,18 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                     bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                     MysqlRowBuffer<true>& row_buffer,
+                                                     int64_t row_idx, bool col_const,
+                                                     const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                     bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                     MysqlRowBuffer<false>& row_buffer,
+                                                     int64_t row_idx, bool col_const,
+                                                     const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 #define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                    \
@@ -281,46 +334,30 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
-                                                   orc::ColumnVectorBatch* orc_col_batch, int start,
-                                                   int end,
+                                                   orc::ColumnVectorBatch* orc_col_batch,
+                                                   int64_t start, int64_t end,
                                                    std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
     if constexpr (std::is_same_v<T, Int128>) { // largeint
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-        char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-        if (!ptr) {
-            return Status::InternalError(
-                    "malloc memory error when write largeint column data to orc file.");
-        }
-        StringRef bufferRef;
-        bufferRef.data = ptr;
-        bufferRef.size = BUFFER_UNIT_SIZE;
-        size_t offset = 0;
-        const size_t begin_off = offset;
+        INIT_MEMORY_FOR_ORC_WRITER()
 
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 0) {
-                continue;
-            }
-            std::string value_str = fmt::format("{}", col_data[row_id]);
-            size_t len = value_str.size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
-            offset += len;
-            cur_batch->length[row_id] = len;
-        }
-        size_t data_off = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
-                data_off += cur_batch->length[row_id];
+                std::string value_str = fmt::format("{}", col_data[row_id]);
+                size_t len = value_str.size();
+
+                REALLOC_MEMORY_FOR_ORC_WRITER()
+
+                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+                cur_batch->length[row_id] = len;
+                offset += len;
             }
         }
-        buffer_list.emplace_back(bufferRef);
+
         cur_batch->numElements = end - start;
     } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) { // tinyint/boolean
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ByteVectorBatch)
@@ -334,6 +371,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
     } else if constexpr (std::is_same_v<T, Float64>) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
+    } else if constexpr (std::is_same_v<T, IPv4>) { // ipv4
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
     }
     return Status::OK();
 }

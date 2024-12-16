@@ -17,19 +17,22 @@
 
 #pragma once
 
+#include <utility>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_agg_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 const static std::string AGG_UNION_SUFFIX = "_union";
 
 class AggregateStateUnion : public IAggregateFunctionHelper<AggregateStateUnion> {
 public:
     AggregateStateUnion(AggregateFunctionPtr function, const DataTypes& argument_types_,
-                        const DataTypePtr& return_type)
+                        DataTypePtr return_type)
             : IAggregateFunctionHelper(argument_types_),
-              _function(function),
-              _return_type(return_type) {}
+              _function(std::move(function)),
+              _return_type(std::move(return_type)) {}
     ~AggregateStateUnion() override = default;
 
     static AggregateFunctionPtr create(AggregateFunctionPtr function,
@@ -110,3 +113,5 @@ protected:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

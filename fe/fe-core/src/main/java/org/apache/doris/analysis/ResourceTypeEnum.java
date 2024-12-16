@@ -21,5 +21,5 @@ package org.apache.doris.analysis;
  * Resource type enum
  **/
 public enum ResourceTypeEnum {
-    GENERAL, CLUSTER, STAGE
+    GENERAL, CLUSTER, STAGE, STORAGE_VAULT
 }

@@ -43,11 +43,13 @@ class FunctionFilter;
 class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
+namespace pipeline {
+class ScanLocalStateBase;
+struct FilterPredicates;
+} // namespace pipeline
 
 namespace vectorized {
 
-class NewOlapScanNode;
-struct FilterPredicates;
 class Block;
 
 class NewOlapScanner : public VScanner {
@@ -65,18 +67,13 @@ public:
         bool aggregation;
     };
 
-    template <class T>
-    NewOlapScanner(T* parent, Params&& params);
+    NewOlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
 
     Status init() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
-
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-
-    void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
     doris::TabletStorageType get_storage_type() override;
 
@@ -89,7 +86,7 @@ private:
 
     Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                                       const std::vector<TCondition>& filters,
-                                      const FilterPredicates& filter_predicates,
+                                      const pipeline::FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();
@@ -102,11 +99,8 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-    std::vector<TCondition> _compound_filters;
 
     // ========= profiles ==========
-    int64_t _compressed_bytes_read = 0;
-    int64_t _raw_rows_read = 0;
     bool _profile_updated = false;
 };
 } // namespace vectorized

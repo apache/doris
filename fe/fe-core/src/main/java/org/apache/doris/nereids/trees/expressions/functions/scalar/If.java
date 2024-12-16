@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
@@ -36,14 +37,18 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -81,7 +86,12 @@ public class If extends ScalarFunction
                     .args(BooleanType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(BooleanType.INSTANCE, DateTimeType.INSTANCE, DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(BooleanType.INSTANCE, DateType.INSTANCE, DateType.INSTANCE),
+            FunctionSignature.ret(DateType.INSTANCE).args(BooleanType.INSTANCE, DateType.INSTANCE,
+                    DateType.INSTANCE),
+            FunctionSignature.ret(TimeType.INSTANCE).args(BooleanType.INSTANCE, TimeType.INSTANCE,
+                    TimeType.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(BooleanType.INSTANCE, TimeV2Type.INSTANCE,
+                    TimeV2Type.INSTANCE),
             FunctionSignature.ret(DecimalV3Type.WILDCARD)
                     .args(BooleanType.INSTANCE, DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
@@ -101,14 +111,17 @@ public class If extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    .args(BooleanType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE)
+                    .args(BooleanType.INSTANCE, JsonType.INSTANCE, JsonType.INSTANCE)
     );
 
     /**
      * constructor with 3 arguments.
      */
     public If(Expression arg0, Expression arg1, Expression arg2) {
-        super("if", arg0, arg1, arg2);
+        super("if", arg0 instanceof Unbound ? arg0 : TypeCoercionUtils.castIfNotSameType(arg0, BooleanType.INSTANCE),
+                arg1, arg2);
     }
 
     /**
@@ -141,5 +154,11 @@ public class If extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+
+        return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 }

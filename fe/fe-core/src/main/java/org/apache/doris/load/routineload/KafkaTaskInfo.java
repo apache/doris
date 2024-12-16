@@ -19,11 +19,12 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -57,6 +58,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(),
                 kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
+        this.isEof = kafkaTaskInfo.getIsEof();
     }
 
     public List<Integer> getPartitions() {
@@ -93,11 +95,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         if (!isMultiTable) {
             Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
             tRoutineLoadTask.setTbl(tbl.getName());
-            if (Config.enable_pipeline_load) {
-                tRoutineLoadTask.setPipelineParams(rePlanForPipeline(routineLoadJob));
-            } else {
-                tRoutineLoadTask.setParams(rePlan(routineLoadJob));
-            }
+            tRoutineLoadTask.setPipelineParams(rePlan(routineLoadJob));
         } else {
             Env.getCurrentEnv().getRoutineLoadManager().addMultiLoadTaskTxnIdToRoutineLoadJobId(txnId, jobId);
         }
@@ -127,46 +125,34 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
     }
 
-    private TExecPlanFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
+    private TPipelineFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(loadId, txnId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        StreamLoadPlanner planner = new StreamLoadPlanner(db,
+                (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
+                Table.TableType.OLAP), routineLoadJob);
+        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
-        long wgId = routineLoadJob.getWorkloadId();
-        List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-        if (wgId > 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupById(wgId);
+        if (Config.enable_workload_group) {
+            long wgId = routineLoadJob.getWorkloadId();
+            List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+            if (wgId > 0) {
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getTWorkloadGroupById(wgId);
+                if (tWgList.size() == 0) {
+                    throw new UserException("can not find workload group, id=" + wgId);
+                }
+            } else {
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity(), false);
+            }
+            if (tWgList.size() != 0) {
+                tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+            }
         }
-        if (tWgList.size() == 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupByUserIdentity(routineLoadJob.getUserIdentity());
-        }
-        tExecPlanFragmentParams.setWorkloadGroups(tWgList);
-
-        return tExecPlanFragmentParams;
-    }
-
-    private TPipelineFragmentParams rePlanForPipeline(RoutineLoadJob routineLoadJob) throws UserException {
-        TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
-        // plan for each task, in case table has change(rollup or schema change)
-        TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.planForPipeline(loadId, txnId);
-        TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
-
-        long wgId = routineLoadJob.getWorkloadId();
-        List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-        if (wgId > 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupById(wgId);
-        }
-        if (tWgList.size() == 0) {
-            tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getTWorkloadGroupByUserIdentity(routineLoadJob.getUserIdentity());
-        }
-        tExecPlanFragmentParams.setWorkloadGroups(tWgList);
 
         return tExecPlanFragmentParams;
     }

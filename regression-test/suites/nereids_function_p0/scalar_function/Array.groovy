@@ -204,37 +204,37 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_except_DateV2_notnull "select array_except(kadtv2, kadtv2) from fn_test_not_nullable"
 
     // array_intersect
-    order_qt_sql_array_intersect_Double "select array_intersect(kadbl, kadbl) from fn_test"
-    order_qt_sql_array_intersect_Double_notnull "select array_intersect(kadbl, kadbl) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_Float "select array_intersect(kafloat, kafloat) from fn_test"
-    order_qt_sql_array_intersect_Float_notnull "select array_intersect(kafloat, kafloat) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_LargeInt "select array_intersect(kalint, kalint) from fn_test"
-    order_qt_sql_array_intersect_LargeInt_notnull "select array_intersect(kalint, kalint) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_BigInt "select array_intersect(kabint, kabint) from fn_test"
-    order_qt_sql_array_intersect_BigInt_notnull "select array_intersect(kabint, kabint) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_SmallInt "select array_intersect(kasint, kasint) from fn_test"
-    order_qt_sql_array_intersect_SmallInt_notnull "select array_intersect(kasint, kasint) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_Integer "select array_intersect(kaint, kaint) from fn_test"
-    order_qt_sql_array_intersect_Integer_notnull "select array_intersect(kaint, kaint) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_TinyInt "select array_intersect(katint, katint) from fn_test"
-    order_qt_sql_array_intersect_TinyInt_notnull "select array_intersect(katint, katint) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_DecimalV3 "select array_intersect(kadcml, kadcml) from fn_test"
-    order_qt_sql_array_intersect_DecimalV3_notnull "select array_intersect(kadcml, kadcml) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_Double "select array_sort(array_intersect(kadbl, kadbl)) from fn_test"
+    order_qt_sql_array_intersect_Double_notnull "select array_sort(array_intersect(kadbl, kadbl)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_Float "select array_sort(array_intersect(kafloat, kafloat)) from fn_test"
+    order_qt_sql_array_intersect_Float_notnull "select array_sort(array_intersect(kafloat, kafloat)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_LargeInt "select array_sort(array_intersect(kalint, kalint)) from fn_test"
+    order_qt_sql_array_intersect_LargeInt_notnull "select array_sort(array_intersect(kalint, kalint)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_BigInt "select array_sort(array_intersect(kabint, kabint)) from fn_test"
+    order_qt_sql_array_intersect_BigInt_notnull "select array_sort(array_intersect(kabint, kabint)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_SmallInt "select array_sort(array_intersect(kasint, kasint)) from fn_test"
+    order_qt_sql_array_intersect_SmallInt_notnull "select array_sort(array_intersect(kasint, kasint)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_Integer "select array_sort(array_intersect(kaint, kaint)) from fn_test"
+    order_qt_sql_array_intersect_Integer_notnull "select array_sort(array_intersect(kaint, kaint)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_TinyInt "select array_sort(array_intersect(katint, katint)) from fn_test"
+    order_qt_sql_array_intersect_TinyInt_notnull "select array_sort(array_intersect(katint, katint)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_DecimalV3 "select array_sort(array_intersect(kadcml, kadcml)) from fn_test"
+    order_qt_sql_array_intersect_DecimalV3_notnull "select array_sort(array_intersect(kadcml, kadcml)) from fn_test_not_nullable"
 
-    order_qt_sql_array_intersect_Boolean "select array_intersect(kabool, kabool) from fn_test"
-    order_qt_sql_array_intersect_Boolean_notnull "select array_intersect(kabool, kabool) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_Boolean "select array_sort(array_intersect(kabool, kabool)) from fn_test"
+    order_qt_sql_array_intersect_Boolean_notnull "select array_sort(array_intersect(kabool, kabool)) from fn_test_not_nullable"
 
-    order_qt_sql_array_intersect_Char "select array_intersect(kachr, kachr) from fn_test"
-    order_qt_sql_array_intersect_Char_notnull "select array_intersect(kachr, kachr) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_Varchar "select array_intersect(kavchr, kavchr) from fn_test"
-    order_qt_sql_array_intersect_Varchar_notnull "select array_intersect(kavchr, kavchr) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_String "select array_intersect(kastr, kastr) from fn_test"
-    order_qt_sql_array_intersect_String_notnull "select array_intersect(kastr, kastr) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_Char "select array_sort(array_intersect(kachr, kachr)) from fn_test"
+    order_qt_sql_array_intersect_Char_notnull "select array_sort(array_intersect(kachr, kachr)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_Varchar "select array_sort(array_intersect(kavchr, kavchr)) from fn_test"
+    order_qt_sql_array_intersect_Varchar_notnull "select array_sort(array_intersect(kavchr, kavchr)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_String "select array_sort(array_intersect(kastr, kastr)) from fn_test"
+    order_qt_sql_array_intersect_String_notnull "select array_sort(array_intersect(kastr, kastr)) from fn_test_not_nullable"
 
-    order_qt_sql_array_intersect_DatetimeV2 "select array_intersect(kadtmv2, kadtmv2) from fn_test"
-    order_qt_sql_array_intersect_DatetimeV2_notnull "select array_intersect(kadtmv2, kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_DateV2 "select array_intersect(kadtv2, kadtv2) from fn_test"
-    order_qt_sql_array_intersect_DateV2_notnull "select array_intersect(kadtv2, kadtv2) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_DatetimeV2 "select array_sort(array_intersect(kadtmv2, kadtmv2)) from fn_test"
+    order_qt_sql_array_intersect_DatetimeV2_notnull "select array_sort(array_intersect(kadtmv2, kadtmv2)) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_DateV2 "select array_sort(array_intersect(kadtv2, kadtv2)) from fn_test"
+    order_qt_sql_array_intersect_DateV2_notnull "select array_sort(array_intersect(kadtv2, kadtv2)) from fn_test_not_nullable"
 
     // array_join
     order_qt_sql_array_join_Double "select array_join(kadbl, ',', 'null') from fn_test"
@@ -617,12 +617,17 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, kdtv2) from fn_test_not_nullable"
 
     // array_range
-    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test"
-    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable"
-    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test"
-    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable"
-    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test"
-    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test order by id"
+    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test order by id"
+    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test order by id"
+    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable order by id"
+    // make a large size of array element, expect to throw error
+    test  {
+        sql "select array_range(kint, 1000000000) from fn_test"
+        exception ('Array size exceeds the limit 1000000')
+    }
 
     // array_remove
     order_qt_sql_array_remove_Double "select array_remove(kadbl, kdbl) from fn_test"
@@ -808,37 +813,37 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_sum_DecimalV3_notnull "select array_sum(kadcml) from fn_test_not_nullable"
 
     // array_union
-    order_qt_sql_array_union_Double "select array_union(kadbl, kadbl) from fn_test"
-    order_qt_sql_array_union_Double_notnull "select array_union(kadbl, kadbl) from fn_test_not_nullable"
-    order_qt_sql_array_union_Float "select array_union(kafloat, kafloat) from fn_test"
-    order_qt_sql_array_union_Float_notnull "select array_union(kafloat, kafloat) from fn_test_not_nullable"
-    order_qt_sql_array_union_LargeInt "select array_union(kalint, kalint) from fn_test"
-    order_qt_sql_array_union_LargeInt_notnull "select array_union(kalint, kalint) from fn_test_not_nullable"
-    order_qt_sql_array_union_BigInt "select array_union(kabint, kabint) from fn_test"
-    order_qt_sql_array_union_BigInt_notnull "select array_union(kabint, kabint) from fn_test_not_nullable"
-    order_qt_sql_array_union_SmallInt "select array_union(kasint, kasint) from fn_test"
-    order_qt_sql_array_union_SmallInt_notnull "select array_union(kasint, kasint) from fn_test_not_nullable"
-    order_qt_sql_array_union_Integer "select array_union(kaint, kaint) from fn_test"
-    order_qt_sql_array_union_Integer_notnull "select array_union(kaint, kaint) from fn_test_not_nullable"
-    order_qt_sql_array_union_TinyInt "select array_union(katint, katint) from fn_test"
-    order_qt_sql_array_union_TinyInt_notnull "select array_union(katint, katint) from fn_test_not_nullable"
-    order_qt_sql_array_union_DecimalV3 "select array_union(kadcml, kadcml) from fn_test"
-    order_qt_sql_array_union_DecimalV3_notnull "select array_union(kadcml, kadcml) from fn_test_not_nullable"
+    order_qt_sql_array_union_Double "select array_sort(array_union(kadbl, kadbl)) from fn_test"
+    order_qt_sql_array_union_Double_notnull "select array_sort(array_union(kadbl, kadbl)) from fn_test_not_nullable"
+    order_qt_sql_array_union_Float "select array_sort(array_union(kafloat, kafloat)) from fn_test"
+    order_qt_sql_array_union_Float_notnull "select array_sort(array_union(kafloat, kafloat)) from fn_test_not_nullable"
+    order_qt_sql_array_union_LargeInt "select array_sort(array_union(kalint, kalint)) from fn_test"
+    order_qt_sql_array_union_LargeInt_notnull "select array_sort(array_union(kalint, kalint)) from fn_test_not_nullable"
+    order_qt_sql_array_union_BigInt "select array_sort(array_union(kabint, kabint)) from fn_test"
+    order_qt_sql_array_union_BigInt_notnull "select array_sort(array_union(kabint, kabint)) from fn_test_not_nullable"
+    order_qt_sql_array_union_SmallInt "select array_sort(array_union(kasint, kasint)) from fn_test"
+    order_qt_sql_array_union_SmallInt_notnull "select array_sort(array_union(kasint, kasint)) from fn_test_not_nullable"
+    order_qt_sql_array_union_Integer "select array_sort(array_union(kaint, kaint)) from fn_test"
+    order_qt_sql_array_union_Integer_notnull "select array_sort(array_union(kaint, kaint)) from fn_test_not_nullable"
+    order_qt_sql_array_union_TinyInt "select array_sort(array_union(katint, katint)) from fn_test"
+    order_qt_sql_array_union_TinyInt_notnull "select array_sort(array_union(katint, katint)) from fn_test_not_nullable"
+    order_qt_sql_array_union_DecimalV3 "select array_sort(array_union(kadcml, kadcml)) from fn_test"
+    order_qt_sql_array_union_DecimalV3_notnull "select array_sort(array_union(kadcml, kadcml)) from fn_test_not_nullable"
 
-    order_qt_sql_array_union_Boolean "select array_union(kabool, kabool) from fn_test"
-    order_qt_sql_array_union_Boolean_notnull "select array_union(kabool, kabool) from fn_test_not_nullable"
+    order_qt_sql_array_union_Boolean "select array_sort(array_union(kabool, kabool)) from fn_test"
+    order_qt_sql_array_union_Boolean_notnull "select array_sort(array_union(kabool, kabool)) from fn_test_not_nullable"
 
-    order_qt_sql_array_union_Char "select array_union(kachr, kachr) from fn_test"
-    order_qt_sql_array_union_Char_notnull "select array_union(kachr, kachr) from fn_test_not_nullable"
-    order_qt_sql_array_union_Varchar "select array_union(kavchr, kavchr) from fn_test"
-    order_qt_sql_array_union_Varchar_notnull "select array_union(kavchr, kavchr) from fn_test_not_nullable"
-    order_qt_sql_array_union_String "select array_union(kastr, kastr) from fn_test"
-    order_qt_sql_array_union_String_notnull "select array_union(kastr, kastr) from fn_test_not_nullable"
+    order_qt_sql_array_union_Char "select array_sort(array_union(kachr, kachr)) from fn_test"
+    order_qt_sql_array_union_Char_notnull "select array_sort(array_union(kachr, kachr)) from fn_test_not_nullable"
+    order_qt_sql_array_union_Varchar "select array_sort(array_union(kavchr, kavchr)) from fn_test"
+    order_qt_sql_array_union_Varchar_notnull "select array_sort(array_union(kavchr, kavchr)) from fn_test_not_nullable"
+    order_qt_sql_array_union_String "select array_sort(array_union(kastr, kastr)) from fn_test"
+    order_qt_sql_array_union_String_notnull "select array_sort(array_union(kastr, kastr)) from fn_test_not_nullable"
 
-    order_qt_sql_array_union_DatetimeV2 "select array_union(kadtmv2, kadtmv2) from fn_test"
-    order_qt_sql_array_union_DatetimeV2_notnull "select array_union(kadtmv2, kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_union_DateV2 "select array_union(kadtv2, kadtv2) from fn_test"
-    order_qt_sql_array_union_DateV2_notnull "select array_union(kadtv2, kadtv2) from fn_test_not_nullable"
+    order_qt_sql_array_union_DatetimeV2 "select array_sort(array_union(kadtmv2, kadtmv2)) from fn_test"
+    order_qt_sql_array_union_DatetimeV2_notnull "select array_sort(array_union(kadtmv2, kadtmv2)) from fn_test_not_nullable"
+    order_qt_sql_array_union_DateV2 "select array_sort(array_union(kadtv2, kadtv2)) from fn_test"
+    order_qt_sql_array_union_DateV2_notnull "select array_sort(array_union(kadtv2, kadtv2)) from fn_test_not_nullable"
 
     // array_with_constant
     order_qt_sql_array_with_constant_Double "select array_with_constant(kint, kdbl) from fn_test"
@@ -1005,6 +1010,8 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_map_TinyInt_notnull "select array_map(x -> x is not null, katint) from fn_test_not_nullable"
     order_qt_sql_array_map_DecimalV3 "select array_map(x -> x is not null, kadcml) from fn_test"
     order_qt_sql_array_map_DecimalV3_notnull "select array_map(x -> x is not null, kadcml) from fn_test_not_nullable"
+    order_qt_sql_array_map_lambda_agg "select array_map(x->(x+100), collect_list(ktint)) from fn_test group by id;"
+
     // test array_exists
     order_qt_sql_array_exists_Double "select array_exists(x -> x > 1, kadbl) from fn_test"
     order_qt_sql_array_exists_Double_notnull "select array_exists(x -> x > 1, kadbl) from fn_test_not_nullable"
@@ -1274,4 +1281,147 @@ suite("nereids_scalar_fn_Array") {
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
+    // make large error size
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+10000 month), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000001 day), interval kint day)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    // with array empty
+    qt_array_empty_fe """select array()"""
+    sql """ set debug_skip_fold_constant=true; """
+    qt_array_empty_be """select array()"""
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    // array_map with string is can be succeed
+    qt_sql_array_map """select array_map(x->x!='', split_by_string('amory,is,better,committing', ','))"""
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("errCode = 2")
+    }
+
+    // agg for array types add decimal256 cases array_min/array_max/array_product/array_avg/array_sum with decimal256
+    sql """ set enable_decimal256=true; """
+    order_qt_sql_array_min_decimal256 "select array_min(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_max_decimal256 "select array_max(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_product_decimal256 "select array_product(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_avg_decimal256 "select array_avg(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_sum_decimal256 "select array_sum(c) from fn_test_array_with_large_decimal order by id"
+    // array_overlap for type correctness
+    order_qt_sql_array_overlaps_1 """select arrays_overlap(a, b) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_2 """select arrays_overlap(b, a) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_3 """select arrays_overlap(a, c) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_4 """select arrays_overlap(c, a) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_5 """select arrays_overlap(b, c) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_6 """select arrays_overlap(c, b) from fn_test_array_with_large_decimal order by id"""
+
+
+	// array_match_any && array_match_all
+	// for table
+	qt_sql_array_match_any_1 "select kastr, array_match_any(x->x!='', kastr) from fn_test_am order by id"
+	qt_sql_array_match_all_1 "select kastr, array_match_all(x->x!='', kastr) from fn_test_am order by id"
+	qt_sql_array_match_any_2 "select kastr, array_match_any(x->x!=null, kastr) from fn_test_am order by id"
+	qt_sql_array_match_all_2 "select kastr, array_match_all(x->x!=null, kastr) from fn_test_am order by id"
+	qt_sql_array_match_any_3 "select kaint, array_match_any(x->x!=null, kaint) from fn_test_am order by id"
+	qt_sql_array_match_all_3 "select kaint, array_match_all(x->x!=null, kaint) from fn_test_am order by id"
+	qt_sql_array_match_any_4 "select kastr, array_match_any(x->x='a', kastr) from fn_test_am order by id"
+	qt_sql_array_match_all_4 "select kastr, array_match_all(x->x='a', kastr) from fn_test_am order by id"
+	qt_sql_array_match_any_5 "select kaint, array_match_any(x->x=2, kaint) from fn_test_am order by id"
+	qt_sql_array_match_all_5 "select kaint, array_match_all(x->x=2, kaint) from fn_test_am order by id"
+	qt_sql_array_match_any_6 "select kaint, array_match_any(x->x!=2, kaint) from fn_test_am order by id"
+	qt_sql_array_match_all_6 "select kaint, array_match_any(x->x!=2, kaint) from fn_test_am order by id"
+
+	// for literal
+	qt_sql_array_match_any_7 "select array_match_any(x->x!=null, array('a', 'b', 'c'))"
+	qt_sql_array_match_all_7 "select array_match_all(x->x!=null, array('a', 'b', 'c'))"
+	qt_sql_array_match_any_8 "select array_match_any(x->x!=null, array('a', null, 'c'))"
+	qt_sql_array_match_all_8 "select array_match_all(x->x!=null, array('a', null, 'c'))"
+	qt_sql_array_match_any_9 "select array_match_any(x->x!=null, array())"
+	qt_sql_array_match_all_9 "select array_match_all(x->x!=null, array())"
+	qt_sql_array_match_any_10 "select array_match_any(x->x!=null, array(null, null))"
+	qt_sql_array_match_all_10 "select array_match_all(x->x!=null, array(null, null))"
+	qt_sql_array_match_any_11 "select array_match_any(x->x='a', array('a', 'b', 'c'))"
+	qt_sql_array_match_all_11 "select array_match_all(x->x='a', array('a', 'b', 'c'))"
+	qt_sql_array_match_any_12 "select array_match_any(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_all_12 "select array_match_all(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_any_13 "select array_match_any(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_all_13 "select array_match_all(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_any_14 "select array_match_any(x->x=2, array())"
+	qt_sql_array_match_all_14 "select array_match_all(x->x=2, array())"
+	qt_sql_array_match_any_15 "select array_match_any(x->x=2, array(null, null))"
+	qt_sql_array_match_all_15 "select array_match_all(x->x=2, array(null, null))"
+	qt_sql_array_match_any_16 "select array_match_any(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_all_16 "select array_match_all(x->x=2, array(1, 2, 3))"
+	qt_sql_array_match_any_17 "select array_match_any(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_all_17 "select array_match_all(x->x=2, array(1, null, 3))"
+	qt_sql_array_match_any_18 "select array_match_any(x->x=2, array())"
+	qt_sql_array_match_all_18 "select array_match_all(x->x=2, array())"
+
+
+    // tests for nereids array functions for number overflow cases
+    qt_sql """ SELECT array_position([1,258],257),array_position([2],258);"""
+    qt_sql """ select array_apply([258], '>' , 257), array_apply([1,2,3], '>', 258);"""
+    qt_sql """ select array_contains([258], 257), array_contains([1,2,3], 258);"""
+    // pushfront and pushback
+    qt_sql """ select array_pushfront([258], 257), array_pushfront([1,2,3], 258);"""
+    qt_sql """ select array_pushback([1,258], 257), array_pushback([1,2,3], 258);"""
+    // array_remove
+    qt_sql """ select array_remove([1,258], 257), array_remove([1,2,3], 258);"""
+    // countequal
+    qt_sql """ select countequal([1,258], 257), countequal([1,2,3], 258);"""
+    // map_contains_key
+    qt_sql """ select map_contains_key(map(1,258), 257), map_contains_key(map(2,1), 258);"""
+    // map_contains_value
+    qt_sql """ select map_contains_value(map(1,1), 257), map_contains_value(map(1,2), 258);"""
+
 }

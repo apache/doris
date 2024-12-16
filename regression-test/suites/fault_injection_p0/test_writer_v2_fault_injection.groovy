@@ -67,14 +67,17 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
         file "baseall.txt"
     }
 
-    def load_with_injection = { injection, error_msg->
+    def load_with_injection = { injection, error_msg, success=false->
         try {
             GetDebugPoint().enableDebugPointForAllBEs(injection)
             sql "insert into test select * from baseall where k1 <= 3"
+            assertTrue(success, String.format("expected Exception '%s', actual success", error_msg))
         } catch(Exception e) {
             logger.info(e.getMessage())
-            assertTrue(e.getMessage().contains(error_msg))
+            assertTrue(e.getMessage().contains(error_msg),
+                       String.format("expected '%s', actual '%s'", error_msg, e.getMessage()))
         } finally {
+            sleep 1000 // wait some time for instance finish before disable injection
             GetDebugPoint().disableDebugPointForAllBEs(injection)
         }
     }
@@ -84,13 +87,19 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
     // VTabletWriterV2 _vec_output_expr_ctxs not equal _output_tuple_slot
     load_with_injection("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot", "should be equal to output_expr_num")
     // VTabletWriterV2 node_info is null
-    load_with_injection("VTabletWriterV2._open_streams_to_backend.node_info_null", "Unknown node")
+    load_with_injection("VTabletWriterV2._open_streams_to_backend.node_info_null", "failed to open streams to any BE")
+    // VTabletWriterV2 do not get tablet schema on open_streams
+    load_with_injection("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams", "success", true)
     // VTabletWriterV2 tablet_location is null
     load_with_injection("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null", "unknown tablet location")
     // VTabletWriterV2 location is null
-    load_with_injection("VTabletWriterV2._select_streams.location_null", "unknown tablet location")
+    load_with_injection("VTabletWriterV2._select_streams.location_null", "failed to open DeltaWriter")
+    // VTabletWriterV2 index not found
+    load_with_injection("VTabletWriterV2._write_memtable.index_not_found", "failed to open DeltaWriter")
     // VTabletWriterV2 cancel
     load_with_injection("VTabletWriterV2.close.cancel", "load cancel")
+    // VTabletWriterV2 load timeout before close_wait
+    load_with_injection("VTabletWriterV2._close_wait.load_timeout", "load timed out before close waiting")
     // DeltaWriterV2 stream_size is 0
     load_with_injection("DeltaWriterV2.init.stream_size", "failed to find tablet schema")
 

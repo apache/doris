@@ -3240,3 +3240,12 @@ false	true	true	false	false
 
 -- !test --
 
+-- !sql --
+4
+
+-- !sql --
+2	\N
+
+-- !sql --
+2	\N
+

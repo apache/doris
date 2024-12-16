@@ -22,6 +22,8 @@ suite("push_down_expression_in_hash_join") {
     sql "use regression_test_nereids_rules_p0"
     sql "set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set disable_join_reorder=true"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     // Push down arithmetic expression in inner join
     qt_push_arithmetic_inner_join"""

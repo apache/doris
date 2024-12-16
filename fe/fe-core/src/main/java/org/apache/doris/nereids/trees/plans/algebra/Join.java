@@ -35,6 +35,18 @@ import java.util.stream.Stream;
  * Common interface for logical/physical join.
  */
 public interface Join {
+    /**
+     * join shuffle type
+     */
+    enum ShuffleType {
+        shuffle,
+        broadcast,
+        bucketShuffle,
+        shuffleBucket,
+        colocated,
+        unknown
+    }
+
     JoinType getJoinType();
 
     List<Expression> getHashJoinConjuncts();

@@ -58,9 +58,15 @@ static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second
 
 using strings::Substitute;
 
-Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
+int64_t IndexedColumnReader::get_metadata_size() const {
+    return sizeof(IndexedColumnReader) + _meta.ByteSizeLong();
+}
+
+Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
+                                 OlapReaderStatistics* index_load_stats) {
     _use_page_cache = use_page_cache;
     _kept_in_memory = kept_in_memory;
+    _index_load_stats = index_load_stats;
 
     _type_info = get_scalar_type_info((FieldType)_meta.data_type());
     if (_type_info == nullptr) {
@@ -75,7 +81,8 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
             _sole_data_page = PagePointer(_meta.ordinal_index_meta().root_page());
         } else {
             RETURN_IF_ERROR(load_index_page(_meta.ordinal_index_meta().root_page(),
-                                            &_ordinal_index_page_handle, &_ordinal_index_reader));
+                                            &_ordinal_index_page_handle,
+                                            _ordinal_index_reader.get()));
             _has_index_page = true;
         }
     }
@@ -86,11 +93,13 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
             RETURN_IF_ERROR(load_index_page(_meta.value_index_meta().root_page(),
-                                            &_value_index_page_handle, &_value_index_reader));
+                                            &_value_index_page_handle, _value_index_reader.get()));
             _has_index_page = true;
         }
     }
     _num_values = _meta.num_values();
+
+    update_metadata_size();
     return Status::OK();
 }
 
@@ -101,7 +110,7 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
     BlockCompressionCodec* local_compress_codec;
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &local_compress_codec));
     RETURN_IF_ERROR(read_page(PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
-                              local_compress_codec, false));
+                              local_compress_codec, false, _index_load_stats));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
     _mem_size += body.get_size();
     return Status::OK();
@@ -109,8 +118,10 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
 
 Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle, Slice* body,
                                       PageFooterPB* footer, PageTypePB type,
-                                      BlockCompressionCodec* codec, bool pre_decode) const {
+                                      BlockCompressionCodec* codec, bool pre_decode,
+                                      OlapReaderStatistics* stats) const {
     OlapReaderStatistics tmp_stats;
+    OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
     PageReadOptions opts {
             .use_page_cache = _use_page_cache,
             .kept_in_memory = _kept_in_memory,
@@ -119,9 +130,10 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
             .file_reader = _file_reader.get(),
             .page_pointer = pp,
             .codec = codec,
-            .stats = &tmp_stats,
+            .stats = stats_ptr,
             .encoding_info = _encoding_info,
-            .io_ctx = io::IOContext {.is_index_data = true},
+            .io_ctx = io::IOContext {.is_index_data = true,
+                                     .file_cache_stats = &stats_ptr->file_cache_stats},
     };
     if (_is_pk_index) {
         opts.type = PRIMARY_KEY_INDEX_PAGE;
@@ -133,6 +145,8 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     g_index_reader_cached_pages << tmp_stats.cached_pages_num;
     return st;
 }
+
+IndexedColumnReader::~IndexedColumnReader() = default;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -146,8 +160,8 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     PageHandle handle;
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(
-            _reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec, true));
+    RETURN_IF_ERROR(_reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec,
+                                       true, _stats));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
     PageDecoderOptions opts;

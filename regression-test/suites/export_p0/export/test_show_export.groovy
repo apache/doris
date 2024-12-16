@@ -113,16 +113,18 @@ suite("test_show_export", "p0") {
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             ) ORDER BY user_id;
             """
@@ -148,16 +150,18 @@ suite("test_show_export", "p0") {
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             ) ORDER BY user_id;
             """

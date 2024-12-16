@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_backup_restore_table_auto_bucket", "backup_restore") {
-    String repoName = "test_backup_restore_table_auto_bucket_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "backup_restore_table_with_auto_bucket_db"
     String tableName = "auto_bucket_table"
 
@@ -52,9 +52,7 @@ suite("test_backup_restore_table_auto_bucket", "backup_restore") {
         ON (${tableName})
     """    
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
@@ -70,9 +68,7 @@ suite("test_backup_restore_table_auto_bucket", "backup_restore") {
             "reserve_replica" = "true"
         )
     """
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     def restore_properties = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 

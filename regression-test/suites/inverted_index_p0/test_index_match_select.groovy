@@ -137,21 +137,24 @@ suite("test_index_match_select", "inverted_index_select"){
                     add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-            sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${varchar_colume2}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${varchar_colume3}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${int_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${string_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${char_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
-            sql """ build index ${text_colume1}_idx on ${indexTbName1} """
-            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            if (!isCloudMode()) {
+                sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${varchar_colume2}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${varchar_colume3}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${int_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${string_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${char_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+                sql """ build index ${text_colume1}_idx on ${indexTbName1} """
+                wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            }
         }
+        sql """ set enable_common_expr_pushdown = true; """
 
         // case1: match term
         // case1.0 test match ""
@@ -204,7 +207,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // cas2.2 test varchar standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any 'zhang yi' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_all "zhang yi" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any '"zhang yi"' order by name """
@@ -214,7 +217,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case3: test char standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any 'tall:100cm, weight: 30kg, hobbies:' order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_all "tall:100cm, weight: 30kg, hobbies:" order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any '"tall:100cm, weight: 30kg, hobbies:"' order by name """
@@ -224,7 +227,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case4: test string simple match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_all 'A naughty boy' order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any "A naughty boy" order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any '"A naughty boy"' order by name """
@@ -233,7 +236,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case5: test text standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all 'i just want go outside' order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_any "i just want go outside" order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all '"i just want go outside"' order by name """

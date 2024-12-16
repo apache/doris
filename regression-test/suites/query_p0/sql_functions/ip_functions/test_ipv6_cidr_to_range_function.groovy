@@ -48,6 +48,19 @@ suite("test_ipv6_cidr_to_range_function") {
         """
 
     qt_sql "select id, struct_element(ipv6_cidr_to_range(addr, cidr), 'min') as min_range, struct_element(ipv6_cidr_to_range(addr, cidr), 'max') as max_range from test_ipv6_cidr_to_range_function order by id"
+    qt_sql "select id, ipv6_cidr_to_range(addr, 16) from test_ipv6_cidr_to_range_function order by id;"
+    sql """ delete from test_ipv6_cidr_to_range_function where id in (2,3,6);"""
+    test {
+       sql """select id, ipv6_cidr_to_range(to_ipv6("127.0.0.1"), cidr) from test_ipv6_cidr_to_range_function order by id;"""
+      exception "Invalid IPv6 value '127.0.0.1'"
+    }
+    test {
+     sql """ select number, ipv6_cidr_to_range(to_ipv6("127.0.0.1"), 16) from numbers("number"="10") order by number;"""
+     exception "Invalid IPv6 value '127.0.0.1'"
+   }
+   qt_sql """ select id, ipv6_cidr_to_range(to_ipv6("::1"), cidr) from test_ipv6_cidr_to_range_function order by id; """
+   qt_sql """ select number, ipv6_cidr_to_range(to_ipv6("::1"), 16) from numbers("number"="10") order by number;"""
+     
 
     sql """ DROP TABLE IF EXISTS test_ipv6_cidr_to_range_function """
     sql """ DROP TABLE IF EXISTS test_str_cidr_to_range_function """
@@ -78,13 +91,13 @@ suite("test_ipv6_cidr_to_range_function") {
         (9, 'ffff:0000:0000:0000:0000:0000:0000:0000', NULL)
         """
 
-    qt_sql "select id, struct_element(ipv6_cidr_to_range(ipv6_string_to_num_or_null(addr), cidr), 'min') as min_range, struct_element(ipv6_cidr_to_range(ipv6_string_to_num_or_null(addr), cidr), 'max') as max_range from test_str_cidr_to_range_function order by id"
+    qt_sql "select id, struct_element(ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num_or_null(addr)), cidr), 'min') as min_range, struct_element(ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num_or_null(addr)), cidr), 'max') as max_range from test_str_cidr_to_range_function order by id"
 
     sql """ DROP TABLE IF EXISTS test_str_cidr_to_range_function """
 
-    qt_sql "select ipv6_cidr_to_range(ipv6_string_to_num('2001:0db8:0000:85a3:0000:0000:ac1f:8001'), 0)"
-    qt_sql "select ipv6_cidr_to_range(ipv6_string_to_num('2001:0db8:0000:85a3:0000:0000:ac1f:8001'), 128)"
-    qt_sql "select ipv6_cidr_to_range(ipv6_string_to_num('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'), 64)"
-    qt_sql "select ipv6_cidr_to_range(ipv6_string_to_num('0000:0000:0000:0000:0000:0000:0000:0000'), 8)"
-    qt_sql "select ipv6_cidr_to_range(ipv6_string_to_num('ffff:0000:0000:0000:0000:0000:0000:0000'), 4)"
+    qt_sql "select ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num('2001:0db8:0000:85a3:0000:0000:ac1f:8001')), 0)"
+    qt_sql "select ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num('2001:0db8:0000:85a3:0000:0000:ac1f:8001')), 128)"
+    qt_sql "select ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')), 64)"
+    qt_sql "select ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num('0000:0000:0000:0000:0000:0000:0000:0000')), 8)"
+    qt_sql "select ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num('ffff:0000:0000:0000:0000:0000:0000:0000')), 4)"
 }

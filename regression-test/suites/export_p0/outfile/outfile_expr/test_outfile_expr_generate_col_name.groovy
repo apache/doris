@@ -22,9 +22,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_expr_generate_col_name", "p0") {
-    // close nereids
-    sql """ set enable_nereids_planner=false """
-
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
@@ -97,7 +94,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
 
     def check_outfile_data = { outfile_url, outfile_format ->
         order_qt_select_tvf """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${outfile_format}",
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${outfile_format}",
                             "ACCESS_KEY"= "${ak}",
                             "SECRET_KEY" = "${sk}",
                             "format" = "${outfile_format}",
@@ -108,7 +105,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
 
     def check_outfile_column_name = { outfile_url, outfile_format ->
         order_qt_desc_s3 """ Desc function S3 (
-                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${outfile_format}",
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${outfile_format}",
                     "ACCESS_KEY"= "${ak}",
                     "SECRET_KEY" = "${sk}",
                     "format" = "${outfile_format}",
@@ -132,7 +129,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -153,7 +150,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -174,7 +171,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -214,7 +211,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -238,7 +235,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)

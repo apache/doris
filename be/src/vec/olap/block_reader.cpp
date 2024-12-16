@@ -39,6 +39,7 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -71,54 +72,31 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
-    std::string cur_max_key;
+bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
+    std::string cur_rs_last_key;
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
     for (const auto& rs_split : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_split.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
         if (rs_split.rs_reader->rowset()->num_rows() == 0) {
             continue;
         }
         if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
             return true;
         }
-        std::string min_key;
-        bool has_min_key = rs_split.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
+        std::string rs_first_key;
+        bool has_first_key = rs_split.rs_reader->rowset()->first_key(&rs_first_key);
+        if (!has_first_key) {
             return true;
         }
-        if (min_key <= cur_max_key) {
+        if (rs_first_key <= cur_rs_last_key) {
             return true;
         }
-        CHECK(rs_split.rs_reader->rowset()->max_key(&cur_max_key));
+        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&cur_rs_last_key);
+        CHECK(has_last_key);
     }
 
-    for (const auto& rs_reader : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_reader.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->num_rows() == 0) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->is_segments_overlapping()) {
-            return true;
-        }
-        std::string min_key;
-        bool has_min_key = rs_reader.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
-            return true;
-        }
-        if (min_key <= cur_max_key) {
-            return true;
-        }
-        CHECK(rs_reader.rs_reader->rowset()->max_key(&cur_max_key));
-    }
     return false;
 }
+
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
@@ -130,13 +108,18 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(read_params);
+    _is_rowsets_overlapping = _rowsets_mono_asc_disjoint(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    RuntimeState* runtime_state = read_params.runtime_state;
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+
         auto& rs_split = read_params.rs_splits[i];
 
         // _vcollect_iter.topn_next() will init rs_reader by itself
@@ -164,9 +147,9 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-void BlockReader::_init_agg_state(const ReaderParams& read_params) {
+Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     if (_eof) {
-        return;
+        return Status::OK();
     }
 
     _stored_data_columns =
@@ -179,10 +162,17 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (auto idx : _agg_columns_idx) {
         auto column = tablet_schema.column(
                 read_params.origin_return_columns->at(_return_columns_loc[idx]));
-        AggregateFunctionPtr function =
-                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+        AggregateFunctionPtr function = column.get_aggregate_function(
+                vectorized::AGG_READER_SUFFIX, read_params.get_be_exec_version());
 
-        DCHECK(function != nullptr);
+        // to avoid coredump when something goes wrong(i.e. column missmatch)
+        if (!function) {
+            return Status::InternalError(
+                    "Failed to init reader when init agg state: "
+                    "tablet_id: {}, schema_hash: {}, reader_type: {}, version: {}",
+                    read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
+                    int(read_params.reader_type), read_params.version.to_string());
+        }
         _agg_functions.push_back(function);
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];
@@ -193,23 +183,10 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         _agg_places.push_back(place);
 
         // calculate `_has_variable_length_tag` tag. like string, array, map
-        _stored_has_variable_length_tag[idx] =
-                _stored_data_columns[idx]->is_column_string() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_string()) ||
-                _stored_data_columns[idx]->is_column_array() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_array()) ||
-                _stored_data_columns[idx]->is_column_map() ||
-                (_stored_data_columns[idx]->is_nullable() &&
-                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
-                         ->get_nested_column_ptr()
-                         ->is_column_map());
+        _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
+
+    return Status::OK();
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
@@ -262,7 +239,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         break;
     case KeysType::AGG_KEYS:
         _next_block_func = &BlockReader::_agg_key_next_block;
-        _init_agg_state(read_params);
+        RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
         DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
@@ -383,8 +360,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < _reader_context.batch_size);
 
-    // do filter delete row in base compaction, only base compaction need to do the job
-    if (_filter_delete) {
+    if (_delete_sign_available) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
         if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
@@ -491,10 +467,10 @@ size_t BlockReader::_copy_agg_data() {
         auto& dst_column = _stored_data_columns[idx];
         if (_stored_has_variable_length_tag[idx]) {
             //variable length type should replace ordered
+            dst_column->clear();
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
-                dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
-                                                ref.row_pos, i);
+                dst_column->insert_from(*ref.block->get_by_position(idx).column, ref.row_pos);
             }
         } else {
             for (auto& it : _temp_ref_map) {

@@ -17,11 +17,9 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <filesystem>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -39,9 +37,38 @@ namespace Aws::Utils::Threading {
 class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
-namespace doris {
-namespace io {
-struct FileInfo;
+namespace doris::io {
+class ObjStorageClient;
+// In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
+// The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
+// access S3 data with latest AK SK.
+class ObjClientHolder {
+public:
+    explicit ObjClientHolder(S3ClientConf conf);
+    ~ObjClientHolder();
+
+    Status init();
+
+    // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
+    Status reset(const S3ClientConf& conf);
+
+    std::shared_ptr<ObjStorageClient> get() const {
+        std::shared_lock lock(_mtx);
+        return _client;
+    }
+
+    Result<int64_t> object_file_size(const std::string& bucket, const std::string& key) const;
+
+    // For error msg
+    std::string full_s3_path(std::string_view bucket, std::string_view key) const;
+
+    const S3ClientConf& s3_client_conf() { return _conf; }
+
+private:
+    mutable std::shared_mutex _mtx;
+    std::shared_ptr<ObjStorageClient> _client;
+    S3ClientConf _conf;
+};
 
 // File system for S3 compatible object storage
 // When creating S3FileSystem, all required info should be set in S3Conf,
@@ -52,23 +79,21 @@ struct FileInfo;
 //      In this case, the root_path is not used.
 //  2. only key: path/to/file.txt
 //      In this case, the final key will be "prefix + path/to/file.txt"
-//
-// This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    static Status create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs);
-    ~S3FileSystem() override;
-    // Guarded by external lock.
-    void set_conf(S3Conf s3_conf) { _s3_conf = std::move(s3_conf); }
-    const S3Conf& s3_conf() const { return _s3_conf; }
+    static Result<std::shared_ptr<S3FileSystem>> create(S3Conf s3_conf, std::string id);
 
-    std::shared_ptr<Aws::S3::S3Client> get_client() const {
-        std::lock_guard lock(_client_mu);
-        return _client;
-    }
+    ~S3FileSystem() override;
+
+    const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }
+
+    const std::string& bucket() const { return _bucket; }
+    const std::string& prefix() const { return _prefix; }
+
+    std::string generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                       bool is_public_endpoint) const;
 
 protected:
-    Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
                             const FileWriterOptions* opts) override;
     Status open_file_internal(const Path& file, FileReaderSPtr* reader,
@@ -88,33 +113,30 @@ protected:
                              const std::vector<Path>& remote_files) override;
     Status download_impl(const Path& remote_file, const Path& local_file) override;
 
-    Path absolute_path(const Path& path) const override {
+    Status absolute_path(const Path& path, Path& abs_path) const override {
         if (path.string().find("://") != std::string::npos) {
             // the path is with schema, which means this is a full path like:
             // s3://bucket/path/to/file.txt
             // so no need to concat with prefix
-            return path;
+            abs_path = path;
         } else {
             // path with no schema
-            return _root_path / path;
+            abs_path = _prefix / path;
         }
+        return Status::OK();
     }
 
 private:
-    S3FileSystem(S3Conf&& s3_conf, std::string&& id);
+    S3FileSystem(S3Conf s3_conf, std::string id);
 
-    // Full path for error message, format: endpoint/bucket/key
-    std::string full_path(std::string_view key) const;
+    Status init();
 
-    Status get_key(const Path& path, std::string* key) const;
+    // For error msg
+    std::string full_s3_path(std::string_view key) const;
 
-private:
-    S3Conf _s3_conf;
-    // TODO(cyx): We can use std::atomic<std::shared_ptr> since c++20.
-    mutable std::mutex _client_mu;
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor> _executor;
+    std::string _bucket;
+    std::string _prefix;
+    std::shared_ptr<ObjClientHolder> _client;
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

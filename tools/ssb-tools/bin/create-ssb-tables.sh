@@ -29,8 +29,6 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-SSB_DDL="${CURDIR}/../ddl/create-ssb-tables.sql"
-SSB_FLAT_DDL="${CURDIR}/../ddl/create-ssb-flat-table.sql"
 
 usage() {
     echo "
@@ -44,11 +42,12 @@ Usage: $0
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
-    -o 'h' \
+    -o 'hs:' \
     -- "$@")
 
 eval set -- "${OPTS}"
 HELP=0
+SCALE_FACTOR=100
 
 if [[ $# == 0 ]]; then
     usage
@@ -59,6 +58,10 @@ while true; do
     -h)
         HELP=1
         shift
+        ;;
+    -s)
+        SCALE_FACTOR=$2
+        shift 2
         ;;
     --)
         shift
@@ -73,6 +76,11 @@ done
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
+fi
+
+if [[ ${SCALE_FACTOR} -ne 1 ]] && [[ ${SCALE_FACTOR} -ne 100 ]] && [[ ${SCALE_FACTOR} -ne 1000 ]]; then
+    echo "${SCALE_FACTOR} scale is not supported"
+    exit 1
 fi
 
 check_prerequest() {
@@ -93,13 +101,30 @@ echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
+echo "SF: ${SCALE_FACTOR}"
 
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
 
-echo "Run DDL from ${SSB_DDL}"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${SSB_DDL}"
+if [[ ${SCALE_FACTOR} -eq 1 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1.sql
 
-echo "Run DDL from ${SSB_FLAT_DDL}"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${SSB_FLAT_DDL}"
+    echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf1.sql
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf100.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf100.sql
+
+    echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf100.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf100.sql
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1000.sql
+
+    echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf1000.sql
+else
+    echo "${SCALE_FACTOR} scale is NOT supported currently"
+fi
 
 echo "ssb tables has been created"

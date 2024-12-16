@@ -38,6 +38,7 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
 template <typename ReturnType>
@@ -67,7 +68,8 @@ struct MurmurHash3Impl {
         auto& to_column = assert_cast<ColumnVector<ReturnType>&>(col_to);
         if constexpr (first) {
             if constexpr (std::is_same_v<ReturnType, Int32>) {
-                to_column.fill(static_cast<Int32>(HashUtil::MURMUR3_32_SEED), input_rows_count);
+                to_column.insert_many_vals(static_cast<Int32>(HashUtil::MURMUR3_32_SEED),
+                                           input_rows_count);
             } else {
                 to_column.insert_many_defaults(input_rows_count);
             }

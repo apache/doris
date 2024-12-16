@@ -22,7 +22,6 @@
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/store/IndexOutput.h>
 #include <CLucene/store/_RAMDirectory.h>
-#include <stdint.h>
 
 #include <string>
 #include <vector>
@@ -30,6 +29,7 @@
 #include "CLucene/SharedHeader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/io_common.h"
 
 class CLuceneError;
@@ -46,19 +46,12 @@ namespace segment_v2 {
 class CLUCENE_EXPORT DorisFSDirectory : public lucene::store::Directory {
 public:
     static const char* const WRITE_LOCK_FILE;
-    static const char* const COMPOUND_FILE_EXTENSION;
     static const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
-private:
-    int filemode;
 
 protected:
     mutable std::mutex _this_lock;
-    io::FileSystemSPtr fs;
-    io::FileSystemSPtr compound_fs;
+    io::FileSystemSPtr _fs;
     std::string directory;
-    std::string cfs_directory;
-    bool useCompoundFileWriter {false};
-    size_t compound_file_size = 0;
 
     void priv_getFN(char* buffer, const char* name) const;
     /// Removes an existing file in the directory.
@@ -66,19 +59,18 @@ protected:
 
 public:
     class FSIndexOutput;
+    class FSIndexOutputV2;
     class FSIndexInput;
 
     friend class DorisFSDirectory::FSIndexOutput;
+    friend class DorisFSDirectory::FSIndexOutputV2;
     friend class DorisFSDirectory::FSIndexInput;
 
-    const io::FileSystemSPtr& getFileSystem() { return fs; }
-    const io::FileSystemSPtr& getCompoundFileSystem() { return compound_fs; }
-    size_t getCompoundFileSize() const { return compound_file_size; }
+    const io::FileSystemSPtr& getFileSystem() { return _fs; }
     ~DorisFSDirectory() override;
 
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
-    const char* getCfsDirName() const;
     const std::string& getDirName() const;
     int64_t fileModified(const char* name) const override;
     int64_t fileLength(const char* name) const override;
@@ -87,6 +79,7 @@ public:
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
+    lucene::store::IndexOutput* createOutputV2(io::FileWriter* file_writer);
     void close() override;
     std::string toString() const override;
     static const char* getClassName();
@@ -95,10 +88,14 @@ public:
 
     DorisFSDirectory();
 
-    virtual void init(const io::FileSystemSPtr& fs, const char* path, bool use_compound_file_writer,
-                      lucene::store::LockFactory* lock_factory = nullptr,
-                      const io::FileSystemSPtr& compound_fs = nullptr,
-                      const char* cfs_path = nullptr);
+    virtual void init(const io::FileSystemSPtr& fs, const char* path,
+                      lucene::store::LockFactory* lock_factory = nullptr);
+
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
+private:
+    int32_t filemode;
+    io::FileWriterOptions _opts;
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
@@ -110,10 +107,8 @@ protected:
 
     // unlike the java Hashtable, FileMap is not synchronized, and all access must be protected by a lock
     FileMap* filesMap;
-    void init(const io::FileSystemSPtr& fs, const char* path, bool use_compound_file_writer,
-              lucene::store::LockFactory* lock_factory = nullptr,
-              const io::FileSystemSPtr& compound_fs = nullptr,
-              const char* cfs_path = nullptr) override;
+    void init(const io::FileSystemSPtr& fs, const char* path,
+              lucene::store::LockFactory* lock_factory = nullptr) override;
 
 public:
     int64_t sizeInBytes;
@@ -185,8 +180,7 @@ class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput 
             : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = std::move(handle);
-        this->_io_ctx.reader_type = ReaderType::READER_QUERY;
-        this->_io_ctx.is_index_data = false;
+        _io_ctx.is_inverted_index = true;
     }
 
 protected:
@@ -194,7 +188,7 @@ protected:
 
 public:
     static bool open(const io::FileSystemSPtr& fs, const char* path, IndexInput*& ret,
-                     CLuceneError& error, int32_t bufferSize = -1);
+                     CLuceneError& error, int32_t bufferSize = -1, int64_t file_size = -1);
     ~FSIndexInput() override;
 
     IndexInput* clone() const override;
@@ -204,8 +198,9 @@ public:
     const char* getDirectoryType() const override { return DorisFSDirectory::getClassName(); }
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
-
-    void setIdxFileCache(bool index) override { _io_ctx.is_index_data = index; }
+    void setIoContext(const void* io_ctx) override;
+    const void* getIoContext() override;
+    void setIndexFile(bool isIndexFile) override;
 
     std::mutex _this_lock;
 
@@ -216,17 +211,47 @@ protected:
     void readInternal(uint8_t* b, const int32_t len) override;
 };
 
+class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutput() = default;
+    void init(const io::FileSystemSPtr& fs, const char* path);
+    ~FSIndexOutput() override;
+    void close() override;
+    int64_t length() const override;
+
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
+private:
+    io::FileWriterPtr _writer;
+    io::FileWriterOptions _opts;
+};
+
+class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
+private:
+    io::FileWriter* _index_v2_file_writer = nullptr;
+
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutputV2() = default;
+    void init(io::FileWriter* file_writer);
+    ~FSIndexOutputV2() override;
+    void close() override;
+    int64_t length() const override;
+};
+
 /**
  * Factory function to create DorisFSDirectory
  */
 class DorisFSDirectoryFactory {
 public:
     static DorisFSDirectory* getDirectory(const io::FileSystemSPtr& fs, const char* file,
-                                          bool use_compound_file_writer = false,
                                           bool can_use_ram_dir = false,
-                                          lucene::store::LockFactory* lock_factory = nullptr,
-                                          const io::FileSystemSPtr& cfs_fs = nullptr,
-                                          const char* cfs_file = nullptr);
+                                          lucene::store::LockFactory* lock_factory = nullptr);
 };
 } // namespace segment_v2
 } // namespace doris

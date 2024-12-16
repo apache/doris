@@ -17,7 +17,10 @@
 
 #include "olap/segment_loader.h"
 
+#include <butil/time.h>
+
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "util/stopwatch.hpp"
@@ -39,8 +42,9 @@ bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle*
 
 void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::CacheValue& value,
                           SegmentCacheHandle* handle) {
-    auto* lru_handle = LRUCachePolicy::insert(
-            key.encode(), &value, 1, value.segment->meta_mem_usage(), CachePriority::NORMAL);
+    auto* lru_handle =
+            LRUCachePolicy::insert(key.encode(), &value, value.segment->meta_mem_usage(),
+                                   value.segment->meta_mem_usage(), CachePriority::NORMAL);
     handle->push_segment(this, lru_handle);
 }
 
@@ -49,21 +53,32 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                    SegmentCacheHandle* cache_handle, bool use_cache) {
+                                    SegmentCacheHandle* cache_handle, bool use_cache,
+                                    bool need_load_pk_index_and_bf,
+                                    OlapReaderStatistics* index_load_stats) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
     for (int64_t i = 0; i < rowset->num_segments(); i++) {
         SegmentCache::CacheKey cache_key(rowset->rowset_id(), i);
         if (_segment_cache->lookup(cache_key, cache_handle)) {
-            continue;
+            // Has to check the segment status here, because the segment in cache may has something wrong during
+            // load index or create column reader.
+            // Not merge this if logic with previous to make the logic more clear.
+            if (cache_handle->pop_unhealthy_segment() == nullptr) {
+                continue;
+            }
         }
+        // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
         segment_v2::SegmentSharedPtr segment;
         RETURN_IF_ERROR(rowset->load_segment(i, &segment));
+        if (need_load_pk_index_and_bf) {
+            RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
+        }
         if (use_cache && !config::disable_segment_cache) {
             // memory of SegmentCache::CacheValue will be handled by SegmentCache
-            auto* cache_value = new SegmentCache::CacheValue();
-            cache_value->segment = std::move(segment);
+            auto* cache_value = new SegmentCache::CacheValue(segment);
+            _cache_mem_usage += segment->meta_mem_usage();
             _segment_cache->insert(cache_key, *cache_value, cache_handle);
         } else {
             cache_handle->push_segment(std::move(segment));

@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.base;
 
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.IntervalUnit;
 
 import com.google.gson.annotations.SerializedName;
@@ -38,21 +39,16 @@ public class TimerDefinition {
     private Long latestSchedulerTimeMs;
 
 
-    public void checkParams(boolean immediate) {
-        if (null != startTimeMs && startTimeMs < System.currentTimeMillis()) {
-            throw new IllegalArgumentException("startTimeMs must be greater than current time");
-        }
-        if (null != startTimeMs && immediate) {
-            throw new IllegalArgumentException("startTimeMs must be null when immediate is true");
-        }
-        if (null == startTimeMs && immediate) {
-            startTimeMs = System.currentTimeMillis();
-        }
+    public void checkParams() {
         if (null == startTimeMs) {
-            startTimeMs = System.currentTimeMillis() + intervalUnit.getIntervalMs(interval);
+            long currentTimeMs = TimeUtils.convertToSecondTimestamp(System.currentTimeMillis());
+            startTimeMs = currentTimeMs + intervalUnit.getIntervalMs(interval);
         }
         if (null != endTimeMs && endTimeMs < startTimeMs) {
-            throw new IllegalArgumentException("end time cannot be less than start time");
+            throw new IllegalArgumentException("endTimeMs must be greater than the start time");
+        }
+        if (null != endTimeMs) {
+            endTimeMs = TimeUtils.convertToSecondTimestamp(endTimeMs);
         }
 
         if (null != intervalUnit) {

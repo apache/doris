@@ -20,14 +20,11 @@ package org.apache.doris.analysis;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Class representing a [NOT] EXISTS predicate.
  */
 public class ExistsPredicate extends Predicate {
-    private static final Logger LOG = LoggerFactory.getLogger(ExistsPredicate.class);
     private boolean notExists = false;
 
     public boolean isNotExists() {
@@ -88,5 +85,10 @@ public class ExistsPredicate extends Predicate {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(notExists);
+    }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
     }
 }

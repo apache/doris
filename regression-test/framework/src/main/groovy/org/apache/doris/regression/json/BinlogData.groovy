@@ -20,9 +20,10 @@ package org.apache.doris.regression.json
 class PartitionData {
     public Long partitionId
     public Long version
+    public Long stid // sub txn id
 
     String toString() {
-        return "(" + partitionId.toString() + ", " + version.toString() + ")"
+        return "(" + partitionId.toString() + ", " + version.toString() + ", " + stid + ")"
     }
 }
 
@@ -51,13 +52,17 @@ class BinlogData {
     public String label
     public Long dbId
     public Map<Long, PartitionRecords> tableRecords
+    public List<Long> stids
 
     String toString() {
-        return "(" + commitSeq.toString() + ", " +
-                     txnId.toString() + ", " +
-                     timeStamp + label + ", " +
-                     dbId.toString() + ", " +
-                     tableRecords.toString()
+        return "(commitSeq: " + commitSeq
+                    + ", txnId: " + txnId
+                    + ", timestamp: " + timeStamp
+                    + ", label: " + label
+                    + ", dbId: " + dbId
+                    +", subTxnIds: " + stids
+                    + ", tableRecords: " + tableRecords
+                    +")"
     }
 }
 

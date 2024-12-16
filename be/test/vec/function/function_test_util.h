@@ -17,22 +17,23 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stdint.h>
-#include <time.h>
+#include <mysql/mysql.h>
 
+#include <cstdint>
+#include <ctime>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/exec_env.h"
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
+#include "testutil/test_util.h"
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
@@ -46,16 +47,18 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
 class DataTypeJsonb;
-class DataTypeTime;
 class TableFunction;
 template <typename T>
 class DataTypeDecimal;
@@ -98,7 +101,20 @@ using STRING = std::string;
 using DOUBLE = double;
 using FLOAT = float;
 
-inline auto DECIMAL = Decimal128V2::double_to_decimal;
+using IPV4 = uint32_t;
+using IPV6 = uint128_t;
+
+// cell constructors. could also use from_int_frac if you'd like
+inline auto DECIMALV2 = Decimal128V2::double_to_decimal;
+inline auto DECIMAL32 = [](int32_t x, int32_t y) { return Decimal32::from_int_frac(x, y, 5); };
+inline auto DECIMAL64 = [](int64_t x, int64_t y) { return Decimal64::from_int_frac(x, y, 9); };
+inline auto DECIMAL128V3 = [](int128_t x, int128_t y) {
+    return Decimal128V3::from_int_frac(x, y, 20);
+};
+inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y) {
+    return Decimal256::from_int_frac(x, y, 40);
+};
+
 inline auto DECIMALFIELD = [](double v) {
     return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimal(v), 9);
 };
@@ -255,7 +271,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTime>) {
+                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
@@ -263,6 +279,16 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
+    } else if (std::is_same_v<ReturnType, Decimal128V2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
+    } else if (std::is_same_v<ReturnType, Decimal32>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
+    } else if (std::is_same_v<ReturnType, Decimal64>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
+    } else if (std::is_same_v<ReturnType, Decimal128V3>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
+    } else if (std::is_same_v<ReturnType, Decimal256>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL256;
     } else {
         fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
     }
@@ -292,6 +318,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     EXPECT_TRUE(column != nullptr);
 
     for (int i = 0; i < row_size; ++i) {
+        // update current line
+        if (row_size > 1) {
+            TestCaseInfo::cur_cast_line = i;
+        }
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
                 const auto& expect_data = any_cast<String>(data_set[i].second);
@@ -328,7 +358,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                             << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
-                                     std::is_same_v<ReturnType, DataTypeTime>) {
+                                     std::is_same_v<ReturnType, DataTypeTimeV2>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {
@@ -352,4 +382,39 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     return Status::OK();
 }
 
+using BaseInputTypeSet = std::vector<TypeIndex>;
+
+// Each parameter may be decorated with 'const', but each invocation of 'check_function' can only handle one state of the parameters.
+// If there are 'n' parameters, it would require manually calling 'check_function' 2^n times, whereas through this function, only one
+// invocation is needed.
+template <typename ReturnType, bool nullable = false>
+void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
+                                 const DataSet& data_set) {
+    int arg_cnt = base_set.size();
+    TestCaseInfo::arg_size = arg_cnt;
+    // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
+    for (int i = 0; i < (1 << arg_cnt); i++) {
+        InputTypeSet input_types {};
+        for (int j = 0; j < arg_cnt; j++) {
+            if ((1 << j) & i) {
+                input_types.emplace_back(Consted {static_cast<TypeIndex>(base_set[j])});
+            } else {
+                input_types.emplace_back(static_cast<TypeIndex>(base_set[j]));
+            }
+        }
+
+        TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
+        // exists parameter are const
+        if (i != 0) {
+            for (const auto& line : data_set) {
+                DataSet tmp_set {line};
+                static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types,
+                                                                       tmp_set, false));
+            }
+        } else {
+            static_cast<void>(
+                    check_function<ReturnType, nullable>(func_name, input_types, data_set));
+        }
+    }
+}
 } // namespace doris::vectorized

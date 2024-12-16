@@ -30,9 +30,8 @@
 #include "vec/core/sort_description.h"
 #include "vec/exprs/vexpr_fwd.h"
 
-namespace doris {
-
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -62,8 +61,6 @@ public:
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
 
-    void set_pipeline_engine_enabled(bool value) { _pipeline_engine_enabled = value; }
-
 protected:
     const VExprContextSPtrs _ordering_expr;
     SortDescription _desc;
@@ -76,22 +73,22 @@ protected:
     int64_t _limit = -1;
     size_t _offset = 0;
 
-    bool _pipeline_engine_enabled = false;
-
-    std::vector<BlockSupplierSortCursorImpl> _cursors;
+    std::vector<std::shared_ptr<BlockSupplierSortCursorImpl>> _cursors;
     std::priority_queue<MergeSortCursor> _priority_queue;
 
     /// In pipeline engine, if a cursor needs to read one more block from supplier,
     /// we make it as a pending cursor until the supplier is readable.
-    MergeSortCursorImpl* _pending_cursor = nullptr;
-
-    Block _empty_block;
+    std::shared_ptr<MergeSortCursorImpl> _pending_cursor = nullptr;
 
     // Times calls to get_next().
     RuntimeProfile::Counter* _get_next_timer = nullptr;
 
     // Times calls to get the next batch of rows from the input run.
     RuntimeProfile::Counter* _get_next_block_timer = nullptr;
+
+    std::vector<size_t> _indexs;
+    std::vector<Block*> _block_addrs;
+    std::vector<const IColumn*> _column_addrs;
 
 private:
     void init_timers(RuntimeProfile* profile);
@@ -101,5 +98,6 @@ private:
     bool has_next_block(MergeSortCursor& current);
 };
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

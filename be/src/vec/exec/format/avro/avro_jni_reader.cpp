@@ -29,16 +29,12 @@ AvroJNIReader::AvroJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const TFileScanRangeParams& params,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              const TFileRangeDesc& range)
-        : _file_slot_descs(file_slot_descs),
-          _state(state),
-          _profile(profile),
-          _params(params),
-          _range(range) {}
+        : JniReader(file_slot_descs, state, profile), _params(params), _range(range) {}
 
 AvroJNIReader::AvroJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs)
-        : _file_slot_descs(file_slot_descs), _profile(profile), _params(params), _range(range) {}
+        : JniReader(file_slot_descs, nullptr, profile), _params(params), _range(range) {}
 
 AvroJNIReader::~AvroJNIReader() = default;
 

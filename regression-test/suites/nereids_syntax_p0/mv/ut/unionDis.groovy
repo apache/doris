@@ -43,10 +43,10 @@ suite ("unionDis") {
 
     sql """insert into unionDis values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from unionDis order by empid;")
-        contains "(unionDis)"
-    }
+    sql "analyze table unionDis with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from unionDis order by empid;", "unionDis_mv")
     order_qt_select_star "select * from unionDis order by empid;"
 
 
@@ -57,4 +57,14 @@ suite ("unionDis") {
     }
     order_qt_select_mv "select * from (select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0) t order by 1;"
 
+    sql """set enable_stats=true;"""
+    sql """alter table unionDis modify column time_col set stats ('row_count'='4');"""
+
+    mv_rewrite_fail("select * from unionDis order by empid;", "unionDis_mv")
+
+    explain {
+        sql("select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0 order by empid;")
+        contains "(unionDis_mv)"
+        notContains "(unionDis)"
+    }
 }

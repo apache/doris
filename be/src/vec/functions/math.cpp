@@ -15,39 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdint.h>
-#include <string.h>
+#include <cstdint>
+#include <cstring>
 
-#include <boost/iterator/iterator_facade.hpp>
 // IWYU pragma: no_include <bits/std_abs.h>
-#include <algorithm>
+#include <dlfcn.h>
+
 #include <cmath>
-#include <memory>
 #include <string>
 #include <type_traits>
-#include <utility>
 
 #include "common/status.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
+#include "vec/functions/function_math_unary_alway_nullable.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
-#include "vec/functions/round.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -61,13 +54,19 @@ struct Log2Impl;
 namespace doris::vectorized {
 struct AcosName {
     static constexpr auto name = "acos";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAcos = FunctionMathUnary<UnaryFunctionPlain<AcosName, std::acos>>;
+using FunctionAcos =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcosName, std::acos>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_asin
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAsin = FunctionMathUnary<UnaryFunctionPlain<AsinName, std::asin>>;
+using FunctionAsin =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AsinName, std::asin>>;
 
 struct AtanName {
     static constexpr auto name = "atan";
@@ -224,15 +223,37 @@ struct NamePositive {
 
 using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
-struct SinName {
+struct UnaryFunctionPlainSin {
+    using Type = DataTypeFloat64;
     static constexpr auto name = "sin";
+    using FuncType = double (*)(double);
+
+    static FuncType get_sin_func() {
+        void* handle = dlopen("libm.so.6", RTLD_LAZY);
+        if (handle) {
+            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
+                return sin_func;
+            }
+            dlclose(handle);
+        }
+        return std::sin;
+    }
+
+    static void execute(const double* src, double* dst) {
+        static auto sin_func = get_sin_func();
+        *dst = sin_func(*src);
+    }
 };
-using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
+
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_sqrt
+    static constexpr bool is_invalid_input(Float64 x) { return x < 0; }
 };
-using FunctionSqrt = FunctionMathUnary<UnaryFunctionPlain<SqrtName, std::sqrt>>;
+using FunctionSqrt =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<SqrtName, std::sqrt>>;
 
 struct CbrtName {
     static constexpr auto name = "cbrt";
@@ -329,94 +350,88 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
-struct TruncateName {
-    static constexpr auto name = "truncate";
-};
+class FunctionNormalCdf : public IFunction {
+public:
+    static constexpr auto name = "normal_cdf";
 
-struct CeilName {
-    static constexpr auto name = "ceil";
-};
+    String get_name() const override { return name; }
 
-struct FloorName {
-    static constexpr auto name = "floor";
-};
+    static FunctionPtr create() { return std::make_shared<FunctionNormalCdf>(); }
 
-struct RoundName {
-    static constexpr auto name = "round";
-};
-
-struct RoundBankersName {
-    static constexpr auto name = "round_bankers";
-};
-
-/// round(double,int32)-->double
-/// key_str:roundFloat64Int32
-template <typename Name>
-struct DoubleRoundTwoImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>(),
-                std::make_shared<vectorized::DataTypeInt32>()};
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
     }
-};
 
-template <typename Name>
-struct DoubleRoundOneImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>()};
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>(),
+                std::make_shared<DataTypeFloat64>()};
     }
-};
+    size_t get_number_of_arguments() const override { return 3; }
 
-template <typename Name>
-struct DecimalRoundTwoImpl {
-    static constexpr auto name = Name::name;
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto result_column = ColumnFloat64::create(input_rows_count);
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
-                std::make_shared<vectorized::DataTypeInt32>()};
+        auto& result_data = result_column->get_data();
+        NullMap& result_null_map =
+                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data();
+
+        ColumnPtr argument_columns[3];
+        bool col_const[3];
+        size_t argument_size = arguments.size();
+        for (int i = 0; i < argument_size; ++i) {
+            argument_columns[i] = block.get_by_position(arguments[i]).column;
+            col_const[i] = is_column_const(*argument_columns[i]);
+            if (col_const[i]) {
+                argument_columns[i] =
+                        static_cast<const ColumnConst&>(*argument_columns[i]).get_data_column_ptr();
+            }
+        }
+
+        auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
+
+        result_column->reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            double mean = mean_col->get_element(index_check_const(i, col_const[0]));
+            double sd = sd_col->get_element(index_check_const(i, col_const[1]));
+            double v = value_col->get_element(index_check_const(i, col_const[2]));
+
+            if (!check_argument(sd)) [[unlikely]] {
+                result_null_map[i] = true;
+                continue;
+            }
+            result_data[i] = calculate_cell(mean, sd, v);
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
+        return Status::OK();
     }
-};
 
-template <typename Name>
-struct DecimalRoundOneImpl {
-    static constexpr auto name = Name::name;
+    static bool check_argument(double sd) { return sd > 0; }
+    static double calculate_cell(double mean, double sd, double v) {
+#ifdef __APPLE__
+        const double sqrt2 = std::sqrt(2);
+#else
+        constexpr double sqrt2 = std::numbers::sqrt2;
+#endif
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
+        return 0.5 * (std::erf((v - mean) / (sd * sqrt2)) + 1);
     }
 };
 
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
-#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                           \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>();    \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>();    \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();      \
-    factory.register_function<                                                                   \
-            FunctionRounding<IMPL<TruncateName>, RoundingMode::Trunc, TieBreakingMode::Auto>>(); \
-    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,      \
-                                               TieBreakingMode::Bankers>>();
-
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
-    REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
-    factory.register_alias("round", "dround");
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
-    factory.register_alias("ceil", "dceil");
-    factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
     factory.register_alias("ln", "dlog1");
     factory.register_function<FunctionLog>();
@@ -435,7 +450,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionTanh>();
-    factory.register_alias("floor", "dfloor");
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");
@@ -445,5 +459,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
+    factory.register_function<FunctionNormalCdf>();
 }
 } // namespace doris::vectorized

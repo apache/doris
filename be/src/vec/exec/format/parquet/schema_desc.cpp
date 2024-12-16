@@ -137,6 +137,9 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
             return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
+        if (_fields[i].field_id != -1) {
+            _field_id_name_mapping.emplace(_fields[i].field_id, _fields[i].name);
+        }
     }
 
     if (_next_schema_pos != t_schemas.size()) {
@@ -145,6 +148,14 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     }
 
     return Status::OK();
+}
+
+const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
+    auto const it = _field_id_name_mapping.find(id);
+    if (it == _field_id_name_mapping.end()) {
+        return {};
+    }
+    return {it->second.data()};
 }
 
 Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas,
@@ -172,6 +183,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         node_field->type.add_sub_type(child->type);
         node_field->is_nullable = false;
         _next_schema_pos = curr_pos + 1;
+        node_field->field_id = t_schema.__isset.field_id ? t_schema.field_id : -1;
     } else {
         bool is_optional = is_optional_node(t_schema);
         if (is_optional) {
@@ -191,16 +203,20 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
     physical_field->physical_type = physical_schema.type;
     _physical_fields.push_back(physical_field);
     physical_field->physical_column_index = _physical_fields.size() - 1;
-    physical_field->type = get_doris_type(physical_schema);
+    auto type = get_doris_type(physical_schema);
+    physical_field->type = type.first;
+    physical_field->is_type_compatibility = type.second;
+    physical_field->field_id = physical_schema.__isset.field_id ? physical_schema.field_id : -1;
 }
 
-TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& physical_schema) {
-    TypeDescriptor type;
-    type.type = INVALID_TYPE;
+std::pair<TypeDescriptor, bool> FieldDescriptor::get_doris_type(
+        const tparquet::SchemaElement& physical_schema) {
+    std::pair<TypeDescriptor, bool> ans = {INVALID_TYPE, false};
+    TypeDescriptor& type = ans.first;
     if (physical_schema.__isset.logicalType) {
-        type = convert_to_doris_type(physical_schema.logicalType);
+        ans = convert_to_doris_type(physical_schema.logicalType);
     } else if (physical_schema.__isset.converted_type) {
-        type = convert_to_doris_type(physical_schema);
+        ans = convert_to_doris_type(physical_schema);
     }
     // use physical type instead
     if (type.type == INVALID_TYPE) {
@@ -233,7 +249,7 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
             break;
         }
     }
-    return type;
+    return ans;
 }
 
 // Copy from org.apache.iceberg.avro.AvroSchemaUtil#validAvroName
@@ -302,8 +318,11 @@ void FieldDescriptor::iceberg_sanitize(const std::vector<std::string>& read_colu
     }
 }
 
-TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
-    TypeDescriptor type;
+std::pair<TypeDescriptor, bool> FieldDescriptor::convert_to_doris_type(
+        tparquet::LogicalType logicalType) {
+    std::pair<TypeDescriptor, bool> ans = {INVALID_TYPE, false};
+    TypeDescriptor& type = ans.first;
+    bool& is_type_compatibility = ans.second;
     if (logicalType.__isset.STRING) {
         type = TypeDescriptor(TYPE_STRING);
     } else if (logicalType.__isset.DECIMAL) {
@@ -313,20 +332,29 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
         type = TypeDescriptor(TYPE_DATEV2);
     } else if (logicalType.__isset.INTEGER) {
         if (logicalType.INTEGER.isSigned) {
-            if (logicalType.INTEGER.bitWidth <= 32) {
+            if (logicalType.INTEGER.bitWidth <= 8) {
+                type = TypeDescriptor(TYPE_TINYINT);
+            } else if (logicalType.INTEGER.bitWidth <= 16) {
+                type = TypeDescriptor(TYPE_SMALLINT);
+            } else if (logicalType.INTEGER.bitWidth <= 32) {
                 type = TypeDescriptor(TYPE_INT);
             } else {
                 type = TypeDescriptor(TYPE_BIGINT);
             }
         } else {
-            if (logicalType.INTEGER.bitWidth <= 16) {
+            is_type_compatibility = true;
+            if (logicalType.INTEGER.bitWidth <= 8) {
+                type = TypeDescriptor(TYPE_SMALLINT);
+            } else if (logicalType.INTEGER.bitWidth <= 16) {
                 type = TypeDescriptor(TYPE_INT);
-            } else {
+            } else if (logicalType.INTEGER.bitWidth <= 32) {
                 type = TypeDescriptor(TYPE_BIGINT);
+            } else {
+                type = TypeDescriptor(TYPE_LARGEINT);
             }
         }
     } else if (logicalType.__isset.TIME) {
-        type = TypeDescriptor(TYPE_TIME);
+        type = TypeDescriptor(TYPE_TIMEV2);
     } else if (logicalType.__isset.TIMESTAMP) {
         type = TypeDescriptor(TYPE_DATETIMEV2);
         const auto& time_unit = logicalType.TIMESTAMP.unit;
@@ -344,12 +372,14 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     } else {
         type = TypeDescriptor(INVALID_TYPE);
     }
-    return type;
+    return ans;
 }
 
-TypeDescriptor FieldDescriptor::convert_to_doris_type(
+std::pair<TypeDescriptor, bool> FieldDescriptor::convert_to_doris_type(
         const tparquet::SchemaElement& physical_schema) {
-    TypeDescriptor type;
+    std::pair<TypeDescriptor, bool> ans = {INVALID_TYPE, false};
+    TypeDescriptor& type = ans.first;
+    bool& is_type_compatibility = ans.second;
     switch (physical_schema.converted_type) {
     case tparquet::ConvertedType::type::UTF8:
         type = TypeDescriptor(TYPE_STRING);
@@ -378,28 +408,33 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(
         type = TypeDescriptor(TYPE_TINYINT);
         break;
     case tparquet::ConvertedType::type::UINT_8:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_16:
         type = TypeDescriptor(TYPE_SMALLINT);
         break;
     case tparquet::ConvertedType::type::UINT_16:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_32:
         type = TypeDescriptor(TYPE_INT);
         break;
     case tparquet::ConvertedType::type::UINT_32:
-        [[fallthrough]];
-    case tparquet::ConvertedType::type::UINT_64:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_64:
         type = TypeDescriptor(TYPE_BIGINT);
+        break;
+    case tparquet::ConvertedType::type::UINT_64:
+        is_type_compatibility = true;
+        type = TypeDescriptor(TYPE_LARGEINT);
         break;
     default:
         LOG(WARNING) << "Not supported parquet ConvertedType: " << physical_schema.converted_type;
         type = TypeDescriptor(INVALID_TYPE);
         break;
     }
-    return type;
+    return ans;
 }
 
 Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas,
@@ -443,6 +478,7 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         group_field->type.type = TYPE_ARRAY;
         group_field->type.add_sub_type(struct_field->type);
         group_field->is_nullable = false;
+        group_field->field_id = group_schema.__isset.field_id ? group_schema.field_id : -1;
     } else {
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
     }
@@ -511,6 +547,7 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
     list_field->type.type = TYPE_ARRAY;
     list_field->type.add_sub_type(list_field->children[0].type);
     list_field->is_nullable = is_optional;
+    list_field->field_id = first_level.__isset.field_id ? first_level.field_id : -1;
 
     return Status::OK();
 }
@@ -575,6 +612,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->type.add_sub_type(map_kv_field->type.children[0]);
     map_field->type.add_sub_type(map_kv_field->type.children[1]);
     map_field->is_nullable = is_optional;
+    map_field->field_id = map_schema.__isset.field_id ? map_schema.field_id : -1;
 
     return Status::OK();
 }
@@ -597,6 +635,7 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->name = to_lower(struct_schema.name);
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
+    struct_field->field_id = struct_schema.__isset.field_id ? struct_schema.field_id : -1;
     for (int i = 0; i < num_children; ++i) {
         struct_field->type.add_sub_type(struct_field->children[i].type,
                                         struct_field->children[i].name);

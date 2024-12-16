@@ -39,6 +39,7 @@ enum TDataSinkType {
     GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
     HIVE_TABLE_SINK,
+    ICEBERG_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -130,6 +131,15 @@ struct TResultFileSinkOptions {
     16: optional bool delete_existing_files;
     17: optional string file_suffix;
     18: optional bool with_bom;
+
+    19: optional PlanNodes.TFileCompressType orc_compression_type;
+
+    // Since we have changed the type mapping from Doris to Orc type,
+    // using the Outfile to export Date/Datetime types will cause BE core dump
+    // when only upgrading BE without upgrading FE.
+    // orc_writer_version = 1 means doris FE is higher than version 2.1.5
+    // orc_writer_version = 0 means doris FE is less than or equal to version 2.1.5
+    20: optional i64 orc_writer_version;
 }
 
 struct TMemoryScratchSink {
@@ -178,6 +188,8 @@ struct TDataStreamSink {
   10: optional Descriptors.TOlapTableLocationParam tablet_sink_location
   11: optional i64 tablet_sink_txn_id
   12: optional Types.TTupleId tablet_sink_tuple_id
+  13: optional list<Exprs.TExpr> tablet_sink_exprs
+  14: optional bool is_merge
 }
 
 struct TMultiCastDataStreamSink {
@@ -284,6 +296,8 @@ struct THiveLocationParams {
   1: optional string write_path
   2: optional string target_path
   3: optional Types.TFileType file_type
+  // Other object store will convert write_path to s3 scheme path for BE, this field keeps the original write path.
+  4: optional string original_write_path
 }
 
 struct TSortedColumn {
@@ -310,14 +324,22 @@ enum THiveColumnType {
 
 struct THiveColumn {
   1: optional string name
-  2: optional Types.TTypeDesc data_type
-  3: optional THiveColumnType column_type
+  2: optional THiveColumnType column_type
 }
 
 struct THivePartition {
   1: optional list<string> values
   2: optional THiveLocationParams location
   3: optional PlanNodes.TFileFormatType file_format
+}
+
+struct THiveSerDeProperties {
+    1: optional string field_delim
+    2: optional string line_delim
+    3: optional string collection_delim // array ,map ,struct delimiter 
+    4: optional string mapkv_delim
+    5: optional string escape_char
+    6: optional string null_format
 }
 
 struct THiveTableSink {
@@ -331,12 +353,20 @@ struct THiveTableSink {
     8: optional THiveLocationParams location
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
+    11: optional THiveSerDeProperties serde_properties
 }
 
 enum TUpdateMode {
     NEW = 0, // add partition
     APPEND = 1, // alter partition
     OVERWRITE = 2 // insert overwrite
+}
+
+struct TS3MPUPendingUpload {
+    1: optional string bucket
+    2: optional string key
+    3: optional string upload_id
+    4: optional map<i32, string> etags
 }
 
 struct THivePartitionUpdate {
@@ -346,6 +376,44 @@ struct THivePartitionUpdate {
     4: optional list<string> file_names
     5: optional i64 row_count
     6: optional i64 file_size
+    7: optional list<TS3MPUPendingUpload> s3_mpu_pending_uploads
+}
+
+enum TFileContent {
+    DATA = 0,
+    POSITION_DELETES = 1,
+    EQUALITY_DELETES = 2
+}
+
+struct TIcebergCommitData {
+    1: optional string file_path
+    2: optional i64 row_count
+    3: optional i64 file_size
+    4: optional TFileContent file_content
+    5: optional list<string> partition_values 
+    6: optional list<string> referenced_data_files
+}
+
+struct TSortField {
+    1: optional i32 source_column_id
+    2: optional bool ascending
+    3: optional bool null_first
+}
+
+struct TIcebergTableSink {
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional string schema_json
+    4: optional map<i32, string> partition_specs_json
+    5: optional i32 partition_spec_id
+    6: optional list<TSortField> sort_fields
+    7: optional PlanNodes.TFileFormatType file_format
+    8: optional string output_path
+    9: optional map<string, string> hadoop_config
+    10: optional bool overwrite
+    11: optional Types.TFileType file_type
+    12: optional string original_output_path
+    13: optional PlanNodes.TFileCompressType compression_type
 }
 
 struct TDataSink {
@@ -361,4 +429,5 @@ struct TDataSink {
   11: optional TJdbcTableSink jdbc_table_sink
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
+  14: optional TIcebergTableSink iceberg_table_sink
 }

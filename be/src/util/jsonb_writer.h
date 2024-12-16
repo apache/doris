@@ -79,7 +79,7 @@ public:
 
     // write a key string (or key id if an external dict is provided)
     uint32_t writeKey(const char* key, uint8_t len, hDictInsert handler = nullptr) {
-        if (len && !stack_.empty() && verifyKeyState()) {
+        if (!stack_.empty() && verifyKeyState()) {
             int key_id = -1;
             if (handler) {
                 key_id = handler(key, len);
@@ -88,9 +88,16 @@ public:
             uint32_t size = sizeof(uint8_t);
             if (key_id < 0) {
                 os_->put(len);
-                os_->write(key, len);
-                size += len;
-            } else if (key_id <= JsonbKeyValue::sMaxKeyId) {
+                if (len == 0) {
+                    // NOTE: we use sMaxKeyId to represent an empty key
+                    JsonbKeyValue::keyid_type idx = JsonbKeyValue::sMaxKeyId;
+                    os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
+                    size += sizeof(JsonbKeyValue::keyid_type);
+                } else {
+                    os_->write(key, len);
+                    size += len;
+                }
+            } else if (key_id < JsonbKeyValue::sMaxKeyId) {
                 JsonbKeyValue::keyid_type idx = key_id;
                 os_->put(0);
                 os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
@@ -308,7 +315,9 @@ public:
         return false;
     }
 
-    uint32_t writeString(const char* str, uint32_t len) {
+    // TODO: here changed length to uint64_t, as some api also need changed, But the thirdparty api is uint_32t
+    // need consider a better way to handle case.
+    uint64_t writeString(const char* str, uint64_t len) {
         if (kvState_ == WS_String) {
             os_->write(str, len);
             return len;
@@ -317,9 +326,7 @@ public:
         return 0;
     }
 
-    uint32_t writeString(const std::string& str) {
-        return writeString(str.c_str(), (uint32_t)str.size());
-    }
+    uint32_t writeString(const std::string& str) { return writeString(str.c_str(), str.size()); }
     uint32_t writeString(char ch) {
         if (kvState_ == WS_String) {
             os_->put(ch);
@@ -365,7 +372,7 @@ public:
         return false;
     }
 
-    uint32_t writeBinary(const char* bin, uint32_t len) {
+    uint64_t writeBinary(const char* bin, uint64_t len) {
         if (kvState_ == WS_Binary) {
             os_->write(bin, len);
             return len;
@@ -476,8 +483,7 @@ public:
     }
 
     JsonbValue* getValue() {
-        return JsonbDocument::createValue(getOutput()->getBuffer(),
-                                          (uint32_t)getOutput()->getSize());
+        return JsonbDocument::createValue(getOutput()->getBuffer(), getOutput()->getSize());
     }
 
     bool writeEnd() {

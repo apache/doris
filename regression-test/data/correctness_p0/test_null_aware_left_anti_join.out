@@ -18,3 +18,8 @@
 
 -- !select_2 --
 
+-- !semi_emtpy_right_false --
+\N	false
+1	false
+3	false
+

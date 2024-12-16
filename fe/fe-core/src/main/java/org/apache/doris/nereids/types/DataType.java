@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -109,7 +110,7 @@ public abstract class DataType {
      * @param types data type in string representation
      * @return data type in Nereids
      */
-    public static DataType convertPrimitiveFromStrings(List<String> types, boolean unsigned) {
+    public static DataType convertPrimitiveFromStrings(List<String> types) {
         String type = types.get(0).toLowerCase().trim();
         DataType dataType;
         switch (type) {
@@ -142,7 +143,11 @@ public abstract class DataType {
                 // NOTICE, maybe convert to decimalv3, so do not truc here.
                 switch (types.size()) {
                     case 1:
-                        dataType = DecimalV2Type.CATALOG_DEFAULT;
+                        if (Config.enable_decimal_conversion) {
+                            return DecimalV3Type.createDecimalV3Type(38, 9);
+                        } else {
+                            dataType = DecimalV2Type.CATALOG_DEFAULT;
+                        }
                         break;
                     case 2:
                         dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
@@ -177,7 +182,7 @@ public abstract class DataType {
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
-                        dataType = DecimalV3Type.CATALOG_DEFAULT;
+                        dataType = DecimalV3Type.createDecimalV3Type(38, 9);
                         break;
                     case 2:
                         dataType = DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)));
@@ -297,14 +302,13 @@ public abstract class DataType {
             case "ipv6":
                 dataType = IPv6Type.INSTANCE;
                 break;
+            case "variant":
+                dataType = VariantType.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
-        if (unsigned) {
-            return dataType.promotion();
-        } else {
-            return dataType;
-        }
+        return dataType;
     }
 
     /**
@@ -576,6 +580,10 @@ public abstract class DataType {
         return this instanceof IPv4Type;
     }
 
+    public boolean isIPType() {
+        return isIPv4Type() || isIPv6Type();
+    }
+
     public boolean isIPv6Type() {
         return this instanceof IPv6Type;
     }
@@ -617,7 +625,7 @@ public abstract class DataType {
     }
 
     public boolean isOnlyMetricType() {
-        return isObjectType() || isComplexType() || isJsonType();
+        return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
     public boolean isObjectType() {
@@ -633,6 +641,41 @@ public abstract class DataType {
             return PROMOTION_MAP.get(this.getClass()).get();
         } else {
             return this;
+        }
+    }
+
+    /**
+     * whether the param dataType is same-like type for nested in complex type
+     *  same-like type means: string-like, date-like, number type
+     */
+    public boolean isSameTypeForComplexTypeParam(DataType paramType) {
+        if (this.isArrayType() && paramType.isArrayType()) {
+            return ((ArrayType) this).getItemType()
+                    .isSameTypeForComplexTypeParam(((ArrayType) paramType).getItemType());
+        } else if (this.isMapType() && paramType.isMapType()) {
+            MapType thisMapType = (MapType) this;
+            MapType otherMapType = (MapType) paramType;
+            return thisMapType.getKeyType().isSameTypeForComplexTypeParam(otherMapType.getKeyType())
+                    && thisMapType.getValueType().isSameTypeForComplexTypeParam(otherMapType.getValueType());
+        } else if (this.isStructType() && paramType.isStructType()) {
+            StructType thisStructType = (StructType) this;
+            StructType otherStructType = (StructType) paramType;
+            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
+                return false;
+            }
+            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                if (!thisStructType.getFields().get(i).getDataType().isSameTypeForComplexTypeParam(
+                        otherStructType.getFields().get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        } else if (this.isStringLikeType() && paramType.isStringLikeType()) {
+            return true;
+        } else if (this.isDateLikeType() && paramType.isDateLikeType()) {
+            return true;
+        } else {
+            return this.isNumericType() && paramType.isNumericType();
         }
     }
 

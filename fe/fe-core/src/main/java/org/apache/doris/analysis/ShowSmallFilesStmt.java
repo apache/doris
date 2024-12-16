@@ -23,13 +23,14 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
-public class ShowSmallFilesStmt extends ShowStmt {
+public class ShowSmallFilesStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Id", ScalarType.createVarchar(32)))
@@ -61,7 +62,8 @@ public class ShowSmallFilesStmt extends ShowStmt {
             }
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }

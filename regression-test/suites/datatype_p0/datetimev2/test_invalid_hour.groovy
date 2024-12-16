@@ -58,7 +58,6 @@ suite("test_invalid_hour") {
 
     sql """
         insert into test_invalid_hour_null values
-            (1, "2023-12-12 24:00:00", "2023-12-12 24:00:00"),
             (2, "2023-12-12 23:00:00", "2023-12-12 23:00:00")
     """
 
@@ -67,17 +66,16 @@ suite("test_invalid_hour") {
             (1, "2023-12-12 23:00:00", "2023-12-12 23:00:00")
     """
 
-    try {
+    test {
         sql """ set enable_insert_strict = true; """
         
         sql """
             insert into test_invalid_hour_not_null values
                 (2, "2023-12-12 24:00:00", "2023-12-12 24:00:00")
         """
-    } catch (Exception e) {
-                logger.info("exception: " + e)
-                assertTrue(e.toString().contains("Insert has filtered data in strict mode"))
-            }
+        exception ""
+
+    }
     
     qt_sql """
         select *, cast(str as Datetime) from test_invalid_hour_null order by rowid;

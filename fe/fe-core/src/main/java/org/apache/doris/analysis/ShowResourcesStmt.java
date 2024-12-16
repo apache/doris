@@ -40,7 +40,7 @@ import java.util.Set;
 //
 // syntax:
 //      SHOW RESOURCES [LIKE mask]
-public class ShowResourcesStmt extends ShowStmt {
+public class ShowResourcesStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowResourcesStmt.class);
 
     private String pattern;

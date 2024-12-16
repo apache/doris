@@ -23,6 +23,8 @@
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/DorisExternalService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/Status_types.h>
@@ -68,9 +70,11 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace apache {
 namespace thrift {
@@ -102,6 +106,10 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     auto local_tablet_id = arg->local_tablet_id;
     const auto& local_tablet = arg->local_tablet;
     const auto& local_tablet_uid = local_tablet->tablet_uid();
+
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
+    SCOPED_ATTACH_TASK(mem_tracker);
 
     auto& request = arg->request;
 
@@ -158,10 +166,25 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     }
 
     std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
-    // TODO(Drogon): check binlog info content is right
-    DCHECK(binlog_info_parts.size() == 2);
-    const std::string& remote_rowset_id = binlog_info_parts[0];
-    int64_t num_segments = std::stoll(binlog_info_parts[1]);
+    if (binlog_info_parts.size() != 2) {
+        status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+    std::string remote_rowset_id = std::move(binlog_info_parts[0]);
+    int64_t num_segments = -1;
+    try {
+        num_segments = std::stoll(binlog_info_parts[1]);
+    } catch (std::exception& e) {
+        status = Status::RuntimeError("failed to parse num segments from binlog info {}: {}",
+                                      binlog_info, e.what());
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status;
+        status.to_thrift(&tstatus);
+        return;
+    }
 
     // Step 4: get rowset meta
     auto get_rowset_meta_url = fmt::format(
@@ -250,7 +273,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     // Step 5.3: get all segment files
     for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
         auto segment_file_size = segment_file_sizes[segment_index];
-        auto get_segment_file_url = segment_file_urls[segment_index];
+        auto get_segment_file_url =
+                fmt::format("{}&acquire_md5=true", segment_file_urls[segment_index]);
 
         uint64_t estimate_timeout =
                 segment_file_size / config::download_low_speed_limit_kbps / 1024;
@@ -258,33 +282,58 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             estimate_timeout = config::download_low_speed_time;
         }
 
-        auto local_segment_path = BetaRowset::segment_file_path(
-                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
-        LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
-                                 local_segment_path);
-        auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
+        auto segment_path = local_segment_path(local_tablet->tablet_path(),
+                                               rowset_meta->rowset_id().to_string(), segment_index);
+        LOG(INFO) << "download segment file from " << get_segment_file_url << " to "
+                  << segment_path;
+        auto get_segment_file_cb = [&get_segment_file_url, &segment_path, segment_file_size,
                                     estimate_timeout, &download_success_files](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
-            RETURN_IF_ERROR(client->download(local_segment_path));
-            download_success_files.push_back(local_segment_path);
+            RETURN_IF_ERROR(client->download(segment_path));
+            download_success_files.push_back(segment_path);
+
+            std::string remote_file_md5;
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            LOG(INFO) << "download segment file to " << segment_path
+                      << ", remote md5: " << remote_file_md5
+                      << ", remote size: " << segment_file_size;
 
             std::error_code ec;
             // Check file length
-            uint64_t local_file_size = std::filesystem::file_size(local_segment_path, ec);
+            uint64_t local_file_size = std::filesystem::file_size(segment_path, ec);
             if (ec) {
                 LOG(WARNING) << "download file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}",
-                                       local_segment_path, ec.message());
+                return Status::IOError("can't retrive file_size of {}, due to {}", segment_path,
+                                       ec.message());
             }
+
             if (local_file_size != segment_file_size) {
                 LOG(WARNING) << "download file length error"
                              << ", get_segment_file_url=" << get_segment_file_url
                              << ", file_size=" << segment_file_size
                              << ", local_file_size=" << local_file_size;
-                return Status::InternalError("downloaded file size is not equal");
+                return Status::RuntimeError(
+                        "downloaded file size is not equal, local={}, remote={}", local_file_size,
+                        segment_file_size);
             }
-            return io::global_local_filesystem()->permission(local_segment_path,
+
+            if (!remote_file_md5.empty()) { // keep compatibility
+                std::string local_file_md5;
+                RETURN_IF_ERROR(
+                        io::global_local_filesystem()->md5sum(segment_path, &local_file_md5));
+                if (local_file_md5 != remote_file_md5) {
+                    LOG(WARNING) << "download file md5 error"
+                                 << ", get_segment_file_url=" << get_segment_file_url
+                                 << ", remote_file_md5=" << remote_file_md5
+                                 << ", local_file_md5=" << local_file_md5;
+                    return Status::RuntimeError(
+                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
+                            remote_file_md5);
+                }
+            }
+
+            return io::global_local_filesystem()->permission(segment_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
@@ -303,41 +352,82 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<uint64_t> segment_index_file_sizes;
     std::vector<std::string> segment_index_file_names;
     auto tablet_schema = rowset_meta->tablet_schema();
-    for (const auto& index : tablet_schema->indexes()) {
-        if (index.index_type() != IndexType::INVERTED) {
-            continue;
-        }
-        auto index_id = index.index_id();
-        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-            auto get_segment_index_file_size_url = fmt::format(
-                    "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
-                    "}",
-                    binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
-                    remote_rowset_id, segment_index, index_id);
-            uint64_t segment_index_file_size;
-            auto get_segment_index_file_size_cb = [&get_segment_index_file_size_url,
-                                                   &segment_index_file_size](HttpClient* client) {
-                RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
-                client->set_timeout_ms(kMaxTimeoutMs);
-                RETURN_IF_ERROR(client->head());
-                return client->get_content_length(&segment_index_file_size);
-            };
-            auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
-                    local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index, index_id,
-                    index.get_index_suffix());
-            segment_index_file_names.push_back(index_file);
+    if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& index : tablet_schema->inverted_indexes()) {
+            auto index_id = index->index_id();
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, index_id);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
 
-            status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_size_cb);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to get segment file size from "
-                             << get_segment_index_file_size_url
-                             << ", status=" << status.to_string();
-                status.to_thrift(&tstatus);
-                return;
+                auto segment_path =
+                        local_segment_path(local_tablet->tablet_path(),
+                                           rowset_meta->rowset_id().to_string(), segment_index);
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v1(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), index_id,
+                        index->get_index_suffix()));
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
             }
+        }
+    } else {
+        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+            if (tablet_schema->has_inverted_index()) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, -1);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto segment_path =
+                        local_segment_path(local_tablet->tablet_path(),
+                                           rowset_meta->rowset_id().to_string(), segment_index);
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)));
 
-            segment_index_file_sizes.push_back(segment_index_file_size);
-            segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
         }
     }
 
@@ -358,7 +448,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
     for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
         auto segment_index_file_size = segment_index_file_sizes[i];
-        auto get_segment_index_file_url = segment_index_file_urls[i];
+        auto get_segment_index_file_url =
+                fmt::format("{}&acquire_md5=true", segment_index_file_urls[i]);
 
         uint64_t estimate_timeout =
                 segment_index_file_size / config::download_low_speed_limit_kbps / 1024;
@@ -377,6 +468,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             RETURN_IF_ERROR(client->download(local_segment_index_path));
             download_success_files.push_back(local_segment_index_path);
 
+            std::string remote_file_md5;
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+
             std::error_code ec;
             // Check file length
             uint64_t local_index_file_size =
@@ -391,8 +485,26 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                              << ", get_segment_index_file_url=" << get_segment_index_file_url
                              << ", index_file_size=" << segment_index_file_size
                              << ", local_index_file_size=" << local_index_file_size;
-                return Status::InternalError("downloaded index file size is not equal");
+                return Status::RuntimeError(
+                        "downloaded index file size is not equal, local={}, remote={}",
+                        local_index_file_size, segment_index_file_size);
             }
+
+            if (!remote_file_md5.empty()) { // keep compatibility
+                std::string local_file_md5;
+                RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_segment_index_path,
+                                                                      &local_file_md5));
+                if (local_file_md5 != remote_file_md5) {
+                    LOG(WARNING) << "download file md5 error"
+                                 << ", get_segment_index_file_url=" << get_segment_index_file_url
+                                 << ", remote_file_md5=" << remote_file_md5
+                                 << ", local_file_md5=" << local_file_md5;
+                    return Status::RuntimeError(
+                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
+                            remote_file_md5);
+                }
+            }
+
             return io::global_local_filesystem()->permission(local_segment_index_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
@@ -484,7 +596,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 } // namespace
 
 BaseBackendService::BaseBackendService(ExecEnv* exec_env)
-        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
+        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, exec_env->cluster_info())) {}
 
 BaseBackendService::~BaseBackendService() = default;
 
@@ -494,8 +606,8 @@ BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
 BackendService::~BackendService() = default;
 
 Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                      std::unique_ptr<ThriftServer>* server) {
-    auto service = std::make_shared<BackendService>(engine, exec_env);
+                                      std::unique_ptr<ThriftServer>* server,
+                                      std::shared_ptr<doris::BackendService> service) {
     service->_agent_server->start_workers(engine, exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
@@ -538,14 +650,8 @@ Status BaseBackendService::start_plan_fragment_execution(
     if (!exec_params.fragment.__isset.output_sink) {
         return Status::InternalError("missing sink in plan fragment");
     }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params);
-}
-
-void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                                              const TCancelPlanFragmentParams& params) {
-    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
-    _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
-                                               PPlanFragmentCancelReason::INTERNAL_ERROR);
+    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
+                                                         QuerySource::INTERNAL_FRONTEND);
 }
 
 void BaseBackendService::transmit_data(TTransmitDataResult& return_val,
@@ -693,6 +799,11 @@ void BaseBackendService::submit_routine_load_task(TStatus& t_status,
 void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
+    // A query_id is randomly generated to replace t_query_plan_info.query_id.
+    // external query does not need to report anything to FE, so the query_id can be changed.
+    // Otherwise, multiple independent concurrent open tablet scanners have the same query_id.
+    // when one of the scanners ends, the other scanners will be canceled through FragmentMgr.cancel(query_id).
+    TUniqueId query_id = generate_uuid();
     std::shared_ptr<ScanContext> p_context;
     static_cast<void>(_exec_env->external_scan_context_mgr()->create_scan_context(&p_context));
     p_context->fragment_instance_id = fragment_instance_id;
@@ -703,10 +814,45 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
     } else {
         p_context->keep_alive_min = 5;
     }
+
+    Status exec_st;
+    TQueryPlanInfo t_query_plan_info;
+    {
+        const std::string& opaqued_query_plan = params.opaqued_query_plan;
+        std::string query_plan_info;
+        // base64 decode query plan
+        if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
+            LOG(WARNING) << "open context error: base64_decode decode opaqued_query_plan failure";
+            std::stringstream msg;
+            msg << "query_plan_info: " << query_plan_info
+                << " validate error, should not be modified after returned Doris FE processed";
+            exec_st = Status::InvalidArgument(msg.str());
+        }
+
+        const uint8_t* buf = (const uint8_t*)query_plan_info.data();
+        uint32_t len = query_plan_info.size();
+        // deserialize TQueryPlanInfo
+        auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
+        if (!st.ok()) {
+            LOG(WARNING) << "open context error: deserialize TQueryPlanInfo failure";
+            std::stringstream msg;
+            msg << "query_plan_info: " << query_plan_info
+                << " deserialize error, should not be modified after returned Doris FE processed";
+            exec_st = Status::InvalidArgument(msg.str());
+        }
+        p_context->query_id = query_id;
+    }
     std::vector<TScanColumnDesc> selected_columns;
-    // start the scan procedure
-    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(
-            params, fragment_instance_id, &selected_columns);
+    if (exec_st.ok()) {
+        // start the scan procedure
+        LOG(INFO) << fmt::format(
+                "exec external scanner, old_query_id = {}, new_query_id = {}, fragment_instance_id "
+                "= {}",
+                print_id(t_query_plan_info.query_id), print_id(query_id),
+                print_id(fragment_instance_id));
+        exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(
+                params, t_query_plan_info, query_id, fragment_instance_id, &selected_columns);
+    }
     exec_st.to_thrift(&t_status);
     //return status
     // t_status.status_code = TStatusCode::OK;
@@ -778,32 +924,8 @@ void BaseBackendService::close_scanner(TScanCloseResult& result_, const TScanClo
 
 void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
                                             int64_t last_stream_record_time) {
-    auto stream_load_recorder = _engine.get_stream_load_recorder();
-    if (stream_load_recorder != nullptr) {
-        std::map<std::string, std::string> records;
-        auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
-                                                  config::stream_load_record_batch_size, &records);
-        if (st.ok()) {
-            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: "
-                      << records.size()
-                      << ", last_stream_load_timestamp: " << last_stream_record_time;
-            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
-            auto it = records.begin();
-            for (; it != records.end(); ++it) {
-                TStreamLoadRecord stream_load_item;
-                StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
-                stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
-            }
-            result.__set_stream_load_record(stream_load_record_batch);
-        }
-    } else {
-        LOG(WARNING) << "stream_load_recorder is null.";
-    }
-}
-
-void BackendService::clean_trash() {
-    static_cast<void>(_engine.start_trash_sweep(nullptr, true));
-    static_cast<void>(_engine.notify_listener("REPORT_DISK_STATE"));
+    BaseBackendService::get_stream_load_record(result, last_stream_record_time,
+                                               _engine.get_stream_load_recorder());
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
@@ -1059,12 +1181,33 @@ void BaseBackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     LOG(ERROR) << "get_stream_load_record is not implemented";
 }
 
-void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
-    LOG(ERROR) << "get_disk_trash_used_capacity is not implemented";
+void BaseBackendService::get_stream_load_record(
+        TStreamLoadRecordResult& result, int64_t last_stream_record_time,
+        std::shared_ptr<StreamLoadRecorder> stream_load_recorder) {
+    if (stream_load_recorder != nullptr) {
+        std::map<std::string, std::string> records;
+        auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
+                                                  config::stream_load_record_batch_size, &records);
+        if (st.ok()) {
+            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: "
+                      << records.size()
+                      << ", last_stream_load_timestamp: " << last_stream_record_time;
+            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
+            auto it = records.begin();
+            for (; it != records.end(); ++it) {
+                TStreamLoadRecord stream_load_item;
+                StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
+                stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
+            }
+            result.__set_stream_load_record(stream_load_record_batch);
+        }
+    } else {
+        LOG(WARNING) << "stream_load_recorder is null.";
+    }
 }
 
-void BaseBackendService::clean_trash() {
-    LOG(ERROR) << "clean_trash is not implemented";
+void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
+    LOG(ERROR) << "get_disk_trash_used_capacity is not implemented";
 }
 
 void BaseBackendService::make_snapshot(TAgentResult& return_value,
@@ -1097,16 +1240,18 @@ void BaseBackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     result.__set_err_msg("query_ingest_binlog is not implemented");
 }
 
-void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
-                                         const TPreCacheAsyncRequest& request) {
-    LOG(ERROR) << "pre_cache_async is not implemented";
-    response.__set_status(Status::NotSupported("pre_cache_async is not implemented").to_thrift());
+void BaseBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
+                                             const TWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("warm_up_cache_async is not implemented").to_thrift());
 }
 
-void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
-                                         const TCheckPreCacheRequest& request) {
-    LOG(ERROR) << "check_pre_cache is not implemented";
-    response.__set_status(Status::NotSupported("check_pre_cache is not implemented").to_thrift());
+void BaseBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
+                                                   const TCheckWarmUpCacheAsyncRequest& request) {
+    LOG(ERROR) << "check_warm_up_cache_async is not implemented";
+    response.__set_status(
+            Status::NotSupported("check_warm_up_cache_async is not implemented").to_thrift());
 }
 
 void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
@@ -1123,6 +1268,40 @@ void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                          const TWarmUpTabletsRequest& request) {
     LOG(ERROR) << "warm_up_tablets is not implemented";
     response.__set_status(Status::NotSupported("warm_up_tablets is not implemented").to_thrift());
+}
+
+void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
+                                                  const TGetRealtimeExecStatusRequest& request) {
+    if (!request.__isset.id) {
+        LOG_WARNING("Invalidate argument, id is empty");
+        response.__set_status(Status::InvalidArgument("id is empty").to_thrift());
+        return;
+    }
+
+    RuntimeProfile::Counter get_realtime_timer {TUnit::TIME_NS};
+
+    Defer _print_log([&]() {
+        LOG_INFO("Getting realtime exec status of query {} , cost time {}", print_id(request.id),
+                 PrettyPrinter::print(get_realtime_timer.value(), get_realtime_timer.type()));
+    });
+
+    SCOPED_TIMER(&get_realtime_timer);
+
+    std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
+            std::make_unique<TReportExecStatusParams>();
+    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+            request.id, report_exec_status_params.get());
+
+    if (!st.ok()) {
+        response.__set_status(st.to_thrift());
+        return;
+    }
+
+    report_exec_status_params->__set_query_id(TUniqueId());
+    report_exec_status_params->__set_done(false);
+
+    response.__set_status(Status::OK().to_thrift());
+    response.__set_report_exec_status_params(*report_exec_status_params);
 }
 
 } // namespace doris

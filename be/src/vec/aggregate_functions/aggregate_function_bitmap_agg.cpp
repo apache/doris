@@ -23,6 +23,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool nullable>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) {
@@ -32,7 +33,11 @@ AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) 
     if (which.idx == TypeIndex::TYPE) {                                                      \
         return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE>>(argument_types); \
     }
-    FOR_INTEGER_TYPES(DISPATCH)
+    // Keep consistent with the FE definition; the function does not have an int128 type.
+    DISPATCH(Int8)
+    DISPATCH(Int16)
+    DISPATCH(Int32)
+    DISPATCH(Int64)
 #undef DISPATCH
     LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
                  << " and type is: " << argument_types[0]->get_name();
@@ -41,7 +46,8 @@ AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) 
 
 AggregateFunctionPtr create_aggregate_function_bitmap_agg(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {
         return AggregateFunctionPtr(create_with_int_data_type<true>(argument_types));

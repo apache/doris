@@ -17,7 +17,9 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
+#include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/fs/file_system.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
@@ -29,13 +31,15 @@ CloudRowsetWriter::~CloudRowsetWriter() = default;
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta = std::make_shared<RowsetMeta>();
-    if (_context.fs) {
-        _rowset_meta->set_fs(_context.fs);
-    } else {
+
+    if (_context.is_local_rowset()) {
         // In cloud mode, this branch implies it is an intermediate rowset for external merge sort,
-        // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `BetaRowset::segment_file_path`).
-        _context.rowset_dir = io::FileCacheFactory::instance()->get_cache_path();
+        // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `local_segment_path`).
+        _context.tablet_path = io::FileCacheFactory::instance()->pick_one_cache_path();
+    } else {
+        _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
     }
+
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
@@ -46,6 +50,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_segments_overlap(_context.segments_overlap);
     _rowset_meta->set_txn_id(_context.txn_id);
     _rowset_meta->set_txn_expiration(_context.txn_expiration);
+    _rowset_meta->set_compaction_level(_context.compaction_level);
     if (_context.rowset_state == PREPARED || _context.rowset_state == COMMITTED) {
         _is_pending = true;
         _rowset_meta->set_load_id(_context.load_id);
@@ -89,16 +94,16 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // transfer 0 (PREPARED -> COMMITTED): finish writing a rowset and the rowset' meta will not be changed
     // transfer 1 (PREPARED -> BEGIN_PARTIAL_UPDATE): finish writing a rowset, but may append new segments later and the rowset's meta may be changed
     // transfer 2 (BEGIN_PARTIAL_UPDATE -> VISIBLE): finish adding new segments and the rowset' meta will not be changed, the rowset is visible to users
-    if (_context.partial_update_info && _context.partial_update_info->is_partial_update) {
+    if (_context.partial_update_info && _context.partial_update_info->is_partial_update()) {
         _rowset_meta->set_rowset_state(BEGIN_PARTIAL_UPDATE);
     } else {
         _rowset_meta->set_rowset_state(COMMITTED);
     }
 
     // update rowset meta tablet schema if tablet schema updated
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    }
+    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
+                                                                  : _context.tablet_schema;
+    _rowset_meta->set_tablet_schema(rowset_schema);
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -110,11 +115,19 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     } else {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
+    if (rowset_schema->has_inverted_index()) {
+        if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
+            !idx_files_info.has_value()) [[unlikely]] {
+            LOG(ERROR) << "expected inverted index files info, but none presents: "
+                       << idx_files_info.error();
+        } else {
+            _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
+        }
+    }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
-                                         &rowset),
-            "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
+                                                                _rowset_meta, &rowset),
+                                   "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }

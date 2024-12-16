@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * All DDL and DML commands' super class.
@@ -102,6 +105,11 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     }
 
     @Override
+    public Set<Slot> getOutputSet() {
+        throw new RuntimeException("Command do not implement getOutputSet");
+    }
+
+    @Override
     public String treeString() {
         throw new RuntimeException("Command do not implement treeString");
     }
@@ -110,4 +118,16 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
     }
+
+    public void verifyCommandSupported(ConnectContext ctx) throws DdlException {
+        // check command has been supported in cloud mode
+        if (Config.isCloudMode()) {
+            checkSupportedInCloudMode(ctx);
+        }
+    }
+
+    // check if the command is supported in cloud mode
+    // see checkStmtSupported() in fe/fe-core/src/main/java/org/apache/doris/qe/ShowExecutor.java
+    // override this method if the command is not supported in cloud mode
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {}
 }

@@ -30,6 +30,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -44,6 +45,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayShuffle : public IFunction {
 public:
@@ -65,19 +67,20 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = assert_cast<const ColumnArray&>(*src_column);
 
-        uint32_t seed = time(nullptr);
+        size_t seed = time(nullptr);
         if (arguments.size() == 2) {
             ColumnPtr seed_column =
                     block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-            seed = seed_column->get_uint(0);
+            seed = assert_cast<const ColumnInt64*>(seed_column.get())->get_element(0);
         }
 
-        std::mt19937 g(seed);
+        // time() and seed will not exceed the range of uint32.
+        std::mt19937 g(cast_set<uint32>(seed));
         auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
             return Status::RuntimeError(

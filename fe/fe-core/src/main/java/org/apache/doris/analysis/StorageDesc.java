@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.Map;
 
 
@@ -30,7 +32,7 @@ import java.util.Map;
  *  The broker's StorageBackend.StorageType desc
  */
 public class StorageDesc extends ResourceDesc {
-
+    @SerializedName("st")
     protected StorageBackend.StorageType storageType;
 
     public StorageDesc() {

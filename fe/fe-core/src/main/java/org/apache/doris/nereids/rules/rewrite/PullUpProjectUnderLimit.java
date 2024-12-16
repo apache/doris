@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -36,9 +37,10 @@ import java.util.stream.Collectors;
 public class PullUpProjectUnderLimit extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit(logicalProject().whenNot(p -> p.isAllSlots()))
+        return logicalLimit(logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()))
+                .whenNot(p -> p.isAllSlots()))
                 .then(limit -> {
-                    LogicalProject<Plan> project = limit.child();
+                    LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
                     Set<Slot> allUsedSlots = project.getProjects().stream().flatMap(ne -> ne.getInputSlots().stream())
                             .collect(Collectors.toSet());
                     Set<Slot> outputSet = project.child().getOutputSet();

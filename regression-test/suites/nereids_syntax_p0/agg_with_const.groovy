@@ -50,8 +50,8 @@ suite("agg_with_const") {
     """
 
     explain {
-        sql """select count(*) from ( select distinct col1 as a0, null as a1, null as a2 from agg_with_const_tbl)t"""
-        contains "projections: NULL"
+        sql """select count(*) from ( select distinct col1 as a0, null as not_appear_col from agg_with_const_tbl)t"""
+        notContains "not_appear_col"
     }
 
 }

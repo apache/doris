@@ -30,13 +30,12 @@
 
 namespace doris {
 class DataDir;
-class MemTrackerLimiter;
 class TCloneReq;
-class TMasterInfo;
 class TTabletInfo;
 class Tablet;
 struct Version;
 class StorageEngine;
+class ClusterInfo;
 
 const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
 const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
@@ -52,9 +51,11 @@ public:
     Status execute() override;
 
     EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_req,
-                    const TMasterInfo& master_info, int64_t signature,
+                    const ClusterInfo* cluster_info, int64_t signature,
                     std::vector<TTabletInfo>* tablet_infos);
     ~EngineCloneTask() override = default;
+
+    bool is_new_tablet() const { return _is_new_tablet; }
 
 private:
     Status _do_clone();
@@ -72,11 +73,14 @@ private:
                                         const std::vector<Version>& missing_versions,
                                         bool* allow_incremental_clone);
 
-    Status _set_tablet_info(bool is_new_tablet);
+    Status _set_tablet_info();
 
     // Download tablet files from
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
+
+    Status _batch_download_files(DataDir* data_dir, const std::string& endpoint,
+                                 const std::string& remote_dir, const std::string& local_dir);
 
     Status _make_snapshot(const std::string& ip, int port, TTableId tablet_id,
                           TSchemaHash schema_hash, int timeout_s,
@@ -85,18 +89,16 @@ private:
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
 
-    std::string _mask_token(const std::string& str);
-
 private:
     StorageEngine& _engine;
     const TCloneReq& _clone_req;
     std::vector<TTabletInfo>* _tablet_infos = nullptr;
     int64_t _signature;
-    const TMasterInfo& _master_info;
+    const ClusterInfo* _cluster_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
+    bool _is_new_tablet = false;
 }; // EngineTask
 
 } // namespace doris

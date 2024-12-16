@@ -21,32 +21,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class PartitionSortSourceOperatorBuilder final
-        : public OperatorBuilder<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSourceOperatorBuilder(int32_t id, ExecNode* sort_node)
-            : OperatorBuilder(id, "PartitionSortSourceOperator", sort_node) {}
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
-            : SourceOperator(operator_builder, sort_node) {}
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class PartitionSortSourceOperatorX;
 class PartitionSortSourceLocalState final
@@ -55,14 +34,14 @@ public:
     ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
     using Base = PipelineXLocalState<PartitionSortNodeSharedState>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<PartitionSortNodeSharedState>(state, parent),
-              _get_sorted_timer(nullptr) {}
+            : PipelineXLocalState<PartitionSortNodeSharedState>(state, parent) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
-    RuntimeProfile::Counter* _get_sorted_timer;
+    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
+    RuntimeProfile::Counter* _sorted_partition_output_rows_counter = nullptr;
     std::atomic<int> _sort_idx = 0;
 };
 

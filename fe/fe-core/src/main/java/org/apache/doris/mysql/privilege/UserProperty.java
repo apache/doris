@@ -17,8 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetUserPropertyVar;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -64,46 +67,49 @@ import java.util.regex.Pattern;
 public class UserProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(UserProperty.class);
     // advanced properties
-    private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
-    private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
-    private static final String PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
-    private static final String PROP_RESOURCE_TAGS = "resource_tags";
-    private static final String PROP_RESOURCE = "resource";
-    private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
-    private static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    private static final String PROP_EXEC_MEM_LIMIT = "exec_mem_limit";
-    private static final String PROP_USER_QUERY_TIMEOUT = "query_timeout";
+    public static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
+    public static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
+    public static final String PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String PROP_RESOURCE_TAGS = "resource_tags";
+    public static final String PROP_RESOURCE = "resource";
+    public static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
+    public static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
+    public static final String PROP_EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String PROP_USER_QUERY_TIMEOUT = "query_timeout";
 
-    private static final String PROP_USER_INSERT_TIMEOUT = "insert_timeout";
+    public static final String PROP_USER_INSERT_TIMEOUT = "insert_timeout";
     // advanced properties end
 
-    private static final String PROP_LOAD_CLUSTER = "load_cluster";
-    private static final String PROP_QUOTA = "quota";
-    private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
+    public static final String PROP_LOAD_CLUSTER = "load_cluster";
+    public static final String PROP_QUOTA = "quota";
+    public static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
 
-    private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
+    public static final String PROP_WORKLOAD_GROUP = "default_workload_group";
+
+    public static final String PROP_ALLOW_RESOURCE_TAG_DOWNGRADE = "allow_resource_tag_downgrade";
 
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
+    public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
     public static final Set<Pattern> COMMON_PROPERTIES = Sets.newHashSet();
 
-    @SerializedName(value = "qualifiedUser")
+    @SerializedName(value = "qu", alternate = {"qualifiedUser"})
     private String qualifiedUser;
 
-    @SerializedName(value = "commonProperties")
+    @SerializedName(value = "cp", alternate = {"commonProperties"})
     private CommonUserProperties commonProperties = new CommonUserProperties();
 
     // load cluster
-    @SerializedName(value = "defaultLoadCluster")
+    @SerializedName(value = "dlc", alternate = {"defaultLoadCluster"})
     private String defaultLoadCluster = null;
 
-    @SerializedName(value = "clusterToDppConfig")
+    @SerializedName(value = "cdc", alternate = {"clusterToDppConfig"})
     private Map<String, DppConfig> clusterToDppConfig = Maps.newHashMap();
 
-    @SerializedName(value = "defaultCloudCluster")
+    @SerializedName(value = "dcc", alternate = {"defaultCloudCluster"})
     private String defaultCloudCluster = null;
 
     /*
@@ -135,6 +141,8 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(
+                Pattern.compile("^" + PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -142,6 +150,7 @@ public class UserProperty implements Writable {
                 Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -196,6 +205,10 @@ public class UserProperty implements Writable {
         return Sets.newHashSet(this.commonProperties.getResourceTags());
     }
 
+    public boolean isAllowResourceTagDowngrade() {
+        return this.commonProperties.isAllowResourceTagDowngrade();
+    }
+
     public long getExecMemLimit() {
         return commonProperties.getExecMemLimit();
     }
@@ -216,6 +229,7 @@ public class UserProperty implements Writable {
         int queryTimeout = this.commonProperties.getQueryTimeout();
         int insertTimeout = this.commonProperties.getInsertTimeout();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
+        boolean allowResourceTagDowngrade = this.commonProperties.isAllowResourceTagDowngrade();
 
         String newDefaultLoadCluster = defaultLoadCluster;
         String newDefaultCloudCluster = defaultCloudCluster;
@@ -255,14 +269,9 @@ public class UserProperty implements Writable {
 
                 newDefaultLoadCluster = value;
             }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
-                // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
-                if (keyArr.length != 1) {
-                    throw new DdlException(DEFAULT_CLOUD_CLUSTER + " format error");
-                }
-                if (value == null) {
-                    value = "";
-                }
-                newDefaultCloudCluster = value;
+                newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
+                newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
                 // set property "max_query_instances" = "1000"
                 if (keyArr.length != 1) {
@@ -289,13 +298,6 @@ public class UserProperty implements Writable {
                 // set property "sql_block_rules" = "test_rule1,test_rule2"
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
-                }
-
-                // check if sql_block_rule has already exist
-                for (String ruleName : value.replaceAll(" ", "").split(",")) {
-                    if (!ruleName.equals("") && !Env.getCurrentEnv().getSqlBlockRuleMgr().existRule(ruleName)) {
-                        throw new DdlException("the sql block rule " + ruleName + " not exist");
-                    }
                 }
                 sqlBlockRules = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_CPU_RESOURCE_LIMIT)) {
@@ -365,6 +367,15 @@ public class UserProperty implements Writable {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + " format error");
+                }
+                if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                    throw new DdlException(
+                            "allow_resource_tag_downgrade's value must be true or false");
+                }
+                allowResourceTagDowngrade = Boolean.parseBoolean(value);
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -388,6 +399,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setQueryTimeout(queryTimeout);
         this.commonProperties.setInsertTimeout(insertTimeout);
         this.commonProperties.setWorkloadGroup(workloadGroup);
+        this.commonProperties.setAllowResourceTagDowngrade(allowResourceTagDowngrade);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
         } else {
@@ -395,6 +407,30 @@ public class UserProperty implements Writable {
         }
         clusterToDppConfig = newDppConfigs;
         defaultCloudCluster = newDefaultCloudCluster;
+    }
+
+    private String checkCloudDefaultCluster(String[] keyArr, String value, String defaultComputeGroup, boolean isReplay)
+            throws ComputeGroupException, DdlException {
+        // isReplay not check auth, not throw exception
+        if (isReplay) {
+            return value;
+        }
+        // check cluster auth
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+            new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new ComputeGroupException(String.format("set default compute group failed, "
+                + "user %s has no permission to use compute group '%s', please grant use privilege first ",
+                qualifiedUser, value),
+                ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
+        }
+        // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
+        if (keyArr.length != 1) {
+            throw new DdlException(defaultComputeGroup + " format error");
+        }
+        if (value == null) {
+            value = "";
+        }
+        return value;
     }
 
     private long getLongProperty(String key, String value, String[] keyArr, String propName) throws DdlException {
@@ -529,6 +565,9 @@ public class UserProperty implements Writable {
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 
+        result.add(Lists.newArrayList(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE,
+                String.valueOf(commonProperties.isAllowResourceTagDowngrade())));
+
         // load cluster
         if (defaultLoadCluster != null) {
             result.add(Lists.newArrayList(PROP_DEFAULT_LOAD_CLUSTER, defaultLoadCluster));
@@ -541,6 +580,13 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, defaultCloudCluster));
         } else {
             result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, ""));
+        }
+
+        // default cloud cluster
+        if (defaultCloudCluster != null) {
+            result.add(Lists.newArrayList(DEFAULT_COMPUTE_GROUP, defaultCloudCluster));
+        } else {
+            result.add(Lists.newArrayList(DEFAULT_COMPUTE_GROUP, ""));
         }
 
         for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {

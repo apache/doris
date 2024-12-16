@@ -21,7 +21,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.PushDownFilterThroughProject;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -86,7 +86,7 @@ public class PushDownFilterThroughProjectTest {
         t1Output.add(a);
         t1Output.add(b);
         t1Output.add(c);
-        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> DataTrait.EMPTY_TRAIT);
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,

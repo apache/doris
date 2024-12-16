@@ -21,7 +21,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -187,7 +186,7 @@ public class QueryStats {
             DatabaseIf d = c.getDbOrAnalysisException(database);
             TableIf t = d.getTableOrAnalysisException(table);
             long indexId = TableStats.DEFAULT_INDEX_ID;
-            if (t.getType() == TableType.OLAP) {
+            if (t.isManagedTable()) {
                 indexId = ((OlapTable) t).getIndexIdByName(index);
             }
             return getStats(c.getId(), d.getId(), t.getId(), indexId, summary);
@@ -266,7 +265,7 @@ public class QueryStats {
         ConcurrentHashMap<Long, IndexStats> indexStats = catalogStats.get(c.getId()).getDataBaseStats().get(d.getId())
                 .getTableStats().get(t.getId()).getIndexStats();
 
-        if (t.getType() == TableType.OLAP) {
+        if (t.isManagedTable()) {
             for (Map.Entry<Long, IndexStats> entry : indexStats.entrySet()) {
                 for (Map.Entry<String, AtomicLong> indexEntry : entry.getValue().getColumnQueryStats().entrySet()) {
                     if (result.containsKey(indexEntry.getKey())) {
@@ -300,7 +299,7 @@ public class QueryStats {
         CatalogIf c = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalog);
         DatabaseIf d = c.getDbOrAnalysisException(db);
         TableIf t = d.getTableOrAnalysisException(tbl);
-        if (t.getType() == TableType.OLAP) {
+        if (t.isManagedTable()) {
             ((OlapTable) t).getIndexNameToId().keySet().forEach(indexName -> result.put(indexName, 0L));
         } else {
             result.put(tbl, 0L);
@@ -316,7 +315,7 @@ public class QueryStats {
         }
         ConcurrentHashMap<Long, IndexStats> indexStats = catalogStats.get(c.getId()).getDataBaseStats().get(d.getId())
                 .getTableStats().get(t.getId()).getIndexStats();
-        if (t.getType() == TableType.OLAP) {
+        if (t.isManagedTable()) {
             for (Map.Entry<Long, IndexStats> entry : indexStats.entrySet()) {
                 result.put(((OlapTable) t).getIndexNameById(entry.getKey()), entry.getValue().getQueryStats());
             }
@@ -334,7 +333,7 @@ public class QueryStats {
         CatalogIf c = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalog);
         DatabaseIf d = c.getDbOrAnalysisException(db);
         TableIf t = d.getTableOrAnalysisException(tbl);
-        if (t.getType() == TableType.OLAP) {
+        if (t.isManagedTable()) {
             ((OlapTable) t).getIndexNameToId().forEach((indexName, indexId) -> {
                 Map<String, Pair<Long, Long>> indexResult = new LinkedHashMap<>();
                 ((OlapTable) t).getSchemaByIndexId(indexId)
@@ -358,7 +357,7 @@ public class QueryStats {
         ConcurrentHashMap<Long, IndexStats> indexStats = catalogStats.get(c.getId()).getDataBaseStats().get(d.getId())
                 .getTableStats().get(t.getId()).getIndexStats();
         for (Map.Entry<Long, IndexStats> entry : indexStats.entrySet()) {
-            String indexName = t.getType() == TableType.OLAP ? ((OlapTable) t).getIndexNameById(entry.getKey()) : tbl;
+            String indexName = t.isManagedTable() ? ((OlapTable) t).getIndexNameById(entry.getKey()) : tbl;
             if (!result.containsKey(indexName)) {
                 continue;
             }
@@ -373,7 +372,7 @@ public class QueryStats {
                     indexResult.get(indexEntry.getKey()).second = indexEntry.getValue().get();
                 }
             }
-            if (t.getType() == TableType.OLAP) {
+            if (t.isManagedTable()) {
                 result.get(((OlapTable) t).getIndexNameById(entry.getKey())).putAll(indexResult);
             } else {
                 result.put(tbl, indexResult);

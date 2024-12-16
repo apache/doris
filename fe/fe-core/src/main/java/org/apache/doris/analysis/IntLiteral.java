@@ -20,25 +20,24 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIntLiteral;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 public class IntLiteral extends NumericLiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(IntLiteral.class);
 
     public static final long TINY_INT_MIN = Byte.MIN_VALUE; // -2^7 ~ 2^7 - 1
     public static final long TINY_INT_MAX = Byte.MAX_VALUE;
@@ -49,6 +48,7 @@ public class IntLiteral extends NumericLiteralExpr {
     public static final long BIG_INT_MIN = Long.MIN_VALUE; // -2^63 ~ 2^63 - 1
     public static final long BIG_INT_MAX = Long.MAX_VALUE;
 
+    @SerializedName("v")
     private long value;
 
     /**
@@ -255,6 +255,9 @@ public class IntLiteral extends NumericLiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -286,8 +289,8 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override
@@ -359,12 +362,6 @@ public class IntLiteral extends NumericLiteralExpr {
         value = -value;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(value);
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = in.readLong();
@@ -382,19 +379,19 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         switch (type.getPrimitiveType()) {
             case TINYINT:
                 value = data.get();
                 break;
             case SMALLINT:
-                value = data.getChar();
+                value = !isUnsigned ? data.getChar() : ByteBufferUtil.getUnsignedByte(data);
                 break;
             case INT:
-                value = data.getInt();
+                value = !isUnsigned ? data.getInt() : ByteBufferUtil.getUnsignedShort(data);
                 break;
             case BIGINT:
-                value = data.getLong();
+                value = !isUnsigned ? data.getLong() : ByteBufferUtil.getUnsignedInt(data);
                 break;
             default:
                 Preconditions.checkState(false);

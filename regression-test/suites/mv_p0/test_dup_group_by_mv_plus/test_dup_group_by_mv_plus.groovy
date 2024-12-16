@@ -41,17 +41,20 @@ suite ("test_dup_group_by_mv_plus") {
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
+    sql """analyze table d_table with sync;"""
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select k1,sum(k2+1) from d_table group by k1;")
-        contains "(k12sp)"
-    }
+    mv_rewrite_success("select k1,sum(k2+1) from d_table group by k1;", "k12sp")
     qt_select_mv "select k1,sum(k2+1) from d_table group by k1 order by k1;"
 
-    explain {
-        sql("select sum(k2+1) from d_table group by k1;")
-        contains "(k12sp)"
-    }
+    mv_rewrite_success("select sum(k2+1) from d_table group by k1;", "k12sp")
     qt_select_mv_sub "select sum(k2+1) from d_table group by k1 order by k1;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
+    mv_rewrite_success("select k1,sum(k2+1) from d_table group by k1;", "k12sp")
+    mv_rewrite_success("select sum(k2+1) from d_table group by k1;", "k12sp")
+
 }

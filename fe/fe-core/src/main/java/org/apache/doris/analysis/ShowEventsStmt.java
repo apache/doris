@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Show Events statement
-public class ShowEventsStmt extends ShowStmt {
+public class ShowEventsStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Db", ScalarType.createVarchar(20)))

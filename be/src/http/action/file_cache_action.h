@@ -21,14 +21,16 @@
 
 #include "common/status.h"
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
+class ExecEnv;
 
-class FileCacheAction : public HttpHandler {
+class FileCacheAction : public HttpHandlerWithAuth {
 public:
-    FileCacheAction() = default;
+    FileCacheAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
     ~FileCacheAction() override = default;
 

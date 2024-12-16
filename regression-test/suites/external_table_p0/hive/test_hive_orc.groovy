@@ -74,11 +74,34 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         qt_decimals4 """select * from orc_decimal_table where id > 3 order by id;"""
     }
 
+    // string col dict plain encoding mixed in different stripes
+    def string_col_dict_plain_mixed = {
+       qt_string_col_dict_plain_mixed1 """select count(col2) from string_col_dict_plain_mixed_orc where col4 = 'Additional data' and col1 like '%Test%' and col3 like '%2%';"""
+       qt_string_col_dict_plain_mixed2 """select count(col2) from string_col_dict_plain_mixed_orc where col4 = 'Additional data' and col3 like '%2%';"""
+       qt_string_col_dict_plain_mixed3 """select count(col2) from string_col_dict_plain_mixed_orc where col1 like '%Test%';"""
+    }
+
+    def predicate_pushdown = {
+        qt_predicate_pushdown1 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is not null and (o_orderkey < 100 or o_orderkey > 5999900 or o_orderkey in (1000000, 2000000, 3000000)); """
+        qt_predicate_pushdown2 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is null or (o_orderkey between 100 and 1000 and o_orderkey not in (200, 300, 400)); """
+        qt_predicate_pushdown3 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is not null and (o_orderkey < 100 or o_orderkey > 5999900 or o_orderkey = 3000000); """
+        qt_predicate_pushdown4 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is null or (o_orderkey between 1000000 and 1200000 and o_orderkey != 1100000); """
+        qt_predicate_pushdown5 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE (o_orderdate >= '1994-01-01' AND o_orderdate <= '1994-12-31') AND (o_orderpriority = '5-LOW' OR o_orderpriority = '3-MEDIUM') AND o_totalprice > 2000;"""
+        qt_predicate_pushdown6 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_orderstatus <> 'F' AND o_custkey < 54321; """
+        qt_predicate_pushdown7 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_comment LIKE '%delayed%' OR o_orderpriority = '1-URGENT'; """
+        qt_predicate_pushdown8 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_orderkey IN (1000000, 2000000, 3000000) OR o_clerk = 'Clerk#000000470'; """
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "hive_test_orc"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "${hivePrefix}_test_orc"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -95,6 +118,8 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             search_mix()
             only_partition_col()
             decimals()
+            string_col_dict_plain_mixed()
+            predicate_pushdown()
 
             sql """drop catalog if exists ${catalog_name}"""
 

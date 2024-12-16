@@ -34,10 +34,11 @@
 #include "olap/olap_common.h"
 
 namespace doris {
-void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
 static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
+static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
+static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,
@@ -67,8 +68,8 @@ private:
 // @param base 原串
 // @param separator 分隔符
 // @param result 切分结果
-template <typename T>
-Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
+template <typename Str, typename T>
+Status split_string(const Str& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("split_string meet nullptr result input");
     }
@@ -84,10 +85,10 @@ Status split_string(const std::string& base, const T separator, std::vector<std:
     while (offset < base.length()) {
         size_t next = base.find(separator, offset);
         if (next == std::string::npos) {
-            result->push_back(base.substr(offset));
+            result->emplace_back(base.substr(offset));
             break;
         } else {
-            result->push_back(base.substr(offset, next - offset));
+            result->emplace_back(base.substr(offset, next - offset));
             offset = next + 1;
         }
     }
@@ -101,63 +102,9 @@ uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 // 获取系统当前时间，并将时间转换为字符串
 Status gen_timestamp_string(std::string* out_string);
 
-// iterator offset，用于二分查找
-using iterator_offset_t = size_t;
-
-class BinarySearchIterator : public std::iterator_traits<iterator_offset_t*> {
-public:
-    BinarySearchIterator() : _offset(0u) {}
-    explicit BinarySearchIterator(iterator_offset_t offset) : _offset(offset) {}
-
-    iterator_offset_t operator*() const { return _offset; }
-
-    BinarySearchIterator& operator++() {
-        ++_offset;
-        return *this;
-    }
-
-    BinarySearchIterator& operator--() {
-        --_offset;
-        return *this;
-    }
-
-    BinarySearchIterator& operator-=(size_t step) {
-        _offset = _offset - step;
-        return *this;
-    }
-
-    BinarySearchIterator& operator+=(size_t step) {
-        _offset = _offset + step;
-        return *this;
-    }
-
-    bool operator!=(const BinarySearchIterator& iterator) {
-        return this->_offset != iterator._offset;
-    }
-
-private:
-    iterator_offset_t _offset;
-};
-
-int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right);
-
-// 不用sse4指令的crc32c的计算函数
-unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc);
-
 Status check_datapath_rw(const std::string& path);
 
 Status read_write_test_file(const std::string& test_file_path);
-
-//转换两个list
-template <typename T1, typename T2>
-void static_cast_assign_vector(std::vector<T1>* v1, const std::vector<T2>& v2) {
-    if (nullptr != v1) {
-        //GCC3.4的模板展开貌似有问题， 这里如果使用迭代器会编译失败
-        for (size_t i = 0; i < v2.size(); i++) {
-            v1->push_back(static_cast<T1>(v2[i]));
-        }
-    }
-}
 
 // 打印Errno
 class Errno {
@@ -171,8 +118,6 @@ private:
     static const int BUF_SIZE = 256;
     static __thread char _buf[BUF_SIZE];
 };
-
-#define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
 
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出
 template <typename T>
@@ -257,19 +202,20 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 
 // Util used to get string name of thrift enum item
-#define EnumToString(enum_type, index, out)                 \
-    do {                                                    \
-        std::map<int, const char*>::const_iterator it =     \
-                _##enum_type##_VALUES_TO_NAMES.find(index); \
-        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {   \
-            out = "NULL";                                   \
-        } else {                                            \
-            out = it->second;                               \
-        }                                                   \
+#define EnumToString(enum_type, index, out)                   \
+    do {                                                      \
+        auto it = _##enum_type##_VALUES_TO_NAMES.find(index); \
+        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {     \
+            out = "NULL";                                     \
+        } else {                                              \
+            out = it->second;                                 \
+        }                                                     \
     } while (0)
 
 struct RowLocation {
@@ -295,11 +241,13 @@ struct RowLocation {
         }
     }
 };
+using RowLocationSet = std::set<RowLocation>;
+using RowLocationPairList = std::list<std::pair<RowLocation, RowLocation>>;
 
 struct GlobalRowLoacation {
-    GlobalRowLoacation(uint32_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
+    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
             : tablet_id(tid), row_location(rsid, sid, rid) {}
-    uint32_t tablet_id;
+    int64_t tablet_id;
     RowLocation row_location;
 
     bool operator==(const GlobalRowLoacation& rhs) const {

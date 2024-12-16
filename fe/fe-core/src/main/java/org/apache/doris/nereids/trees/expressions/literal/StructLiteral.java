@@ -49,7 +49,10 @@ public class StructLiteral extends Literal {
         this(fields, computeDataType(fields));
     }
 
-    private StructLiteral(List<Literal> fields, DataType dataType) {
+    /**
+     * create Struct Literal with fields and datatype
+     */
+    public StructLiteral(List<Literal> fields, DataType dataType) {
         super(dataType);
         this.fields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         Preconditions.checkArgument(dataType instanceof StructType,

@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -49,7 +50,8 @@ template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
                                                 const std::vector<uint32_t>& col_ids, bool is_key,
-                                                uint32_t max_rows_per_segment) {
+                                                uint32_t max_rows_per_segment,
+                                                bool has_cluster_key) {
     auto& context = this->_context;
 
     VLOG_NOTICE << "VerticalBetaRowsetWriter::add_columns, columns: " << block->columns();
@@ -70,7 +72,9 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
         _cur_writer_idx = 0;
         RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
     } else if (is_key) {
-        if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment) {
+        if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment ||
+            (has_cluster_key && _segment_writers[_cur_writer_idx]->primary_keys_size() >
+                                        config::mow_primary_key_index_max_size_in_memory)) {
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), true));
 
@@ -82,36 +86,32 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
         RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
     } else {
         // value columns
-        uint32_t num_rows_written = _segment_writers[_cur_writer_idx]->num_rows_written();
-        VLOG_NOTICE << "num_rows_written: " << num_rows_written
-                    << ", _cur_writer_idx: " << _cur_writer_idx;
-        uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
-        // init if it's first value column write in current segment
-        if (_cur_writer_idx == 0 && num_rows_written == 0) {
-            VLOG_NOTICE << "init first value column segment writer";
-            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
-        }
-        // when splitting segment, need to make rows align between key columns and value columns
-        size_t start_offset = 0;
-        size_t limit = num_rows;
-        if (num_rows_written + num_rows >= num_rows_key_group &&
-            _cur_writer_idx < _segment_writers.size() - 1) {
-            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(
-                    block, 0, num_rows_key_group - num_rows_written));
-            RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get()));
-            start_offset = num_rows_key_group - num_rows_written;
-            limit = num_rows - start_offset;
-            ++_cur_writer_idx;
-            // switch to next writer
-            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
-            num_rows_written = 0;
-            num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
-        }
-        if (limit > 0) {
-            RETURN_IF_ERROR(
-                    _segment_writers[_cur_writer_idx]->append_block(block, start_offset, limit));
-            DCHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
-                   _segment_writers[_cur_writer_idx]->row_count());
+        int64_t left = num_rows;
+        while (left > 0) {
+            uint32_t num_rows_written = _segment_writers[_cur_writer_idx]->num_rows_written();
+            VLOG_NOTICE << "num_rows_written: " << num_rows_written
+                        << ", _cur_writer_idx: " << _cur_writer_idx;
+            uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
+            CHECK_LT(num_rows_written, num_rows_key_group);
+            // init if it's first value column write in current segment
+            if (num_rows_written == 0) {
+                VLOG_NOTICE << "init first value column segment writer";
+                RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+            }
+
+            int64_t to_write = num_rows_written + left >= num_rows_key_group
+                                       ? num_rows_key_group - num_rows_written
+                                       : left;
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, num_rows - left,
+                                                                            to_write));
+            left -= to_write;
+            CHECK_GE(left, 0);
+
+            if (num_rows_key_group == num_rows_written + to_write &&
+                _cur_writer_idx < _segment_writers.size() - 1) {
+                RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get()));
+                ++_cur_writer_idx;
+            }
         }
     }
     if (is_key) {
@@ -141,8 +141,6 @@ Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* se
         this->_segment_num_rows.resize(_cur_writer_idx + 1);
         this->_segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
-    this->_total_index_size +=
-            static_cast<int64_t>(index_size) + segment_writer->get_inverted_index_file_size();
     return Status::OK();
 }
 
@@ -167,26 +165,30 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     auto& context = this->_context;
 
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
-    auto path = BetaRowset::segment_file_path(context.rowset_dir, context.rowset_id, seg_id);
-    auto fs = this->_rowset_meta->fs();
-    if (!fs) {
-        return Status::Error<INIT_FAILED>("get fs failed");
-    }
-    io::FileWriterPtr file_writer;
-    Status st = fs->create_file(path, &file_writer);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
-        return st;
+
+    io::FileWriterPtr segment_file_writer;
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::create_file_writer(seg_id, segment_file_writer));
+    DCHECK(segment_file_writer != nullptr);
+
+    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    if (context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(RowsetWriter::create_inverted_index_file_writer(
+                seg_id, &inverted_index_file_writer));
     }
 
-    DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
+    writer_options.max_rows_per_segment = context.max_rows_per_segment;
+    // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
     *writer = std::make_unique<segment_v2::SegmentWriter>(
-            file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
-            context.max_rows_per_segment, writer_options, nullptr);
-    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
+            segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
+            context.data_dir, writer_options, inverted_index_file_writer.get());
+
+    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
+    if (context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(inverted_index_file_writer)));
+    }
 
     auto s = (*writer)->init(column_ids, is_key);
     if (!s.ok()) {
@@ -208,7 +210,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
-        this->_total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
+        this->_total_data_size += segment_size;
         segment_writer.reset();
     }
     return Status::OK();
@@ -217,6 +219,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_inverted_index_file_writers());
     return this->_seg_files.close();
 }
 

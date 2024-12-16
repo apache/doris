@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/bitmap_value.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -87,7 +87,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;
         ColumnNumbers filtered_args;
@@ -137,14 +137,16 @@ public:
         auto null_map = ColumnUInt8::create(
                 input_rows_count, 1); //if null_map_data==1, the current row should be null
         auto* __restrict null_map_data = null_map->get_data().data();
-        ColumnPtr argument_columns[argument_size]; //use to save nested_column if is nullable column
+        std::vector<ColumnPtr> argument_columns(
+                argument_size); //use to save nested_column if is nullable column
 
         for (size_t i = 0; i < argument_size; ++i) {
             block.get_by_position(filtered_args[i]).column =
                     block.get_by_position(filtered_args[i])
                             .column->convert_to_full_column_if_const();
             argument_columns[i] = block.get_by_position(filtered_args[i]).column;
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
@@ -162,7 +164,9 @@ public:
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
                             .mutate();
-            auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
+            auto& res_map =
+                    assert_cast<ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(res_column.get())
+                            ->get_data();
             auto* __restrict res = res_map.data();
 
             // Here it's SIMD thought the compiler automatically

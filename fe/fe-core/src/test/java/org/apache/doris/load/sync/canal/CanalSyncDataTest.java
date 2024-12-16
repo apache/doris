@@ -30,10 +30,10 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPlanFragmentExecParams;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -119,9 +119,11 @@ public class CanalSyncDataTest {
         Map<Long, Backend> map = Maps.newHashMap();
         map.put(104L, backend);
         ImmutableMap<Long, Backend> backendMap = ImmutableMap.copyOf(map);
-        TExecPlanFragmentParams execPlanFragmentParams = new TExecPlanFragmentParams().setParams(new TPlanFragmentExecParams()
-                .setFragmentInstanceId(new TUniqueId())
-                .setPerNodeScanRanges(Maps.newHashMap()));
+        TPipelineInstanceParams localParams = new TPipelineInstanceParams().setFragmentInstanceId(new TUniqueId())
+                .setPerNodeScanRanges(Maps.newHashMap());
+        TPipelineFragmentParams execPlanFragmentParams = new TPipelineFragmentParams()
+                .setLocalParams(Lists.newArrayList());
+        execPlanFragmentParams.getLocalParams().add(localParams);
 
         new Expectations() {
             {
@@ -154,7 +156,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = backendIds;
 
-                systemInfoService.getIdToBackend();
+                systemInfoService.getAllBackendsByAllCluster();
                 minTimes = 0;
                 result = backendMap;
 

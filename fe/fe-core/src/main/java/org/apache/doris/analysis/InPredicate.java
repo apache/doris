@@ -35,8 +35,7 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,13 +46,13 @@ import java.util.List;
  * of values (remaining children).
  */
 public class InPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(InPredicate.class);
 
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
     private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
-    private final boolean isNotIn;
+    @SerializedName("ini")
+    private boolean isNotIn;
 
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
@@ -87,6 +86,10 @@ public class InPredicate extends Predicate {
                     null, null, null, false));
 
         }
+    }
+
+    private InPredicate() {
+        // use for serde only
     }
 
     // First child is the comparison expr for which we
@@ -163,11 +166,6 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        super.vectorizedAnalyze(analyzer);
-    }
-
-    @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         this.checkIncludeBitmap();
@@ -206,7 +204,6 @@ public class InPredicate extends Predicate {
             }
         } else {
             analyzer.castAllToCompatibleType(children);
-            vectorizedAnalyze(analyzer);
         }
 
         boolean allConstant = true;
@@ -273,7 +270,6 @@ public class InPredicate extends Predicate {
         msg.in_predicate = new TInPredicate(isNotIn);
         msg.node_type = TExprNodeType.IN_PRED;
         msg.setOpcode(opcode);
-        msg.setVectorOpcode(vectorOpcode);
     }
 
     @Override

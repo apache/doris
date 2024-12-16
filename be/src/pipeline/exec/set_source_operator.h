@@ -21,38 +21,12 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-template <bool is_intersect>
-class SetSourceOperatorBuilder
-        : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
-private:
-    constexpr static auto builder_name =
-            is_intersect ? "IntersectSourceOperator" : "ExceptSourceOperator";
-
-public:
-    SetSourceOperatorBuilder(int32_t id, ExecNode* set_node);
-    [[nodiscard]] bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-template <bool is_intersect>
-class SetSourceOperator : public SourceOperator<vectorized::VSetOperationNode<is_intersect>> {
-public:
-    SetSourceOperator(OperatorBuilderBase* builder,
-                      vectorized::VSetOperationNode<is_intersect>* set_node);
-
-    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
-};
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
 
@@ -72,6 +46,9 @@ private:
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
     //record build column type
     vectorized::DataTypes _left_table_data_types;
+
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -106,10 +83,10 @@ private:
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
                                   const int batch_size, bool* eos);
 
-    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
-                             vectorized::RowRefListWithFlags& value, int& block_size);
-    const int _child_quantity;
+    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value,
+                             int& block_size);
+    const size_t _child_quantity;
 };
-
+#include "common/compile_check_end.h"
 } // namespace pipeline
 } // namespace doris

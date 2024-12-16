@@ -65,7 +65,7 @@ public class OssRemote extends DefaultRemote {
         try {
             GeneratePresignedUrlRequest request
                     = new GeneratePresignedUrlRequest(bucketName, objectName, HttpMethod.PUT);
-            Date expiration = new Date(new Date().getTime() + 3600 * 1000);
+            Date expiration = new Date(new Date().getTime() + SESSION_EXPIRE_SECOND * 1000);
             request.setExpiration(expiration);
             URL signedUrl = ossClient.generatePresignedUrl(request);
             return signedUrl.toString();
@@ -155,7 +155,7 @@ public class OssRemote extends DefaultRemote {
             }
             return new ListObjectsResult(objectFiles, result.isTruncated(), result.getNextContinuationToken());
         } catch (OSSException e) {
-            LOG.warn("Failed to list objects for OSS", e);
+            LOG.warn("Failed to list objects for OSS prefix {}", prefix, e);
             throw new DdlException("Failed to list objects for OSS, Error code=" + e.getErrorCode() + ", Error message="
                     + e.getErrorMessage());
         }

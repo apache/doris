@@ -21,11 +21,9 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
-#include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -34,7 +32,6 @@
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/exec_env.h"
 
@@ -48,6 +45,7 @@ const std::string kBinlogVersionParameter = "binlog_version";
 const std::string kRowsetIdParameter = "rowset_id";
 const std::string kSegmentIndexParameter = "segment_index";
 const std::string kSegmentIndexIdParameter = "segment_index_id";
+const std::string kAcquireMD5Parameter = "acquire_md5";
 
 // get http param, if no value throw exception
 const auto& get_http_param(HttpRequest* req, const std::string& param_name) {
@@ -103,12 +101,14 @@ void handle_get_segment_file(StorageEngine& engine, HttpRequest* req,
                              bufferevent_rate_limit_group* rate_limit_group) {
     // Step 1: get download file path
     std::string segment_file_path;
+    bool is_acquire_md5 = false;
     try {
         const auto& tablet_id = get_http_param(req, kTabletIdParameter);
         auto tablet = get_tablet(engine, tablet_id);
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
+        is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get download file path failed, error: " << e.what();
@@ -129,7 +129,7 @@ void handle_get_segment_file(StorageEngine& engine, HttpRequest* req,
         LOG(WARNING) << "file not exist, file path: " << segment_file_path;
         return;
     }
-    do_file_response(segment_file_path, req, rate_limit_group);
+    do_file_response(segment_file_path, req, rate_limit_group, is_acquire_md5);
 }
 
 /// handle get segment index file, need tablet_id, rowset_id, segment_index && segment_index_id
@@ -137,14 +137,27 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
                                    bufferevent_rate_limit_group* rate_limit_group) {
     // Step 1: get download file path
     std::string segment_index_file_path;
+    bool is_acquire_md5 = false;
     try {
         const auto& tablet_id = get_http_param(req, kTabletIdParameter);
         auto tablet = get_tablet(engine, tablet_id);
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         const auto& segment_index_id = req->param(kSegmentIndexIdParameter);
-        segment_index_file_path =
-                tablet->get_segment_index_filepath(rowset_id, segment_index, segment_index_id);
+        auto segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
+        if (tablet->tablet_schema()->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            // now CCR not support for variant + index v1
+            constexpr std::string_view index_suffix = "";
+            segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path),
+                    std::stoll(segment_index_id), index_suffix);
+        } else {
+            DCHECK(segment_index_id == "-1");
+            segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
+        }
+        is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get download file path failed, error: " << e.what();
@@ -165,7 +178,7 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         LOG(WARNING) << "file not exist, file path: " << segment_index_file_path;
         return;
     }
-    do_file_response(segment_index_file_path, req, rate_limit_group);
+    do_file_response(segment_index_file_path, req, rate_limit_group, is_acquire_md5);
 }
 
 void handle_get_rowset_meta(StorageEngine& engine, HttpRequest* req) {
@@ -192,7 +205,9 @@ void handle_get_rowset_meta(StorageEngine& engine, HttpRequest* req) {
 DownloadBinlogAction::DownloadBinlogAction(
         ExecEnv* exec_env, StorageEngine& engine,
         std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group)
-        : _exec_env(exec_env), _engine(engine), _rate_limit_group(std::move(rate_limit_group)) {}
+        : HttpHandlerWithAuth(exec_env),
+          _engine(engine),
+          _rate_limit_group(std::move(rate_limit_group)) {}
 
 void DownloadBinlogAction::handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download binlog request " << req->debug_string();
@@ -239,8 +254,10 @@ Status DownloadBinlogAction::_check_token(HttpRequest* req) {
         return Status::InternalError("token is not specified.");
     }
 
-    if (token_str != _exec_env->token()) {
-        return Status::InternalError("invalid token.");
+    const std::string& local_token = _exec_env->token();
+    if (token_str != local_token) {
+        LOG(WARNING) << "invalid download token: " << token_str << ", local token: " << local_token;
+        return Status::NotAuthorized("invalid token {}", token_str);
     }
 
     return Status::OK();

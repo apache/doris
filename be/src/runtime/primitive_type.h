@@ -20,10 +20,9 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <string>
-#include <type_traits>
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
@@ -37,7 +36,9 @@
 namespace doris {
 
 namespace vectorized {
-class ColumnString;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 } // namespace vectorized
 
 class DecimalV2Value;
@@ -161,12 +162,6 @@ struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using ColumnType = vectorized::ColumnFloat32;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_TIME> {
-    using CppType = double;
-    using StorageFieldType = CppType;
-    using ColumnType = vectorized::ColumnFloat64;
-};
-template <>
 struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using CppType = double;
     using StorageFieldType = CppType;
@@ -242,13 +237,13 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
-    using CppType = vectorized::IPv4;
+    using CppType = IPv4;
     using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
-    using CppType = vectorized::IPv6;
+    using CppType = IPv6;
     using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv6;
 };

@@ -23,7 +23,9 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/merger.h"
+#include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
+#include "segment_v2/inverted_index_file_writer.h"
 #include "segment_v2/segment.h"
 
 namespace doris {
@@ -49,12 +51,33 @@ class SegcompactionWorker {
 public:
     explicit SegcompactionWorker(BetaRowsetWriter* writer);
 
+    ~SegcompactionWorker() {
+        DCHECK(_seg_compact_mem_tracker != nullptr);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
+        if (_rowid_conversion) {
+            _rowid_conversion.reset();
+        }
+    }
+
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
+    bool need_convert_delete_bitmap();
+
+    void convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_seg_id,
+                                       uint32_t dest_seg_id);
+    void convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap, uint32_t src_begin,
+                                       uint32_t src_end, uint32_t dest_seg_id);
+    DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
+
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
+    InvertedIndexFileWriterPtr& get_inverted_index_file_writer() {
+        return _inverted_index_file_writer;
+    }
 
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
+
+    void init_mem_tracker(const RowsetWriterContext& rowset_writer_context);
 
 private:
     Status _create_segment_writer_for_segcompaction(
@@ -77,6 +100,12 @@ private:
     // Currently cloud storage engine doesn't need segcompaction
     BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
+    InvertedIndexFileWriterPtr _inverted_index_file_writer = nullptr;
+
+    // for unique key mow table
+    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion = nullptr;
+    DeleteBitmapPtr _converted_delete_bitmap;
+    std::shared_ptr<MemTrackerLimiter> _seg_compact_mem_tracker = nullptr;
 
     // the state is not mutable when 1)actual compaction operation started or 2) cancelled
     std::atomic<bool> _is_compacting_state_mutable = true;

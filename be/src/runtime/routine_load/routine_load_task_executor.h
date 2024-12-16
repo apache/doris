@@ -27,8 +27,8 @@
 #include <vector>
 
 #include "runtime/routine_load/data_consumer_pool.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
-#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -51,6 +51,8 @@ public:
 
     ~RoutineLoadTaskExecutor();
 
+    Status init(int64_t process_mem_limit);
+
     void stop();
 
     // submit a routine load task
@@ -60,10 +62,18 @@ public:
                                     std::vector<int32_t>* partition_ids);
 
     Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
-                                                 std::vector<PIntegerPair>* partition_offsets);
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
 
     Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
-                                                   std::vector<PIntegerPair>* partition_offsets);
+                                                   std::vector<PIntegerPair>* partition_offsets,
+                                                   int timeout);
+
+    Status get_kafka_real_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
+                                                 std::vector<PIntegerPair>* partition_offsets,
+                                                 int timeout);
+
+    ThreadPool& get_thread_pool() { return *_thread_pool; }
 
 private:
     // execute the task
@@ -78,15 +88,18 @@ private:
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
     Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
                         std::shared_ptr<StreamLoadContext> ctx);
+    bool _reach_memory_limit();
 
 private:
     ExecEnv* _exec_env = nullptr;
-    PriorityThreadPool _thread_pool;
+    std::unique_ptr<ThreadPool> _thread_pool;
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;
     // task id -> load context
     std::unordered_map<UniqueId, std::shared_ptr<StreamLoadContext>> _task_map;
+
+    int64_t _load_mem_limit = -1;
 };
 
 } // namespace doris

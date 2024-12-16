@@ -32,10 +32,9 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <antlr4.version>4.13.1</antlr4.version>
         <awssdk.version>2.20.131</awssdk.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
-        <tencentcos.version>3.3.5</tencentcos.version>
+        <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
     <profiles>
         <profile>
@@ -64,7 +63,7 @@ under the License.
             <id>protoc_rosetta</id>
             <activation>
                 <os>
-                    <name>Mac OS X</name>
+                    <family>mac</family>
                     <arch>aarch64</arch>
                 </os>
             </activation>
@@ -92,13 +91,9 @@ under the License.
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-web</artifactId>
-            <version>${log4j2.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -156,6 +151,11 @@ under the License.
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava-testlib</artifactId>
+            <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
         <dependency>
@@ -347,6 +347,7 @@ under the License.
             <groupId>com.alibaba.otter</groupId>
             <artifactId>canal.client</artifactId>
             <version>1.1.6</version>
+            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>
@@ -359,6 +360,10 @@ under the License.
                 <exclusion>
                     <artifactId>netty-all</artifactId>
                     <groupId>io.netty</groupId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -380,11 +385,11 @@ under the License.
                     <artifactId>netty-all</artifactId>
                     <groupId>io.netty</groupId>
                 </exclusion>
+                <exclusion>
+                    <groupId>org.springframework</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aws</artifactId>
         </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
@@ -406,6 +411,7 @@ under the License.
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
             <version>${huaweiobs.version}</version>
+            <scope>${obs.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <artifactId>jackson-databind</artifactId>
@@ -414,17 +420,43 @@ under the License.
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aliyun</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
+            <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
+            <scope>${cos.dependency.scope}</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.json</groupId>
+                    <artifactId>json</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
+            when upgrade doris antlr-runtime version, should take care of trino-parser.-->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
         </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
+            <version>${maxcompute.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>antlr-runtime</artifactId>
+                    <groupId>org.antlr</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>antlr4</artifactId>
+                    <groupId>org.antlr</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-table-api</artifactId>
+            <version>${maxcompute.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
@@ -538,6 +570,82 @@ under the License.
             <artifactId>hadoop-auth</artifactId>
         </dependency>
 
+        <!-- lakesoul -->
+        <dependency>
+            <groupId>com.dmetasoul</groupId>
+            <artifactId>lakesoul-io-java</artifactId>
+            <version>${lakesoul.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-vector</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-netty</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-netty-buffer-patch</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-format</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.spark</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.datatype</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.scala-lang</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.json4s</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.ow2.asm</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.postgresql</groupId>
+                    <artifactId>postgresql</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+            <scope>compile</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
@@ -644,20 +752,41 @@ under the License.
             <artifactId>mariadb-java-client</artifactId>
         </dependency>
 
-        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
-            when upgrade doris antlr-runtime version, should take care of trino-parser.-->
         <dependency>
-            <groupId>org.antlr</groupId>
-            <artifactId>antlr4-runtime</artifactId>
-            <version>${antlr4.version}</version>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.alibaba/druid -->
         <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>druid</artifactId>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos_api</artifactId>
+            <version>5.6.211</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.thoughtworks.xstream</groupId>
+                    <artifactId>xstream</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
-
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>qcloud-java-sdk</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>esdk-obs-java-bundle</artifactId>
+            <version>[3.21.11,)</version>
+            <scope>${obs.dependency.scope}</scope>
+        </dependency>
         <dependency>
             <groupId>com.baidubce</groupId>
             <artifactId>bce-java-sdk</artifactId>
@@ -674,32 +803,13 @@ under the License.
             </exclusions>
         </dependency>
 
-        <!-- for aliyun dlf -->
-        <dependency>
-            <groupId>com.aliyun.datalake</groupId>
-            <artifactId>metastore-client-hive3</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea-openapi</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea-util</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
         <!-- for fe recognize files stored on gcs -->
         <dependency>
             <groupId>com.google.cloud.bigdataoss</groupId>
             <artifactId>gcs-connector</artifactId>
-            <version>hadoop2-2.2.8</version>
+            <version>hadoop3-2.2.21</version>
             <classifier>shaded</classifier>
+            <scope>${gcs.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <groupId>*</groupId>
@@ -724,6 +834,10 @@ under the License.
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-memory-netty</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty-buffer-patch</artifactId>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
@@ -792,6 +906,33 @@ under the License.
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>me.bechberger</groupId>
+            <artifactId>ap-loader-all</artifactId>
+            <version>3.0-8</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-hadoop-compat</artifactId>
+            <version>2.5.2-hadoop3</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob-batch</artifactId>
+            <version>${azure.sdk.batch.version}</version>
         </dependency>
     </dependencies>
     <repositories>
@@ -991,7 +1132,7 @@ under the License.
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
-                    <execution>
+                    <!--execution>
                         <id>doc</id>
                         <phase>process-classes</phase>
                         <goals>
@@ -1011,7 +1152,7 @@ under the License.
                             </arguments>
                             <skip>${skip.doc}</skip>
                         </configuration>
-                    </execution>
+                    </execution-->
                 </executions>
             </plugin>
 
@@ -1019,6 +1160,9 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>8</release>
+                </configuration>
                 <executions>
                     <!-- first: compile annotation and annotation processor -->
                     <execution>
@@ -1046,7 +1190,7 @@ under the License.
                         <configuration>
                             <proc>only</proc>
                             <compilerArgs>
-                                <arg>-AplanPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
+                                <arg>-Apath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
                             </compilerArgs>
                             <includes>
                                 <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>

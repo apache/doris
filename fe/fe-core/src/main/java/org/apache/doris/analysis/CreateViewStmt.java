@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -24,6 +25,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -32,21 +34,28 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class CreateViewStmt extends BaseViewStmt {
+@Deprecated
+public class CreateViewStmt extends BaseViewStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateViewStmt.class);
 
     private final boolean ifNotExists;
+    private final boolean orReplace;
     private final String comment;
 
-    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols,
+    public CreateViewStmt(boolean ifNotExists, boolean orReplace, TableName tableName, List<ColWithComment> cols,
             String comment, QueryStmt queryStmt) {
         super(tableName, cols, queryStmt);
         this.ifNotExists = ifNotExists;
+        this.orReplace = orReplace;
         this.comment = Strings.nullToEmpty(comment);
     }
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean isSetOrReplace() {
+        return orReplace;
     }
 
     public String getComment() {
@@ -62,10 +71,16 @@ public class CreateViewStmt extends BaseViewStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
+        if (orReplace && ifNotExists) {
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
+        }
+
         // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.CREATE.getPrivs().toString(), tableName.getTbl());
         }
 
         // Do not rewrite nondeterministic functions to constant in create view's def stmt
@@ -82,7 +97,7 @@ public class CreateViewStmt extends BaseViewStmt {
             Analyzer viewAnalyzer = new Analyzer(analyzer);
             viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
-
+            checkQueryAuth();
             createColumnAndViewDefs(viewAnalyzer);
         } finally {
             // must reset this flag, otherwise, all following query statement in this connection
@@ -91,5 +106,18 @@ public class CreateViewStmt extends BaseViewStmt {
                 ConnectContext.get().setNotEvalNondeterministicFunction(false);
             }
         }
+    }
+
+    public void setInlineViewDef(String querySql) {
+        inlineViewDef = querySql;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

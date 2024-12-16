@@ -39,6 +39,11 @@ struct TMasterInfo {
     7: optional i64 heartbeat_flags
     8: optional i64 backend_id
     9: optional list<TFrontendInfo> frontend_infos
+    10: optional string meta_service_endpoint;
+    11: optional string cloud_unique_id;
+    // See configuration item Config.java rehash_tablet_after_be_dead_seconds for meaning
+    12: optional i64 tablet_report_inactive_duration_ms;
+    13: optional string auth_token;
 }
 
 struct TBackendInfo {
@@ -51,7 +56,7 @@ struct TBackendInfo {
     7: optional string be_node_role
     8: optional bool is_shutdown
     9: optional Types.TPort arrow_flight_sql_port
-
+    10: optional i64 be_mem // The physical memory available for use by BE.
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time

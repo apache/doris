@@ -34,7 +34,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     sql """ set enable_fallback_to_original_planner=false """
 
     // use to outfile to hdfs
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     // It's okay to use random `hdfsUser`, but can not be empty.
     def hdfsUserName = "doris"
@@ -45,7 +45,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
-    String region = region = getS3Region()
+    String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
     // broker
@@ -67,8 +67,8 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         // select ... into outfile ...
         def uuid = UUID.randomUUID().toString()
 
-        hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
-        uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
+        def hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
+        def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
@@ -87,8 +87,8 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         // select ... into outfile ...
         def uuid = UUID.randomUUID().toString()
 
-        hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
-        uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
+        def hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
+        def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
@@ -106,8 +106,8 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
 
     def outfile_to_S3_directly = {
         // select ... into outfile ...
-        s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
-        uri = "s3://${s3_outfile_path}/exp_"
+        def s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
+        def uri = "s3://${s3_outfile_path}/exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
@@ -152,12 +152,12 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
                     """
         
         qt_select_tvf3 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_to_s3_directly_url.substring(4, outfile_to_s3_directly_url.length())}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_to_s3_directly_url.substring(5 + bucket.length(), outfile_to_s3_directly_url.length())}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "${format}",
                 "region" = "${region}",
-                "use_path_style" = "true"
+                "use_path_style" = "false" -- aliyun does not support path_style
             );
             """
 

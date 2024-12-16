@@ -22,7 +22,8 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
-CONF_Int32(brpc_num_threads, "-1");
+CONF_Int32(brpc_num_threads, "64");
+// connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
 CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
@@ -47,10 +48,15 @@ CONF_Int32(warn_log_filenum_quota, "1");
 CONF_Bool(log_immediate_flush, "false");
 CONF_Strings(log_verbose_modules, ""); // Comma seprated list: a.*,b.*
 CONF_Int32(log_verbose_level, "5");
+// Whether to use file to record log. When starting Cloud with --console,
+// all logs will be written to both standard output and file.
+// Disable this option will no longer use file to record log.
+// Only works when starting Cloud with --console.
+CONF_Bool(enable_file_logger, "true");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
-CONF_mInt64(retention_seconds, "259200"); // 72h
+CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
 CONF_Int32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
@@ -60,20 +66,40 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "10");
+CONF_mInt32(instance_recycler_worker_pool_size, "32");
 CONF_Bool(enable_checker, "false");
+// The parallelism for parallel recycle operation
+CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
+// Currently only used for recycler test
+CONF_Bool(enable_delete_bitmap_inverted_check, "false");
+// checks if https://github.com/apache/doris/pull/40204 works as expected
+CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 
-CONF_String(test_s3_ak, "ak");
-CONF_String(test_s3_sk, "sk");
-CONF_String(test_s3_endpoint, "endpoint");
-CONF_String(test_s3_region, "region");
-CONF_String(test_s3_bucket, "bucket");
+CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
+CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
+// log a warning if a recycle task takes longer than this duration
+CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+
+// force recycler to recycle all useless object.
+// **just for TEST**
+CONF_Bool(force_immediate_recycle, "false");
+
+CONF_String(test_s3_ak, "");
+CONF_String(test_s3_sk, "");
+CONF_String(test_s3_endpoint, "");
+CONF_String(test_s3_region, "");
+CONF_String(test_s3_bucket, "");
+CONF_String(test_s3_prefix, "");
+
+CONF_String(test_hdfs_prefix, "");
+CONF_String(test_hdfs_fs_name, "");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -117,7 +143,12 @@ CONF_mBool(split_tablet_stats, "true");
 CONF_mBool(snapshot_get_tablet_stats, "true");
 
 // Value codec version
-CONF_mInt16(meta_schema_value_version, 0);
+CONF_mInt16(meta_schema_value_version, "1");
+
+// Limit kv size of Schema SchemaDictKeyList, default 5MB
+CONF_mInt32(schema_dict_kv_size_limit, "5242880");
+// Limit the count of columns in schema dict value, default 4K
+CONF_mInt32(schema_dict_key_count_limit, "4096");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -142,10 +173,65 @@ CONF_String(kms_cmk, "");
 CONF_Bool(focus_add_kms_data_key, "false");
 
 // Whether to retry the retryable errors that returns by the underlying txn store.
-CONF_Bool(enable_txn_store_retry, "false");
-CONF_Int32(txn_store_retry_times, "20");
+CONF_Bool(enable_txn_store_retry, "true");
+// The rpc timeout of BE cloud meta mgr is set to 10s, to avoid BE rpc timeout, the retry time here
+// should satisfy that:
+//  (1 << txn_store_retry_times) * txn_store_retry_base_internvals_ms < 10s
+CONF_Int32(txn_store_retry_times, "4");
+CONF_Int32(txn_store_retry_base_intervals_ms, "500");
+// Whether to retry the txn conflict errors that returns by the underlying txn store.
+CONF_Bool(enable_retry_txn_conflict, "true");
+
+CONF_mBool(enable_s3_rate_limiter, "false");
+CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_get_token_limit, "0");
+
+CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_put_token_limit, "0");
 
 // The secondary package name of the MetaService.
 CONF_String(secondary_package_name, "");
 
+// Allow to specify kerberos credentials cache path.
+CONF_String(kerberos_ccache_path, "");
+// set krb5.conf path, use "/etc/krb5.conf" by default
+CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
+
+CONF_mBool(enable_distinguish_hdfs_path, "true");
+
+// Declare a selection strategy for those servers have many ips.
+// Note that there should at most one ip match this list.
+// this is a list in semicolon-delimited format, in CIDR notation,
+// e.g. 10.10.10.0/24
+// e.g. 10.10.10.0/24;192.168.0.1/24
+// If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
+CONF_String(priority_networks, "");
+
+CONF_Bool(enable_cluster_name_check, "false");
+
+// http scheme in S3Client to use. E.g. http or https
+CONF_String(s3_client_http_scheme, "http");
+CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
+
+// Max retry times for object storage request
+CONF_mInt64(max_s3_client_retry, "10");
+
+// Max byte getting delete bitmap can return, default is 1GB
+CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+
+CONF_Bool(enable_cloud_txn_lazy_commit, "true");
+CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
+CONF_Int32(txn_lazy_commit_num_threads, "8");
+CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
+// max TabletIndexPB num for batch get
+CONF_Int32(max_tablet_index_num_per_batch, "1000");
+
+// Max aborted txn num for the same label name
+CONF_mInt64(max_num_aborted_txn, "100");
+
+CONF_Bool(enable_check_instance_id, "true");
 } // namespace doris::cloud::config

@@ -41,34 +41,25 @@ suite("test_nereids_null_aware_left_anti_join") {
     sql """
         insert into ${tableName2} values (1), (2);
     """
-    sql "SET enable_nereids_planner=true"
 
-    sql "SET enable_fallback_to_original_planner=false"
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 
-    sql "SET enable_fallback_to_original_planner=true"
     sql """
         insert into ${tableName2} values(null);
     """
 
-    sql "SET enable_fallback_to_original_planner=false"
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 
-    sql "SET enable_fallback_to_original_planner=true"
     sql """
         insert into ${tableName1} values(null);
     """
 
-    sql "SET enable_fallback_to_original_planner=false"
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 
-    sql "SET enable_fallback_to_original_planner=true"
     sql """ set parallel_fragment_exec_instance_num=2; """
     sql """ set parallel_pipeline_task_num=2; """
-    sql "SET enable_fallback_to_original_planner=false"
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 
-    sql "SET enable_fallback_to_original_planner=true"
     sql """
         drop table if exists ${tableName2};
     """

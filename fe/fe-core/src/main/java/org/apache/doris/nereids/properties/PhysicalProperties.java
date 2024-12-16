@@ -88,23 +88,27 @@ public class PhysicalProperties {
                 .map(SlotReference.class::cast)
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());
-        return createHash(partitionedSlots, shuffleType);
+        return partitionedSlots.isEmpty() ? PhysicalProperties.GATHER : createHash(partitionedSlots, shuffleType);
     }
 
     public static PhysicalProperties createHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
-        return new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
+        return orderedShuffledColumns.isEmpty()
+                ? PhysicalProperties.GATHER
+                : new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
     }
 
     public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {
         return new PhysicalProperties(distributionSpecHash);
     }
 
-    public static PhysicalProperties createAnyFromHash(DistributionSpecHash childSpec) {
-        if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
-            return PhysicalProperties.STORAGE_ANY;
-        } else {
-            return PhysicalProperties.ANY;
+    /** createAnyFromHash */
+    public static PhysicalProperties createAnyFromHash(DistributionSpecHash... childSpecs) {
+        for (DistributionSpecHash childSpec : childSpecs) {
+            if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
+                return PhysicalProperties.STORAGE_ANY;
+            }
         }
+        return PhysicalProperties.ANY;
     }
 
     public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {

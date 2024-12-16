@@ -38,7 +38,6 @@ namespace doris {
 class CalcDeleteBitmapToken;
 class FlushToken;
 class MemTable;
-class MemTracker;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;
@@ -106,6 +105,7 @@ protected:
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
     // current rowset_ids, used to do diff in publish_version
     RowsetIdUnorderedSet _rowset_ids;
+    int64_t _max_version_in_flush_phase {-1};
 
     std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 

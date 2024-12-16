@@ -44,6 +44,7 @@ public:
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
     const std::string& expr_name() const override;
+    std::string expr_label() override;
     std::string debug_string() const override;
     bool is_constant() const override { return false; }
 
@@ -51,10 +52,13 @@ public:
 
     int slot_id() const { return _slot_id; }
 
+    bool equals(const VExpr& other) override;
+
 private:
     int _slot_id;
     int _column_id;
     const std::string* _column_name = nullptr;
+    const std::string _column_label;
 };
 } // namespace vectorized
 } // namespace doris

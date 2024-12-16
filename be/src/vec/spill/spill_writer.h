@@ -25,6 +25,8 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 namespace doris {
+#include "common/compile_check_begin.h"
+class RuntimeState;
 
 namespace vectorized {
 class SpillDataDir;
@@ -35,17 +37,15 @@ public:
         file_path_ = dir + "/" + std::to_string(file_index_);
     }
 
-    ~SpillWriter() { (void)close(); }
-
     Status open();
 
     Status close();
 
-    Status write(const Block& block, size_t& written_bytes);
+    Status write(RuntimeState* state, const Block& block, size_t& written_bytes);
 
     int64_t get_id() const { return stream_id_; }
 
-    size_t get_written_bytes() const { return total_written_bytes_; }
+    int64_t get_written_bytes() const { return total_written_bytes_; }
 
     const std::string& get_file_path() const { return file_path_; }
 
@@ -76,11 +76,8 @@ private:
     std::unique_ptr<doris::io::FileWriter> file_writer_;
 
     size_t written_blocks_ = 0;
-    size_t total_written_bytes_ = 0;
+    int64_t total_written_bytes_ = 0;
     std::string meta_;
-
-    bool is_first_write_ = true;
-    Block tmp_block_;
 
     RuntimeProfile::Counter* write_bytes_counter_;
     RuntimeProfile::Counter* serialize_timer_;
@@ -90,3 +87,5 @@ private:
 using SpillWriterUPtr = std::unique_ptr<SpillWriter>;
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

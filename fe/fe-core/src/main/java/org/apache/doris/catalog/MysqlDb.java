@@ -49,7 +49,11 @@ public class MysqlDb extends MysqlCompatibleDatabase {
      * If we need tables of mysql database in the future, create a MysqlTable class like {@link SchemaTable}
      */
     @Override
-    public void initTables() {}
+    public void initTables() {
+        for (Table table : MysqlDBTable.TABLE_MAP.values()) {
+            super.registerTable(table);
+        }
+    }
 
     @Override
     public boolean registerTable(TableIf table) {

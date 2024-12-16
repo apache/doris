@@ -20,14 +20,19 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -54,11 +59,15 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
+import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TLoadTxnBeginRequest;
+import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
@@ -68,10 +77,12 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -84,7 +95,7 @@ public class InsertUtils {
      */
     public static void executeBatchInsertTransaction(ConnectContext ctx, String dbName, String tableName,
             List<Column> columns, List<List<NamedExpression>> constantExprsList) {
-        if (ctx.isTxnIniting()) { // first time, begin txn
+        if (ctx.isInsertValuesTxnIniting()) { // first time, begin txn
             beginBatchInsertTransaction(ctx, dbName, tableName, columns);
         }
         if (!ctx.getTxnEntry().getTxnConf().getDb().equals(dbName)
@@ -94,9 +105,10 @@ public class InsertUtils {
 
         TransactionEntry txnEntry = ctx.getTxnEntry();
         int effectRows = 0;
+        FormatOptions options = FormatOptions.getDefault();
         for (List<NamedExpression> row : constantExprsList) {
             ++effectRows;
-            InternalService.PDataRow data = getRowStringValue(row);
+            InternalService.PDataRow data = getRowStringValue(row, options);
             if (data == null) {
                 continue;
             }
@@ -136,7 +148,10 @@ public class InsertUtils {
         ctx.updateReturnRows(effectRows);
     }
 
-    private static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
+    /**
+     * literal expr in insert operation
+     */
+    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols, FormatOptions options) {
         if (cols.isEmpty()) {
             return null;
         }
@@ -153,7 +168,7 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray()));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
             } else {
                 row.addColBuilder().setValue(String.format("\"%s\"",
                         ((Literal) expr).toLegacyLiteral().getStringValue()));
@@ -182,15 +197,26 @@ public class InsertUtils {
         txnEntry.setDb(dbObj);
         String label = txnEntry.getLabel();
         try {
-            long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                    label, new TransactionState.TxnCoordinator(
-                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    sourceType, timeoutSecond);
+            long txnId;
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
+            if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
+                txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
+                        sourceType, timeoutSecond);
+            } else {
+                MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);
+                TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
+                request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
+                        .setLabel(label).setUser("").setUserIp("").setPasswd("");
+                TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
+                txnId = result.getTxnId();
+            }
             txnConf.setTxnId(txnId);
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             txnConf.setToken(token);
-        } catch (UserException e) {
+        } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
 
@@ -234,7 +260,7 @@ public class InsertUtils {
     /**
      * normalize plan to let it could be process correctly by nereids
      */
-    public static Plan normalizePlan(Plan plan, TableIf table) {
+    public static Plan normalizePlan(Plan plan, TableIf table, Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;
@@ -242,32 +268,72 @@ public class InsertUtils {
                 throw new AnalysisException("View is not support in hive external table.");
             }
         }
+        if (table instanceof JdbcExternalTable) {
+            // todo:
+            // For JDBC External Table, we always allow certain columns to be missing during insertion
+            // Specific check for non-nullable columns only if insertion is direct VALUES or SELECT constants
+        }
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS) {
             if (unboundLogicalSink instanceof UnboundTableSink
                     && ((UnboundTableSink<? extends Plan>) unboundLogicalSink).isPartialUpdate()) {
                 // check the necessary conditions for partial updates
                 OlapTable olapTable = (OlapTable) table;
-                if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    throw new AnalysisException("Partial update is only allowed on "
-                            + "unique table with merge-on-write enabled.");
-                }
-                if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
-                    if (unboundLogicalSink.getColNames().isEmpty()) {
-                        throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                + "updating partial columns using the INSERT statement.");
-                    }
-                    for (Column col : olapTable.getFullSchema()) {
-                        Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
-                                .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
-                        if (col.isKey() && !insertCol.isPresent()) {
-                            throw new AnalysisException("Partial update should include all key columns, missing: "
-                                    + col.getName());
+
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite() || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
+                    // when enable_unique_key_partial_update = true,
+                    // only unique table with MOW (and without cluster keys)
+                    // insert with target columns can consider be a partial update,
+                    // and unique table without MOW, insert will be like a normal insert.
+                    ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                } else {
+                    if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.INSERT) {
+                        if (unboundLogicalSink.getColNames().isEmpty()) {
+                            ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                        } else {
+                            boolean hasSyncMaterializedView = olapTable.getFullSchema().stream()
+                                    .anyMatch(col -> col.isMaterializedViewColumn());
+                            if (hasSyncMaterializedView) {
+                                throw new AnalysisException("Can't do partial update on merge-on-write Unique table"
+                                        + " with sync materialized view.");
+                            }
+                            boolean hasMissingColExceptAutoIncKey = false;
+                            boolean hasMissingAutoIncKey = false;
+                            for (Column col : olapTable.getFullSchema()) {
+                                Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
+                                        .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                                if (col.isKey() && !col.isAutoInc() && !insertCol.isPresent()) {
+                                    throw new AnalysisException("Partial update should include all key columns,"
+                                            + " missing: " + col.getName());
+                                }
+                                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                                        && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
+                                    throw new AnalysisException("Partial update should include"
+                                            + " all ordinary columns referenced"
+                                            + " by generated columns, missing: " + col.getName());
+                                }
+                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
+                                    hasMissingColExceptAutoIncKey = true;
+                                }
+                                if (col.isAutoInc() && col.isKey() && !insertCol.isPresent()) {
+                                    hasMissingAutoIncKey = true;
+                                }
+                            }
+                            if (!hasMissingColExceptAutoIncKey) {
+                                ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                            } else {
+                                if (hasMissingAutoIncKey) {
+                                    // becuase of the uniqueness of genetaed value of auto-increment column,
+                                    // we convert this load to upsert when is misses auto-increment key column
+                                    ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         Plan query = unboundLogicalSink.child();
+        checkGeneratedColumnForInsertIntoSelect(table, unboundLogicalSink, insertCtx);
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
         }
@@ -301,6 +367,12 @@ public class InsertUtils {
                             throw new AnalysisException("Unknown column '"
                                     + unboundLogicalSink.getColNames().get(i) + "' in target table.");
                         }
+                        if (sameNameColumn.getGeneratedColumnInfo() != null
+                                && !(values.get(i) instanceof DefaultValueSlot)) {
+                            throw new AnalysisException("The value specified for generated column '"
+                                    + sameNameColumn.getName()
+                                    + "' in table '" + table.getName() + "' is not allowed.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(sameNameColumn));
                         } else {
@@ -313,6 +385,12 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < columns.size(); i++) {
+                        if (columns.get(i).getGeneratedColumnInfo() != null
+                                && !(values.get(i) instanceof DefaultValueSlot)) {
+                            throw new AnalysisException("The value specified for generated column '"
+                                    + columns.get(i).getName()
+                                    + "' in table '" + table.getName() + "' is not allowed.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(columns.get(i)));
                         } else {
@@ -352,8 +430,13 @@ public class InsertUtils {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundHiveTableSink) {
             unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundIcebergTableSink) {
+            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundJdbcTableSink) {
+            unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
         } else {
-            throw new AnalysisException("the root of plan should be UnboundTableSink or UnboundHiveTableSink"
+            throw new AnalysisException("the root of plan should be"
+                    + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
                     + " but it is " + plan.getType());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
@@ -362,8 +445,17 @@ public class InsertUtils {
 
     private static NamedExpression generateDefaultExpression(Column column) {
         try {
+            GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
+            // Using NullLiteral as a placeholder.
+            // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
+            // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
+            if (generatedColumnInfo != null) {
+                return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+            }
             if (column.getDefaultValue() == null) {
-                throw new AnalysisException("Column has no default value, column=" + column.getName());
+                if (!column.isAllowNull() && !column.isAutoInc()) {
+                    throw new AnalysisException("Column has no default value, column=" + column.getName());
+                }
             }
             if (column.getDefaultValueExpr() != null) {
                 Expression defualtValueExpression = new NereidsParser().parseExpression(
@@ -386,14 +478,52 @@ public class InsertUtils {
      * get plan for explain.
      */
     public static Plan getPlanForExplain(ConnectContext ctx, LogicalPlan logicalQuery) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
+    }
+
+    // check for insert into t1(a,b,gen_col) select 1,2,3;
+    private static void checkGeneratedColumnForInsertIntoSelect(TableIf table,
+            UnboundLogicalSink<? extends Plan> unboundLogicalSink, Optional<InsertCommandContext> insertCtx) {
+        // should not check delete stmt, because deletestmt can transform to insert delete sign
+        if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.DELETE) {
+            return;
         }
-        return InsertUtils.normalizePlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx));
+        // This is for the insert overwrite values(),()
+        // Insert overwrite stmt can enter normalizePlan() twice.
+        // Insert overwrite values(),() is checked in the first time when deal with ConstantExprsList,
+        // and then the insert into values(),() will be transformed to insert into union all in normalizePlan,
+        // and this function is for insert into select, which will check the insert into union all again,
+        // and that is no need, also will lead to problems.
+        // So for insert overwrite values(),(), this check is only performed
+        // when it first enters the normalizePlan checking constantExprsList
+        if (insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
+                && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()) {
+            return;
+        }
+        Plan query = unboundLogicalSink.child();
+        if (table instanceof OlapTable && !(query instanceof LogicalInlineTable)) {
+            OlapTable olapTable = (OlapTable) table;
+            Set<String> insertNames = Sets.newHashSet();
+            if (unboundLogicalSink.getColNames() != null) {
+                insertNames.addAll(unboundLogicalSink.getColNames());
+            }
+            if (insertNames.isEmpty()) {
+                for (Column col : olapTable.getFullSchema()) {
+                    if (col.getGeneratedColumnInfo() != null) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            } else {
+                for (Column col : olapTable.getFullSchema()) {
+                    if (col.getGeneratedColumnInfo() != null && insertNames.contains(col.getName())) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            }
+        }
     }
 }

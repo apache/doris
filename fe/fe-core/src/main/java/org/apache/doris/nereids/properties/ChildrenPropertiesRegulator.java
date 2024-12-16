@@ -44,10 +44,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -63,20 +65,20 @@ import java.util.stream.Collectors;
  * NOTICE: all visitor should call visit(plan, context) at proper place
  * to process must shuffle except project and filter
  */
-public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
+public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalProperties>>, Void> {
 
     private final GroupExpression parent;
     private final List<GroupExpression> children;
-    private final List<PhysicalProperties> childrenProperties;
+    private final List<PhysicalProperties> originChildrenProperties;
     private final List<PhysicalProperties> requiredProperties;
     private final JobContext jobContext;
 
     public ChildrenPropertiesRegulator(GroupExpression parent, List<GroupExpression> children,
-            List<PhysicalProperties> childrenProperties, List<PhysicalProperties> requiredProperties,
+            List<PhysicalProperties> originChildrenProperties, List<PhysicalProperties> requiredProperties,
             JobContext jobContext) {
         this.parent = parent;
         this.children = children;
-        this.childrenProperties = childrenProperties;
+        this.originChildrenProperties = originChildrenProperties;
         this.requiredProperties = requiredProperties;
         this.jobContext = jobContext;
     }
@@ -86,42 +88,35 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
      *
      * @return enforce cost.
      */
-    public boolean adjustChildrenProperties() {
+    public List<List<PhysicalProperties>> adjustChildrenProperties() {
         return parent.getPlan().accept(this, null);
     }
 
     @Override
-    public Boolean visit(Plan plan, Void context) {
+    public List<List<PhysicalProperties>> visit(Plan plan, Void context) {
         // process must shuffle
         for (int i = 0; i < children.size(); i++) {
-            DistributionSpec distributionSpec = childrenProperties.get(i).getDistributionSpec();
+            DistributionSpec distributionSpec = originChildrenProperties.get(i).getDistributionSpec();
             if (distributionSpec instanceof DistributionSpecMustShuffle) {
                 updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
             }
         }
-        return true;
+        return ImmutableList.of(originChildrenProperties);
     }
 
     @Override
-    public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalHashAggregate(
+            PhysicalHashAggregate<? extends Plan> agg, Void context) {
+        if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
+            return ImmutableList.of();
+        }
         if (!agg.getAggregateParam().canBeBanned) {
-            return true;
+            return ImmutableList.of(originChildrenProperties);
         }
         // forbid one phase agg on distribute
         if (agg.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalDistribute) {
             // this means one stage gather agg, usually bad pattern
-            return false;
-        }
-        // forbid three or four stage distinct agg inter by distribute
-        if (agg.getAggMode() == AggMode.BUFFER_TO_BUFFER && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            // if distinct without group by key, we prefer three or four stage distinct agg
-            // because the second phase of multi-distinct only have one instance, and it is slow generally.
-            if (agg.getGroupByExpressions().size() == 1
-                    && agg.getOutputExpressions().size() == 1) {
-                return true;
-            }
-            return false;
-
+            return ImmutableList.of();
         }
 
         // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
@@ -129,7 +124,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
                 && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
                 && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            return false;
+            return ImmutableList.of();
         }
 
         // agg(group by x)-union all(A, B)
@@ -138,7 +133,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalUnion
                 && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
-            return false;
+            return ImmutableList.of();
         }
         // forbid multi distinct opt that bad than multi-stage version when multi-stage can be executed in one fragment
         if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER || agg.getAggMode() == AggMode.INPUT_TO_RESULT) {
@@ -152,7 +147,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     .collect(Collectors.toList());
             if (multiDistinctions.size() == 1) {
                 Expression distinctChild = multiDistinctions.get(0).child(0);
-                DistributionSpec childDistribution = childrenProperties.get(0).getDistributionSpec();
+                DistributionSpec childDistribution = originChildrenProperties.get(0).getDistributionSpec();
                 if (distinctChild instanceof SlotReference && childDistribution instanceof DistributionSpecHash) {
                     SlotReference slotReference = (SlotReference) distinctChild;
                     DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
@@ -168,104 +163,127 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                             distinctChildColumns, ShuffleType.REQUIRE);
                     if ((!groupByColumns.isEmpty() && distributionSpecHash.satisfy(groupByRequire))
                             || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
-                        return false;
+                        if (!agg.mustUseMultiDistinctAgg()) {
+                            return ImmutableList.of();
+                        }
                     }
                 }
                 // if distinct without group by key, we prefer three or four stage distinct agg
                 // because the second phase of multi-distinct only have one instance, and it is slow generally.
-                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()) {
-                    return false;
+                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()
+                        && !agg.mustUseMultiDistinctAgg()) {
+                    return ImmutableList.of();
                 }
             }
         }
         // process must shuffle
         visit(agg, context);
         // process agg
-        return true;
+        return ImmutableList.of(originChildrenProperties);
     }
 
     @Override
-    public Boolean visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalPartitionTopN(
+            PhysicalPartitionTopN<? extends Plan> partitionTopN, Void context) {
         if (partitionTopN.getPhase().isOnePhaseGlobal() && children.get(0).getPlan() instanceof PhysicalDistribute) {
             // one phase partition topn, if the child is an enforced distribution, discard this
             // and use two phase candidate.
-            return false;
+            return ImmutableList.of();
         } else if (partitionTopN.getPhase().isTwoPhaseGlobal()
                 && !(children.get(0).getPlan() instanceof PhysicalDistribute)) {
             // two phase partition topn, if global's child is not distribution, which means
             // the local distribution has met final requirement, discard this candidate.
-            return false;
+            return ImmutableList.of();
         } else {
             visit(partitionTopN, context);
-            return true;
+            return ImmutableList.of(originChildrenProperties);
         }
     }
 
     @Override
-    public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Void context) {
         // do not process must shuffle
-        return true;
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return ImmutableList.of();
+        }
+        return ImmutableList.of(originChildrenProperties);
     }
 
     private boolean isBucketShuffleDownGrade(Plan oneSidePlan, DistributionSpecHash otherSideSpec) {
         // improper to do bucket shuffle join:
         // oneSide:
-        // 1. base table
-        // 2. single partition after pruning
-        // 3. tablets' number is small enough (< paraInstanceNum)
-        // otherSide: ShuffleType.EXECUTION_BUCKETED
-        boolean isBucketShuffleDownGrade = ConnectContext.get().getSessionVariable().isEnableBucketShuffleDownGrade();
-        if (!isBucketShuffleDownGrade) {
-            return false;
-        } else if (otherSideSpec.getShuffleType() != ShuffleType.EXECUTION_BUCKETED) {
+        //      - base table and tablets' number is small enough (< paraInstanceNum)
+        // otherSide:
+        //      - ShuffleType.EXECUTION_BUCKETED
+        boolean isEnableBucketShuffleJoin = ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin();
+        if (!isEnableBucketShuffleJoin) {
+            return true;
+        } else if (otherSideSpec.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
+                || !(oneSidePlan instanceof GroupPlan)) {
             return false;
         } else {
-            int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
-            if (((GroupPlan) oneSidePlan).getGroup().getPhysicalExpressions().isEmpty()) {
+            PhysicalOlapScan candidate = findDownGradeBucketShuffleCandidate((GroupPlan) oneSidePlan);
+            if (candidate == null || candidate.getTable() == null
+                    || candidate.getTable().getDefaultDistributionInfo() == null) {
                 return false;
             } else {
-                Plan plan = ((GroupPlan) oneSidePlan).getGroup().getPhysicalExpressions().get(0).getPlan();
-                while ((plan instanceof PhysicalProject || plan instanceof PhysicalFilter)
-                        && !((GroupPlan) plan.child(0)).getGroup().getPhysicalExpressions().isEmpty()) {
-                    plan = ((GroupPlan) plan.child(0)).getGroup().getPhysicalExpressions().get(0).getPlan();
-                }
-                if (plan != null && plan instanceof PhysicalOlapScan
-                        && ((PhysicalOlapScan) plan).getSelectedPartitionIds().size() <= 1
-                        && ((PhysicalOlapScan) plan).getTable() != null
-                        && ((PhysicalOlapScan) plan).getTable().getDefaultDistributionInfo() != null
-                        && ((PhysicalOlapScan) plan).getTable().getDefaultDistributionInfo().getBucketNum() < paraNum) {
-                    return true;
-                } else {
-                    return false;
-                }
+                int prunedPartNum = candidate.getSelectedPartitionIds().size();
+                int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
+                int totalBucketNum = prunedPartNum * bucketNum;
+                int backEndNum = Math.max(1, ConnectContext.get().getEnv().getClusterInfo()
+                        .getBackendsNumber(true));
+                int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+                int totalParaNum = Math.min(10, backEndNum * paraNum);
+                return totalBucketNum < totalParaNum;
             }
         }
     }
 
-    private boolean couldNotRightBucketShuffleJoin(JoinType joinType) {
-        return joinType == JoinType.RIGHT_ANTI_JOIN
+    private PhysicalOlapScan findDownGradeBucketShuffleCandidate(GroupPlan groupPlan) {
+        if (groupPlan == null || groupPlan.getGroup() == null
+                || groupPlan.getGroup().getPhysicalExpressions().isEmpty()) {
+            return null;
+        } else {
+            Plan targetPlan = groupPlan.getGroup().getPhysicalExpressions().get(0).getPlan();
+            while (targetPlan != null
+                    && (targetPlan instanceof PhysicalProject || targetPlan instanceof PhysicalFilter)
+                    && !((GroupPlan) targetPlan.child(0)).getGroup().getPhysicalExpressions().isEmpty()) {
+                targetPlan = ((GroupPlan) targetPlan.child(0)).getGroup()
+                        .getPhysicalExpressions().get(0).getPlan();
+            }
+            if (targetPlan == null || !(targetPlan instanceof PhysicalOlapScan)) {
+                return null;
+            } else {
+                return (PhysicalOlapScan) targetPlan;
+            }
+        }
+    }
+
+    private boolean couldNotRightBucketShuffleJoin(JoinType joinType, DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec) {
+        boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN;
+                || joinType == JoinType.FULL_OUTER_JOIN);
+        boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
+                || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
+        return isJoinTypeInScope && isSpecInScope && !SessionVariable.canUseNereidsDistributePlanner();
     }
 
     @Override
-    public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
-            Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalHashJoin(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, Void context) {
         Preconditions.checkArgument(children.size() == 2, "children.size() != 2");
-        Preconditions.checkArgument(childrenProperties.size() == 2);
+        Preconditions.checkArgument(originChildrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
         // process must shuffle
         visit(hashJoin, context);
         // process hash join
-        DistributionSpec leftDistributionSpec = childrenProperties.get(0).getDistributionSpec();
-        DistributionSpec rightDistributionSpec = childrenProperties.get(1).getDistributionSpec();
-
-        Plan leftChild = hashJoin.child(0);
-        Plan rightChild = hashJoin.child(1);
+        DistributionSpec leftDistributionSpec = originChildrenProperties.get(0).getDistributionSpec();
+        DistributionSpec rightDistributionSpec = originChildrenProperties.get(1).getDistributionSpec();
 
         // broadcast do not need regular
         if (rightDistributionSpec instanceof DistributionSpecReplicated) {
-            return true;
+            return ImmutableList.of(originChildrenProperties);
         }
 
         // shuffle
@@ -274,16 +292,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             throw new RuntimeException("should not come here, two children of shuffle join should all be shuffle");
         }
 
+        Plan leftChild = hashJoin.child(0);
+        Plan rightChild = hashJoin.child(1);
+
         DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftDistributionSpec;
         DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightDistributionSpec;
 
         Optional<PhysicalProperties> updatedForLeft = Optional.empty();
         Optional<PhysicalProperties> updatedForRight = Optional.empty();
 
-        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
+        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
             // check colocate join with scan
-            return true;
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType())) {
+            return ImmutableList.of(originChildrenProperties);
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator
             updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -320,6 +341,24 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
+            if (SessionVariable.canUseNereidsDistributePlanner()) {
+                List<PhysicalProperties> shuffleToLeft = Lists.newArrayList(originChildrenProperties);
+                PhysicalProperties enforceShuffleRight = calAnotherSideRequired(
+                        ShuffleType.STORAGE_BUCKETED, leftHashSpec, rightHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec());
+                updateChildEnforceAndCost(1, enforceShuffleRight, shuffleToLeft);
+
+                List<PhysicalProperties> shuffleToRight = Lists.newArrayList(originChildrenProperties);
+                PhysicalProperties enforceShuffleLeft = calAnotherSideRequired(
+                        ShuffleType.EXECUTION_BUCKETED, rightHashSpec, leftHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()
+                );
+                updateChildEnforceAndCost(0, enforceShuffleLeft, shuffleToRight);
+                return ImmutableList.of(shuffleToLeft, shuffleToRight);
+            }
+
             // must add enforce because shuffle algorithm is not same between NATURAL and BUCKETED
             updatedForRight = Optional.of(calAnotherSideRequired(
                     ShuffleType.STORAGE_BUCKETED, leftHashSpec, rightHashSpec,
@@ -330,7 +369,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             if (bothSideShuffleKeysAreSameOrder(leftHashSpec, rightHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec())) {
-                return true;
+                return ImmutableList.of(originChildrenProperties);
             }
             updatedForRight = Optional.of(calAnotherSideRequired(
                     ShuffleType.STORAGE_BUCKETED, leftHashSpec, rightHashSpec,
@@ -338,19 +377,45 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-            // TODO: we must do shuffle on right because coordinator could not do right be selection in this case,
-            //  since it always to check the left most node whether olap scan node.
-            //  after we fix coordinator problem, we could do right to left bucket shuffle
-            updatedForRight = Optional.of(calAnotherSideRequired(
-                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
-                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+            if (SessionVariable.canUseNereidsDistributePlanner()) {
+                // nereids coordinator can exchange left side to right side to do bucket shuffle join
+                // TODO: maybe we should check if left child is PhysicalDistribute.
+                //  If so add storage bucketed shuffle on left side. Other wise,
+                //  add execution bucketed shuffle on right side.
+                // updatedForLeft = Optional.of(calAnotherSideRequired(
+                //         ShuffleType.STORAGE_BUCKETED, rightHashSpec, leftHashSpec,
+                //         (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
+                //         (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
+                List<PhysicalProperties> shuffleToLeft = Lists.newArrayList(originChildrenProperties);
+                PhysicalProperties enforceShuffleRight = calAnotherSideRequired(
+                        ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec());
+                updateChildEnforceAndCost(1, enforceShuffleRight, shuffleToLeft);
+
+                List<PhysicalProperties> shuffleToRight = Lists.newArrayList(originChildrenProperties);
+                PhysicalProperties enforceShuffleLeft = calAnotherSideRequired(
+                        ShuffleType.STORAGE_BUCKETED, rightHashSpec, leftHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()
+                );
+                updateChildEnforceAndCost(0, enforceShuffleLeft, shuffleToRight);
+                return ImmutableList.of(shuffleToLeft, shuffleToRight);
+            } else {
+                // legacy coordinator could not do right be selection in this case,
+                // since it always to check the left most node whether olap scan node.
+                // so we can only shuffle right to left side to do normal shuffle join
+                updatedForRight = Optional.of(calAnotherSideRequired(
+                        ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+            }
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
             if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec())) {
-                return true;
+                return ImmutableList.of(originChildrenProperties);
             }
             updatedForRight = Optional.of(calAnotherSideRequired(
                     ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
@@ -397,7 +462,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec())) {
-                return true;
+                return ImmutableList.of(originChildrenProperties);
             }
             if (children.get(0).getPlan() instanceof PhysicalDistribute) {
                 updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -415,55 +480,59 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         updatedForLeft.ifPresent(physicalProperties -> updateChildEnforceAndCost(0, physicalProperties));
         updatedForRight.ifPresent(physicalProperties -> updateChildEnforceAndCost(1, physicalProperties));
 
-        return true;
+        return ImmutableList.of(originChildrenProperties);
     }
 
     @Override
-    public Boolean visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
-            Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalNestedLoopJoin(
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, Void context) {
         Preconditions.checkArgument(children.size() == 2, String.format("children.size() is %d", children.size()));
-        Preconditions.checkArgument(childrenProperties.size() == 2);
+        Preconditions.checkArgument(originChildrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
         // process must shuffle
         visit(nestedLoopJoin, context);
         // process nlj
-        DistributionSpec rightDistributionSpec = childrenProperties.get(1).getDistributionSpec();
+        DistributionSpec rightDistributionSpec = originChildrenProperties.get(1).getDistributionSpec();
         if (rightDistributionSpec instanceof DistributionSpecStorageGather) {
             updateChildEnforceAndCost(1, PhysicalProperties.GATHER);
         }
-        return true;
+        return ImmutableList.of(originChildrenProperties);
     }
 
     @Override
-    public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
         // do not process must shuffle
-        return true;
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return ImmutableList.of();
+        }
+        return ImmutableList.of(originChildrenProperties);
     }
 
     @Override
-    public Boolean visitPhysicalSetOperation(PhysicalSetOperation setOperation, Void context) {
+    public List<List<PhysicalProperties>> visitPhysicalSetOperation(PhysicalSetOperation setOperation, Void context) {
         // process must shuffle
         visit(setOperation, context);
         // union with only constant exprs list
         if (children.isEmpty()) {
-            return true;
+            return ImmutableList.of(originChildrenProperties);
         }
         // process set operation
         PhysicalProperties requiredProperty = requiredProperties.get(0);
         DistributionSpec requiredDistributionSpec = requiredProperty.getDistributionSpec();
         if (requiredDistributionSpec instanceof DistributionSpecGather) {
-            for (int i = 0; i < childrenProperties.size(); i++) {
-                if (childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageGather) {
+            for (int i = 0; i < originChildrenProperties.size(); i++) {
+                if (originChildrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageGather) {
                     updateChildEnforceAndCost(i, PhysicalProperties.GATHER);
                 }
             }
         } else if (requiredDistributionSpec instanceof DistributionSpecAny) {
-            for (int i = 0; i < childrenProperties.size(); i++) {
-                if (childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageAny
-                        || childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageGather
-                        || childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecGather
-                        || (childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecHash
-                        && ((DistributionSpecHash) childrenProperties.get(i).getDistributionSpec())
+            for (int i = 0; i < originChildrenProperties.size(); i++) {
+                PhysicalProperties physicalProperties = originChildrenProperties.get(i);
+                if (physicalProperties.getDistributionSpec() instanceof DistributionSpecStorageAny
+                        || physicalProperties.getDistributionSpec() instanceof DistributionSpecStorageGather
+                        || physicalProperties.getDistributionSpec() instanceof DistributionSpecGather
+                        || (physicalProperties.getDistributionSpec() instanceof DistributionSpecHash
+                        && ((DistributionSpecHash) physicalProperties.getDistributionSpec())
                         .getShuffleType() == ShuffleType.NATURAL)) {
                     updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
                 }
@@ -471,8 +540,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         } else if (requiredDistributionSpec instanceof DistributionSpecHash) {
             // TODO: should use the most common hash spec as basic
             DistributionSpecHash basic = (DistributionSpecHash) requiredDistributionSpec;
-            for (int i = 0; i < childrenProperties.size(); i++) {
-                DistributionSpecHash current = (DistributionSpecHash) childrenProperties.get(i).getDistributionSpec();
+            for (int i = 0; i < originChildrenProperties.size(); i++) {
+                DistributionSpecHash current
+                        = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
                 if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
                         || !bothSideShuffleKeysAreSameOrder(basic, current,
                         (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
@@ -485,18 +555,42 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 }
             }
         }
-        return true;
+        return ImmutableList.of(originChildrenProperties);
     }
 
     @Override
-    public Boolean visitAbstractPhysicalSort(AbstractPhysicalSort<? extends Plan> sort, Void context) {
+    public List<List<PhysicalProperties>> visitAbstractPhysicalSort(
+            AbstractPhysicalSort<? extends Plan> sort, Void context) {
         // process must shuffle
         visit(sort, context);
         if (sort.getSortPhase() == SortPhase.GATHER_SORT && sort.child() instanceof PhysicalDistribute) {
             // forbid gather sort need explicit shuffle
-            return false;
+            return ImmutableList.of();
         }
-        return true;
+        return ImmutableList.of(originChildrenProperties);
+    }
+
+    @Override
+    public List<List<PhysicalProperties>> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
+        // process must shuffle
+        visit(topN, context);
+
+        int sortPhaseNum = jobContext.getCascadesContext().getConnectContext().getSessionVariable().sortPhaseNum;
+        // if control sort phase, forbid nothing
+        if (sortPhaseNum == 1 || sortPhaseNum == 2) {
+            return ImmutableList.of(originChildrenProperties);
+        }
+        // If child is DistributionSpecGather, topN should forbid two-phase topN
+        if (topN.getSortPhase() == SortPhase.LOCAL_SORT
+                && originChildrenProperties.get(0).getDistributionSpec().equals(DistributionSpecGather.INSTANCE)) {
+            return ImmutableList.of();
+        }
+        // forbid one step topn with distribute as child
+        if (topN.getSortPhase() == SortPhase.GATHER_SORT
+                && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return ImmutableList.of();
+        }
+        return ImmutableList.of(originChildrenProperties);
     }
 
     /**
@@ -511,8 +605,26 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     private boolean bothSideShuffleKeysAreSameOrder(
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
-        return shuffleSideOutput.getOrderedShuffledColumns().equals(
-                calAnotherSideRequiredShuffleIds(notShuffleSideOutput, notShuffleSideRequired, shuffleSideRequired));
+        List<ExprId> shuffleSideOutputList = shuffleSideOutput.getOrderedShuffledColumns();
+        List<ExprId> notShuffleSideOutputList = calAnotherSideRequiredShuffleIds(notShuffleSideOutput,
+                notShuffleSideRequired, shuffleSideRequired);
+        if (shuffleSideOutputList.size() != notShuffleSideOutputList.size()) {
+            return false;
+        } else if (shuffleSideOutputList.equals(notShuffleSideOutputList)) {
+            return true;
+        } else {
+            boolean isSatisfy = true;
+            for (int i = 0; i < shuffleSideOutputList.size() && isSatisfy; i++) {
+                ExprId shuffleSideExprId = shuffleSideOutputList.get(i);
+                ExprId notShuffleSideExprId = notShuffleSideOutputList.get(i);
+                if (!(shuffleSideExprId.equals(notShuffleSideExprId)
+                        || shuffleSideOutput.getEquivalenceExprIdsOf(shuffleSideExprId)
+                        .contains(notShuffleSideExprId))) {
+                    isSatisfy = false;
+                }
+            }
+            return isSatisfy;
+        }
     }
 
     /**
@@ -554,25 +666,31 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
      * calAnotherSideRequiredShuffleIds's comment.
      *
      * @param shuffleType real output shuffle type
-     * @param notShuffleSideOutput not shuffle side real output used hash spec
-     * @param shuffleSideOutput shuffle side real output used hash spec
-     * @param notShuffleSideRequired not shuffle side required used hash spec
-     * @param shuffleSideRequired shuffle side required hash spec
+     * @param notNeedShuffleSideOutput not shuffle side real output used hash spec
+     * @param needShuffleSideOutput shuffle side real output used hash spec
+     * @param notNeedShuffleSideRequired not shuffle side required used hash spec
+     * @param needShuffleSideRequired shuffle side required hash spec
      * @return shuffle side new required hash spec
      */
     private PhysicalProperties calAnotherSideRequired(ShuffleType shuffleType,
-            DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
-            DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
-        List<ExprId> shuffleSideIds = calAnotherSideRequiredShuffleIds(notShuffleSideOutput,
-                notShuffleSideRequired, shuffleSideRequired);
+            DistributionSpecHash notNeedShuffleSideOutput, DistributionSpecHash needShuffleSideOutput,
+            DistributionSpecHash notNeedShuffleSideRequired, DistributionSpecHash needShuffleSideRequired) {
+        List<ExprId> shuffleSideIds = calAnotherSideRequiredShuffleIds(notNeedShuffleSideOutput,
+                notNeedShuffleSideRequired, needShuffleSideRequired);
         return new PhysicalProperties(new DistributionSpecHash(shuffleSideIds, shuffleType,
-                shuffleSideOutput.getTableId(), shuffleSideOutput.getSelectedIndexId(),
-                shuffleSideOutput.getPartitionIds()));
+                needShuffleSideOutput.getTableId(), needShuffleSideOutput.getSelectedIndexId(),
+                needShuffleSideOutput.getPartitionIds()));
     }
 
     private void updateChildEnforceAndCost(int index, PhysicalProperties targetProperties) {
+        updateChildEnforceAndCost(index, targetProperties, originChildrenProperties);
+    }
+
+    private void updateChildEnforceAndCost(
+            int index, PhysicalProperties targetProperties, List<PhysicalProperties> childrenProperties) {
         GroupExpression child = children.get(index);
-        Pair<Cost, List<PhysicalProperties>> lowest = child.getLowestCostTable().get(childrenProperties.get(index));
+        Pair<Cost, List<PhysicalProperties>> lowest
+                = child.getLowestCostTable().get(childrenProperties.get(index));
         PhysicalProperties output = child.getOutputProperties(childrenProperties.get(index));
         DistributionSpec target = targetProperties.getDistributionSpec();
         updateChildEnforceAndCost(child, output, target, lowest.first);
@@ -594,10 +712,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         GroupExpression enforcer = target.addEnforcer(child.getOwnerGroup());
         child.getOwnerGroup().addEnforcer(enforcer);
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        Cost totalCost = CostCalculator.addChildCost(connectContext, enforcer.getPlan(),
-                CostCalculator.calculateCost(connectContext, enforcer, Lists.newArrayList(childOutput)),
-                currentCost,
-                0);
+        Cost enforceCost = CostCalculator.calculateCost(connectContext, enforcer, Lists.newArrayList(childOutput));
+        enforcer.setCost(enforceCost);
+        Cost totalCost = CostCalculator.addChildCost(
+                connectContext, enforcer.getPlan(), enforceCost, currentCost, 0);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(childOutput), totalCost)) {

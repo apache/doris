@@ -17,10 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public final class MaxLiteral extends LiteralExpr {
@@ -42,7 +42,7 @@ public final class MaxLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        if (expr == MAX_VALUE) {
+        if (expr instanceof MaxLiteral) {
             return 0;
         }
         return 1;
@@ -50,6 +50,7 @@ public final class MaxLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
+        // TODO: complete this type
     }
 
     @Override
@@ -63,16 +64,12 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-    }
-
-    @Override
     public String getStringValue() {
         return null;
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         return null;
     }
 

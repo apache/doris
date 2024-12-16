@@ -23,13 +23,16 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -44,6 +47,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -62,20 +66,41 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     protected static final String CLOUD_CLUSTER_ID = "clusterId";
     protected String cloudClusterId;
 
-    private int retryTimes = 3;
+    protected int retryTimes = 3;
 
     public CloudBrokerLoadJob() {
+    }
+
+    public CloudBrokerLoadJob(EtlJobType type) {
+        super(type);
+    }
+
+    public CloudBrokerLoadJob(EtlJobType type, long dbId, String label, BrokerDesc brokerDesc,
+            OriginStatement originStmt, UserIdentity userInfo)
+            throws MetaNotFoundException {
+        super(type, dbId, label, brokerDesc, originStmt, userInfo);
+        setCloudClusterId();
     }
 
     public CloudBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
             UserIdentity userInfo) throws MetaNotFoundException {
         super(dbId, label, brokerDesc, originStmt, userInfo);
+        setCloudClusterId();
+    }
+
+    private void setCloudClusterId() throws MetaNotFoundException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String clusterName = context.getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+                throw new MetaNotFoundException("failed to get compute group name " + e);
+            }
             if (Strings.isNullOrEmpty(clusterName)) {
-                LOG.warn("cluster name is empty");
-                throw new MetaNotFoundException("cluster name is empty");
+                LOG.warn("compute group name is empty");
+                throw new MetaNotFoundException("compute group name is empty");
             }
 
             this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
@@ -121,15 +146,15 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
     @Override
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
-            boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
-            throws UserException {
+            boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
+            BrokerPendingTaskAttachment attachment) throws UserException {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
         LoadLoadingTask task = new CloudLoadLoadingTask(db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, cloudClusterId);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 
@@ -300,7 +325,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, "load job failed"));
             }
         }
 

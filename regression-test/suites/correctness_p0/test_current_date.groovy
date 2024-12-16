@@ -65,9 +65,26 @@ suite("test_current_date") {
     qt_stream_load_csv1 """ select count(*) from ${tableName} where id > 4 and dt_0 = dt_1; """
     qt_stream_load_csv2 """ select count(*) from ${tableName} where id > 4 and dt_2 = dt_3; """
 
-    sql "DROP TABLE IF EXISTS test_default10"
+    // test varchar with default current_date
+    sql "DROP TABLE IF EXISTS test_varchar_default"
     test {
-        sql """create table test_default10(a int, b varchar(100) default current_date) 
+        sql """create table test_varchar_default(a int, b varchar(100) default current_date)
+        distributed by hash(a) properties('replication_num'="1");"""
+        exception "Types other than DATE and DATEV2 cannot use current_date as the default value"
+    }
+
+    // test int with default current_date
+    sql "DROP TABLE IF EXISTS test_int_default"
+    test {
+        sql """create table test_int_default(a int, b int default current_date)
+        distributed by hash(a) properties('replication_num'="1");"""
+        exception "Types other than DATE and DATEV2 cannot use current_date as the default value"
+    }
+
+    // test double with default current_date
+    sql "DROP TABLE IF EXISTS test_double_default"
+    test {
+        sql """create table test_int_default(a int, b double default current_date)
         distributed by hash(a) properties('replication_num'="1");"""
         exception "Types other than DATE and DATEV2 cannot use current_date as the default value"
     }

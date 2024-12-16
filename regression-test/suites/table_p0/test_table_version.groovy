@@ -33,7 +33,8 @@ suite("test_table_version") {
         PARTITION BY RANGE(`date`)
         (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
         PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_all VALUES [('2017-03-01'), ('2017-04-01')))
+        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
+        PARTITION p201704_all VALUES [('2017-04-01'), ('2017-05-01')))
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
         """
@@ -49,10 +50,24 @@ suite("test_table_version") {
     assertEquals(2, visibleVersion);
 
     sql """
-        alter table ${tableNameNum} drop partition p201703_all;
+        insert into ${tableNameNum} values(1,"2017-03-15",1);
         """
     visibleVersion = getTableVersion(dbId,tableNameNum);
     assertEquals(3, visibleVersion);
+
+    // drop an empty partition will not add table version
+    sql """
+        alter table ${tableNameNum} drop partition p201704_all force;
+        """
+    visibleVersion = getTableVersion(dbId,tableNameNum);
+    assertEquals(3, visibleVersion);
+
+    // drop an non-empty partition will add table version
+    sql """
+        alter table ${tableNameNum} drop partition p201703_3000 force;
+        """
+    visibleVersion = getTableVersion(dbId,tableNameNum);
+    assertEquals(4, visibleVersion);
 
     sql """
         ALTER TABLE ${tableNameNum} ADD TEMPORARY PARTITION p201702_2000_1 VALUES [('2017-02-01'), ('2017-03-01'));
@@ -61,7 +76,7 @@ suite("test_table_version") {
         ALTER TABLE ${tableNameNum} REPLACE PARTITION (p201702_2000) WITH TEMPORARY PARTITION (p201702_2000_1);
     """
     visibleVersion = getTableVersion(dbId,tableNameNum);
-    assertEquals(4, visibleVersion);
+    assertEquals(5, visibleVersion);
 
     sql """drop table if exists `${tableNameNum}`"""
 }

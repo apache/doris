@@ -43,6 +43,8 @@ suite ("testJoinOnLeftProjectToJoin") {
         partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+    sql """alter table depts modify column time_col set stats ('row_count'='3');"""
+
     sql """insert into depts values("2020-01-02",2,"b",2);"""
     sql """insert into depts values("2020-01-03",3,"c",3);"""
     sql """insert into depts values("2020-01-02",2,"b",1);"""
@@ -50,10 +52,16 @@ suite ("testJoinOnLeftProjectToJoin") {
     createMV("create materialized view emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
     createMV("create materialized view depts_mv as select deptno, max(cost) from depts group by deptno;")
 
-    explain {
-        sql("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;")
-        contains "(emps_mv)"
-        contains "(depts_mv)"
-    }
+    sql "analyze table emps with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_all_success("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
+            ["emps_mv", "depts_mv"])
+
     qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+    mv_rewrite_all_success("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
+            ["emps_mv", "depts_mv"])
 }

@@ -37,6 +37,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/pb_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
@@ -53,6 +54,8 @@ EngineStorageMigrationTask::EngineStorageMigrationTask(StorageEngine& engine,
                                                        TabletSharedPtr tablet, DataDir* dest_store)
         : _engine(engine), _tablet(std::move(tablet)), _dest_store(dest_store) {
     _task_start_time = time(nullptr);
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "EngineStorageMigrationTask");
 }
 
 EngineStorageMigrationTask::~EngineStorageMigrationTask() = default;
@@ -157,7 +160,8 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
     _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
-            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash));
+            full_path, tablet_id, _tablet->replica_id(), _tablet->table_id(),
+            _tablet->partition_id(), schema_hash));
     return Status::OK();
 }
 
@@ -198,6 +202,13 @@ Status EngineStorageMigrationTask::_migrate() {
     int64_t tablet_id = _tablet->tablet_id();
     LOG(INFO) << "begin to process tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
+
+    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(),
+                                                                         "disk migrate"));
+    Defer defer {[&]() {
+        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(),
+                                                               "disk migrate");
+    }};
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
     int32_t start_version = 0;
@@ -252,9 +263,11 @@ Status EngineStorageMigrationTask::_migrate() {
     }
 
     std::vector<RowsetSharedPtr> temp_consistent_rowsets(consistent_rowsets);
+    RowsetBinlogMetasPB rowset_binlog_metas_pb;
     do {
         // migrate all index and data files but header file
-        res = _copy_index_and_data_files(full_path, temp_consistent_rowsets);
+        res = _copy_index_and_data_files(full_path, temp_consistent_rowsets,
+                                         &rowset_binlog_metas_pb);
         if (!res.ok()) {
             break;
         }
@@ -282,7 +295,8 @@ Status EngineStorageMigrationTask::_migrate() {
             // we take the lock to complete it to avoid long-term competition with other tasks
             if (_is_rowsets_size_less_than_threshold(temp_consistent_rowsets)) {
                 // force to copy the remaining data and index
-                res = _copy_index_and_data_files(full_path, temp_consistent_rowsets);
+                res = _copy_index_and_data_files(full_path, temp_consistent_rowsets,
+                                                 &rowset_binlog_metas_pb);
                 if (!res.ok()) {
                     break;
                 }
@@ -294,6 +308,16 @@ Status EngineStorageMigrationTask::_migrate() {
                 // there is too much remaining data here.
                 // in order not to affect other tasks, release the lock and then copy it
                 continue;
+            }
+        }
+
+        // save rowset binlog metas
+        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() > 0) {
+            auto rowset_binlog_metas_pb_filename =
+                    fmt::format("{}/rowset_binlog_metas.pb", full_path);
+            res = write_pb(rowset_binlog_metas_pb_filename, rowset_binlog_metas_pb);
+            if (!res.ok()) {
+                break;
             }
         }
 
@@ -313,6 +337,7 @@ Status EngineStorageMigrationTask::_migrate() {
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(full_path));
+        RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(full_path));
     }
     return res;
 }
@@ -339,10 +364,90 @@ void EngineStorageMigrationTask::_generate_new_header(
 }
 
 Status EngineStorageMigrationTask::_copy_index_and_data_files(
-        const string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets) const {
+        const string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets,
+        RowsetBinlogMetasPB* all_binlog_metas_pb) const {
+    RowsetBinlogMetasPB rowset_binlog_metas_pb;
     for (const auto& rs : consistent_rowsets) {
         RETURN_IF_ERROR(rs->copy_files_to(full_path, rs->rowset_id()));
+
+        Version binlog_versions = rs->version();
+        RETURN_IF_ERROR(_tablet->get_rowset_binlog_metas(binlog_versions, &rowset_binlog_metas_pb));
     }
+
+    // copy index binlog files.
+    for (const auto& rowset_binlog_meta : rowset_binlog_metas_pb.rowset_binlog_metas()) {
+        auto num_segments = rowset_binlog_meta.num_segments();
+        std::string_view rowset_id = rowset_binlog_meta.rowset_id();
+
+        RowsetMetaPB rowset_meta_pb;
+        if (!rowset_meta_pb.ParseFromString(rowset_binlog_meta.data())) {
+            auto err_msg = fmt::format("fail to parse binlog meta data value:{}",
+                                       rowset_binlog_meta.data());
+            LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
+        }
+        const auto& tablet_schema_pb = rowset_meta_pb.tablet_schema();
+        TabletSchema tablet_schema;
+        tablet_schema.init_from_pb(tablet_schema_pb);
+
+        // copy segment files and index files
+        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+            std::string segment_file_path = _tablet->get_segment_filepath(rowset_id, segment_index);
+            auto snapshot_segment_file_path =
+                    fmt::format("{}/{}_{}.binlog", full_path, rowset_id, segment_index);
+
+            Status status = io::global_local_filesystem()->copy_path(segment_file_path,
+                                                                     snapshot_segment_file_path);
+            if (!status.ok()) {
+                LOG(WARNING) << "fail to copy binlog segment file. [src=" << segment_file_path
+                             << ", dest=" << snapshot_segment_file_path << "]" << status;
+                return status;
+            }
+            VLOG_DEBUG << "copy " << segment_file_path << " to " << snapshot_segment_file_path;
+
+            if (tablet_schema.get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
+                for (const auto& index : tablet_schema.inverted_indexes()) {
+                    auto index_id = index->index_id();
+                    auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                            InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path),
+                            index_id, index->get_index_suffix());
+                    auto snapshot_segment_index_file_path =
+                            fmt::format("{}/{}_{}_{}.binlog-index", full_path, rowset_id,
+                                        segment_index, index_id);
+                    VLOG_DEBUG << "copy " << index_file << " to "
+                               << snapshot_segment_index_file_path;
+                    status = io::global_local_filesystem()->copy_path(
+                            index_file, snapshot_segment_index_file_path);
+                    if (!status.ok()) {
+                        LOG(WARNING)
+                                << "fail to copy binlog index file. [src=" << index_file
+                                << ", dest=" << snapshot_segment_index_file_path << "]" << status;
+                        return status;
+                    }
+                }
+            } else if (tablet_schema.has_inverted_index()) {
+                auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
+                auto snapshot_segment_index_file_path =
+                        fmt::format("{}/{}_{}.binlog-index", full_path, rowset_id, segment_index);
+                VLOG_DEBUG << "copy " << index_file << " to " << snapshot_segment_index_file_path;
+                status = io::global_local_filesystem()->copy_path(index_file,
+                                                                  snapshot_segment_index_file_path);
+                if (!status.ok()) {
+                    LOG(WARNING) << "fail to copy binlog index file. [src=" << index_file
+                                 << ", dest=" << snapshot_segment_index_file_path << "]" << status;
+                    return status;
+                }
+            }
+        }
+    }
+
+    std::move(rowset_binlog_metas_pb.mutable_rowset_binlog_metas()->begin(),
+              rowset_binlog_metas_pb.mutable_rowset_binlog_metas()->end(),
+              google::protobuf::RepeatedFieldBackInserter(
+                      all_binlog_metas_pb->mutable_rowset_binlog_metas()));
+
     return Status::OK();
 }
 

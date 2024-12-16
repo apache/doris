@@ -225,4 +225,9 @@ public class VariableExpr extends Expr {
 
         return Objects.equals(literalExpr, ((VariableExpr) obj).getLiteralExpr());
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

@@ -21,8 +21,10 @@ suite("test_hive_olap_mtmv", "p0,external,hive,external_docker,external_docker_h
         logger.info("diable Hive test.")
         return;
     }
-        String hms_port = context.config.otherConfigs.get("hms_port")
-        String catalog_name = "hive_olap_test_mtmv"
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_olap_test_mtmv"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""
@@ -78,13 +80,13 @@ suite("test_hive_olap_mtmv", "p0,external,hive,external_docker,external_docker_h
                 INSERT INTO ${tableName} VALUES(3,"ff"),(4,"gg");
             """
            sql """
-                   REFRESH MATERIALIZED VIEW ${mvName}
+                   REFRESH MATERIALIZED VIEW ${mvName} AUTO
                """
           waitingMTMVTaskFinished(jobName)
           order_qt_refresh_2 "SELECT * FROM ${mvName} order by id"
         sql """drop materialized view if exists ${mvName};"""
 
         sql """drop catalog if exists ${catalog_name}"""
-
+    }
 }
 

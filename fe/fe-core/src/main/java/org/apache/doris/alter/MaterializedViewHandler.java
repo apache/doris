@@ -85,7 +85,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /*
  * MaterializedViewHandler is responsible for ADD/DROP materialized view.
@@ -113,7 +115,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
     @Override
     public void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.addAlterJobV2(alterJob);
         addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
     }
@@ -186,6 +187,9 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+        // wait wal delete
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -221,10 +225,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
             olapTable.setState(OlapTableState.ROLLUP);
 
-            // wait wal delete
-            Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
-            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
-
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
@@ -247,6 +247,11 @@ public class MaterializedViewHandler extends AlterHandler {
     public void processBatchAddRollup(String rawSql, List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
         checkReplicaCount(olapTable);
+
+        // wait wal delete
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
+
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
         // save job id for log
         Set<Long> logJobIdSet = new HashSet<>();
@@ -307,10 +312,6 @@ public class MaterializedViewHandler extends AlterHandler {
             // ATTN: This order is not mandatory, because database lock will protect us,
             // but this order is more reasonable
             olapTable.setState(OlapTableState.ROLLUP);
-
-            // wait wal delete
-            Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
-            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
 
             // 2 batch submit rollup job
             List<AlterJobV2> rollupJobV2List = new ArrayList<>(rollupNameJobMap.values());
@@ -420,7 +421,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 int healthyReplicaNum = 0;
                 for (Replica baseReplica : baseReplicas) {
                     long mvReplicaId = idGeneratorBuffer.getNextId();
-                    long backendId = baseReplica.getBackendId();
+                    long backendId = baseReplica.getBackendIdWithoutException();
                     if (baseReplica.getState() == ReplicaState.CLONE
                             || baseReplica.getState() == ReplicaState.DECOMMISSION
                             || baseReplica.getState() == ReplicaState.COMPACTION_TOO_SLOW
@@ -484,8 +485,8 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
             throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
         }
-        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new DdlException("MergeOnWrite table can't create materialized view.");
+        if (olapTable.getRowStoreCol() != null) {
+            throw new DdlException("RowStore table can't create materialized view.");
         }
         // check if mv columns are valid
         // a. Aggregate table:
@@ -495,6 +496,7 @@ public class MaterializedViewHandler extends AlterHandler {
         // b. Unique table:
         // 1. mv must not contain group expr
         // 2. all slot's isKey same with mv column
+        // 3. mv must contain all key column
         // c. Duplicate table:
         // 1. Columns resolved by semantics are legal
         // 2. Key column not allow float/double type.
@@ -584,7 +586,22 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
-        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()) {
+        // check b.3
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !addMVClause.isReplay()) {
+            Set<String> originColumns = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+            for (Column column : newMVColumns) {
+                originColumns.add(CreateMaterializedViewStmt.mvColumnBreaker(column.getName()));
+            }
+            for (Column column : olapTable.getBaseSchema()) {
+                if (column.isKey() && !originColumns.contains(column.getName())) {
+                    throw new DdlException("The materialized view of uniq table must contain all key columns. column:"
+                            + column.getName());
+                }
+            }
+        }
+
+        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()
+                && addMVClause.getMVKeysType() == olapTable.getKeysType()) {
             boolean allKeysMatch = true;
             for (int i = 0; i < newMVColumns.size(); i++) {
                 if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
@@ -641,8 +658,8 @@ public class MaterializedViewHandler extends AlterHandler {
     public List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, OlapTable olapTable,
             long baseIndexId, boolean changeStorageFormat)
             throws DdlException {
-        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new DdlException("MergeOnWrite table can't create materialized view.");
+        if (olapTable.getRowStoreCol() != null) {
+            throw new DdlException("RowStore table can't create materialized view.");
         }
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
@@ -912,6 +929,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processBatchDropRollup(List<AlterClause> dropRollupClauses, Database db, OlapTable olapTable)
             throws DdlException, MetaNotFoundException {
+        List<Long> deleteIndexList = null;
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -926,14 +944,12 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             // drop data in memory
-            Set<Long> indexIdSet = new HashSet<>();
-            Set<String> rollupNameSet = new HashSet<>();
+            Map<Long, String> rollupNameMap = new HashMap<>();
             for (AlterClause alterClause : dropRollupClauses) {
                 DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
                 String rollupIndexName = dropRollupClause.getRollupName();
                 long rollupIndexId = dropMaterializedView(rollupIndexName, olapTable);
-                indexIdSet.add(rollupIndexId);
-                rollupNameSet.add(rollupIndexName);
+                rollupNameMap.put(rollupIndexId, rollupIndexName);
             }
 
             // batch log drop rollup operation
@@ -941,16 +957,19 @@ public class MaterializedViewHandler extends AlterHandler {
             long dbId = db.getId();
             long tableId = olapTable.getId();
             String tableName = olapTable.getName();
-            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, indexIdSet));
+            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, rollupNameMap));
+            deleteIndexList = rollupNameMap.keySet().stream().collect(Collectors.toList());
             LOG.info("finished drop rollup index[{}] in table[{}]",
-                    String.join("", rollupNameSet), olapTable.getName());
+                    String.join("", rollupNameMap.values()), olapTable.getName());
         } finally {
             olapTable.writeUnlock();
         }
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt dropMaterializedViewStmt, Database db,
             OlapTable olapTable) throws DdlException, MetaNotFoundException {
+        List<Long> deleteIndexList = new ArrayList<Long>();
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -961,8 +980,9 @@ public class MaterializedViewHandler extends AlterHandler {
             long mvIndexId = dropMaterializedView(mvName, olapTable);
             // Step3: log drop mv operation
             EditLog editLog = Env.getCurrentEnv().getEditLog();
-            editLog.logDropRollup(
-                    new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(), mvIndexId, false, 0));
+            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(),
+                    mvIndexId, mvName, false, false, 0));
+            deleteIndexList.add(mvIndexId);
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
             if (dropMaterializedViewStmt.isIfExists()) {
@@ -973,6 +993,7 @@ public class MaterializedViewHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
     }
 
     /**
@@ -1060,6 +1081,10 @@ public class MaterializedViewHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
+
+        List<Long> deleteIndexList = new ArrayList<Long>();
+        deleteIndexList.add(rollupIndexId);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
         LOG.info("replay drop rollup {}", dropInfo.getIndexId());
     }
 
@@ -1106,7 +1131,6 @@ public class MaterializedViewHandler extends AlterHandler {
     // replay the alter job v2
     @Override
     public void replayAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
-        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.replayAlterJobV2(alterJob);
         if (!alterJob.isDone()) {
             addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
@@ -1233,8 +1257,9 @@ public class MaterializedViewHandler extends AlterHandler {
                 continue;
             }
             if (ctx != null) {
-                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, db.getFullName(),
-                        alterJob.getTableName(), PrivPredicate.ALTER)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ctx, db.getCatalog().getName(), db.getFullName(),
+                                alterJob.getTableName(), PrivPredicate.ALTER)) {
                     continue;
                 }
             }

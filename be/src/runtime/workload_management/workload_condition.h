@@ -23,7 +23,7 @@
 
 namespace doris {
 
-enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES };
+enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES, QUERY_MEMORY_BYTES };
 
 class WorkloadCondition {
 public:
@@ -33,6 +33,10 @@ public:
     virtual bool eval(std::string str_val) = 0;
 
     virtual WorkloadMetricType get_workload_metric_type() = 0;
+
+    virtual std::string get_metric_string() = 0;
+
+    virtual std::string get_metric_value_string() = 0;
 };
 
 class WorkloadConditionQueryTime : public WorkloadCondition {
@@ -45,6 +49,10 @@ public:
         return WorkloadMetricType::QUERY_TIME;
     }
 
+    std::string get_metric_string() override { return "query_time"; }
+
+    std::string get_metric_value_string() override { return std::to_string(_query_time); }
+
 private:
     int64_t _query_time;
     WorkloadCompareOperator _op;
@@ -55,6 +63,10 @@ public:
     WorkloadConditionScanRows(WorkloadCompareOperator op, std::string str_val);
     bool eval(std::string str_val) override;
     WorkloadMetricType get_workload_metric_type() override { return WorkloadMetricType::SCAN_ROWS; }
+
+    std::string get_metric_string() override { return "scan_rows"; }
+
+    std::string get_metric_value_string() override { return std::to_string(_scan_rows); }
 
 private:
     int64_t _scan_rows;
@@ -69,8 +81,29 @@ public:
         return WorkloadMetricType::SCAN_BYTES;
     }
 
+    std::string get_metric_string() override { return "scan_bytes"; }
+
+    std::string get_metric_value_string() override { return std::to_string(_scan_bytes); }
+
 private:
     int64_t _scan_bytes;
+    WorkloadCompareOperator _op;
+};
+
+class WorkloadConditionQueryMemory : public WorkloadCondition {
+public:
+    WorkloadConditionQueryMemory(WorkloadCompareOperator op, std::string str_val);
+    bool eval(std::string str_val) override;
+    WorkloadMetricType get_workload_metric_type() override {
+        return WorkloadMetricType::QUERY_MEMORY_BYTES;
+    }
+
+    std::string get_metric_string() override { return "query_memory"; }
+
+    std::string get_metric_value_string() override { return std::to_string(_query_memory_bytes); }
+
+private:
+    int64_t _query_memory_bytes;
     WorkloadCompareOperator _op;
 };
 
@@ -88,6 +121,8 @@ public:
             return std::make_unique<WorkloadConditionScanRows>(op, str_val);
         } else if (TWorkloadMetricType::type::BE_SCAN_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionScanBytes>(op, str_val);
+        } else if (TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES == metric_name) {
+            return std::make_unique<WorkloadConditionQueryMemory>(op, str_val);
         }
         LOG(ERROR) << "not find a metric name " << metric_name;
         return nullptr;

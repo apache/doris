@@ -40,9 +40,10 @@ import java.util.List;
 //
 // syntax:
 //      SHOW EXPORT [FROM db] [where ...]
-public class ShowExportStmt extends ShowStmt {
+public class ShowExportStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowExportStmt.class);
 
+    private String ctlName;
     private String dbName;
     private final Expr whereClause;
     private final LimitElement limitElement;
@@ -62,6 +63,19 @@ public class ShowExportStmt extends ShowStmt {
         this.whereClause = whereExpr;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
+    }
+
+    public ShowExportStmt(String ctl, String db, Expr whereExpr, List<OrderByElement> orderByElements,
+            LimitElement limitElement) {
+        this.ctlName = ctl;
+        this.dbName = db;
+        this.whereClause = whereExpr;
+        this.orderByElements = orderByElements;
+        this.limitElement = limitElement;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
@@ -101,6 +115,13 @@ public class ShowExportStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(ctlName)) {
+            ctlName = analyzer.getDefaultCatalog();
+            if (Strings.isNullOrEmpty(ctlName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG);
+            }
+        }
+
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
@@ -183,7 +204,12 @@ public class ShowExportStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW EXPORT ");
         if (!Strings.isNullOrEmpty(dbName)) {
-            sb.append("FROM `").append(dbName).append("`");
+            if (!Strings.isNullOrEmpty(ctlName)) {
+                sb.append("FROM `").append(ctlName).append("`.`");
+            } else {
+                sb.append("FROM `");
+            }
+            sb.append(dbName).append("`");
         }
 
         if (whereClause != null) {

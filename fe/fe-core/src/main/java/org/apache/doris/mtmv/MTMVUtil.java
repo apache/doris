@@ -20,25 +20,26 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.ConnectContext;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -52,11 +53,32 @@ public class MTMVUtil {
      * @throws AnalysisException
      */
     public static TableIf getTable(BaseTableInfo baseTableInfo) throws AnalysisException {
-        TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(baseTableInfo.getCtlId())
-                .getDbOrAnalysisException(baseTableInfo.getDbId())
-                .getTableOrAnalysisException(baseTableInfo.getTableId());
-        return table;
+        // for compatible old version, not have name
+        if (StringUtils.isEmpty(baseTableInfo.getCtlName())) {
+            return Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(baseTableInfo.getCtlId())
+                    .getDbOrAnalysisException(baseTableInfo.getDbId())
+                    .getTableOrAnalysisException(baseTableInfo.getTableId());
+        } else {
+            return Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(baseTableInfo.getCtlName())
+                    .getDbOrAnalysisException(baseTableInfo.getDbName())
+                    .getTableOrAnalysisException(baseTableInfo.getTableName());
+        }
+    }
+
+    public static MTMVRelatedTableIf getRelatedTable(BaseTableInfo baseTableInfo) {
+        TableIf relatedTable = null;
+        try {
+            relatedTable = MTMVUtil.getTable(baseTableInfo);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
+        }
+        if (!(relatedTable instanceof MTMVRelatedTableIf)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "base table for partitioning only can be OlapTable or HMSTable");
+        }
+        return (MTMVRelatedTableIf) relatedTable;
     }
 
     public static MTMV getMTMV(long dbId, long mtmvId) throws DdlException, MetaNotFoundException {
@@ -71,71 +93,13 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
         for (BaseTableInfo baseTableInfo : baseTables) {
-            if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            if (!baseTableInfo.isInternalTable()) {
                 return true;
             }
         }
         return false;
-    }
-
-    /**
-     * Obtain the minimum second from `syncLimit` `timeUnit` ago
-     *
-     * @param timeUnit
-     * @param syncLimit
-     * @return
-     * @throws AnalysisException
-     */
-    public static long getNowTruncSubSec(MTMVPartitionSyncTimeUnit timeUnit, int syncLimit)
-            throws AnalysisException {
-        if (syncLimit < 1) {
-            throw new AnalysisException("Unexpected syncLimit, syncLimit: " + syncLimit);
-        }
-        // get current time
-        Expression now = DateTimeAcquire.now();
-        if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("now() should return DateTimeLiteral, now: " + now);
-        }
-        DateTimeLiteral nowLiteral = (DateTimeLiteral) now;
-        // date trunc
-        now = DateTimeExtractAndTransform
-                .dateTrunc(nowLiteral, new VarcharLiteral(timeUnit.name()));
-        if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("dateTrunc() should return DateTimeLiteral, now: " + now);
-        }
-        nowLiteral = (DateTimeLiteral) now;
-        // date sub
-        if (syncLimit > 1) {
-            nowLiteral = dateSub(nowLiteral, timeUnit, syncLimit - 1);
-        }
-        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue();
-    }
-
-    private static DateTimeLiteral dateSub(
-            org.apache.doris.nereids.trees.expressions.literal.DateLiteral date, MTMVPartitionSyncTimeUnit timeUnit,
-            int num)
-            throws AnalysisException {
-        IntegerLiteral integerLiteral = new IntegerLiteral(num);
-        Expression result;
-        switch (timeUnit) {
-            case DAY:
-                result = DateTimeArithmetic.dateSub(date, integerLiteral);
-                break;
-            case YEAR:
-                result = DateTimeArithmetic.yearsSub(date, integerLiteral);
-                break;
-            case MONTH:
-                result = DateTimeArithmetic.monthsSub(date, integerLiteral);
-                break;
-            default:
-                throw new AnalysisException("MTMV partition limit not support timeUnit: " + timeUnit.name());
-        }
-        if (!(result instanceof DateTimeLiteral)) {
-            throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
-        }
-        return (DateTimeLiteral) result;
     }
 
     /**
@@ -163,32 +127,48 @@ public class MTMVUtil {
         String dateFormat = dateFormatOptional.get();
         Expression strToDate = DateTimeExtractAndTransform
                 .strToDate(new VarcharLiteral(expr.getStringValue()), new VarcharLiteral(dateFormat));
-        if (!(strToDate instanceof DateTimeLiteral)) {
+        if (strToDate instanceof DateTimeV2Literal) {
+            return ((IntegerLiteral) DateTimeExtractAndTransform
+                    .unixTimestamp((DateTimeV2Literal) strToDate)).getValue();
+        } else if (strToDate instanceof DateV2Literal) {
+            return ((IntegerLiteral) DateTimeExtractAndTransform
+                    .unixTimestamp((DateV2Literal) strToDate)).getValue();
+        } else {
             throw new AnalysisException(
-                    String.format("strToDate failed, stringValue: %s, dateFormat: %s", expr.getStringValue(),
-                            dateFormat));
+                    String.format("strToDate failed, stringValue: %s, dateFormat: %s",
+                            expr.getStringValue(), dateFormat));
         }
-        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp((DateTimeLiteral) strToDate)).getValue();
     }
 
-    /**
-     * Generate MTMVPartitionSyncConfig based on mvProperties
-     *
-     * @param mvProperties
-     * @return
-     */
-    public static MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
-            Map<String, String> mvProperties) {
-        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
-                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
-        MTMVPartitionSyncTimeUnit timeUnit =
-                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
-                        ? MTMVPartitionSyncTimeUnit.DAY : MTMVPartitionSyncTimeUnit
-                        .valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT).toUpperCase());
-        Optional<String> dateFormat =
-                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT))
-                        ? Optional.empty()
-                        : Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT));
-        return new MTMVPartitionSyncConfig(syncLimit, timeUnit, dateFormat);
+    public static boolean allowModifyMTMVData(ConnectContext ctx) {
+        if (ctx == null) {
+            return false;
+        }
+        return ctx.getSessionVariable().isAllowModifyMaterializedViewData();
+    }
+
+    public static void checkModifyMTMVData(Database db, List<Long> tableIdList, ConnectContext ctx)
+            throws AnalysisException {
+        if (CollectionUtils.isEmpty(tableIdList)) {
+            return;
+        }
+        for (long tableId : tableIdList) {
+            Optional<Table> table = db.getTable(tableId);
+            if (table.isPresent() && table.get() instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
+                throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+            }
+        }
+    }
+
+    public static void compatibleMTMV(CatalogMgr catalogMgr) {
+        List<Database> dbs = catalogMgr.getInternalCatalog().getDbs();
+        for (Database database : dbs) {
+            List<Table> tables = database.getTables();
+            for (Table table : tables) {
+                if (table instanceof MTMV) {
+                    ((MTMV) table).compatible(catalogMgr);
+                }
+            }
+        }
     }
 }

@@ -25,6 +25,7 @@
 #include <chrono>
 #include <set>
 
+#include "common/logging.h"
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
@@ -54,6 +55,7 @@ struct PartitionInfo {
     int64_t db_id;
     int64_t table_id;
     int64_t partition_id;
+    int64_t tablet_id;
     int64_t visible_version;
 };
 
@@ -171,8 +173,11 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 int num_row = mysql_num_rows(result);
                 for (int i = 0; i < num_row; ++i) {
                     MYSQL_ROW row = mysql_fetch_row(result);
-                    TabletInfo tablet_info;
+                    TabletInfo tablet_info = {0};
                     tablet_info.tablet_id = atoll(row[0]);
+                    VLOG_DEBUG << "get tablet info log"
+                               << ", db name" << elem.first << ", table name" << table
+                               << ",tablet id" << tablet_info.tablet_id;
                     tablet_info.schema_version = atoll(row[4]);
                     tablets.push_back(std::move(tablet_info));
                 }
@@ -197,10 +202,17 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 tablet_info.partition_id = atoll(row[6]);
                 tablet_info.index_id = atoll(row[7]);
 
-                PartitionInfo partition_info;
+                PartitionInfo partition_info = {0};
                 partition_info.db_id = atoll(row[4]);
                 partition_info.table_id = atoll(row[5]);
                 partition_info.partition_id = atoll(row[6]);
+                partition_info.tablet_id = tablet_info.tablet_id;
+                VLOG_DEBUG << "get partition info log"
+                           << ", db id" << partition_info.db_id << ", table id"
+                           << partition_info.table_id << ", partition id"
+                           << partition_info.partition_id << ", tablet id"
+                           << partition_info.tablet_id;
+
                 partitions.insert({partition_info.partition_id, std::move(partition_info)});
             }
         }
@@ -217,9 +229,16 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 int num_row = mysql_num_rows(result);
                 for (int i = 0; i < num_row; ++i) {
                     MYSQL_ROW row = mysql_fetch_row(result);
-                    int partition_id = atoll(row[0]);
-                    int visible_version = atoll(row[2]);
+                    int64_t partition_id = atoll(row[0]);
+                    int64_t visible_version = atoll(row[2]);
                     partitions[partition_id].visible_version = visible_version;
+                    VLOG_DEBUG << "get partition version log"
+                               << ", db name" << elem.first << ", table name" << table
+                               << ", raw partition id" << row[0] << ", first partition id"
+                               << partition_id << ", db id" << partitions[partition_id].db_id
+                               << ", table id" << partitions[partition_id].table_id
+                               << ", second partition id" << partitions[partition_id].partition_id
+                               << ", tablet id" << partitions[partition_id].tablet_id;
                 }
             }
             mysql_free_result(result);
@@ -347,21 +366,30 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
             LOG(WARNING) << "failed to init txn";
             return false;
         }
-        if (elem.second.visible_version == 0) {
+        if (elem.second.visible_version == 0 || elem.second.visible_version == 1) {
             continue;
         }
 
         int64_t db_id = elem.second.db_id;
         int64_t table_id = elem.second.table_id;
         int64_t partition_id = elem.second.partition_id;
-        std::string ver_key = version_key({instance_id_, db_id, table_id, partition_id});
+        int64_t tablet_id = elem.second.tablet_id;
+        std::string ver_key = partition_version_key({instance_id_, db_id, table_id, partition_id});
         std::string ver_val;
         err = txn->get(ver_key, &ver_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            LOG(WARNING) << "version key not found, partition id: " << partition_id;
+            LOG_WARNING("version key not found.")
+                    .tag("db id", db_id)
+                    .tag("table id", table_id)
+                    .tag("partition id", partition_id)
+                    .tag("tablet id", tablet_id);
             return false;
         } else if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get version: " << partition_id;
+            LOG_WARNING("failed to get version.")
+                    .tag("db id", db_id)
+                    .tag("table id", table_id)
+                    .tag("partition id", partition_id)
+                    .tag("tablet id", tablet_id);
             return false;
         }
 
@@ -391,20 +419,20 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
                            const std::string& instance_id, std::string& msg) {
     LOG(INFO) << "meta check begin";
     instance_id_ = instance_id;
-    MYSQL* conn;
-    conn = mysql_init(nullptr);
-    if (!conn) {
-        msg = "mysql init failed";
-        LOG(WARNING) << msg;
+
+    MYSQL conn;
+    mysql_init(&conn);
+    mysql_ssl_mode ssl_mode = SSL_MODE_DISABLED;
+    mysql_options(&conn, MYSQL_OPT_SSL_MODE, (void*)&ssl_mode);
+    if (!mysql_real_connect(&conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
+                            nullptr, 0)) {
+        msg = "mysql conn failed ";
+        LOG(WARNING) << msg << mysql_error(&conn) << " host " << host << " port " << port
+                     << " user " << user << " password " << password << " instance_id "
+                     << instance_id;
         return;
     }
-    conn = mysql_real_connect(conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
-                              nullptr, 0);
-    if (!conn) {
-        msg = "mysql init failed";
-        LOG(WARNING) << msg;
-        return;
-    }
+
     LOG(INFO) << "mysql conn succ ";
 
     using namespace std::chrono;
@@ -414,7 +442,7 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     LOG(INFO) << "check_fe_meta_by_fdb begin";
     bool ret = false;
     do {
-        ret = check_fe_meta_by_fdb(conn);
+        ret = check_fe_meta_by_fdb(&conn);
         if (!ret) {
             std::this_thread::sleep_for(seconds(10));
         }
@@ -428,7 +456,7 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     LOG(INFO) << "check_fe_meta_by_fdb finish, cost(second): " << now - start;
 
-    ret = check_fdb_by_fe_meta(conn);
+    ret = check_fdb_by_fe_meta(&conn);
     if (!ret) {
         LOG(WARNING) << "check_fdb_by_fe_meta failed, there may be data loss";
         msg = "meta loss err";
@@ -437,7 +465,7 @@ void MetaChecker::do_check(const std::string& host, const std::string& port,
     now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     LOG(INFO) << "check_fdb_by_fe_meta finish, cost(second): " << now - start;
 
-    mysql_close(conn);
+    mysql_close(&conn);
 
     LOG(INFO) << "meta check finish";
 }

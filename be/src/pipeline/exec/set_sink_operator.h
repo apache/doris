@@ -21,11 +21,9 @@
 
 #include "olap/olap_common.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris {
-class ExecNode;
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 template <class HashTableContext, bool is_intersected>
@@ -33,32 +31,6 @@ struct HashTableBuild;
 }
 
 namespace pipeline {
-
-template <bool is_intersect>
-class SetSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
-private:
-    constexpr static auto builder_name =
-            is_intersect ? "IntersectSinkOperator" : "ExceptSinkOperator";
-
-public:
-    SetSinkOperatorBuilder(int32_t id, ExecNode* set_node);
-    [[nodiscard]] bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-template <bool is_intersect>
-class SetSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
-public:
-    SetSinkOperator(OperatorBuilderBase* operator_builder,
-                    vectorized::VSetOperationNode<is_intersect>* set_node);
-
-    bool can_write() override { return true; }
-
-private:
-    vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
-};
 
 template <bool is_intersect>
 class SetSinkOperatorX;
@@ -73,17 +45,18 @@ public:
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
-    template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableBuild;
 
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     vectorized::Arena _arena;
+
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -114,8 +87,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -131,16 +102,18 @@ private:
     Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
                                 vectorized::Block& block, RuntimeState* state);
     Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
-                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs);
+                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
+                                 size_t& rows);
 
     const int _cur_child_id;
-    const int _child_quantity;
+    const size_t _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
-    using OperatorBase::_child_x;
+    using OperatorBase::_child;
 };
+#include "common/compile_check_end.h"
 
 } // namespace pipeline
 } // namespace doris

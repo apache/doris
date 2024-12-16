@@ -55,10 +55,10 @@ public:
     void SetUp() override {
         prepare();
         _env = ExecEnv::GetInstance();
-        _env->_master_info = new TMasterInfo();
-        _env->_master_info->network_address.hostname = "host name";
-        _env->_master_info->network_address.port = 1234;
-        _env->_master_info->backend_id = 1001;
+        _env->_cluster_info = new ClusterInfo();
+        _env->_cluster_info->master_fe_addr.hostname = "host name";
+        _env->_cluster_info->master_fe_addr.port = 1234;
+        _env->_cluster_info->backend_id = 1001;
         _env->new_load_stream_mgr() = NewLoadStreamMgr::create_shared();
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
@@ -77,7 +77,7 @@ public:
         SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_internal_client_cache);
-        SAFE_DELETE(_env->_master_info);
+        SAFE_DELETE(_env->_cluster_info);
     }
 
     void prepare() {
@@ -171,13 +171,13 @@ TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "5%";
     EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
-    wal_limit_bytes = available_bytes * 0.05;
+    wal_limit_bytes = size_t(available_bytes * 0.05);
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "50%";
     EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
-    wal_limit_bytes = available_bytes * 0.5;
+    wal_limit_bytes = size_t(available_bytes * 0.5);
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;

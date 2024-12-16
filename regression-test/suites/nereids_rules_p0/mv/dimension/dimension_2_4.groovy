@@ -22,10 +22,6 @@ It mainly tests the query partial, view partial, union rewriting, predicate comp
 suite("partition_mv_rewrite_dimension_2_4") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_2_4
@@ -44,7 +40,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`o_orderdate`, 'day') ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -74,7 +69,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -130,50 +124,13 @@ suite("partition_mv_rewrite_dimension_2_4") {
     (3, null, 1, 99.5, 'yy'); 
     """
 
+    sql """alter table orders_2_4 modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_2_4 modify column l_comment set stats ('row_count'='7');"""
+    sql """alter table partsupp_2_4 modify column ps_comment set stats ('row_count'='3');"""
+
     sql """analyze table orders_2_4 with sync;"""
     sql """analyze table lineitem_2_4 with sync;"""
     sql """analyze table partsupp_2_4 with sync;"""
-
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_all_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -203,7 +160,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
 //            from orders_2_4
 //            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey"""
-//    create_all_mv(mv_name_1, mv_stmt_1)
+//    create_async_mv(db, mv_name_1, mv_stmt_1)
 //    def job_name_1 = getJobName(db, mv_name_1)
 //    waitingMTMVTaskFinished(job_name_1)
 //
@@ -230,7 +187,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            o_orderdate,
 //            o_shippriority,
 //            o_comment """
-//    create_mv_orders(mv_name_2, mv_stmt_2)
+//    create_async_mv(db, mv_name_2, mv_stmt_2)
 //    def job_name_2 = getJobName(db, mv_name_2)
 //    waitingMTMVTaskFinished(job_name_2)
 //
@@ -259,7 +216,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            o_orderdate,
 //            o_shippriority,
 //            o_comment  """
-//    create_mv_orders(mv_name_3, mv_stmt_3)
+//    create_async_mv(db, mv_name_3, mv_stmt_3)
 //    def job_name_3 = getJobName(db, mv_name_3)
 //    waitingMTMVTaskFinished(job_name_3)
 //
@@ -291,7 +248,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             from orders_2_4 
             left join lineitem_2_4
             on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey """
-    create_all_mv(mv_name_4, mv_stmt_4)
+    create_async_mv(db, mv_name_4, mv_stmt_4)
     def job_name_4 = getJobName(db, mv_name_4)
     waitingMTMVTaskFinished(job_name_4)
 
@@ -305,10 +262,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             left join lineitem_2_4
             on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
             left join partsupp_2_4 on partsupp_2_4.ps_partkey = lineitem_2_4.l_orderkey"""
-    explain {
-        sql("${sql_stmt_4}")
-        contains "${mv_name_4}(${mv_name_4})"
-    }
+    mv_rewrite_success(sql_stmt_4, mv_name_4)
     compare_res(sql_stmt_4 + " order by 1,2,3,4,5")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_4};"""
 
@@ -322,7 +276,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment  """
-    create_mv_orders(mv_name_5, mv_stmt_5)
+    create_async_mv(db, mv_name_5, mv_stmt_5)
     def job_name_5 = getJobName(db, mv_name_5)
     waitingMTMVTaskFinished(job_name_5)
 
@@ -334,10 +288,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate,
             o_shippriority,
             o_comment """
-    explain {
-        sql("${sql_stmt_5}")
-        notContains "${mv_name_5}(${mv_name_5})"
-    }
+    mv_rewrite_fail(sql_stmt_5, mv_name_5)
     compare_res(sql_stmt_5 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 
@@ -357,7 +308,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    create_mv_orders(mv_name_6, mv_stmt_6)
+    create_async_mv(db, mv_name_6, mv_stmt_6)
     def job_name_6 = getJobName(db, mv_name_6)
     waitingMTMVTaskFinished(job_name_6)
 
@@ -375,10 +326,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    explain {
-        sql("${sql_stmt_6}")
-        notContains "${mv_name_6}(${mv_name_6})"
-    }
+    mv_rewrite_fail(sql_stmt_6, mv_name_6)
     compare_res(sql_stmt_6 + " order by 1,2,3,4,5,6,7")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_6};"""
 
@@ -396,7 +344,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
 //            from orders_2_4
 //            where o_orderdate >= '2023-10-17'"""
-//    create_mv_orders(mv_name_7, mv_stmt_7)
+//    create_async_mv(db, mv_name_7, mv_stmt_7)
 //    def job_name_7 = getJobName(db, mv_name_7)
 //    waitingMTMVTaskFinished(job_name_7)
 //
@@ -424,7 +372,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            o_orderdate,
 //            o_shippriority,
 //            o_comment """
-//    create_mv_orders(mv_name_8, mv_stmt_8)
+//    create_async_mv(db, mv_name_8, mv_stmt_8)
 //    def job_name_8 = getJobName(db, mv_name_8)
 //    waitingMTMVTaskFinished(job_name_8)
 //
@@ -457,7 +405,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            o_orderdate,
 //            o_shippriority,
 //            o_comment """
-//    create_mv_orders(mv_name_9, mv_stmt_9)
+//    create_async_mv(db, mv_name_9, mv_stmt_9)
 //    def job_name_9 = getJobName(db, mv_name_9)
 //    waitingMTMVTaskFinished(job_name_9)
 //
@@ -493,7 +441,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders_2_4 
             where o_orderdate >= '2023-10-17'"""
-    create_all_mv(mv_name_10, mv_stmt_10)
+    create_async_mv(db, mv_name_10, mv_stmt_10)
     def job_name_10 = getJobName(db, mv_name_10)
     waitingMTMVTaskFinished(job_name_10)
 
@@ -506,10 +454,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders_2_4 where o_orderdate >= "2023-10-17" )  as t
             where t.count_all = 3"""
-    explain {
-        sql("${sql_stmt_10}")
-        contains "${mv_name_10}(${mv_name_10})"
-    }
+    mv_rewrite_success(sql_stmt_10, mv_name_10)
     compare_res(sql_stmt_10 + " order by 1")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_10};"""
 
@@ -524,7 +469,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    create_all_mv(mv_name_11, mv_stmt_11)
+    create_async_mv(db, mv_name_11, mv_stmt_11)
     def job_name_11 = getJobName(db, mv_name_11)
     waitingMTMVTaskFinished(job_name_11)
 
@@ -535,10 +480,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate,
             o_shippriority,
             o_comment """
-    explain {
-        sql("${sql_stmt_11}")
-        notContains "${mv_name_11}(${mv_name_11})"
-    }
+    mv_rewrite_fail(sql_stmt_11, mv_name_11)
     compare_res(sql_stmt_11 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_11};"""
 
@@ -551,7 +493,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_shippriority, 
             o_comment,
             o_totalprice """
-    create_all_mv(mv_name_16, mv_stmt_16)
+    create_async_mv(db, mv_name_16, mv_stmt_16)
     def job_name_16 = getJobName(db, mv_name_16)
     waitingMTMVTaskFinished(job_name_16)
 
@@ -587,7 +529,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_shippriority, 
             o_comment,
             o_totalprice """
-    create_all_mv(mv_name_12, mv_stmt_12)
+    create_async_mv(db, mv_name_12, mv_stmt_12)
     def job_name_12 = getJobName(db, mv_name_12)
     waitingMTMVTaskFinished(job_name_12)
 
@@ -610,10 +552,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             ) as t 
             where t.o_totalprice = 1 
              """
-    explain {
-        sql("${sql_stmt_12}")
-        contains "${mv_name_12}(${mv_name_12})"
-    }
+    mv_rewrite_success(sql_stmt_12, mv_name_12)
     compare_res(sql_stmt_12 + " order by 1,2,3,4,5,6,7")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_12};"""
 
@@ -629,7 +568,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders_2_4  
             where  o_orderkey > 1 + 1  """
-    create_all_mv(mv_name_13, mv_stmt_13)
+    create_async_mv(db, mv_name_13, mv_stmt_13)
     def job_name_13 = getJobName(db, mv_name_13)
     waitingMTMVTaskFinished(job_name_13)
 
@@ -638,10 +577,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2 
             from orders_2_4  
             where o_orderkey > (-3) + 5 """
-    explain {
-        sql("${sql_stmt_13}")
-        contains "${mv_name_13}(${mv_name_13})"
-    }
+    mv_rewrite_success(sql_stmt_13, mv_name_13)
     compare_res(sql_stmt_13 + " order by 1")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_13};"""
 
@@ -655,7 +591,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    create_all_mv(mv_name_14, mv_stmt_14)
+    create_async_mv(db, mv_name_14, mv_stmt_14)
     def job_name_14 = getJobName(db, mv_name_14)
     waitingMTMVTaskFinished(job_name_14)
 
@@ -666,10 +602,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderdate, 
             o_shippriority, 
             o_comment """
-    explain {
-        sql("${sql_stmt_14}")
-        contains "${mv_name_14}(${mv_name_14})"
-    }
+    mv_rewrite_success(sql_stmt_14, mv_name_14)
     compare_res(sql_stmt_14 + " order by 1,2")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_14};"""
 
@@ -689,7 +622,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_custkey,
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end,
             case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end """
-    create_all_mv(mv_name_15, mv_stmt_15)
+    create_async_mv(db, mv_name_15, mv_stmt_15)
     def job_name_15 = getJobName(db, mv_name_15)
     waitingMTMVTaskFinished(job_name_15)
 
@@ -705,10 +638,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_custkey,
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end,
             case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end   """
-    explain {
-        sql("${sql_stmt_15}")
-        contains "${mv_name_15}(${mv_name_15})"
-    }
+    mv_rewrite_success(sql_stmt_15, mv_name_15)
     compare_res(sql_stmt_15 + " order by 1,2,3,4,5")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_15};"""
 

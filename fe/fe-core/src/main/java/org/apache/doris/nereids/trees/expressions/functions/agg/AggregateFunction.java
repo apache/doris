@@ -108,11 +108,18 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     @Override
     public String toSql() throws UnboundException {
-        String args = children()
-                .stream()
-                .map(Expression::toSql)
-                .collect(Collectors.joining(", "));
-        return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
+        StringBuilder sql = new StringBuilder(getName()).append("(");
+        if (distinct) {
+            sql.append("DISTINCT ");
+        }
+        int arity = arity();
+        for (int i = 0; i < arity; i++) {
+            sql.append(child(i).toSql());
+            if (i + 1 < arity) {
+                sql.append(", ");
+            }
+        }
+        return sql.append(")").toString();
     }
 
     @Override
@@ -124,7 +131,15 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
     }
 
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        return true;
+    }
+
     public List<Expression> getDistinctArguments() {
         return distinct ? getArguments() : ImmutableList.of();
+    }
+
+    public boolean mustUseMultiDistinctAgg() {
+        return false;
     }
 }

@@ -31,13 +31,16 @@ namespace doris::segment_v2 {
 class PhraseEdgeQuery : public Query {
 public:
     PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                    const TQueryOptions& query_options);
+                    const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~PhraseEdgeQuery() override = default;
 
     void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
+    void search_one_term(roaring::Roaring& roaring);
+    void search_multi_term(roaring::Roaring& roaring);
+
     void add_default_term(const std::wstring& field_name, const std::wstring& ws_term);
     void handle_terms(const std::wstring& field_name, const std::wstring& ws_term,
                       std::vector<CL_NS(index)::Term*>& checked_terms);
@@ -46,7 +49,10 @@ private:
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
 
+    std::wstring _field_name;
+    std::vector<std::string> _terms;
     std::unique_ptr<CL_NS(search)::MultiPhraseQuery> _query;
+    int32_t _max_expansions = 50;
 };
 
 } // namespace doris::segment_v2

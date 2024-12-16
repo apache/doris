@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -27,7 +28,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.analysis.SlotBinder;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -42,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -94,8 +94,9 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
-                executor);
+        // NOTE: update command is executed as insert command, so txn insert can support it
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -159,14 +160,15 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
-                && !targetTable.hasVariantColumns() && targetTable.getSequenceCol() == null
-                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
+                && targetTable.getSequenceCol() == null
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
+                && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
 
         List<String> partialUpdateColNames = new ArrayList<>();
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
         if (isPartialUpdate) {
             for (Column column : targetTable.getFullSchema()) {
-                Expression expr = new NereidsParser().parseExpression(tableName + "." + column.getName());
+                Expression expr = new UnboundSlot(tableName, column.getName());
                 boolean existInExpr = false;
                 for (String colName : partialUpdateColNameToExpression.keySet()) {
                     if (colName.equalsIgnoreCase(column.getName())) {
@@ -212,8 +214,9 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
-        if (!SlotBinder.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
-                || (dbName != null && SlotBinder.compareDbName(tableQualifier.get(1), dbName))) {
+        if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
+                || (dbName != null
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }
@@ -222,7 +225,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
-                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+                    + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
@@ -238,14 +241,6 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 
@@ -256,5 +251,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUpdateCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UPDATE;
     }
 }

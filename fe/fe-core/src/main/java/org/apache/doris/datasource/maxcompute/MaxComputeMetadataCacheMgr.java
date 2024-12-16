@@ -23,7 +23,10 @@ import java.util.Map;
 
 public class MaxComputeMetadataCacheMgr {
 
-    private static final Map<Long, MaxComputeMetadataCache> maxComputeMetadataCaches = Maps.newConcurrentMap();
+    private final Map<Long, MaxComputeMetadataCache> maxComputeMetadataCaches = Maps.newConcurrentMap();
+
+    public MaxComputeMetadataCacheMgr() {
+    }
 
     public MaxComputeMetadataCache getMaxComputeMetadataCache(long catalogId) {
         MaxComputeMetadataCache cache = maxComputeMetadataCaches.get(catalogId);

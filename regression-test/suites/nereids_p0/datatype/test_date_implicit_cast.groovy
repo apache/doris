@@ -18,6 +18,8 @@
 suite("test_date_implicit_cast") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     def tbl = "test_date_implicit_cast"
     def result = ""
@@ -33,10 +35,10 @@ suite("test_date_implicit_cast") {
 
     result = sql " desc verbose select if(k1='2020-12-12', k1, '2020-12-12 12:12:12.123') from d4nn "
     for (String value : result) {
-        if (value.contains("col=k1, colUniqueId=0, type=DATETIMEV2(4)")) {
+        if (value.contains("col=k1, colUniqueId=0, type=datetimev2(4)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=DATETIMEV2(4)")) {
+        if (value.contains("col=null, colUniqueId=null, type=datetimev2(4)")) {
             contain1 = true;
         }
     }
@@ -45,10 +47,10 @@ suite("test_date_implicit_cast") {
 
     result = sql " desc verbose select if(k1='2020-12-12', k1, cast('2020-12-12 12:12:12.123' as datetimev2(3))) from d4nn; "
     for (String value : result) {
-        if (value.contains("col=k1, colUniqueId=0, type=DATETIMEV2(4)")) {
+        if (value.contains("col=k1, colUniqueId=0, type=datetimev2(4)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=DATETIMEV2(4)")) {
+        if (value.contains("col=null, colUniqueId=null, type=datetimev2(4)")) {
             contain1 = true;
         }
     }
@@ -56,10 +58,10 @@ suite("test_date_implicit_cast") {
 
     result = sql " desc verbose select if(k1='2012-12-12 12:12:12.1235', k1, '2020-12-12 12:12:12.12345') from d4nn; "
     for (String value : result) {
-        if (value.contains("col=k1, colUniqueId=0, type=DATETIMEV2(4)")) {
+        if (value.contains("col=k1, colUniqueId=0, type=datetimev2(4)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=DATETIMEV2(5)")) {
+        if (value.contains("col=null, colUniqueId=null, type=datetimev2(5)")) {
             contain1 = true;
         }
     }
@@ -75,10 +77,10 @@ suite("test_date_implicit_cast") {
 
     result = sql " desc verbose select if(k1='2020-12-12 12:12:12.12345', k1, '2020-12-12 12:12:12.33333') from d6; "
     for (String value : result) {
-        if (value.contains("col=k1, colUniqueId=0, type=DATETIMEV2(6)")) {
+        if (value.contains("col=k1, colUniqueId=0, type=datetimev2(6)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=DATETIMEV2(6)")) {
+        if (value.contains("col=null, colUniqueId=null, type=datetimev2(6)")) {
             contain1 = true;
         }
     }

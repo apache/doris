@@ -45,7 +45,7 @@ import com.google.common.collect.ImmutableList;
  *        [ORDER BY ...]
  *        [LIMIT limit];
  */
-public class ShowAnalyzeStmt extends ShowStmt {
+public class ShowAnalyzeStmt extends ShowStmt implements NotFallbackInParser {
     private static final String STATE_NAME = "state";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("job_id")
@@ -62,6 +62,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("schedule_type")
             .add("start_time")
             .add("end_time")
+            .add("priority")
+            .add("enable_partition")
             .build();
 
     private long jobId;
@@ -119,7 +121,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
             dbTableName.analyze(analyzer);
             String dbName = dbTableName.getDb();
             String tblName = dbTableName.getTbl();
-            checkShowAnalyzePriv(dbName, tblName);
+            String ctlName = dbTableName.getCtl();
+            checkShowAnalyzePriv(ctlName, dbName, tblName);
         }
 
         // analyze where clause if not null
@@ -142,9 +145,10 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 
-    private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
+    private void checkShowAnalyzePriv(String ctlName, String dbName, String tblName) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
+                .checkTblPriv(ConnectContext.get(), ctlName, dbName, tblName,
+                        PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "SHOW ANALYZE",

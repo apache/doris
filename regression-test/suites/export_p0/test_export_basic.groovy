@@ -66,7 +66,7 @@ suite("test_export_basic", "p0") {
     sql """
     CREATE TABLE IF NOT EXISTS ${table_export_name} (
         `id` int(11) NULL,
-        `name` string NULL,
+        `Name` string NULL,
         `age` int(11) NULL
         )
         PARTITION BY RANGE(id)
@@ -135,6 +135,21 @@ suite("test_export_basic", "p0") {
         }
     }
 
+    def waiting_export_with_exception = { the_db, export_label, exception_msg ->
+        while (true) {
+            def res = sql """ show export from ${the_db} where label = "${export_label}" """
+            logger.info("export state: " + res[0][2])
+            if (res[0][2] == "FINISHED") {
+                throw new IllegalStateException("""export finished, do not contains exception: ${exception_msg}""")
+            } else if (res[0][2] == "CANCELLED") {
+                assertTrue(res[0][10].contains("${exception_msg}"))
+                break;
+            } else {
+                sleep(5000)
+            }
+        }
+    }
+
     // 1. basic test
     def uuid = UUID.randomUUID().toString()
     def outFilePath = """${outfile_path_prefix}_${uuid}"""
@@ -149,7 +164,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -162,7 +178,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -174,7 +190,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -214,7 +230,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -227,7 +244,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -239,7 +256,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -279,7 +296,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -292,7 +310,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -304,7 +322,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -344,7 +362,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -357,7 +376,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -369,7 +388,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -395,11 +414,11 @@ suite("test_export_basic", "p0") {
     }
 
     // 5. test order by and limit clause
-    uuid1 = UUID.randomUUID().toString()
+    def uuid1 = UUID.randomUUID().toString()
     outFilePath = """${outfile_path_prefix}_${uuid1}"""
-    label1 = "label_${uuid1}"
-    uuid2 = UUID.randomUUID().toString()
-    label2 = "label_${uuid2}"
+    def label1 = "label_${uuid1}"
+    def uuid2 = UUID.randomUUID().toString()
+    def label2 = "label_${uuid2}"
     try {
         // check export path
         check_path_exists.call("${outFilePath}")
@@ -411,7 +430,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label1}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         sql """
@@ -420,7 +440,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label2}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label1)
@@ -454,7 +475,8 @@ suite("test_export_basic", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
-                "columns" = "id, name"
+                "columns" = "id, Name",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -467,7 +489,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL
+            `Name` string NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
@@ -478,7 +500,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name'
+            set 'columns', 'id, Name'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -519,7 +541,8 @@ suite("test_export_basic", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
-                "columns" = "id"
+                "columns" = "id",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
@@ -588,7 +611,8 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(label_db, label)
@@ -601,7 +625,8 @@ suite("test_export_basic", "p0") {
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv",
-                    "column_separator"=","
+                    "column_separator"=",",
+                    "data_consistency" = "none"
                 );
             """
             exception "has already been used"
@@ -625,11 +650,28 @@ suite("test_export_basic", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "column_separator"=","
+                "column_separator"=",",
+                "data_consistency" = "none"
             );
         """
         waiting_export.call(label_db, label)
 
+        // test illegal column names
+        uuid = UUID.randomUUID().toString()
+        label = "label_${uuid}"
+
+        sql """
+            EXPORT TABLE ${label_db}.${table_load_name}
+            TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label}",
+                "columns" = "col1",
+                "format" = "csv",
+                "column_separator"=",",
+                "data_consistency" = "none"
+            );
+        """
+        waiting_export_with_exception(label_db, label, "Unknown column");
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")

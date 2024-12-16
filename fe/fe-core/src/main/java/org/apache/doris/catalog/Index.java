@@ -23,12 +23,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -44,32 +48,51 @@ import java.util.Set;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
- * This class will used in olaptable
+ * This class will be used in olap table
  */
 public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
-    @SerializedName(value = "indexId")
-    private long indexId = -1; // -1 for compatibale
-    @SerializedName(value = "indexName")
+    @SerializedName(value = "i", alternate = {"indexId"})
+    private long indexId = -1; // -1 for compatiable
+    @SerializedName(value = "in", alternate = {"indexName"})
     private String indexName;
-    @SerializedName(value = "columns")
+    @SerializedName(value = "c", alternate = {"columns"})
     private List<String> columns;
-    @SerializedName(value = "indexType")
+    @SerializedName(value = "it", alternate = {"indexType"})
     private IndexDef.IndexType indexType;
-    @SerializedName(value = "properties")
+    @SerializedName(value = "pt", alternate = {"properties"})
     private Map<String, String> properties;
-    @SerializedName(value = "comment")
+    @SerializedName(value = "ct", alternate = {"comment"})
     private String comment;
+    @SerializedName(value = "cui", alternate = {"columnUniqueIds"})
+    private List<Integer> columnUniqueIds;
 
     public Index(long indexId, String indexName, List<String> columns,
-                 IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
+            IndexDef.IndexType indexType, Map<String, String> properties, String comment,
+            List<Integer> columnUniqueIds) {
         this.indexId = indexId;
         this.indexName = indexName;
-        this.columns = columns;
+        this.columns = columns == null ? Lists.newArrayList() : Lists.newArrayList(columns);
         this.indexType = indexType;
-        this.properties = properties;
+        this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
+        this.columnUniqueIds = columnUniqueIds == null ? Lists.newArrayList() : Lists.newArrayList(columnUniqueIds);
+        if (indexType == IndexDef.IndexType.INVERTED) {
+            if (this.properties != null && !this.properties.isEmpty()) {
+                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                    if (!properties.containsKey(lowerCaseKey)) {
+                        this.properties.put(lowerCaseKey, "true");
+                    }
+                    String supportPhraseKey = InvertedIndexUtil
+                            .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+                    if (!properties.containsKey(supportPhraseKey)) {
+                        this.properties.put(supportPhraseKey, "true");
+                    }
+                }
+            }
+        }
     }
 
     public Index() {
@@ -78,6 +101,7 @@ public class Index implements Writable {
         this.indexType = null;
         this.properties = null;
         this.comment = null;
+        this.columnUniqueIds = null;
     }
 
     public long getIndexId() {
@@ -140,12 +164,39 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexCharFilter(properties);
     }
 
+    public boolean getInvertedIndexParserLowercase() {
+        return InvertedIndexUtil.getInvertedIndexParserLowercase(properties);
+    }
+
+    public String getInvertedIndexParserStopwords() {
+        return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
+    }
+
+    public boolean isLightIndexChangeSupported() {
+        return indexType == IndexDef.IndexType.INVERTED;
+    }
+
     public String getComment() {
-        return comment;
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
     }
 
     public void setComment(String comment) {
         this.comment = comment;
+    }
+
+    public List<Integer> getColumnUniqueIds() {
+        return columnUniqueIds;
+    }
+
+    public void setColumnUniqueIds(List<Integer> columnUniqueIds) {
+        this.columnUniqueIds = columnUniqueIds;
     }
 
     @Override
@@ -165,7 +216,7 @@ public class Index implements Writable {
 
     public Index clone() {
         return new Index(indexId, indexName, new ArrayList<>(columns),
-                         indexType, new HashMap<>(properties), comment);
+                indexType, new HashMap<>(properties), comment, columnUniqueIds);
     }
 
     @Override
@@ -194,8 +245,8 @@ public class Index implements Writable {
             sb.append(" PROPERTIES");
             sb.append(getPropertiesString());
         }
-        if (comment != null) {
-            sb.append(" COMMENT '" + comment + "'");
+        if (StringUtils.isNotBlank(comment)) {
+            sb.append(" COMMENT '").append(getComment(true)).append("'");
         }
         return sb.toString();
     }
@@ -209,6 +260,7 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
+        tIndex.setColumnUniqueIds(columnUniqueIds);
         return tIndex;
     }
 
@@ -264,7 +316,7 @@ public class Index implements Writable {
                     column = column.toLowerCase();
                     if (bfColumns.contains(column)) {
                         throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
-                            + "filter index");
+                                + "filter index");
                     }
                     bfColumns.add(column);
                 }
@@ -274,7 +326,7 @@ public class Index implements Writable {
             column = column.toLowerCase();
             if (bfColumns.contains(column)) {
                 throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
-                    + "filter index");
+                        + "filter index");
             }
             bfColumns.add(column);
         }

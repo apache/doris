@@ -57,6 +57,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
@@ -66,14 +67,22 @@
 #include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
 }
 
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
     DataTypePtr nested = nullptr;
-    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
+        DataTypes dataTypes;
+        for (UInt32 i = 0; i < col_desc.get_subtype_count(); i++) {
+            dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
+        }
+        nested = std::make_shared<vectorized::DataTypeAggState>(
+                dataTypes, col_desc.get_result_is_nullable(), col_desc.get_aggregation_name(),
+                col_desc.get_be_exec_version());
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_subtype_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
@@ -88,18 +97,11 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         Strings names;
         dataTypes.reserve(col_size);
         names.reserve(col_size);
-        for (size_t i = 0; i < col_size; i++) {
+        for (UInt32 i = 0; i < col_size; i++) {
             dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
             names.push_back(col_desc.get_sub_column(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
-    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
-        DataTypes dataTypes;
-        for (size_t i = 0; i < col_desc.get_subtype_count(); i++) {
-            dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
-        }
-        nested = std::make_shared<vectorized::DataTypeAggState>(
-                dataTypes, col_desc.get_result_is_nullable(), col_desc.get_aggregation_name());
     } else {
         nested =
                 _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
@@ -154,7 +156,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_DATETIME:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
-    case TYPE_TIME:
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(col_desc.scale);
         break;
@@ -176,7 +177,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
             subTypes.push_back(create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
         }
         nested = std::make_shared<vectorized::DataTypeAggState>(
-                subTypes, col_desc.result_is_nullable, col_desc.function_name);
+                subTypes, col_desc.result_is_nullable, col_desc.function_name,
+                col_desc.be_exec_version);
         break;
     case TYPE_JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
@@ -188,7 +190,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+                27, 9, col_desc.precision, col_desc.scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -326,6 +329,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
         break;
+    case TypeIndex::Nothing:
+        nested = std::make_shared<vectorized::DataTypeNothing>();
+        break;
     case TypeIndex::BitMap:
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
@@ -340,7 +346,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
     default:
-        DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid typeindex: {}",
+                               getTypeName(type_index));
         break;
     }
 
@@ -414,7 +421,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
+        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+                27, 9, precision, scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -426,7 +434,6 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = vectorized::create_decimal(precision, scale, false);
         break;
     default:
-        DCHECK(false) << "Invalid FieldType:" << (int)type;
         result = nullptr;
         break;
     }
@@ -539,13 +546,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
                                                            create_data_type(pcolumn.children(1)));
         break;
     case PGenericType::STRUCT: {
-        size_t col_size = pcolumn.children_size();
+        int col_size = pcolumn.children_size();
         DCHECK(col_size >= 1);
         DataTypes dataTypes;
         Strings names;
         dataTypes.reserve(col_size);
         names.reserve(col_size);
-        for (size_t i = 0; i < col_size; i++) {
+        for (int i = 0; i < col_size; i++) {
             dataTypes.push_back(create_data_type(pcolumn.children(i)));
             names.push_back(pcolumn.children(i).name());
         }
@@ -567,11 +574,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
             sub_types.push_back(create_data_type(child));
         }
         nested = std::make_shared<DataTypeAggState>(sub_types, pcolumn.result_is_nullable(),
-                                                    pcolumn.function_name());
+                                                    pcolumn.function_name(),
+                                                    pcolumn.be_exec_version());
         break;
     }
     default: {
-        LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unknown data type: {}", pcolumn.type());
         return nullptr;
     }
     }
@@ -584,7 +592,19 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
 
 DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pcolumn) {
     DataTypePtr nested = nullptr;
-    if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
+    if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_AGG_STATE)) {
+        DataTypes data_types;
+        for (auto child : pcolumn.children_columns()) {
+            auto type = DataTypeFactory::instance().create_data_type(child);
+            // may have length column with OLAP_FIELD_TYPE_UNSIGNED_BIGINT, then type will be nullptr
+            if (type) {
+                data_types.push_back(type);
+            }
+        }
+        nested = std::make_shared<vectorized::DataTypeAggState>(
+                data_types, pcolumn.result_is_nullable(), pcolumn.function_name(),
+                pcolumn.be_exec_version());
+    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
         // Item subcolumn and length subcolumn, for sparse columns only subcolumn
         DCHECK_GE(pcolumn.children_columns().size(), 1) << pcolumn.DebugString();
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children_columns(0)));
@@ -595,14 +615,11 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
                 create_data_type(pcolumn.children_columns(1)));
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
         DCHECK_GE(pcolumn.children_columns().size(), 1);
-        size_t col_size = pcolumn.children_columns().size();
-        DataTypes dataTypes;
-        Strings names;
-        dataTypes.reserve(col_size);
-        names.reserve(col_size);
-        for (size_t i = 0; i < col_size; i++) {
-            dataTypes.push_back(create_data_type(pcolumn.children_columns(i)));
-            names.push_back("");
+        Int32 col_size = pcolumn.children_columns().size();
+        DataTypes dataTypes(col_size);
+        Strings names(col_size);
+        for (Int32 i = 0; i < col_size; i++) {
+            dataTypes[i] = create_data_type(pcolumn.children_columns(i));
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else {
@@ -612,94 +629,6 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     }
 
     if (pcolumn.is_nullable() && nested) {
-        return make_nullable(nested);
-    }
-    return nested;
-}
-
-DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool is_nullable) {
-    DataTypePtr nested = nullptr;
-    switch (type->id()) {
-    case ::arrow::Type::BOOL:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        break;
-    case ::arrow::Type::INT8:
-        nested = std::make_shared<vectorized::DataTypeInt8>();
-        break;
-    case ::arrow::Type::UINT8:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        break;
-    case ::arrow::Type::INT16:
-        nested = std::make_shared<vectorized::DataTypeInt16>();
-        break;
-    case ::arrow::Type::UINT16:
-        nested = std::make_shared<vectorized::DataTypeUInt16>();
-        break;
-    case ::arrow::Type::INT32:
-        nested = std::make_shared<vectorized::DataTypeInt32>();
-        break;
-    case ::arrow::Type::UINT32:
-        nested = std::make_shared<vectorized::DataTypeUInt32>();
-        break;
-    case ::arrow::Type::INT64:
-        nested = std::make_shared<vectorized::DataTypeInt64>();
-        break;
-    case ::arrow::Type::UINT64:
-        nested = std::make_shared<vectorized::DataTypeUInt64>();
-        break;
-    case ::arrow::Type::HALF_FLOAT:
-    case ::arrow::Type::FLOAT:
-        nested = std::make_shared<vectorized::DataTypeFloat32>();
-        break;
-    case ::arrow::Type::DOUBLE:
-        nested = std::make_shared<vectorized::DataTypeFloat64>();
-        break;
-    case ::arrow::Type::DATE32:
-        nested = std::make_shared<vectorized::DataTypeDate>();
-        break;
-    case ::arrow::Type::DATE64:
-    case ::arrow::Type::TIMESTAMP:
-        nested = std::make_shared<vectorized::DataTypeDateTime>();
-        break;
-    case ::arrow::Type::BINARY:
-    case ::arrow::Type::FIXED_SIZE_BINARY:
-    case ::arrow::Type::STRING:
-        nested = std::make_shared<vectorized::DataTypeString>();
-        break;
-    case ::arrow::Type::DECIMAL:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>();
-        break;
-    case ::arrow::Type::LIST:
-        DCHECK(type->num_fields() == 1);
-        nested = std::make_shared<vectorized::DataTypeArray>(
-                create_data_type(type->field(0)->type().get(), true));
-        break;
-    case ::arrow::Type::MAP:
-        DCHECK(type->num_fields() == 2);
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(type->field(0)->type().get(), true),
-                create_data_type(type->field(1)->type().get(), true));
-        break;
-    case ::arrow::Type::STRUCT: {
-        size_t field_num = type->num_fields();
-        DCHECK(type->num_fields() >= 1);
-        vectorized::DataTypes dataTypes;
-        vectorized::Strings names;
-        dataTypes.reserve(field_num);
-        names.reserve(field_num);
-        for (size_t i = 0; i < field_num; i++) {
-            dataTypes.push_back(create_data_type(type->field(i)->type().get(), true));
-            names.push_back(type->field(i)->name());
-        }
-        nested = std::make_shared<vectorized::DataTypeStruct>(dataTypes, names);
-        break;
-    }
-    default:
-        DCHECK(false) << "invalid arrow type:" << (int)(type->id());
-        break;
-    }
-
-    if (nested && is_nullable) {
         return make_nullable(nested);
     }
     return nested;

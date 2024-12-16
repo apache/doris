@@ -34,11 +34,11 @@
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
 #include "util/slice.h"
-#include "vec/sink/autoinc_buffer.h"
 
 namespace doris {
 namespace vectorized {
@@ -56,6 +56,7 @@ struct RowsetWriterContext;
 
 namespace io {
 class FileWriter;
+class FileSystem;
 } // namespace io
 
 namespace segment_v2 {
@@ -68,6 +69,7 @@ struct VerticalSegmentWriterOptions {
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    std::shared_ptr<MowContext> mow_ctx;
 };
 
 struct RowsInBlock {
@@ -80,9 +82,8 @@ class VerticalSegmentWriter {
 public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                                   DataDir* data_dir, uint32_t max_row_per_segment,
-                                   const VerticalSegmentWriterOptions& opts,
-                                   std::shared_ptr<MowContext> mow_context);
+                                   DataDir* data_dir, const VerticalSegmentWriterOptions& opts,
+                                   InvertedIndexFileWriter* inverted_file_writer);
     ~VerticalSegmentWriter();
 
     VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;
@@ -99,8 +100,13 @@ public:
     [[nodiscard]] std::string data_dir_path() const {
         return _data_dir == nullptr ? "" : _data_dir->path();
     }
-    [[nodiscard]] size_t inverted_index_file_size() const { return _inverted_index_file_size; }
+
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
+
+    // for partial update
+    [[nodiscard]] int64_t num_rows_updated() const { return _num_rows_updated; }
+    [[nodiscard]] int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    [[nodiscard]] int64_t num_rows_new_added() const { return _num_rows_new_added; }
     [[nodiscard]] int64_t num_rows_filtered() const { return _num_rows_filtered; }
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
@@ -113,12 +119,25 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
+
     void clear();
+
+    Status close_inverted_index(int64_t* inverted_index_file_size) {
+        // no inverted index
+        if (_inverted_index_file_writer == nullptr) {
+            *inverted_index_file_size = 0;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
+        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        return Status::OK();
+    }
 
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
-    Status _create_column_writer(uint32_t cid, const TabletColumn& column);
-    size_t _calculate_inverted_index_file_size();
+    Status _create_column_writer(uint32_t cid, const TabletColumn& column,
+                                 const TabletSchemaSPtr& schema);
     uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();
     Status _write_zone_map();
@@ -135,17 +154,64 @@ private:
     // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
+    std::string _full_encode_keys(
+            const std::vector<const KeyCoder*>& key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
                             string* encoded_keys);
+    // used for unique-key with merge on write tables with cluster keys
+    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
-    Status _append_block_with_partial_content(RowsInBlock& data);
-    Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                 const std::vector<bool>& use_default_or_null_flag,
-                                 bool has_default_or_nullable, const size_t& segment_start_pos);
+    Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
+                              bool have_delete_sign,
+                              const std::vector<RowsetSharedPtr>& specified_rowsets,
+                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                              bool& has_default_or_nullable,
+                              std::vector<bool>& use_default_or_null_flag,
+                              const std::function<void(const RowLocation& loc)>& found_cb,
+                              const std::function<Status()>& not_found_cb,
+                              PartialUpdateStats& stats);
+    Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
+    Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
+    Status _append_block_with_flexible_partial_content(RowsInBlock& data,
+                                                       vectorized::Block& full_block);
+    Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
+                                               const PartialUpdateInfo& info,
+                                               std::string* encoded_value);
+    Status _generate_flexible_read_plan(
+            FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
+            bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
+            std::vector<BitmapValue>* skip_bitmaps,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            const signed char* delete_sign_column_data,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+            PartialUpdateStats& stats);
+    Status _merge_rows_for_sequence_column(
+            RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+    Status _append_block_with_variant_subcolumns(RowsInBlock& data);
+    Status _generate_key_index(
+            RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            std::map<uint32_t, vectorized::IOlapColumnDataAccessor*>& cid_to_column);
+    Status _generate_primary_key_index(
+            const std::vector<const KeyCoder*>& primary_key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
+    Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+                                     size_t num_rows, const std::vector<size_t>& short_key_pos);
+    bool _is_mow();
+    bool _is_mow_with_cluster_key();
 
 private:
     uint32_t _segment_id;
@@ -156,12 +222,15 @@ private:
 
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
-    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
+    // Not owned. owned by RowsetWriter or SegmentFlusher
+    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
-    size_t _num_key_columns;
+    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
+    // for other tables, the sort key is the keys
+    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
-    size_t _inverted_index_file_size;
+
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -170,14 +239,23 @@ private:
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
+    // for mow table with cluster keys, this is primary keys
+    std::vector<const KeyCoder*> _primary_key_coders;
     const KeyCoder* _seq_coder = nullptr;
+    const KeyCoder* _rowid_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
 
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
+
+    /** for partial update stats **/
+    int64_t _num_rows_updated = 0;
+    int64_t _num_rows_new_added = 0;
+    int64_t _num_rows_deleted = 0;
     // number of rows filtered in strict mode partial update
     int64_t _num_rows_filtered = 0;
+
     // _row_count means total row count of this segment
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group
@@ -189,12 +267,12 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
-    std::shared_ptr<vectorized::AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
-    vectorized::AutoIncIDAllocator _auto_inc_id_allocator;
+
+    // contains auto generated columns, should be nullptr if no variants's subcolumns
+    TabletSchemaSPtr _flush_schema = nullptr;
 };
 
 } // namespace segment_v2

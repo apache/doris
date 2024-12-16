@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
 // Show create catalog statement
 //  Syntax:
 //      SHOW CREATE CATALOG catalogName
-public class ShowCreateCatalogStmt extends ShowStmt {
+public class ShowCreateCatalogStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Catalog", ScalarType.createVarchar(20)))

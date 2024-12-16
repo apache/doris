@@ -34,7 +34,7 @@ suite("prepare_insert") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE ${tableName} (
-            `id` int(11) NOT NULL,
+            `id` int(11) NULL,
             `name` varchar(50) NULL,
             `score` int(11) NULL DEFAULT "-1"
         ) ENGINE=OLAP
@@ -46,6 +46,28 @@ suite("prepare_insert") {
         );
     """
 
+    // Parse url
+    String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
+
+    def check_is_master_fe = {
+        // check if executed on master fe
+        // observer fe will forward the insert statements to master and forward does not support prepare statement
+        def fes = sql_return_maparray "show frontends"
+        logger.info("frontends: ${fes}")
+        def is_master_fe = true
+        for (def fe : fes) {
+            if (url.contains(fe.Host + ":")) {
+                if (fe.IsMaster == "false") {
+                    is_master_fe = false
+                }
+                break
+            }
+        }
+        logger.info("is master fe: ${is_master_fe}")
+        return is_master_fe
+    }
+    def is_master_fe = check_is_master_fe()
+
     def getServerInfo = { stmt ->
         def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
         logger.info("server info: " + serverInfo)
@@ -53,6 +75,9 @@ suite("prepare_insert") {
     }
 
     def getStmtId = { stmt ->
+        if (!is_master_fe) {
+            return 0
+        }
         ConnectionImpl connection = (ConnectionImpl) stmt.getConnection()
         Field field = ConnectionImpl.class.getDeclaredField("openStatements")
         field.setAccessible(true)
@@ -69,12 +94,16 @@ suite("prepare_insert") {
         return serverStatementIds
     }
 
-    // Parse url
-    String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
+    def check = { Closure<?> c -> {
+            if (is_master_fe) {
+                c()
+            }
+        }
+    }
 
-    def result1 = connect(user = user, password = password, url = url) {
+    def result1 = connect(user, password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
-        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
+        check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setInt(1, 1)
         stmt.setString(2, "a")
         stmt.setInt(3, 90)
@@ -112,9 +141,23 @@ suite("prepare_insert") {
         stmt.close()
     }
 
+    // insert with null
+    result1 = connect(user,  password, url) {
+        def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
+        check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
+        stmt.setNull(1, java.sql.Types.INTEGER)
+        stmt.setNull(2, java.sql.Types.VARCHAR)
+        stmt.setNull(3, java.sql.Types.INTEGER)
+        def result = stmt.execute()
+        logger.info("result: ${result}")
+        getServerInfo(stmt)
+
+        stmt.close()
+    }
+
     // insert with label
     def label = "insert_" + System.currentTimeMillis()
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} with label ${label} values(?, ?, ?)"
         assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt.class)
         stmt.setInt(1, 5)
@@ -128,9 +171,9 @@ suite("prepare_insert") {
     }
 
     url += "&rewriteBatchedStatements=true"
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
-        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
+        check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setInt(1, 10)
         stmt.setString(2, "a")
         stmt.setInt(3, 90)
@@ -168,9 +211,9 @@ suite("prepare_insert") {
     }
 
     url += "&cachePrepStmts=true"
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
-        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
+        check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setInt(1, 10)
         stmt.setString(2, "a")
         stmt.setInt(3, 90)
@@ -203,7 +246,7 @@ suite("prepare_insert") {
         assertEquals(result[1], -2)
         getServerInfo(stmt)
         def stmtId2 = getStmtId(stmt)
-        assertEquals(2, stmtId2.size())
+        check {assertEquals(2, stmtId2.size())}
 
         stmt.close()
     }

@@ -18,11 +18,11 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
@@ -48,11 +48,6 @@ public class HistogramTask extends BaseAnalysisTask {
             + "FROM "
             + "    `${dbName}`.`${tblName}`";
 
-    @VisibleForTesting
-    public HistogramTask() {
-        super();
-    }
-
     public HistogramTask(AnalysisInfo info) {
         super(info);
     }
@@ -75,12 +70,16 @@ public class HistogramTask extends BaseAnalysisTask {
 
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
-        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(
+                tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), -1, col.getName());
     }
 
     @Override
-    protected void afterExecution() {
-        // DO NOTHING
+    protected void doSample() {
+    }
+
+    @Override
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
     }
 
     private String getSampleRateFunction() {

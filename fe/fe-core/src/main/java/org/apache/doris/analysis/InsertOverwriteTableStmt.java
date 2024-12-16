@@ -18,10 +18,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -30,7 +34,7 @@ import lombok.Getter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class InsertOverwriteTableStmt extends DdlStmt {
+public class InsertOverwriteTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private final InsertTarget target;
 
@@ -62,26 +66,51 @@ public class InsertOverwriteTableStmt extends DdlStmt {
         return target.getTblName().getTbl();
     }
 
+    public String getCtl() {
+        return target.getTblName().getCtl();
+    }
+
     public QueryStmt getQueryStmt() {
         return source.getQueryStmt();
     }
 
     public List<String> getPartitionNames() {
-        if (target.getPartitionNames() == null) {
+        if (target.getPartitionNames() == null
+                || target.getPartitionNames().getPartitionNames() == null
+                || target.getPartitionNames().isStar()) {
             return new ArrayList<>();
         }
         return target.getPartitionNames().getPartitionNames();
+    }
+
+    /*
+     * auto detect which partitions to replace. enable by partition(*) grammer
+     */
+    public boolean isAutoDetectPartition() {
+        return target.getPartitionNames().isStar();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         target.getTblName().analyze(analyzer);
         InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get());
+        TableIf tableIf = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(getCtl())
+                .getDbOrAnalysisException(getDb()).getTableOrAnalysisException(getTbl());
+        if (tableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
+            throw new DdlException("Not allowed to perform current operation on async materialized view");
+        }
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), getDb(), getTbl(), PrivPredicate.LOAD)) {
+                .checkTblPriv(ConnectContext.get(), target.getTblName().getCtl(), getDb(), getTbl(),
+                        PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     getDb() + ": " + getTbl());
         }
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
+    }
+
 }

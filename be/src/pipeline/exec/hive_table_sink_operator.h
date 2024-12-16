@@ -18,29 +18,9 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vhive_table_sink.h"
+#include "vec/sink/writer/vhive_table_writer.h"
 
-namespace doris {
-
-namespace pipeline {
-
-class HiveTableSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VHiveTableSink> {
-public:
-    HiveTableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "HiveTableSinkOperator", sink) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class HiveTableSinkOperator final : public DataSinkOperator<vectorized::VHiveTableSink> {
-public:
-    HiveTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
-
-    bool can_write() override { return _sink->can_write(); }
-};
+namespace doris::pipeline {
 
 class HiveTableSinkOperatorX;
 
@@ -59,11 +39,7 @@ public:
         return Base::open(state);
     }
 
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class HiveTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 
 class HiveTableSinkOperatorX final : public DataSinkOperatorX<HiveTableSinkLocalState> {
@@ -83,13 +59,9 @@ public:
         return Status::OK();
     }
 
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::prepare(state));
-        return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-    }
-
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
 
@@ -111,5 +83,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

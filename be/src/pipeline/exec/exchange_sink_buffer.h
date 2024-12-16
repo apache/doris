@@ -22,9 +22,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -47,71 +47,53 @@ using InstanceLoId = int64_t;
 
 namespace pipeline {
 class Dependency;
+class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
-class VDataStreamSender;
-template <typename>
-class PipChannel;
-
-template <typename T>
-struct AtomicWrapper {
-    std::atomic<T> _value;
-
-    AtomicWrapper() : _value() {}
-
-    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
-
-    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
-
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
-};
+class Channel;
 
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
-class BroadcastPBlockHolderQueue;
+class BroadcastPBlockHolderMemLimiter;
 class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
     BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
-    BroadcastPBlockHolder(std::unique_ptr<PBlock>&& pblock) { _pblock = std::move(pblock); }
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
 
+    void reset_block() { _pblock->Clear(); }
+
 private:
-    friend class BroadcastPBlockHolderQueue;
+    friend class BroadcastPBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
-    std::weak_ptr<BroadcastPBlockHolderQueue> _parent_creator;
-    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderQueue> parent_creator) {
+    std::weak_ptr<BroadcastPBlockHolderMemLimiter> _parent_creator;
+    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
     }
 };
 
-// Use a stack inside to ensure that the PBlock is in cpu cache
-class BroadcastPBlockHolderQueue : public std::enable_shared_from_this<BroadcastPBlockHolderQueue> {
-    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderQueue);
+class BroadcastPBlockHolderMemLimiter
+        : public std::enable_shared_from_this<BroadcastPBlockHolderMemLimiter> {
+    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderMemLimiter);
 
 public:
-    BroadcastPBlockHolderQueue() = default;
+    BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderQueue(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
         _broadcast_dependency = broadcast_dependency;
     }
 
-    void push(std::shared_ptr<BroadcastPBlockHolder> holder);
-
-    bool empty() {
-        std::unique_lock l(_holders_lock);
-        return _holders.empty();
-    }
-
-    std::shared_ptr<BroadcastPBlockHolder> pop();
+    void acquire(BroadcastPBlockHolder& holder);
+    void release(const BroadcastPBlockHolder& holder);
 
 private:
-    std::stack<std::shared_ptr<BroadcastPBlockHolder>> _holders;
+    std::atomic_int64_t _total_queue_buffer_size {0};
+    std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
     std::mutex _holders_lock;
 };
@@ -119,17 +101,15 @@ private:
 } // namespace vectorized
 
 namespace pipeline {
-template <typename Parent>
 struct TransmitInfo {
-    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
     Status exec_status;
 };
 
-template <typename Parent>
 struct BroadcastTransmitInfo {
-    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::Channel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
@@ -177,6 +157,7 @@ public:
             LOG(FATAL) << "brpc callback error: " << exp.what();
         } catch (...) {
             LOG(FATAL) << "brpc callback error.";
+            __builtin_unreachable();
         }
     }
     int64_t start_rpc_time;
@@ -188,53 +169,91 @@ private:
     bool _eos;
 };
 
-struct ExchangeRpcContext {
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
-    bool is_cancelled = false;
-};
+// ExchangeSinkBuffer can either be shared among multiple ExchangeSinkLocalState instances
+// or be individually owned by each ExchangeSinkLocalState.
+// The following describes the scenario where ExchangeSinkBuffer is shared among multiple ExchangeSinkLocalState instances.
+// Of course, individual ownership can be seen as a special case where only one ExchangeSinkLocalState shares the buffer.
 
-// Each ExchangeSinkOperator have one ExchangeSinkBuffer
-template <typename Parent>
+// A sink buffer contains multiple rpc_channels.
+// Each rpc_channel corresponds to a target instance on the receiving side.
+// Data is sent using a ping-pong mode within each rpc_channel,
+// meaning that at most one RPC can exist in a single rpc_channel at a time.
+// The next RPC can only be sent after the previous one has completed.
+//
+// Each exchange sink sends data to all target instances on the receiving side.
+// If the concurrency is 3, a single rpc_channel will be used simultaneously by three exchange sinks.
+
+/*                                                                                                                                                                                                                                                                                                                          
+                          +-----------+          +-----------+        +-----------+      
+                          |dest ins id|          |dest ins id|        |dest ins id|      
+                          |           |          |           |        |           |      
+                          +----+------+          +-----+-----+        +------+----+      
+                               |                       |                     |           
+                               |                       |                     |           
+                      +----------------+      +----------------+     +----------------+  
+                      |                |      |                |     |                |  
+ sink buffer -------- |   rpc_channel  |      |  rpc_channel   |     |  rpc_channel   |  
+                      |                |      |                |     |                |  
+                      +-------+--------+      +----------------+     +----------------+  
+                              |                        |                      |          
+                              |------------------------+----------------------+          
+                              |                        |                      |          
+                              |                        |                      |          
+                     +-----------------+       +-------+---------+    +-------+---------+
+                     |                 |       |                 |    |                 |
+                     |  exchange sink  |       |  exchange sink  |    |  exchange sink  |
+                     |                 |       |                 |    |                 |
+                     +-----------------+       +-----------------+    +-----------------+
+*/
+
+#ifdef BE_TEST
+void transmit_blockv2(PBackendService_Stub& stub,
+                      std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
+                                                         ExchangeSendCallback<PTransmitDataResult>>>
+                              closure);
+#endif
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state);
-    ~ExchangeSinkBuffer();
-    void register_sink(TUniqueId);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
+                       const std::vector<InstanceLoId>& sender_ins_ids);
 
-    Status add_block(TransmitInfo<Parent>&& request);
-    Status add_block(BroadcastTransmitInfo<Parent>&& request);
-    bool can_write() const;
-    bool is_pending_finish();
+#ifdef BE_TEST
+    ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
+            : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
+#endif
+    ~ExchangeSinkBuffer() override = default;
+
+    void construct_request(TUniqueId);
+
+    Status add_block(TransmitInfo&& request);
+    Status add_block(BroadcastTransmitInfo&& request);
     void close();
-    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
-    void set_dependency(std::shared_ptr<Dependency> queue_dependency,
-                        std::shared_ptr<Dependency> finish_dependency) {
-        _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
+    void set_dependency(InstanceLoId sender_ins_id, std::shared_ptr<Dependency> queue_dependency,
+                        ExchangeSinkLocalState* local_state) {
+        DCHECK(_queue_deps.contains(sender_ins_id));
+        DCHECK(_parents.contains(sender_ins_id));
+        _queue_deps[sender_ins_id] = queue_dependency;
+        _parents[sender_ins_id] = local_state;
     }
-
-    void set_should_stop() {
-        _should_stop = true;
-        _set_ready_to_finish(_busy_channels == 0);
-    }
-
+#ifdef BE_TEST
+public:
+#else
 private:
+#endif
     friend class ExchangeSinkLocalState;
-    void _set_ready_to_finish(bool all_done);
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId,
-                         std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
+    phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
     size_t _queue_capacity;
     // store data in broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
-                                                  std::list<BroadcastTransmitInfo<Parent>>>>
+    phmap::flat_hash_map<InstanceLoId,
+                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
@@ -243,36 +262,59 @@ private:
     phmap::flat_hash_map<InstanceLoId, std::shared_ptr<PTransmitDataParams>> _instance_to_request;
     // One channel is corresponding to a downstream instance.
     phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
-    // Number of busy channels;
-    std::atomic<int> _busy_channels = 0;
-    phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
-    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
-    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
 
-    std::atomic<bool> _is_finishing;
+    // There could be multiple situations that cause an rpc_channel to be turned off,
+    // such as receiving the eof, manual cancellation by the user, or all sinks reaching eos.
+    // Therefore, it is necessary to prevent an rpc_channel from being turned off multiple times.
+    phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_turn_off;
+    struct RpcInstanceStatistics {
+        RpcInstanceStatistics(InstanceLoId id) : inst_lo_id(id) {}
+        InstanceLoId inst_lo_id;
+        int64_t rpc_count = 0;
+        int64_t max_time = 0;
+        int64_t min_time = INT64_MAX;
+        int64_t sum_time = 0;
+    };
+    std::vector<std::shared_ptr<RpcInstanceStatistics>> _instance_to_rpc_stats_vec;
+    phmap::flat_hash_map<InstanceLoId, RpcInstanceStatistics*> _instance_to_rpc_stats;
+
+    // It is set to true only when an RPC fails. Currently, we do not have an error retry mechanism.
+    // If an RPC error occurs, the query will be canceled.
+    std::atomic<bool> _is_failed;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
-    // Sender instance id, unique within a fragment. StreamSender save the variable
-    int _sender_id;
-    int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
-    // must hold the _instance_to_package_queue_mutex[id] mutex to opera
-    void _construct_request(InstanceLoId id, PUniqueId);
+
+#ifndef BE_TEST
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
-    inline bool _is_receiver_eof(InstanceLoId id);
+    inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+
+#else
+    virtual void _ended(InstanceLoId id);
+    virtual void _failed(InstanceLoId id, const std::string& err);
+    virtual void _set_receiver_eof(InstanceLoId id);
+    virtual void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+#endif
+
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _finish_dependency;
-    std::atomic<bool> _should_stop {false};
+
+    // _running_sink_count is used to track how many sinks have not finished yet.
+    // It is only decremented when eos is reached.
+    phmap::flat_hash_map<InstanceLoId, int64_t> _running_sink_count;
+    // _queue_deps is used for memory control.
+    phmap::flat_hash_map<InstanceLoId, std::shared_ptr<Dependency>> _queue_deps;
+    // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
+    phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
+    const int64_t _exchange_sink_num;
 };
 
 } // namespace pipeline

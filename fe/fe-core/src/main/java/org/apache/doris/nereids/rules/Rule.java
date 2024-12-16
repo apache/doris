@@ -18,14 +18,13 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType.RuleTypeClass;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.BitSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Abstract class for all rules.
@@ -64,12 +63,16 @@ public abstract class Rule {
         return ruleType.getRuleTypeClass() == RuleTypeClass.REWRITE;
     }
 
+    public boolean isExploration() {
+        return ruleType.getRuleTypeClass() == RuleTypeClass.EXPLORATION;
+    }
+
     @Override
     public String toString() {
         return getRuleType().toString();
     }
 
-    public abstract List<Plan> transform(Plan node, CascadesContext context) throws TransformException;
+    public abstract List<Plan> transform(Plan node, CascadesContext context);
 
     /** callback this function when the traverse framework accept a new plan which produce by this rule */
     public void acceptPlan(Plan plan) {
@@ -79,8 +82,8 @@ public abstract class Rule {
     /**
      * Filter out already applied rules and rules that are not matched on root node.
      */
-    public boolean isInvalid(Set<Integer> disableRules, GroupExpression groupExpression) {
-        return disableRules.contains(this.getRuleType().type())
+    public boolean isInvalid(BitSet disableRules, GroupExpression groupExpression) {
+        return disableRules.get(this.getRuleType().type())
                 || !groupExpression.notApplied(this)
                 || !this.getPattern().matchRoot(groupExpression.getPlan());
     }

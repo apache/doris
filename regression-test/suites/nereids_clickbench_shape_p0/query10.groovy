@@ -19,7 +19,9 @@
 
 suite("query10") {
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql 'set topn_opt_limit_threshold = 1024'
     def ckBench = """SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID) FROM hits GROUP BY RegionID ORDER BY c DESC LIMIT 10"""

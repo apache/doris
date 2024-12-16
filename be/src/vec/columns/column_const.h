@@ -21,11 +21,10 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
-#include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <ostream>
@@ -48,14 +47,53 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class Arena;
 class Block;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
+/*
+ * @return first : pointer to column itself if it's not ColumnConst, else to column's data column.
+ *         second : zero if column is ColumnConst, else itself.
+*/
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                size_t row_num) noexcept;
+
+/*
+ * @warning use this function sometimes cause performance problem in GCC.
+*/
+template <typename T>
+    requires std::is_integral_v<T>
+T index_check_const(T arg, bool constancy) noexcept {
+    return constancy ? 0 : arg;
+}
+template <bool is_const, typename T>
+    requires std::is_integral_v<T>
+constexpr T index_check_const(T arg) noexcept {
+    if constexpr (is_const) {
+        return 0;
+    } else {
+        return arg;
+    }
+}
+
+/*
+ * @return first : data_column_ptr for ColumnConst, itself otherwise.
+ *         second : whether it's ColumnConst.
+*/
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
+
+/*
+ * For the functions that some columns of arguments are almost but not completely always const, we use this function to preprocessing its parameter columns
+ * (which are not data columns). When we have two or more columns which only provide parameter, use this to deal with corner case. So you can specialize you
+ * implementations for all const or all parameters const, without considering some of parameters are const.
+ 
+ * Do the transformation only for the columns whose arg_indexes in parameters.
+*/
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::initializer_list<size_t>& parameters,
+                                          Block& block, const ColumnNumbers& arg_indexes);
 
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
@@ -68,6 +106,7 @@ private:
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
     ColumnConst(const ColumnConst& src) = default;
 
 public:
@@ -77,11 +116,9 @@ public:
         return convert_to_full_column()->convert_to_full_column_if_const();
     }
 
-    ColumnPtr remove_low_cardinality() const;
+    bool is_variable_length() const override { return data->is_variable_length(); }
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
-
-    const char* get_family_name() const override { return "Const"; }
 
     void resize(size_t new_size) override { s = new_size; }
 
@@ -97,19 +134,17 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    UInt64 get64(size_t) const override { return data->get64(0); }
-
-    UInt64 get_uint(size_t) const override { return data->get_uint(0); }
-
     Int64 get_int(size_t) const override { return data->get_int(0); }
 
     bool get_bool(size_t) const override { return data->get_bool(0); }
 
-    Float64 get_float64(size_t) const override { return data->get_float64(0); }
-
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
     void insert_range_from(const IColumn&, size_t /*start*/, size_t length) override {
+        s += length;
+    }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override {
         s += length;
     }
 
@@ -130,17 +165,12 @@ public:
 
     void pop_back(size_t n) override { s -= n; }
 
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override;
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
-
     StringRef serialize_value_into_arena(size_t, Arena& arena, char const*& begin) const override {
         return data->serialize_value_into_arena(0, arena, begin);
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        auto res = data->deserialize_and_insert_from_arena(pos);
+        const auto* res = data->deserialize_and_insert_from_arena(pos);
         data->pop_back(1);
         ++s;
         return res;
@@ -177,14 +207,6 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
-    // (TODO.Amory) here may not use column_const update hash, and PrimitiveType is not used.
-    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
-                                uint32_t offset = 0,
-                                const uint8_t* __restrict null_data = nullptr) const override;
-
-    void update_hashes_with_value(uint64_t* __restrict hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
@@ -200,10 +222,11 @@ public:
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+        auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
-        auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
-        auto* rhs_nullable = check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
+        const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
+        const auto* rhs_nullable =
+                check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
         if (this_nullable && rhs_nullable) {
             return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
         } else if (this_nullable) {
@@ -218,27 +241,18 @@ public:
         }
     }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        assert_cast<Self&>(*res).resize(selector.size());
-    }
-
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_concrete = typeid_cast<const ColumnConst*>(&rhs))
+        if (const auto* rhs_concrete = typeid_cast<const ColumnConst*>(&rhs)) {
             return data->structure_equals(*rhs_concrete->data);
+        }
         return false;
     }
 
-    //    bool is_nullable() const override { return is_column_nullable(*data); }
+    // ColumnConst is not nullable, but may be concrete nullable.
+    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
-    bool is_numeric() const override { return data->is_numeric(); }
-    bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }
-    bool values_have_fixed_size() const override { return data->values_have_fixed_size(); }
-    size_t size_of_value_if_fixed() const override { return data->size_of_value_if_fixed(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
@@ -251,50 +265,14 @@ public:
 
     template <typename T>
     T get_value() const {
-        return get_field().safe_get<NearestFieldType<T>>();
+        // Here the cast is correct, relevant code is rather tricky.
+        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data->replace_column_data(rhs, row, self_row);
     }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        LOG(FATAL) << "should not call the method in column const";
-    }
 };
-
-/*
- * @return first : pointer to column itself if it's not ColumnConst, else to column's data column.
- *         second : zero if column is ColumnConst, else itself.
-*/
-std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
-                                                                const size_t row_num) noexcept;
-
-/*
- * @warning use this function sometimes cause performance problem in GCC.
-*/
-template <typename T>
-    requires std::is_integral_v<T>
-T index_check_const(T arg, bool constancy) noexcept {
-    return constancy ? 0 : arg;
-}
-
-/*
- * @return first : data_column_ptr for ColumnConst, itself otherwise.
- *         second : whether it's ColumnConst.
-*/
-std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
-
-/*
- * For the functions that some columns of arguments are almost but not completely always const, we use this function to preprocessing its parameter columns
- * (which are not data columns). When we have two or more columns which only provide parameter, use this to deal with corner case. So you can specialize you
- * implementations for all const or all parameters const, without considering some of parameters are const.
- 
- * Do the transformation only for the columns whose arg_indexes in parameters.
-*/
-void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
-                                          const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept;
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

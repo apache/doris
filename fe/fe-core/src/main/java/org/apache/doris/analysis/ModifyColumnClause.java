@@ -46,6 +46,10 @@ public class ModifyColumnClause extends AlterTableClause {
         return column;
     }
 
+    public void setColumn(Column column) {
+        this.column = column;
+    }
+
     public ColumnPosition getColPos() {
         return colPos;
     }
@@ -75,7 +79,11 @@ public class ModifyColumnClause extends AlterTableClause {
                     && columnDef.getAggregateType() == null) {
                 columnDef.setIsKey(true);
             }
+            if (table instanceof OlapTable) {
+                columnDef.setKeysType(((OlapTable) table).getKeysType());
+            }
         }
+
         columnDef.analyze(true);
         if (colPos != null) {
             colPos.analyze();
@@ -90,6 +98,16 @@ public class ModifyColumnClause extends AlterTableClause {
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return true;
     }
 
     @Override

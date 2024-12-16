@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_rollup_agg_date", "rollup") {
     def tbName = "test_rollup_agg_date"
 
@@ -41,38 +44,31 @@ suite("test_rollup_agg_date", "rollup") {
             DISTRIBUTED BY HASH(datek1) BUCKETS 5 properties("replication_num" = "1");
         """
     sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_date(datek1,datetimek2,datetimek1,datetimek3,datev1,datetimev1,datetimev2,datetimev3);"""
-    int max_try_secs = 60
-    while (max_try_secs--) {
+    int max_try_secs = 120
+    // if timeout testcase will fail same behaviour as old nethod.
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobRollupState(tbName)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
+
     Thread.sleep(2000)
     sql "ALTER TABLE ${tbName} ADD COLUMN datetimev4 datetimev2(3) MAX NULL;"
-    max_try_secs = 60
-    while (max_try_secs--) {
+    // if timeout testcase will fail same behaviour as old nethod.
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobColumnState(tbName)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
+
     sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}';"
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values('2022-08-22', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111', '2022-08-22 11:11:11.111111');"

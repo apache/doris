@@ -30,8 +30,10 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
@@ -333,7 +335,7 @@ public class TempPartitionTest {
                 + " properties('strict_range' = 'false');";
         alterTable(stmtStr, true);
 
-        stmtStr = "alter table db2.tbl2 replace partition(p1, p2) with temporary partition(tp1, tp2)"
+        stmtStr = "alter table db2.tbl2 replace partition(p1, p2) with temporary partition(tp1, tp2) force"
                 + " properties('strict_range' = 'false', 'use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db2.tbl2", true, 1);
@@ -708,7 +710,7 @@ public class TempPartitionTest {
         stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp2, tp3);";
         alterTable(stmtStr, true);
 
-        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2)"
+        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2) force"
                 + " properties('use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db4.tbl4", true, 1); // tp3
@@ -1067,7 +1069,7 @@ public class TempPartitionTest {
         stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp2, tp3);";
         alterTable(stmtStr, true);
 
-        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2)"
+        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2) force"
                 + " properties('use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db5.tbl5", true, 1); // tp3
@@ -1283,9 +1285,9 @@ public class TempPartitionTest {
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
-        OlapTable readTbl = (OlapTable) Table.read(in);
+        OlapTable readTbl = OlapTable.read(in);
         Assert.assertEquals(tbl.getId(), readTbl.getId());
-        Assert.assertEquals(tbl.getTempPartitions().size(), readTbl.getTempPartitions().size());
+        Assert.assertEquals(tbl.getAllTempPartitions().size(), readTbl.getAllTempPartitions().size());
         file.delete();
     }
 
@@ -1299,7 +1301,7 @@ public class TempPartitionTest {
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        tempPartitionsInstance.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(tempPartitionsInstance));
         out.flush();
         out.close();
 

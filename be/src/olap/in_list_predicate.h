@@ -99,9 +99,9 @@ public:
             if constexpr (is_string_type(Type)) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
-                    const StringRef* value = (const StringRef*)(iter->get_value());
+                    const auto* value = (const StringRef*)(iter->get_value());
                     if constexpr (Type == TYPE_CHAR) {
-                        _temp_datas.push_back("");
+                        _temp_datas.emplace_back("");
                         _temp_datas.back().resize(std::max(char_length, value->size));
                         memcpy(_temp_datas.back().data(), value->data, value->size);
                         const string& str = _temp_datas.back();
@@ -180,7 +180,7 @@ public:
         return Status::OK();
     }
 
-    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -191,12 +191,15 @@ public:
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
             const void* ptr = iter->get_value();
-            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
-                    *reinterpret_cast<const T*>(ptr));
+            //            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
+            //                    *reinterpret_cast<const T*>(ptr));
+            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            RETURN_IF_ERROR(
+                    InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                               num_rows, index));
+            RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                    column_name, query_param->get_value(), query_type, num_rows, index));
             indices |= *index;
             iter->next();
         }
@@ -222,18 +225,17 @@ public:
     }
 
     int get_filter_id() const override { return _values->get_filter_id(); }
-    bool is_filter() const override { return true; }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            auto* nullable_col =
+            const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                        nullable_col->get_null_map_column())
-                                        .get_data();
-            auto& nested_col = nullable_col->get_nested_column();
+            const auto& null_bitmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                            .get_data();
+            const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
                 return _base_evaluate_bit<true, true, is_and>(&nested_col, &null_bitmap, sel, size,
@@ -299,11 +301,13 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             // IN predicate can not use ngram bf, just return true to accept
-            if (bf->is_ngram_bf()) return true;
+            if (bf->is_ngram_bf()) {
+                return true;
+            }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
-                    const StringRef* value = (const StringRef*)iter->get_value();
+                    const auto* value = (const StringRef*)iter->get_value();
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
                     }
@@ -337,7 +341,9 @@ public:
         return PT == PredicateType::IN_LIST && !ngram;
     }
 
-    double get_ignore_threshold() const override { return std::log2(_values->size() + 1) / 64; }
+    double get_ignore_threshold() const override {
+        return get_in_list_ignore_thredhold(_values->size());
+    }
 
 private:
     bool _can_ignore() const override { return _values->is_runtime_filter(); }
@@ -349,9 +355,9 @@ private:
         if (column.is_nullable()) {
             const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                           nullable_col->get_null_map_column())
-                                           .get_data();
+            const auto& null_map =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                            .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -366,8 +372,6 @@ private:
                 new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
-        _evaluated_rows += size;
-        _passed_rows += new_size;
         return new_size;
     }
 
@@ -388,9 +392,9 @@ private:
 
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
+                const auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                auto& data_array = nested_col_ptr->get_data();
+                const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
                 auto& value_in_dict_flags = _segment_id_to_value_in_dict_flags[segid];
@@ -427,6 +431,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto& pred_col =
@@ -454,9 +459,9 @@ private:
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
+                const auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                auto& data_array = nested_col_ptr->get_data();
+                const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
                 if (value_in_dict_flags.empty()) {
@@ -490,6 +495,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<

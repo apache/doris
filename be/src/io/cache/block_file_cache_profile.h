@@ -42,8 +42,7 @@ struct AtomicStatistics {
 struct FileCacheProfile;
 
 struct FileCacheMetric {
-    FileCacheMetric(int64_t table_id, FileCacheProfile* profile)
-            : profile(profile), table_id(table_id) {}
+    FileCacheMetric(FileCacheProfile* profile) : profile(profile) {}
 
     void register_entity();
     void update_table_metrics() const;
@@ -51,11 +50,6 @@ struct FileCacheMetric {
     FileCacheMetric& operator=(const FileCacheMetric&) = delete;
     FileCacheMetric(const FileCacheMetric&) = delete;
     FileCacheProfile* profile = nullptr;
-    int64_t table_id = -1;
-    std::shared_ptr<MetricEntity> entity;
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
 };
 
 struct FileCacheProfile {
@@ -66,21 +60,22 @@ struct FileCacheProfile {
 
     FileCacheProfile() {
         FileCacheStatistics stats;
-        update(0, &stats);
+        update(&stats);
     }
 
-    void update(int64_t table_id, FileCacheStatistics* stats);
+    void update(FileCacheStatistics* stats);
 
     std::mutex _mtx;
     // use shared_ptr for concurrent
-    std::unordered_map<int64_t, std::shared_ptr<AtomicStatistics>> _profile;
-    std::unordered_map<int64_t, std::shared_ptr<FileCacheMetric>> _table_metrics;
-    std::shared_ptr<AtomicStatistics> report(int64_t table_id);
+    std::shared_ptr<AtomicStatistics> _profile;
+    std::shared_ptr<FileCacheMetric> _file_cache_metric;
+    std::shared_ptr<AtomicStatistics> report();
 };
 
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* num_inverted_index_remote_io_total = nullptr;
     RuntimeProfile::Counter* local_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
@@ -96,6 +91,8 @@ struct FileCacheProfileReporter {
                                                           cache_profile, 1);
         num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
                                                            cache_profile, 1);
+        num_inverted_index_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "NumInvertedIndexRemoteIOTotal", TUnit::UNIT, cache_profile, 1);
         local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LocalIOUseTimer", cache_profile, 1);
         remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "RemoteIOUseTimer", cache_profile, 1);
         write_cache_io_timer =
@@ -113,6 +110,8 @@ struct FileCacheProfileReporter {
     void update(const FileCacheStatistics* statistics) const {
         COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
         COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
+        COUNTER_UPDATE(num_inverted_index_remote_io_total,
+                       statistics->num_inverted_index_remote_io_total);
         COUNTER_UPDATE(local_io_timer, statistics->local_io_timer);
         COUNTER_UPDATE(remote_io_timer, statistics->remote_io_timer);
         COUNTER_UPDATE(write_cache_io_timer, statistics->write_cache_io_timer);

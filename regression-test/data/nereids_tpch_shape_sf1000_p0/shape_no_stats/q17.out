@@ -10,12 +10,10 @@ PhysicalResultSink
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
-----------------------------PhysicalOlapScan[part]
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+----------------------PhysicalProject
+------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
+--------------------------PhysicalOlapScan[part]
 

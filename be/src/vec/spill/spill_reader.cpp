@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
@@ -27,6 +28,7 @@
 #include "util/slice.h"
 #include "vec/core/block.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 class FileSystem;
 } // namespace io
@@ -36,17 +38,10 @@ Status SpillReader::open() {
     if (file_reader_) {
         return Status::OK();
     }
-    std::shared_ptr<io::FileSystem> file_system;
-    io::FileSystemProperties system_properties;
-    system_properties.system_type = TFileType::FILE_LOCAL;
-
-    io::FileDescription file_description;
-    file_description.path = file_path_;
 
     SCOPED_TIMER(read_timer_);
-    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    io::FileReaderOptions::DEFAULT, &file_system,
-                                                    &file_reader_));
+
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_path_, &file_reader_));
 
     size_t file_size = file_reader_->size();
     DCHECK(file_size >= 16); // max_sub_block_size, block count
@@ -120,7 +115,7 @@ Status SpillReader::read(Block* block, bool* eos) {
     if (bytes_read > 0) {
         {
             SCOPED_TIMER(deserialize_timer_);
-            if (!pb_block_.ParseFromArray(result.data, result.size)) {
+            if (!pb_block_.ParseFromArray(result.data, cast_set<int>(result.size))) {
                 return Status::InternalError("Failed to read spilled block");
             }
             RETURN_IF_ERROR(block->deserialize(pb_block_));

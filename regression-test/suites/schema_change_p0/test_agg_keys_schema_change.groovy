@@ -27,26 +27,9 @@ suite ("test_agg_keys_schema_change") {
 
     try {
 
-        String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
 
         sql """ DROP TABLE IF EXISTS schema_change_agg_keys_regression_test """
         sql """
@@ -193,9 +176,9 @@ suite ("test_agg_keys_schema_change") {
         String[][] tablets = sql """ show tablets from ${tableName}; """
         for (String[] tablet in tablets) {
                 String tablet_id = tablet[0]
-                backend_id = tablet[2]
+                def backend_id = tablet[2]
                 logger.info("run compaction:" + tablet_id)
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         }
 
@@ -205,8 +188,8 @@ suite ("test_agg_keys_schema_change") {
                 do {
                     Thread.sleep(100)
                     String tablet_id = tablet[0]
-                    backend_id = tablet[2]
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                    def backend_id = tablet[2]
+                    def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def compactionStatus = parseJson(out.trim())

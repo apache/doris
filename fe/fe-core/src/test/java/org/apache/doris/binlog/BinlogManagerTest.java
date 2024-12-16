@@ -142,7 +142,7 @@ public class BinlogManagerTest {
     public void testGetBinlog()
             throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
         // reflect BinlogManager
-        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class);
+        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
         addBinlog.setAccessible(true);
 
         // init binlog manager & addBinlog
@@ -155,7 +155,7 @@ public class BinlogManagerTest {
             if (i % 2 == 0) {
                 binlog.setType(TBinlogType.CREATE_TABLE);
             }
-            addBinlog.invoke(manager, binlog);
+            addBinlog.invoke(manager, binlog, null);
 
         }
 
@@ -198,7 +198,7 @@ public class BinlogManagerTest {
             IOException, NoSuchFieldException {
         // reflect BinlogManager
         // addBinlog method
-        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class);
+        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
         addBinlog.setAccessible(true);
         // dbBinlogMap
         Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
@@ -212,7 +212,7 @@ public class BinlogManagerTest {
         for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
             long dbId = dbEntry.getKey();
             for (long tableId : dbEntry.getValue()) {
-                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq));
+                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
                 ++commitSeq;
             }
         }
@@ -262,7 +262,7 @@ public class BinlogManagerTest {
 
         // reflect BinlogManager
         // addBinlog method
-        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class);
+        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
         addBinlog.setAccessible(true);
         // dbBinlogMap
         Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
@@ -277,14 +277,9 @@ public class BinlogManagerTest {
         for (Map.Entry<Long, List<Long>> dbEntry : frameWork.entrySet()) {
             long dbId = dbEntry.getKey();
             for (long tableId : dbEntry.getValue()) {
-                if ((tableId / tableBaseId) % 2 != 0) {
-                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
-                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow));
-                    ++commitSeq;
-                } else {
-                    addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, 0, 0));
-                    addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, 0, 0));
-                }
+                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow), null);
+                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, timeNow), null);
+                ++commitSeq;
             }
         }
 
@@ -331,7 +326,7 @@ public class BinlogManagerTest {
 
         // reflect BinlogManager
         // addBinlog method
-        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class);
+        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
         addBinlog.setAccessible(true);
         // dbBinlogMap
         Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
@@ -347,8 +342,8 @@ public class BinlogManagerTest {
             long dbId = dbEntry.getKey();
             for (long tableId : dbEntry.getValue()) {
                 ++commitSeq;
-                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq));
-                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq));
+                addBinlog.invoke(originManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
+                addBinlog.invoke(newManager, BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, commitSeq), null);
             }
         }
         timeNow = commitSeq;

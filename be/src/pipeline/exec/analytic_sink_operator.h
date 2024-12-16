@@ -21,30 +21,11 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vanalytic_eval_node.h"
+#include "pipeline/dependency.h"
 
 namespace doris {
-class ExecNode;
-
+#include "common/compile_check_begin.h"
 namespace pipeline {
-class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSinkOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; }
-};
-
-class AnalyticSinkOperator final : public StreamingOperator<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-
-    bool can_write() override { return _node->can_write(); }
-};
-
 class AnalyticSinkOperatorX;
 
 class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
@@ -55,6 +36,7 @@ public:
             : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class AnalyticSinkOperatorX;
@@ -70,22 +52,25 @@ private:
         }
         return need_more_input;
     }
-    vectorized::BlockRowPos _get_partition_by_end();
-    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
-                                                     vectorized::BlockRowPos end,
-                                                     bool need_check_first = false);
-    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
+    BlockRowPos _get_partition_by_end();
+    BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
+                                         bool need_check_first = false);
+    bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
+    RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
+    RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+    vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs);
+                          const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);
@@ -93,20 +78,20 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
-        } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate
+        } else {
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
+
+    bool require_data_distribution() const override { return true; }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
@@ -124,8 +109,10 @@ private:
 
     std::vector<size_t> _num_agg_input;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
     const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

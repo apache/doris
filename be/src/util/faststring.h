@@ -25,7 +25,7 @@
 
 #include "gutil/dynamic_annotations.h"
 #include "gutil/port.h"
-#include "gutil/strings/fastmem.h"
+#include "util/memcpy_inlined.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"
 
@@ -35,7 +35,7 @@ namespace doris {
 // common use cases (in particular, resize() will fill with uninitialized data
 // instead of memsetting to \0)
 // only build() can transfer data to the outside.
-class faststring : private Allocator<false, false, false> {
+class faststring : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     enum { kInitialCapacity = 32 };
 
@@ -85,7 +85,8 @@ public:
     OwnedSlice build() {
         uint8_t* ret = data_;
         if (ret == initial_data_) {
-            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(len_));
+            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(capacity_));
+            DCHECK(len_ <= capacity_);
             memcpy(ret, data_, len_);
         }
         OwnedSlice result(ret, len_, capacity_);
@@ -123,7 +124,7 @@ public:
                 *p++ = *src++;
             }
         } else {
-            strings::memcpy_inlined(&data_[len_], src, count);
+            memcpy_inlined(&data_[len_], src, count);
         }
         len_ += count;
     }

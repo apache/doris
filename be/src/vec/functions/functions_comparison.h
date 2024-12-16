@@ -39,6 +39,8 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
 #include "vec/runtime/vdatetime_value.h"
+//#include "olap/rowset/segment_v2/inverted_index_reader.h"
+
 namespace doris::vectorized {
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -271,7 +273,7 @@ public:
 
 private:
     template <typename T0, typename T1>
-    bool execute_num_right_type(Block& block, size_t result, const ColumnVector<T0>* col_left,
+    bool execute_num_right_type(Block& block, uint32_t result, const ColumnVector<T0>* col_left,
                                 const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
                     check_and_get_column<ColumnVector<T1>>(col_right_untyped)) {
@@ -301,7 +303,7 @@ private:
     }
 
     template <typename T0, typename T1>
-    bool execute_num_const_right_type(Block& block, size_t result, const ColumnConst* col_left,
+    bool execute_num_const_right_type(Block& block, uint32_t result, const ColumnConst* col_left,
                                       const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
                     check_and_get_column<ColumnVector<T1>>(col_right_untyped)) {
@@ -330,7 +332,7 @@ private:
     }
 
     template <typename T0>
-    bool execute_num_left_type(Block& block, size_t result, const IColumn* col_left_untyped,
+    bool execute_num_left_type(Block& block, uint32_t result, const IColumn* col_left_untyped,
                                const IColumn* col_right_untyped) const {
         if (const ColumnVector<T0>* col_left =
                     check_and_get_column<ColumnVector<T0>>(col_left_untyped)) {
@@ -345,11 +347,12 @@ private:
                 execute_num_right_type<T0, Int128>(block, result, col_left, col_right_untyped) ||
                 execute_num_right_type<T0, IPv6>(block, result, col_left, col_right_untyped) ||
                 execute_num_right_type<T0, Float32>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Float64>(block, result, col_left, col_right_untyped))
+                execute_num_right_type<T0, Float64>(block, result, col_left, col_right_untyped)) {
                 return true;
-            else {
-                LOG(FATAL) << "Illegal column " << col_right_untyped->get_name()
-                           << " of second argument of function " << get_name();
+            } else {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Illegal column ({}) of second argument of function {}",
+                                       col_right_untyped->get_name(), get_name());
             }
 
         } else if (auto col_left_const =
@@ -377,18 +380,19 @@ private:
                 execute_num_const_right_type<T0, Float32>(block, result, col_left_const,
                                                           col_right_untyped) ||
                 execute_num_const_right_type<T0, Float64>(block, result, col_left_const,
-                                                          col_right_untyped))
+                                                          col_right_untyped)) {
                 return true;
-            else {
-                LOG(FATAL) << "Illegal column " << col_right_untyped->get_name()
-                           << " of second argument of function " << get_name();
+            } else {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Illegal column ({}) f second argument of function {}",
+                                       col_right_untyped->get_name(), get_name());
             }
         }
 
         return false;
     }
 
-    Status execute_decimal(Block& block, size_t result, const ColumnWithTypeAndName& col_left,
+    Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
         TypeIndex left_number = col_left.type->get_type_id();
         TypeIndex right_number = col_right.type->get_type_id();
@@ -410,7 +414,8 @@ private:
         return Status::OK();
     }
 
-    Status execute_string(Block& block, size_t result, const IColumn* c0, const IColumn* c1) const {
+    Status execute_string(Block& block, uint32_t result, const IColumn* c0,
+                          const IColumn* c1) const {
         const ColumnString* c0_string = check_and_get_column<ColumnString>(c0);
         const ColumnString* c1_string = check_and_get_column<ColumnString>(c1);
         const ColumnConst* c0_const = check_and_get_column_const_string_or_fixedstring(c0);
@@ -481,7 +486,7 @@ private:
         return Status::OK();
     }
 
-    void execute_generic_identical_types(Block& block, size_t result, const IColumn* c0,
+    void execute_generic_identical_types(Block& block, uint32_t result, const IColumn* c0,
                                          const IColumn* c1) const {
         bool c0_const = is_column_const(*c0);
         bool c1_const = is_column_const(*c1);
@@ -508,7 +513,7 @@ private:
         }
     }
 
-    Status execute_generic(Block& block, size_t result, const ColumnWithTypeAndName& c0,
+    Status execute_generic(Block& block, uint32_t result, const ColumnWithTypeAndName& c0,
                            const ColumnWithTypeAndName& c1) const {
         execute_generic_identical_types(block, result, c0.column.get(), c1.column.get());
         return Status::OK();
@@ -524,8 +529,79 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(arguments.size() == 1);
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        auto data_type_with_name = data_type_with_names[0];
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::OK();
+        }
+        segment_v2::InvertedIndexQueryType query_type;
+        std::string_view name_view(name);
+        if (name_view == NameEquals::name || name_view == NameNotEquals::name) {
+            query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        } else if (name_view == NameLess::name) {
+            query_type = segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY;
+        } else if (name_view == NameLessOrEquals::name) {
+            query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
+        } else if (name_view == NameGreater::name) {
+            query_type = segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY;
+        } else if (name_view == NameGreaterOrEquals::name) {
+            query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+        } else {
+            return Status::InvalidArgument("invalid comparison op type {}", Name::name);
+        }
+
+        if (segment_v2::is_range_query(query_type) &&
+            iter->get_inverted_index_reader_type() ==
+                    segment_v2::InvertedIndexReaderType::STRING_TYPE) {
+            // untokenized strings exceed ignore_above, they are written as null, causing range query errors
+            return Status::OK();
+        }
+        std::string column_name = data_type_with_name.first;
+        Field param_value;
+        arguments[0].column->get(0, param_value);
+        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_type, &param_value, query_param));
+        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, query_param->get_value(),
+                                                       query_type, num_rows, roaring));
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        }
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
+        bitmap_result.mask_out_null();
+
+        if (name_view == NameNotEquals::name) {
+            roaring::Roaring full_result;
+            full_result.addRange(0, num_rows);
+            bitmap_result.op_not(&full_result);
+        }
+
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& col_with_type_and_name_left = block.get_by_position(arguments[0]);
         const auto& col_with_type_and_name_right = block.get_by_position(arguments[1]);
         const IColumn* col_left_untyped = col_with_type_and_name_left.column.get();
@@ -561,8 +637,8 @@ public:
         WhichDataType which_left {left_type};
         WhichDataType which_right {right_type};
 
-        const bool left_is_num = col_left_untyped->is_numeric();
-        const bool right_is_num = col_right_untyped->is_numeric();
+        const bool left_is_num_can_compare = which_left.is_num_can_compare();
+        const bool right_is_num_can_compare = which_right.is_num_can_compare();
 
         const bool left_is_string = which_left.is_string_or_fixed_string();
         const bool right_is_string = which_right.is_string_or_fixed_string();
@@ -572,7 +648,7 @@ public:
         //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
         //                                 which_right.is_date_or_datetime();
 
-        if (left_is_num && right_is_num) {
+        if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
                                                col_right_untyped) ||
                   execute_num_left_type<UInt16>(block, result, col_left_untyped,

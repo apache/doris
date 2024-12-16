@@ -31,10 +31,11 @@ import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
 
-    public static final String STATISTIC_TBL_NAME = "column_statistics";
+    public static final String TABLE_STATISTIC_TBL_NAME = "column_statistics";
+    public static final String PARTITION_STATISTIC_TBL_NAME = "partition_statistics";
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
 
-    public static final int MAX_NAME_LEN = 64;
+    public static final int MAX_NAME_LEN = 1024;
 
     public static final int ID_LEN = 4096;
 
@@ -64,12 +65,13 @@ public class StatisticConstants {
 
     public static List<String> SYSTEM_DBS = new ArrayList<>();
 
-    public static int ANALYZE_TASK_RETRY_TIMES = 5;
-
     public static final String DB_NAME = FeConstants.INTERNAL_DB_NAME;
 
     public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
-            + "." + FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
+            + "." + FeConstants.INTERNAL_DB_NAME + "." + TABLE_STATISTIC_TBL_NAME;
+
+    public static final String FULL_QUALIFIED_PARTITION_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
+            + "." + FeConstants.INTERNAL_DB_NAME + "." + PARTITION_STATISTIC_TBL_NAME;
 
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
@@ -91,13 +93,13 @@ public class StatisticConstants {
 
     public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
 
-    public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 90;
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
-    public static final int TASK_QUEUE_CAP = 10;
+    public static final int TASK_QUEUE_CAP = 1;
 
-    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 300;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
 

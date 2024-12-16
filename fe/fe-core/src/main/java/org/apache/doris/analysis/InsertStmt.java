@@ -43,7 +43,8 @@ import java.util.Set;
  * Currently this abstract class keep the native insert methods for compatibility, and will eventually be moved
  * to {@link NativeInsertStmt}
  */
-public abstract class InsertStmt extends DdlStmt {
+@Deprecated
+public abstract class InsertStmt extends DdlStmt implements NotFallbackInParser {
 
     public static class Properties {
 
@@ -331,5 +332,10 @@ public abstract class InsertStmt extends DdlStmt {
 
         String toSql();
 
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
     }
 }

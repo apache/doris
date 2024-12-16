@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_cast_map_function", "query") {
-    sql """set enable_nereids_planner = false """
     def tableName = "tbl_test_cast_map_function"
     // array functions only supported in vectorized engine
 

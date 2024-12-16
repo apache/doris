@@ -94,7 +94,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL LOAD FROM testDb WHERE (`label` = 'doris_test_label') AND (`state` = 'LOADING')",
+                "CANCEL LOAD FROM testDb WHERE ((`label` = 'doris_test_label') AND (`state` = 'LOADING'))",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -102,7 +102,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL LOAD FROM testDb WHERE (`label` = 'doris_test_label') OR (`state` = 'LOADING')",
+                "CANCEL LOAD FROM testDb WHERE ((`label` = 'doris_test_label') OR (`state` = 'LOADING'))",
                 stmt.toString());
 
         // test match

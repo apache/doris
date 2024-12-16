@@ -96,14 +96,15 @@ public:
             return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(return_type)
                                                                : return_type);
         } else {
-            LOG(FATAL) << "Function of " << name
-                       << " return type get wrong: and input argument is: "
-                       << arguments[0]->get_name();
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Function of {}, return type get wrong: and input argument is: {}", name,
+                    arguments[0]->get_name());
         }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& arg = block.get_by_position(arguments[0]);
         auto res_column = _execute_non_nullable(arg, input_rows_count);
         if (!res_column) {

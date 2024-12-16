@@ -44,6 +44,8 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         useDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setParallelResultSink(false);
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `a` int(11) NULL,\n"
@@ -108,7 +110,7 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
     }
 
     @Test
-    public void testHintWithReorderCrossJoin() throws Exception {
+    public void testHintWithReorderCrossJoin() {
         String sql = "select t1.a , t2.x, t.x from "
                 + "t1 join [shuffle] t2, (select x from t3) t where t1.a=t.x and t2.x=t.x";
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
@@ -116,19 +118,19 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
             MatchingUtils.assertMatches(plan,
                     physicalResultSink(
                             physicalDistribute(
-                                    physicalProject(
-                                            physicalHashJoin(
-                                                    physicalHashJoin(physicalDistribute().when(dis -> {
+                                    physicalHashJoin(
+                                            physicalDistribute(physicalHashJoin(physicalProject(), physicalDistribute()))
+                                                    .when(dis -> {
                                                         DistributionSpec spec = dis.getDistributionSpec();
-                                                        Assertions.assertTrue(spec instanceof DistributionSpecHash);
+                                                        Assertions.assertInstanceOf(DistributionSpecHash.class, spec);
                                                         DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
                                                         Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
                                                                 hashSpec.getShuffleType());
                                                         return true;
-                                                    }), physicalDistribute()),
-                                                    physicalDistribute()
-                                            ).when(join -> join.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT)
-                                    )
+                                                    }),
+                                            physicalDistribute()
+                                    ).when(join -> join.getDistributeHint().distributeType
+                                            == DistributeType.SHUFFLE_RIGHT)
                             )
                     ));
         });

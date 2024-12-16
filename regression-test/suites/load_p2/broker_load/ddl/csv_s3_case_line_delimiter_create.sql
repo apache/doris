@@ -1,4 +1,4 @@
-CREATE TABLE csv_s3_case_line_delimiter (
+CREATE TABLE IF NOT EXISTS csv_s3_case_line_delimiter (
                           l_shipdate    DATE NOT NULL,
                           l_orderkey    bigint NOT NULL,
                           l_linenumber  int not null,

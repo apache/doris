@@ -29,35 +29,39 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(TableFunctionOperator, StatefulOperator)
-
-Status TableFunctionOperator::prepare(doris::RuntimeState* state) {
-    // just for speed up, the way is dangerous
-    _child_block = _node->get_child_block();
-    return StatefulOperator::prepare(state);
-}
-
-Status TableFunctionOperator::close(doris::RuntimeState* state) {
-    return StatefulOperator::close(state);
-}
-
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
 
 Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _init_function_timer = ADD_TIMER(_runtime_profile, "InitTableFunctionTime");
+    _process_rows_timer = ADD_TIMER(_runtime_profile, "ProcessRowsTime");
+    _copy_data_timer = ADD_TIMER(_runtime_profile, "CopyDataTime");
+    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    _repeat_data_timer = ADD_TIMER(_runtime_profile, "RepeatDataTime");
+    return Status::OK();
+}
+
+Status TableFunctionLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
+    SCOPED_TIMER(PipelineXLocalState<>::_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     auto& p = _parent->cast<TableFunctionOperatorX>();
     _vfn_ctxs.resize(p._vfn_ctxs.size());
     for (size_t i = 0; i < _vfn_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._vfn_ctxs[i]->clone(state, _vfn_ctxs[i]));
 
-        const std::string& tf_name = _vfn_ctxs[i]->root()->fn().name.function_name;
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, state->obj_pool(), &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(_vfn_ctxs[i]->root()->fn(),
+                                                                 state->obj_pool(), &fn));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
-
+    for (auto* fn : _fns) {
+        RETURN_IF_ERROR(fn->open());
+    }
     _cur_child_offset = -1;
     return Status::OK();
 }
@@ -67,6 +71,7 @@ void TableFunctionLocalState::_copy_output_slots(
     if (!_current_row_insert_times) {
         return;
     }
+    SCOPED_TIMER(_copy_data_timer);
     auto& p = _parent->cast<TableFunctionOperatorX>();
     for (auto index : p._output_slot_indexs) {
         auto src_column = _child_block->get_by_position(index).column;
@@ -136,6 +141,7 @@ bool TableFunctionLocalState::_roll_table_functions(int last_eos_idx) {
 bool TableFunctionLocalState::_is_inner_and_empty() {
     for (int i = 0; i < _parent->cast<TableFunctionOperatorX>()._fn_num; i++) {
         // if any table function is not outer and has empty result, go to next child row
+        // if it's outer function, will be insert into one row NULL
         if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
             return true;
         }
@@ -185,16 +191,14 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
                 continue;
             }
-            if (p._fn_num == 1) {
-                _current_row_insert_times += _fns[0]->get_value(
-                        columns[p._child_slots.size()],
-                        state->batch_size() - columns[p._child_slots.size()]->size());
-            } else {
-                for (int i = 0; i < p._fn_num; i++) {
-                    _fns[i]->get_value(columns[i + p._child_slots.size()]);
-                }
-                _current_row_insert_times++;
-                _fns[p._fn_num - 1]->forward();
+
+            DCHECK_LE(1, p._fn_num);
+            auto repeat_times = _fns[p._fn_num - 1]->get_value(
+                    columns[p._child_slots.size() + p._fn_num - 1],
+                    state->batch_size() - columns[p._child_slots.size()]->size());
+            _current_row_insert_times += repeat_times;
+            for (int i = 0; i < p._fn_num - 1; i++) {
+                _fns[i]->get_same_many_values(columns[i + p._child_slots.size()], repeat_times);
             }
         }
     }
@@ -206,15 +210,18 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
 
-    // 3. eval conjuncts
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                           output_block->columns()));
+    {
+        SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                               output_block->columns()));
+    }
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 
 void TableFunctionLocalState::process_next_child_row() {
+    SCOPED_TIMER(_process_rows_timer);
     _cur_child_offset++;
 
     if (_cur_child_offset >= _child_block->rows()) {
@@ -224,7 +231,7 @@ void TableFunctionLocalState::process_next_child_row() {
         }
 
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                ._child_x->row_desc()
+                                                ._child->row_desc()
                                                 .num_materialized_slots());
         _cur_child_offset = -1;
         return;
@@ -241,9 +248,6 @@ TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode
 
 Status TableFunctionOperatorX::_prepare_output_slot_ids(const TPlanNode& tnode) {
     // Prepare output slot ids
-    if (tnode.table_function_node.outputSlotIds.empty()) {
-        return Status::InternalError("Output slots of table function node is empty");
-    }
     SlotId max_id = -1;
     for (auto slot_id : tnode.table_function_node.outputSlotIds) {
         if (slot_id > max_id) {
@@ -267,9 +271,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         _vfn_ctxs.push_back(ctx);
 
         auto root = ctx->root();
-        const std::string& tf_name = root->fn().name.function_name;
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, _pool, &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(root->fn(), _pool, &fn));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
@@ -280,9 +283,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status TableFunctionOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-
+Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
@@ -296,7 +298,7 @@ Status TableFunctionOperatorX::prepare(RuntimeState* state) {
     }
 
     // get all input slots
-    for (const auto& child_tuple_desc : _child_x->row_desc().tuple_descriptors()) {
+    for (const auto& child_tuple_desc : _child->row_desc().tuple_descriptors()) {
         for (const auto& child_slot_desc : child_tuple_desc->slots()) {
             _child_slots.push_back(child_slot_desc);
         }
@@ -310,11 +312,6 @@ Status TableFunctionOperatorX::prepare(RuntimeState* state) {
         }
     }
 
-    return Status::OK();
-}
-
-Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
     return vectorized::VExpr::open(_vfn_ctxs, state);
 }
 

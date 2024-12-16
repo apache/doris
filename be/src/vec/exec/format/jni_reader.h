@@ -42,13 +42,41 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
+class JniReader : public GenericReader {
+public:
+    JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
+              RuntimeProfile* profile)
+            : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {};
+
+    ~JniReader() override = default;
+
+    Status close() override {
+        if (_jni_connector) {
+            return _jni_connector->close();
+        }
+        return Status::OK();
+    }
+
+protected:
+    void _collect_profile_before_close() override {
+        if (_jni_connector) {
+            _jni_connector->collect_profile_before_close();
+        }
+    }
+
+    const std::vector<SlotDescriptor*>& _file_slot_descs;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    std::unique_ptr<JniConnector> _jni_connector;
+};
+
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
  * This class will only be retained during the functional testing phase to verify that
  * the communication and data exchange with the jvm are correct.
  */
-class MockJniReader : public GenericReader {
+class MockJniReader : public JniReader {
 public:
     MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                   RuntimeProfile* profile);
@@ -63,6 +91,13 @@ public:
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
+    Status close() override {
+        if (_jni_connector) {
+            return _jni_connector->close();
+        }
+        return Status::OK();
+    }
+
 protected:
     void _collect_profile_before_close() override {
         if (_jni_connector != nullptr) {
@@ -71,11 +106,7 @@ protected:
     }
 
 private:
-    const std::vector<SlotDescriptor*>& _file_slot_descs;
-    RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    std::unique_ptr<JniConnector> _jni_connector;
 };
 
 } // namespace doris::vectorized

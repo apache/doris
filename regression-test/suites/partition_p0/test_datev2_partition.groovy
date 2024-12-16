@@ -16,10 +16,9 @@
 // under the License.
 
 suite("test_datev2_partition") {
-    def tblName1 = "test_datev2_partition1"
-    sql "drop table if exists ${tblName1}"
+    sql "drop table if exists test_datev2_partition1"
     sql """
-        CREATE TABLE `${tblName1}` (
+        CREATE TABLE `test_datev2_partition1` (
         `TIME_STAMP` datev2 NOT NULL COMMENT '采集日期'
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
@@ -38,16 +37,15 @@ suite("test_datev2_partition") {
         "replication_allocation" = "tag.location.default: 1"
         );
         """
-    sql """ insert into ${tblName1} values ('2022-12-14'), ('2022-12-15'), ('2022-12-16'), ('2022-12-17'), ('2022-12-18'), ('2022-12-19'), ('2022-12-20') """
+    sql """ insert into test_datev2_partition1 values ('2022-12-14'), ('2022-12-15'), ('2022-12-16'), ('2022-12-17'), ('2022-12-18'), ('2022-12-19'), ('2022-12-20') """
 
-    qt_select """ select * from ${tblName1} order by TIME_STAMP """
-    qt_select """ select * from ${tblName1} WHERE TIME_STAMP = '2022-12-15' order by TIME_STAMP """
-    qt_select """ select * from ${tblName1} WHERE TIME_STAMP > '2022-12-15' order by TIME_STAMP """
+    qt_select """ select * from test_datev2_partition1 order by TIME_STAMP """
+    qt_select """ select * from test_datev2_partition1 WHERE TIME_STAMP = '2022-12-15' order by TIME_STAMP """
+    qt_select """ select * from test_datev2_partition1 WHERE TIME_STAMP > '2022-12-15' order by TIME_STAMP """
 
-    def tblName2 = "test_datev2_partition2"
-    sql "drop table if exists ${tblName2}"
+    sql "drop table if exists test_datev2_partition2"
     sql """
-        CREATE TABLE `${tblName2}` (
+        CREATE TABLE `test_datev2_partition2` (
         `TIME_STAMP` datetimev2(3) NOT NULL COMMENT '采集日期'
         ) ENGINE=OLAP
         DUPLICATE KEY(`TIME_STAMP`)
@@ -66,9 +64,9 @@ suite("test_datev2_partition") {
         "replication_allocation" = "tag.location.default: 1"
         );
         """
-    sql """ insert into ${tblName2} values ('2022-12-14 22:22:22.222'), ('2022-12-15 22:22:22.222'), ('2022-12-16 22:22:22.222'), ('2022-12-17 22:22:22.222'), ('2022-12-18 22:22:22.222'), ('2022-12-19 22:22:22.222'), ('2022-12-20 22:22:22.222') """
+    sql """ insert into test_datev2_partition2 values ('2022-12-14 22:22:22.222'), ('2022-12-15 22:22:22.222'), ('2022-12-16 22:22:22.222'), ('2022-12-17 22:22:22.222'), ('2022-12-18 22:22:22.222'), ('2022-12-19 22:22:22.222'), ('2022-12-20 22:22:22.222') """
 
-    qt_select """ select * from ${tblName2} order by TIME_STAMP """
-    qt_select """ select * from ${tblName2} WHERE TIME_STAMP = '2022-12-15 22:22:22.222' order by TIME_STAMP """
-    qt_select """ select * from ${tblName2} WHERE TIME_STAMP > '2022-12-15 22:22:22.222' order by TIME_STAMP """
+    qt_select """ select * from test_datev2_partition2 order by TIME_STAMP """
+    qt_select """ select * from test_datev2_partition2 WHERE TIME_STAMP = '2022-12-15 22:22:22.222' order by TIME_STAMP """
+    qt_select """ select * from test_datev2_partition2 WHERE TIME_STAMP > '2022-12-15 22:22:22.222' order by TIME_STAMP """
 }

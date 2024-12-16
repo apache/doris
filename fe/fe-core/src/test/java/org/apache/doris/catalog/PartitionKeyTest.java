@@ -259,8 +259,7 @@ public class PartitionKeyTest {
         PartitionKey rKeyEmpty = PartitionKey.read(dis);
         Assert.assertEquals(keyEmpty, rKeyEmpty);
 
-        PartitionKey rKey = new PartitionKey();
-        rKey.readFields(dis);
+        PartitionKey rKey = PartitionKey.read(dis);
         Assert.assertEquals(key, rKey);
         Assert.assertEquals(key, key);
         Assert.assertNotEquals(key, this);
@@ -268,5 +267,11 @@ public class PartitionKeyTest {
         // 3. delete files
         dis.close();
         Files.deleteIfExists(path);
+    }
+
+    @Test
+    public void testMaxValueToSql() throws Exception {
+        PartitionKey key = PartitionKey.createInfinityPartitionKey(allColumns, true);
+        Assert.assertEquals("(MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE)", key.toSql());
     }
 }

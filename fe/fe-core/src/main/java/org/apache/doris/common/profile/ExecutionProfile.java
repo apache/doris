@@ -17,33 +17,31 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryProfile;
+import org.apache.doris.thrift.TRuntimeProfileTree;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.thrift.TUnit;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReadWriteLock;
+import java.util.Map.Entry;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * ExecutionProfile is used to collect profile of a complete query plan(including query or load).
+ * root is used to collect profile of a complete query plan(including query or load).
  * Need to call addToProfileAsChild() to add it to the root profile.
  * It has the following structure:
  *  Execution Profile:
@@ -59,295 +57,259 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
 
+    private final TUniqueId queryId;
+    private long queryFinishTime = 0L;
     // The root profile of this execution task
-    private RuntimeProfile executionProfile;
+    private RuntimeProfile root;
     // Profiles for each fragment. And the InstanceProfile is the child of fragment profile.
     // Which will be added to fragment profile when calling Coordinator::sendFragment()
-    private List<RuntimeProfile> fragmentProfiles;
+    // Could not use array list because fragment id is not continuous, planner may cut fragment
+    // during planning.
+    private Map<Integer, RuntimeProfile> fragmentProfiles;
     // Profile for load channels. Only for load job.
     private RuntimeProfile loadChannelProfile;
-    // A countdown latch to mark the completion of each instance.
-    // use for old pipeline
-    // instance id -> dummy value
-    private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
-
-    // A countdown latch to mark the completion of each fragment. use for pipelineX
-    // fragmentId -> dummy value
-    private MarkedCountDownLatch<Integer, Long> profileFragmentDoneSignal;
-
-    // fragmentId -> The number of BE without 'done.
-    private Map<Integer, Integer> befragmentDone;
-
-    // lock befragmentDone
-    private ReadWriteLock lock;
 
     // use to merge profile from multi be
-    private List<Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
+    private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
+    private ReentrantReadWriteLock multiBeProfileLock = new ReentrantReadWriteLock();
 
-    public ExecutionProfile(TUniqueId queryId, int fragmentNum) {
-        executionProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
+    // Not serialize this property, it is only used to get profile id.
+    private SummaryProfile summaryProfile;
+
+    private Map<Integer, Integer> fragmentIdBeNum;
+    private Map<Integer, Integer> seqNoToFragmentId;
+
+    // Constructor does not need list<PlanFragment>, use List<FragmentId> is enough
+    // and will be convenient for the test.
+    public ExecutionProfile(TUniqueId queryId, List<Integer> fragmentIds) {
+        this.queryId = queryId;
+        root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
-        executionProfile.addChild(fragmentsProfile);
-        fragmentProfiles = Lists.newArrayList();
-        multiBeProfile = Lists.newArrayList();
-        for (int i = 0; i < fragmentNum; i++) {
-            fragmentProfiles.add(new RuntimeProfile("Fragment " + i));
-            fragmentsProfile.addChild(fragmentProfiles.get(i));
-            multiBeProfile.add(new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
+        root.addChild(fragmentsProfile);
+        fragmentProfiles = Maps.newHashMap();
+        multiBeProfile = Maps.newHashMap();
+        fragmentIdBeNum = Maps.newHashMap();
+        seqNoToFragmentId = Maps.newHashMap();
+        int i = 0;
+        for (int fragmentId : fragmentIds) {
+            RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
+            fragmentProfiles.put(fragmentId, runtimeProfile);
+            fragmentsProfile.addChild(runtimeProfile);
+            multiBeProfile.put(fragmentId, Maps.newHashMap());
+            fragmentIdBeNum.put(fragmentId, 0);
+            seqNoToFragmentId.put(i, fragmentId);
+            ++i;
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
-        executionProfile.addChild(loadChannelProfile);
+        root.addChild(loadChannelProfile);
     }
 
-    public void addMultiBeProfileByPipelineX(int profileFragmentId, TNetworkAddress address,
-            List<RuntimeProfile> taskProfile) {
-        multiBeProfile.get(profileFragmentId).put(address, taskProfile);
-    }
-
-    private List<List<RuntimeProfile>> getMultiBeProfile(int profileFragmentId) {
-        Map<TNetworkAddress, List<RuntimeProfile>> multiPipeline = multiBeProfile.get(profileFragmentId);
-        List<List<RuntimeProfile>> allPipelines = Lists.newArrayList();
-        int pipelineSize = 0;
-        for (List<RuntimeProfile> profiles : multiPipeline.values()) {
-            pipelineSize = profiles.size();
-            break;
-        }
-        for (int pipelineIdx = 0; pipelineIdx < pipelineSize; pipelineIdx++) {
-            List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
-            for (List<RuntimeProfile> pipelines : multiPipeline.values()) {
-                RuntimeProfile pipeline = pipelines.get(pipelineIdx);
-                for (Pair<RuntimeProfile, Boolean> runtimeProfile : pipeline.getChildList()) {
-                    allPipelineTask.add(runtimeProfile.first);
+    private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {
+        multiBeProfileLock.readLock().lock();
+        try {
+            // A fragment in the BE contains multiple pipelines, and each pipeline contains
+            // multiple pipeline tasks.
+            Map<TNetworkAddress, List<RuntimeProfile>> multiPipeline = multiBeProfile.get(fragmentId);
+            List<List<RuntimeProfile>> allPipelines = Lists.newArrayList();
+            int pipelineSize = -1;
+            for (TNetworkAddress beAddress : multiPipeline.keySet()) {
+                List<RuntimeProfile> profileSingleBE = multiPipeline.get(beAddress);
+                // Check that within the same fragment across all BEs, there should be the same
+                // number of pipelines.
+                if (pipelineSize == -1) {
+                    pipelineSize = profileSingleBE.size();
+                } else {
+                    if (pipelineSize != profileSingleBE.size()) {
+                        LOG.warn("The profile sizes of the two BE are different, {} vs {}", pipelineSize,
+                                profileSingleBE.size());
+                        pipelineSize = Math.max(pipelineSize, profileSingleBE.size());
+                    }
                 }
             }
-            allPipelines.add(allPipelineTask);
+            for (int pipelineIdx = 0; pipelineIdx < pipelineSize; pipelineIdx++) {
+                List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
+                for (List<RuntimeProfile> profileSingleBE : multiPipeline.values()) {
+                    RuntimeProfile pipeline = profileSingleBE.get(pipelineIdx);
+                    for (Pair<RuntimeProfile, Boolean> pipelineTaskProfile : pipeline.getChildList()) {
+                        allPipelineTask.add(pipelineTaskProfile.first);
+                    }
+                }
+                if (allPipelineTask.isEmpty()) {
+                    LOG.warn("None of the BEs have pipeline task profiles in fragmentId:{}  , pipelineIdx:{}",
+                            fragmentId, pipelineIdx);
+                }
+                allPipelines.add(allPipelineTask);
+            }
+            return allPipelines;
+        } finally {
+            multiBeProfileLock.readLock().unlock();
         }
-        return allPipelines;
     }
 
-    private RuntimeProfile getPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
+    void setMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress, List<RuntimeProfile> taskProfile) {
+        multiBeProfileLock.writeLock().lock();
+        try {
+            multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
+        } finally {
+            multiBeProfileLock.writeLock().unlock();
+        }
+    }
+
+    private RuntimeProfile getPipelineAggregatedProfile(Map<Integer, String> planNodeMap) {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
             fragmentsProfile.addChild(newFragmentProfile);
-            List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(i);
+            List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(seqNoToFragmentId.get(i));
             int pipelineIdx = 0;
             for (List<RuntimeProfile> allPipelineTask : allPipelines) {
-                RuntimeProfile mergedpipelineProfile = new RuntimeProfile(
-                        "Pipeline : " + pipelineIdx + "(instance_num="
-                                + allPipelineTask.size() + ")",
-                        allPipelineTask.get(0).nodeId());
-                RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
+                RuntimeProfile mergedpipelineProfile = null;
+                if (allPipelineTask.isEmpty()) {
+                    // It is possible that the profile collection may be incomplete, so only part of
+                    // the profile will be merged here.
+                    mergedpipelineProfile = new RuntimeProfile(
+                            "Pipeline : " + pipelineIdx + "(miss profile)",
+                            -pipelineIdx);
+                } else {
+                    mergedpipelineProfile = new RuntimeProfile(
+                            "Pipeline : " + pipelineIdx + "(instance_num="
+                                    + allPipelineTask.size() + ")",
+                            allPipelineTask.get(0).nodeId());
+                    RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
+                }
                 newFragmentProfile.addChild(mergedpipelineProfile);
                 pipelineIdx++;
+                fragmentsProfile.rowsProducedMap.putAll(mergedpipelineProfile.rowsProducedMap);
             }
-        }
-        return fragmentsProfile;
-    }
-
-    private RuntimeProfile getNonPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
-        RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
-        for (int i = 0; i < fragmentProfiles.size(); ++i) {
-            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
-            RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
-            fragmentsProfile.addChild(newFragmentProfile);
-            List<RuntimeProfile> allInstanceProfiles = new ArrayList<RuntimeProfile>();
-            for (Pair<RuntimeProfile, Boolean> runtimeProfile : oldFragmentProfile.getChildList()) {
-                allInstanceProfiles.add(runtimeProfile.first);
-            }
-            RuntimeProfile mergedInstanceProfile = new RuntimeProfile("Instance" + "(instance_num="
-                    + allInstanceProfiles.size() + ")", allInstanceProfiles.get(0).nodeId());
-            newFragmentProfile.addChild(mergedInstanceProfile);
-            RuntimeProfile.mergeProfiles(allInstanceProfiles, mergedInstanceProfile, planNodeMap);
         }
         return fragmentsProfile;
     }
 
     public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
-        if (enablePipelineX()) {
-            /*
-             * Fragment 0
-             * ---Pipeline 0
-             * ------pipelineTask 0
-             * ------pipelineTask 0
-             * ------pipelineTask 0
-             * ---Pipeline 1
-             * ------pipelineTask 1
-             * ---Pipeline 2
-             * ------pipelineTask 2
-             * ------pipelineTask 2
-             * Fragment 1
-             * ---Pipeline 0
-             * ------......
-             * ---Pipeline 1
-             * ------......
-             * ---Pipeline 2
-             * ------......
-             * ......
-             */
-            return getPipelineXAggregatedProfile(planNodeMap);
-        } else {
-            /*
-             * Fragment 0
-             * ---Instance 0
-             * ------pipelineTask 0
-             * ------pipelineTask 1
-             * ------pipelineTask 2
-             * ---Instance 1
-             * ------pipelineTask 0
-             * ------pipelineTask 1
-             * ------pipelineTask 2
-             * ---Instance 2
-             * ------pipelineTask 0
-             * ------pipelineTask 1
-             * ------pipelineTask 2
-             * Fragment 1
-             * ---Instance 0
-             * ---Instance 1
-             * ---Instance 2
-             * ......
-             */
-            return getNonPipelineXAggregatedProfile(planNodeMap);
-        }
-    }
-
-    public RuntimeProfile getExecutionProfile() {
-        return executionProfile;
-    }
-
-    public RuntimeProfile getLoadChannelProfile() {
-        return loadChannelProfile;
-    }
-
-    public List<RuntimeProfile> getFragmentProfiles() {
-        return fragmentProfiles;
-    }
-
-    public void addToProfileAsChild(RuntimeProfile rootProfile) {
-        rootProfile.addChild(executionProfile);
-    }
-
-    public void markInstances(Set<TUniqueId> instanceIds) {
-        profileDoneSignal = new MarkedCountDownLatch<>(instanceIds.size());
-        for (TUniqueId instanceId : instanceIds) {
-            profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
-        }
-    }
-
-    private boolean enablePipelineX() {
-        return profileFragmentDoneSignal != null;
-    }
-
-    public void markFragments(int fragments) {
-        profileFragmentDoneSignal = new MarkedCountDownLatch<>(fragments);
-        lock = new ReentrantReadWriteLock();
-        befragmentDone = new HashMap<>();
-        for (int fragmentId = 0; fragmentId < fragments; fragmentId++) {
-            profileFragmentDoneSignal.addMark(fragmentId, -1L /* value is meaningless */);
-            befragmentDone.put(fragmentId, 0);
-        }
-    }
-
-    public void addFragments(int fragmentId) {
-        lock.writeLock().lock();
-        try {
-            befragmentDone.put(fragmentId, befragmentDone.get(fragmentId) + 1);
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public void update(long startTime, boolean isFinished) {
-        if (startTime > 0) {
-            executionProfile.getCounterTotalTime().setValue(TUnit.TIME_MS, TimeUtils.getElapsedTimeMs(startTime));
-        }
-        // Wait for all backends to finish reporting when writing profile last time.
-        if (isFinished && profileDoneSignal != null) {
-            try {
-                profileDoneSignal.await(2, TimeUnit.SECONDS);
-            } catch (InterruptedException e1) {
-                LOG.warn("signal await error", e1);
-            }
-        }
-
-        if (isFinished && profileFragmentDoneSignal != null) {
-            try {
-                profileFragmentDoneSignal.await(2, TimeUnit.SECONDS);
-            } catch (InterruptedException e1) {
-                LOG.warn("signal await error", e1);
-            }
-        }
-
-        for (RuntimeProfile fragmentProfile : fragmentProfiles) {
+        for (RuntimeProfile fragmentProfile : fragmentProfiles.values()) {
             fragmentProfile.sortChildren();
         }
+        /*
+            * Fragment 0
+            * ---Pipeline 0
+            * ------pipelineTask 0
+            * ------pipelineTask 0
+            * ------pipelineTask 0
+            * ---Pipeline 1
+            * ------pipelineTask 1
+            * ---Pipeline 2
+            * ------pipelineTask 2
+            * ------pipelineTask 2
+            * Fragment 1
+            * ---Pipeline 0
+            * ------......
+            * ---Pipeline 1
+            * ------......
+            * ---Pipeline 2
+            * ------......
+            * ......
+            */
+        return getPipelineAggregatedProfile(planNodeMap);
     }
 
-    public void onCancel() {
-        if (profileDoneSignal != null) {
-            // count down to zero to notify all objects waiting for this
-            profileDoneSignal.countDownToZero(new Status());
-        }
-        if (profileFragmentDoneSignal != null) {
-            profileFragmentDoneSignal.countDownToZero(new Status());
-        }
+    public RuntimeProfile getRoot() {
+        return root;
     }
 
-    public void markOneInstanceDone(TUniqueId fragmentInstanceId) {
-        if (profileDoneSignal != null) {
-            if (!profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
-                LOG.warn("Mark instance {} done failed", DebugUtil.printId(fragmentInstanceId));
-            }
+    public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress, boolean isDone) {
+        if (!profile.isSetQueryId()) {
+            LOG.warn("QueryId is not set");
+            return new Status(TStatusCode.INVALID_ARGUMENT, "QueryId is not set");
         }
-    }
 
-    public void markOneFragmentDone(int fragmentId) {
-        if (profileFragmentDoneSignal != null) {
-            lock.writeLock().lock();
-            try {
-                befragmentDone.put(fragmentId, befragmentDone.get(fragmentId) - 1);
-                if (befragmentDone.get(fragmentId) == 0) {
-                    if (!profileFragmentDoneSignal.markedCountDown(fragmentId, -1L)) {
-                        LOG.warn("Mark fragment {} done failed", fragmentId);
-                    }
+        if (!profile.isSetFragmentIdToProfile()) {
+            LOG.warn("{} FragmentIdToProfile is not set", DebugUtil.printId(profile.getQueryId()));
+            return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
+        }
+
+        for (Entry<Integer, List<TDetailedReportParams>> entry : profile.getFragmentIdToProfile().entrySet()) {
+            int fragmentId = entry.getKey();
+            List<TDetailedReportParams> fragmentProfile = entry.getValue();
+            int pipelineIdx = 0;
+            List<RuntimeProfile> taskProfile = Lists.newArrayList();
+            String suffix = " (host=" + backendHBAddress + ")";
+            for (TDetailedReportParams pipelineProfile : fragmentProfile) {
+                String name = "";
+                if (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level) {
+                    name = "Fragment Level Profile: " + suffix;
+                } else {
+                    name = "Pipeline :" + pipelineIdx + " " + suffix;
+                    pipelineIdx++;
                 }
-            } finally {
-                lock.writeLock().unlock();
+
+                RuntimeProfile profileNode = new RuntimeProfile(name);
+                // The taskprofile is used to save the profile of the pipeline, without
+                // considering the FragmentLevel.
+                if (!(pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level)) {
+                    taskProfile.add(profileNode);
+                }
+                if (!pipelineProfile.isSetProfile()) {
+                    LOG.warn("Profile is not set, {}", DebugUtil.printId(profile.getQueryId()));
+                    return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
+                }
+
+                profileNode.update(pipelineProfile.profile);
+                profileNode.setIsDone(isDone);
+                fragmentProfiles.get(fragmentId).addChild(profileNode);
+            }
+            setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
+        }
+
+        if (profile.isSetLoadChannelProfiles()) {
+            for (TRuntimeProfileTree loadChannelProfile : profile.getLoadChannelProfiles()) {
+                this.loadChannelProfile.update(loadChannelProfile);
             }
         }
+
+        return new Status(TStatusCode.OK, "Success");
     }
 
-    public boolean awaitAllInstancesDone(long waitTimeS) throws InterruptedException {
-        if (profileDoneSignal == null) {
-            return true;
+    public synchronized void addFragmentBackend(PlanFragmentId fragmentId, Long backendId) {
+        fragmentIdBeNum.put(fragmentId.asInt(), fragmentIdBeNum.get(fragmentId.asInt()) + 1);
+    }
+
+    public TUniqueId getQueryId() {
+        return queryId;
+    }
+
+    // Check all fragments's child, if all finished, then this execution profile is finished
+    public boolean isCompleted() {
+        for (Entry<Integer, RuntimeProfile> element : fragmentProfiles.entrySet()) {
+            RuntimeProfile fragmentProfile = element.getValue();
+            // If any fragment is empty, it means BE does not report the profile, then the total
+            // execution profile is not completed.
+            if (fragmentProfile.isEmpty()
+                    || fragmentProfile.getChildList().size() < fragmentIdBeNum.get(element.getKey())) {
+                return false;
+            }
+            for (Pair<RuntimeProfile, Boolean> runtimeProfile : fragmentProfile.getChildList()) {
+                // If any child instance profile is not ready, then return false.
+                if (!(runtimeProfile.first.getIsDone() || runtimeProfile.first.getIsCancel())) {
+                    return false;
+                }
+            }
         }
-        return profileDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
+        return true;
     }
 
-    public boolean awaitAllFragmentsDone(long waitTimeS) throws InterruptedException {
-        if (profileFragmentDoneSignal == null) {
-            return true;
-        }
-        return profileFragmentDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
+    public long getQueryFinishTime() {
+        return queryFinishTime;
     }
 
-    public boolean isAllInstancesDone() {
-        if (profileDoneSignal == null) {
-            return true;
-        }
-        return profileDoneSignal.getCount() == 0;
+    public void setQueryFinishTime(long queryFinishTime) {
+        this.queryFinishTime = queryFinishTime;
     }
 
-    public boolean isAllFragmentsDone() {
-        if (profileFragmentDoneSignal == null) {
-            return true;
-        }
-        return profileFragmentDoneSignal.getCount() == 0;
+    public SummaryProfile getSummaryProfile() {
+        return summaryProfile;
     }
 
-    public void addInstanceProfile(int fragmentId, RuntimeProfile instanceProfile) {
-        Preconditions.checkArgument(fragmentId < fragmentProfiles.size(),
-                fragmentId + " vs. " + fragmentProfiles.size());
-        fragmentProfiles.get(fragmentId).addChild(instanceProfile);
+    public void setSummaryProfile(SummaryProfile summaryProfile) {
+        this.summaryProfile = summaryProfile;
     }
 }

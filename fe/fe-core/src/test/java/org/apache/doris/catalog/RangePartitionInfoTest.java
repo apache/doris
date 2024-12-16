@@ -17,17 +17,30 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -441,5 +454,53 @@ public class RangePartitionInfoTest {
             singlePartitionDesc.analyze(columns, null);
             partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
         }
+    }
+
+    @Test
+    public void testSerialization() throws IOException, AnalysisException, DdlException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("rangePartitionInfo", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        partitionInfo = new RangePartitionInfo(partitionColumns);
+
+        Text.writeString(out, GsonUtils.GSON.toJson(partitionInfo));
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        RangePartitionInfo partitionInfo2 = GsonUtils.GSON.fromJson(Text.readString(in), RangePartitionInfo.class);
+
+        Assert.assertEquals(partitionInfo.getType(), partitionInfo2.getType());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
+    }
+
+    @Test
+    public void testAutotoSql() throws AnalysisException, DdlException {
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
+        partitionColumns.add(k1);
+
+        ArrayList<Expr> params = new ArrayList<>();
+        SlotRef s1 = new SlotRef(new TableName("tbl"), "k1");
+        params.add(s1);
+        params.add(new StringLiteral("day"));
+
+        FunctionCallExpr f1 = new FunctionCallExpr("date_trunc", params);
+
+        ArrayList<Expr> partitionExprs = new ArrayList<>();
+        partitionExprs.add(f1);
+
+        partitionInfo = new RangePartitionInfo(true, partitionExprs, partitionColumns);
+        OlapTable table = new OlapTable();
+
+        String sql = partitionInfo.toSql(table, null);
+
+        String expected = "AUTO PARTITION BY RANGE (date_trunc(`tbl`.`k1`, 'day'))";
+        Assert.assertTrue("got: " + sql + ", should have: " + expected, sql.contains(expected));
     }
 }

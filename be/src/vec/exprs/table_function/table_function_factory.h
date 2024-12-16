@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -25,6 +27,8 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class ObjectPool;
 
 namespace vectorized {
@@ -33,10 +37,11 @@ class TableFunction;
 class TableFunctionFactory {
 public:
     TableFunctionFactory() = delete;
-    static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn);
+    static Status get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn);
 
     const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
             _function_map;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -22,25 +22,28 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * AccessControllerManager is the entry point of privilege authentication.
@@ -53,17 +56,60 @@ public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
 
     private Auth auth;
+    // Default access controller instance used for handling cases where no specific controller is specified
     private CatalogAccessController defaultAccessController;
+    // Map that stores the mapping between catalogs and their corresponding access controllers
     private Map<String, CatalogAccessController> ctlToCtlAccessController = Maps.newConcurrentMap();
+    // Cache of loaded access controller factories for quick creation of new access controllers
+    private ConcurrentHashMap<String, AccessControllerFactory> accessControllerFactoriesCache
+            = new ConcurrentHashMap<>();
+    // Mapping between access controller class names and their identifiers for easy lookup of factory identifiers
+    private ConcurrentHashMap<String, String> accessControllerClassNameMapping = new ConcurrentHashMap<>();
 
     public AccessControllerManager(Auth auth) {
         this.auth = auth;
-        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            defaultAccessController = new RangerDorisAccessController("doris");
-        } else {
-            defaultAccessController = new InternalAccessController(auth);
-        }
+        loadAccessControllerPlugins();
+        String accessControllerName = Config.access_controller_type;
+        this.defaultAccessController = loadAccessControllerOrThrow(accessControllerName);
         ctlToCtlAccessController.put(InternalCatalog.INTERNAL_CATALOG_NAME, defaultAccessController);
+    }
+
+    private CatalogAccessController loadAccessControllerOrThrow(String accessControllerName) {
+        if (accessControllerName.equalsIgnoreCase("default")) {
+            return new InternalAccessController(auth);
+        }
+        if (accessControllerFactoriesCache.containsKey(accessControllerName)) {
+            Map<String, String> prop;
+            try {
+                prop = PropertiesUtils.loadAccessControllerPropertiesOrNull();
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to load authorization properties."
+                        + "Please check the configuration file, authorization name is " + accessControllerName, e);
+            }
+            return accessControllerFactoriesCache.get(accessControllerName).createAccessController(prop);
+        }
+        throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
+                + ". Please confirm that your plugin is placed in the correct location.");
+    }
+
+    private void loadAccessControllerPlugins() {
+        ServiceLoader<AccessControllerFactory> loaderFromClasspath = ServiceLoader.load(AccessControllerFactory.class);
+        for (AccessControllerFactory factory : loaderFromClasspath) {
+            LOG.info("Found Authentication Plugin Factories: {} from class path.", factory.factoryIdentifier());
+            accessControllerFactoriesCache.put(factory.factoryIdentifier(), factory);
+            accessControllerClassNameMapping.put(factory.getClass().getName(), factory.factoryIdentifier());
+        }
+        List<AccessControllerFactory> loader = null;
+        try {
+            loader = ClassLoaderUtils.loadServicesFromDirectory(AccessControllerFactory.class);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load Authentication Plugin Factories", e);
+        }
+        for (AccessControllerFactory factory : loader) {
+            LOG.info("Found Access Controller Plugin Factory: {} from directory.", factory.factoryIdentifier());
+            accessControllerFactoriesCache.put(factory.factoryIdentifier(), factory);
+            accessControllerClassNameMapping.put(factory.getClass().getName(), factory.factoryIdentifier());
+        }
     }
 
     public CatalogAccessController getAccessControllerOrDefault(String ctl) {
@@ -95,23 +141,28 @@ public class AccessControllerManager {
     }
 
     public void createAccessController(String ctl, String acFactoryClassName, Map<String, String> prop,
-            boolean isDryRun) {
-        Class<?> factoryClazz = null;
-        try {
-            factoryClazz = Class.forName(acFactoryClassName);
-            AccessControllerFactory factory = (AccessControllerFactory) factoryClazz.newInstance();
-            CatalogAccessController accessController = factory.createAccessController(prop);
-            if (!isDryRun) {
-                ctlToCtlAccessController.put(ctl, accessController);
-                LOG.info("create access controller {} for catalog {}", ctl, acFactoryClassName);
-            }
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
-        } catch (InstantiationException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
+                                       boolean isDryRun) {
+        String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
+        CatalogAccessController accessController = accessControllerFactoriesCache.get(pluginIdentifier)
+                .createAccessController(prop);
+        if (!isDryRun) {
+            ctlToCtlAccessController.put(ctl, accessController);
+            LOG.info("create access controller {} for catalog {}", acFactoryClassName, ctl);
         }
+    }
+
+    private String getPluginIdentifierForAccessController(String acClassName) {
+        String pluginIdentifier = null;
+        if (accessControllerClassNameMapping.containsKey(acClassName)) {
+            pluginIdentifier = accessControllerClassNameMapping.get(acClassName);
+        }
+        if (accessControllerFactoriesCache.containsKey(acClassName)) {
+            pluginIdentifier = acClassName;
+        }
+        if (null == pluginIdentifier || !accessControllerFactoriesCache.containsKey(pluginIdentifier)) {
+            throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName);
+        }
+        return pluginIdentifier;
     }
 
     public void removeAccessController(String ctl) {
@@ -145,14 +196,6 @@ public class AccessControllerManager {
     }
 
     // ==== Database ====
-    public boolean checkDbPriv(ConnectContext ctx, String qualifiedDb, PrivPredicate wanted) {
-        return checkDbPriv(ctx.getCurrentUserIdentity(), qualifiedDb, wanted);
-    }
-
-    public boolean checkDbPriv(UserIdentity currentUser, String db, PrivPredicate wanted) {
-        return checkDbPriv(currentUser, Auth.DEFAULT_CATALOG, db, wanted);
-    }
-
     public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
         return checkDbPriv(ctx.getCurrentUserIdentity(), ctl, db, wanted);
     }
@@ -163,25 +206,17 @@ public class AccessControllerManager {
     }
 
     // ==== Table ====
-    public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(ctx, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, wanted);
-    }
-
     public boolean checkTblPriv(ConnectContext ctx, TableName tableName, PrivPredicate wanted) {
         Preconditions.checkState(tableName.isFullyQualified());
         return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);
     }
 
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
-            String qualifiedDb, String tbl, PrivPredicate wanted) {
+                                String qualifiedDb, String tbl, PrivPredicate wanted) {
         if (ctx.isSkipAuth()) {
             return true;
         }
         return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
-    }
-
-    public boolean checkTblPriv(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(currentUser, Auth.DEFAULT_CATALOG, db, tbl, wanted);
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
@@ -190,31 +225,27 @@ public class AccessControllerManager {
     }
 
     // ==== Column ====
-    public void checkColumnsPriv(UserIdentity currentUser, String
-            ctl, HashMultimap<TableName, String> tableToColsMap,
-            PrivPredicate wanted) throws UserException {
-        boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
-        for (TableName tableName : tableToColsMap.keySet()) {
-            accessController.checkColsPriv(hasGlobal, currentUser, ctl,
-                    tableName.getDb(),
-                    tableName.getTbl(), tableToColsMap.get(tableName), wanted);
+    // If param has ctx, we can skip auth by isSkipAuth field in ctx
+    public void checkColumnsPriv(ConnectContext ctx, String ctl, String qualifiedDb, String tbl, Set<String> cols,
+                                 PrivPredicate wanted) throws UserException {
+        if (ctx.isSkipAuth()) {
+            return;
         }
+        checkColumnsPriv(ctx.getCurrentUserIdentity(), ctl, qualifiedDb, tbl, cols, wanted);
     }
 
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws UserException {
+                                 PrivPredicate wanted) throws UserException {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        long start = System.currentTimeMillis();
         accessController.checkColsPriv(hasGlobal, currentUser, ctl, qualifiedDb,
                 tbl, cols, wanted);
-
-    }
-
-    public void checkColumnsPriv(UserIdentity currentUser, String qualifiedDb, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws UserException {
-        checkColumnsPriv(currentUser, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, cols, wanted);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("checkColumnsPriv use {} mills, user: {}, ctl: {}, db: {}, table: {}, cols: {}",
+                    System.currentTimeMillis() - start, currentUser, ctl, qualifiedDb, tbl, cols);
+        }
     }
 
     // ==== Resource ====
@@ -232,7 +263,7 @@ public class AccessControllerManager {
     }
 
     public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
         return defaultAccessController.checkCloudPriv(currentUser, cloudName, wanted, type);
     }
 
@@ -254,10 +285,11 @@ public class AccessControllerManager {
             return false;
         }
         if (authInfo.getTableNameList() == null || authInfo.getTableNameList().isEmpty()) {
-            return checkDbPriv(ctx, authInfo.getDbName(), wanted);
+            return checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, authInfo.getDbName(), wanted);
         }
         for (String tblName : authInfo.getTableNameList()) {
-            if (!checkTblPriv(ConnectContext.get(), authInfo.getDbName(), tblName, wanted)) {
+            if (!checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, authInfo.getDbName(),
+                    tblName, wanted)) {
                 return false;
             }
         }

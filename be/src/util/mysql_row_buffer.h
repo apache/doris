@@ -62,7 +62,7 @@ public:
 
     // Prepare for binary row buffer
     // init bitmap
-    void start_binary_row(uint32_t num_cols);
+    void start_binary_row(uint64_t num_cols);
 
     // TODO(zhaochun): add signed/unsigned support
     int push_tinyint(int8_t data);
@@ -76,7 +76,7 @@ public:
     int push_time(double data);
     int push_timev2(double data, int scale);
     template <typename DateType>
-    int push_datetime(const DateType& data);
+    int push_datetime(const DateType& data, int scale);
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_ipv4(const IPv4Value& ipv4_val);
     int push_ipv6(const IPv6Value& ipv6_val);
@@ -84,7 +84,7 @@ public:
     int push_null();
 
     template <typename DateType>
-    int push_vec_datetime(DateType& data);
+    int push_vec_datetime(DateType& data, int scale = -1);
 
     // this function reserved size, change the pos step size, return old pos
     // Becareful when use the returned pointer.
@@ -128,8 +128,6 @@ public:
      */
     void close_dynamic_mode();
 
-    void set_faster_float_convert(bool faster) { _faster_float_convert = faster; }
-
 private:
     int reserve(int64_t size);
 
@@ -148,8 +146,6 @@ private:
     uint64_t _len_pos;
     uint32_t _field_pos = 0;
     uint32_t _field_count = 0;
-
-    bool _faster_float_convert = false;
 };
 
 } // namespace doris

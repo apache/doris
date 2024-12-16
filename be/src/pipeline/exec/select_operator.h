@@ -20,25 +20,8 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vselect_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class SelectOperatorBuilder final : public OperatorBuilder<vectorized::VSelectNode> {
-public:
-    SelectOperatorBuilder(int32_t id, ExecNode* select_node);
-
-    OperatorPtr build_operator() override;
-};
-
-class SelectOperator final : public StreamingOperator<vectorized::VSelectNode> {
-public:
-    SelectOperator(OperatorBuilderBase* operator_builder, ExecNode* select_node);
-};
+namespace doris::pipeline {
 
 class SelectOperatorX;
 class SelectLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -72,5 +55,4 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

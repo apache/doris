@@ -94,6 +94,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTables(
                 "create table test.t6\n"
@@ -136,7 +137,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
             try {
                 StatementScopeIdGenerator.clear();
                 StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-                PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
+                PhysicalPlan plan = new NereidsPlanner(statementContext).planWithLock(
                         parser.parseSingle(sql),
                         PhysicalProperties.ANY
                 );

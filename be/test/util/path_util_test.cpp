@@ -73,17 +73,6 @@ TEST(TestPathUtil, DirNameTest) {
     EXPECT_EQ("/ab", path_util::dir_name("/ab/cd"));
 }
 
-TEST(TestPathUtil, SplitPathTest) {
-    using Vec = std::vector<string>;
-    EXPECT_EQ(Vec({"/"}), path_util::split_path("/"));
-    EXPECT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b"));
-    EXPECT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b/"));
-    EXPECT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a//b/"));
-    EXPECT_EQ(Vec({"a", "b"}), path_util::split_path("a/b"));
-    EXPECT_EQ(Vec({"."}), path_util::split_path("."));
-    EXPECT_EQ(Vec(), path_util::split_path(""));
-}
-
 TEST(TestPathUtil, file_extension_test) {
     EXPECT_EQ("", path_util::file_extension(""));
     EXPECT_EQ("", path_util::file_extension("."));

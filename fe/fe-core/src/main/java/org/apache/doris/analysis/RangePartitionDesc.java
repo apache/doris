@@ -51,9 +51,10 @@ public class RangePartitionDesc extends PartitionDesc {
         this.isAutoCreatePartitions = true;
     }
 
+    // for parse auto partition
     public static RangePartitionDesc createRangePartitionDesc(ArrayList<Expr> exprs,
             List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
-        List<String> colNames = getColNamesFromExpr(exprs, false);
+        List<String> colNames = getColNamesFromExpr(exprs, false, true);
         return new RangePartitionDesc(exprs, colNames, allPartitionDescs);
     }
 

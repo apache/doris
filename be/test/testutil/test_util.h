@@ -20,6 +20,37 @@
 #include <cstdlib>
 #include <string>
 
+#include "gtest/gtest.h"
+
+struct TestCaseInfo {
+    inline static int arg_const_info {};
+    inline static int cur_cast_line {};
+    inline static int arg_size {};
+};
+
+//"Rewrite the virtual functions of the gtest framework to enable listening to test events.
+// If a test fails, output the constant conditions of the corresponding data case number and parameters
+// that caused the failure."
+struct TestListener : public ::testing::EmptyTestEventListener {
+    void OnTestPartResult(const ::testing::TestPartResult& test_part_result) override {
+        if (test_part_result.failed()) {
+            std::cout << "\033[35m";
+            if (TestCaseInfo::arg_const_info == -1) {
+                std::cout << "other error" << std::endl;
+            }
+            for (int i = 0; i < TestCaseInfo::arg_size; i++) {
+                if ((1 << i) & TestCaseInfo::arg_const_info) {
+                    std::cout << "const arg" << i + 1 << " ";
+                } else {
+                    std::cout << "arg" << i + 1 << " ";
+                }
+            }
+            std::cout << "\nError occurred in case" << TestCaseInfo::cur_cast_line << std::endl;
+            std::cout << "\033[0m";
+        }
+    }
+};
+
 namespace doris {
 enum class FieldType;
 

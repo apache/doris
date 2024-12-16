@@ -20,11 +20,15 @@ package org.apache.doris.datasource.es;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Elasticsearch external table.
@@ -69,13 +73,22 @@ public class EsExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         EsRestClient restClient = ((EsExternalCatalog) catalog).getEsRestClient();
-        return EsUtil.genColumnsFromEs(restClient, name, null, ((EsExternalCatalog) catalog).enableMappingEsId());
+        Map<String, String> column2typeMap = new HashMap<>();
+        List<Column> columns = EsUtil.genColumnsFromEs(restClient, name, null,
+                ((EsExternalCatalog) catalog).enableMappingEsId(), column2typeMap);
+        return Optional.of(new EsSchemaCacheValue(columns, column2typeMap));
+    }
+
+    public Map<String, String> getColumn2type() {
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((EsSchemaCacheValue) value).getColumn2typeMap()).orElse(null);
     }
 
     private EsTable toEsTable() {
         List<Column> schema = getFullSchema();
+        Map<String, String> column2typeMap = getColumn2type();
         EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
         EsTable esTable = new EsTable(this.id, this.name, schema, TableType.ES_EXTERNAL_TABLE);
         esTable.setIndexName(name);
@@ -91,6 +104,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
         esTable.setIncludeHiddenIndex(esCatalog.enableIncludeHiddenIndex());
+        esTable.setColumn2typeMap(column2typeMap);
         return esTable;
     }
 }

@@ -37,7 +37,7 @@ namespace doris::vectorized {
 
 MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile)
-        : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
+        : JniReader(file_slot_descs, state, profile) {
     std::ostringstream required_fields;
     std::ostringstream columns_types;
     std::vector<std::string> column_names;

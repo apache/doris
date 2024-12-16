@@ -49,6 +49,7 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 1, 2))
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
+                .projectAll()
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -58,10 +59,10 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .matchesExploration(
                     logicalProject(
                         logicalJoin(
-                            logicalJoin(
+                            logicalProject(logicalJoin(
                                     logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
                                     logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                            ),
+                            )),
                             logicalProject(
                                     logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
                             ).when(project -> project.getProjects().size() == 1)
@@ -76,6 +77,7 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .projectAll()
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

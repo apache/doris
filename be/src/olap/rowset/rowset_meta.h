@@ -25,19 +25,21 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
-class RowsetMeta {
+class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
     ~RowsetMeta();
 
-    bool init(const std::string& pb_rowset_meta);
+    bool init(std::string_view pb_rowset_meta);
 
     bool init(const RowsetMeta* rowset_meta);
 
@@ -49,10 +51,14 @@ public:
 
     bool json_rowset_meta(std::string* json_rowset_meta);
 
-    // This method may return nullptr.
-    const io::FileSystemSPtr& fs();
+    // If the rowset is a local rowset, return the global local file system.
+    // Otherwise, return the remote file system corresponding to rowset's resource id.
+    // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
+    io::FileSystemSPtr fs();
 
-    void set_fs(io::FileSystemSPtr fs);
+    Result<const StorageResource*> remote_storage_resource();
+
+    void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
@@ -250,6 +256,12 @@ public:
         return num_segments() > 1 && is_singleton_delta() && segments_overlap() != NONOVERLAPPING;
     }
 
+    bool produced_by_compaction() const {
+        return has_version() &&
+               (start_version() < end_version() ||
+                (start_version() == end_version() && segments_overlap() == NONOVERLAPPING));
+    }
+
     // get the compaction score of this rowset.
     // if segments are overlapping, the score equals to the number of segments,
     // otherwise, score is 1.
@@ -262,6 +274,21 @@ public:
             CHECK(score > 0);
         }
         return score;
+    }
+
+    uint32_t get_merge_way_num() const {
+        uint32_t way_num = 0;
+        if (!is_segments_overlapping()) {
+            if (num_segments() == 0) {
+                way_num = 0;
+            } else {
+                way_num = 1;
+            }
+        } else {
+            way_num = num_segments();
+            CHECK(way_num > 0);
+        }
+        return way_num;
     }
 
     void get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) const {
@@ -331,12 +358,23 @@ public:
     // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
     void merge_rowset_meta(const RowsetMeta& other);
 
+    InvertedIndexFileInfo inverted_index_file_info(int seg_id);
+
+    const auto& inverted_index_file_info() const {
+        return _rowset_meta_pb.inverted_index_file_info();
+    }
+
+    void add_inverted_index_files_info(
+            const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
+
+    int64_t get_metadata_size() const override;
+
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
 private:
-    bool _deserialize_from_pb(const std::string& value);
+    bool _deserialize_from_pb(std::string_view value);
 
     bool _serialize_to_pb(std::string* value);
 
@@ -351,7 +389,7 @@ private:
     TabletSchemaSPtr _schema;
     Cache::Handle* _handle = nullptr;
     RowsetId _rowset_id;
-    io::FileSystemSPtr _fs;
+    StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
 };
 

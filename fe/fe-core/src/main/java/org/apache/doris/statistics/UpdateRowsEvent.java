@@ -31,14 +31,64 @@ import java.util.Map;
 public class UpdateRowsEvent implements Writable {
 
     @SerializedName("records")
-    private Map<Long, Long> records;
+    private final Map<Long, Long> records;
+
+    @SerializedName("tr")
+    private final Map<Long, Map<Long, Long>> tabletRecords;
+
+    @SerializedName("dbId")
+    private final long dbId;
+
+    @SerializedName("pur")
+    private final Map<Long, Long> partitionToUpdateRows;
+
+    @SerializedName("tableId")
+    private final long tableId;
 
     public UpdateRowsEvent(Map<Long, Long> records) {
         this.records = records;
+        this.tabletRecords = null;
+        this.dbId = -1;
+        this.partitionToUpdateRows = null;
+        this.tableId = -1;
     }
 
+    public UpdateRowsEvent(Map<Long, Map<Long, Long>> tabletRecords, long dbId) {
+        this.records = null;
+        this.tabletRecords = tabletRecords;
+        this.dbId = dbId;
+        this.partitionToUpdateRows = null;
+        this.tableId = -1;
+    }
+
+    public UpdateRowsEvent(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId) {
+        this.records = null;
+        this.tabletRecords = null;
+        this.dbId = dbId;
+        this.partitionToUpdateRows = partitionToUpdateRows;
+        this.tableId = tableId;
+    }
+
+    // TableId -> table update rows
     public Map<Long, Long> getRecords() {
         return records;
+    }
+
+    // TableId -> (TabletId -> tablet update rows)
+    public Map<Long, Map<Long, Long>> getTabletRecords() {
+        return tabletRecords;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public Map<Long, Long> getPartitionToUpdateRows() {
+        return partitionToUpdateRows;
+    }
+
+    public long getTableId() {
+        return tableId;
     }
 
     @Override

@@ -66,6 +66,15 @@ suite("test_stream_load", "p0") {
 
         file 'test_strict_mode.csv'
         time 10000 // limit inflight 10s
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
+        }
     }
 
     sql "sync"
@@ -90,6 +99,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(result.contains("ErrorURL"))
             assertEquals(2, json.NumberTotalRows)
             assertEquals(1, json.NumberFilteredRows)
         }
@@ -117,6 +127,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(result.contains("ErrorURL"))
             assertEquals(2, json.NumberTotalRows)
             assertEquals(1, json.NumberFilteredRows)
         }
@@ -160,13 +171,14 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(3, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
         }
     }
 
     sql "sync"
-    rowCount = sql "select count(1) from ${tableName}"
+    def rowCount = sql "select count(1) from ${tableName}"
     assertEquals(3, rowCount[0][0])
 
     // test load_nullable_to_not_nullable
@@ -210,6 +222,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(1, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
         }
@@ -428,6 +441,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
     sql "sync"
@@ -453,6 +467,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
     sql "sync"
@@ -474,6 +489,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(4, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
         }
@@ -497,6 +513,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(2500, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
         }
@@ -524,6 +541,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(result.contains("ErrorURL"))
             assertEquals(0, json.NumberLoadedRows)
         }
     }
@@ -547,6 +565,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(2500, json.NumberTotalRows)
             assertEquals(2500, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -579,6 +598,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(2500, json.NumberTotalRows)
             assertEquals(11, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -609,6 +629,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(2500, json.NumberTotalRows)
             assertEquals(2500, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -639,6 +660,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(result.contains("ErrorURL"))
             assertEquals(2500, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
             assertEquals(2500, json.NumberFilteredRows)
@@ -695,6 +717,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(1025, json.NumberTotalRows)
             assertEquals(1025, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -723,6 +746,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(8001, json.NumberTotalRows)
             assertEquals(8001, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -754,6 +778,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(6, json.NumberTotalRows)
             assertEquals(6, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -782,6 +807,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(5, json.NumberTotalRows)
             assertEquals(5, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -811,7 +837,7 @@ suite("test_stream_load", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(5, json.NumberTotalRows)
-            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -834,6 +860,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(10, json.NumberTotalRows)
             assertEquals(10, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -884,6 +911,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(5, json.NumberTotalRows)
             assertEquals(5, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -913,7 +941,7 @@ suite("test_stream_load", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(5, json.NumberTotalRows)
-            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -936,6 +964,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(14, json.NumberTotalRows)
             assertEquals(14, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
@@ -990,6 +1019,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(11, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(5, json.NumberUnselectedRows)
@@ -1050,6 +1080,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(2, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
@@ -1092,6 +1123,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
             assertEquals(2, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
@@ -1166,6 +1198,7 @@ suite("test_stream_load", "p0") {
             requestBuilder.setHeader("Expect", "100-Continue")
             requestBuilder.setHeader("label", "${label}")
             requestBuilder.setHeader("txn_operation", "${txn_operation}")
+            log.info("stream load request " + requestBuilder.toString())
 
             String backendStreamLoadUri = null
             client.execute(requestBuilder.build()).withCloseable { resp ->
@@ -1232,6 +1265,7 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
+                assertTrue(!result.contains("ErrorURL"))
                 assertEquals(2, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
@@ -1261,6 +1295,7 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
+                assertTrue(!result.contains("ErrorURL"))
                 assertEquals(2, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
@@ -1309,9 +1344,9 @@ suite("test_stream_load", "p0") {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3  -T ${context.dataPath}/test_chunked_transfer.csv http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
-        json2pc = parseJson(out)
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
         sql "sync"
         qt_sql_chunked_transfer_csv "select * from ${tableName16} order by k1"
@@ -1337,9 +1372,9 @@ suite("test_stream_load", "p0") {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H Transfer-Encoding:chunked -H format:json -H read_json_by_line:true -T ${context.dataPath}/test_chunked_transfer.json http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
-        json2pc = parseJson(out)
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
         sql "sync"
         qt_sql_chunked_transfer_json "select * from ${tableName16} order by k1"
@@ -1378,6 +1413,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
     sql "sync"
@@ -1399,6 +1435,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
     sql "sync"
@@ -1455,6 +1492,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
 
@@ -1472,6 +1510,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
 
@@ -1491,6 +1530,7 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertTrue(!result.contains("ErrorURL"))
         }
     }
     sql "sync"
@@ -1574,7 +1614,8 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing"))
+                assertTrue(result.contains("ErrorURL"))
+                assertTrue(json.Message.contains("Encountered unqualified data, stop processing"))
             }
         }
     } finally {
@@ -1611,12 +1652,12 @@ suite("test_stream_load", "p0") {
        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:0  -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3 -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
        log.info("test chunked transfer command: ${command}")
        def process = command.execute()
-       code = process.waitFor()
-       out = process.text
+       def code = process.waitFor()
+       def out = process.text
        log.info("test chunked transfer result: ${out}".toString())
        def json = parseJson(out)
        assertEquals("fail", json.Status.toLowerCase())
-       assertTrue(json.Message.contains("[INTERNAL_ERROR]please do not set both content_length and transfer-encoding"))
+       assertTrue(json.Message.contains("please do not set both content_length and transfer-encoding"))
     } finally {
        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
     }
@@ -1641,12 +1682,12 @@ suite("test_stream_load", "p0") {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:  -H Transfer-Encoding: -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
+        def code = process.waitFor()
+        def out = process.text
         log.info("test chunked transfer result: ${out}".toString())
         def json = parseJson(out)
         assertEquals("fail", json.Status.toLowerCase())
-        assertTrue(json.Message.contains("[INTERNAL_ERROR]content_length is empty and transfer-encoding!=chunked, please set content_length or transfer-encoding=chunked"))
+        assertTrue(json.Message.contains("content_length is empty and transfer-encoding!=chunked, please set content_length or transfer-encoding=chunked"))
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
     }

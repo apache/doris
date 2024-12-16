@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite ("dup_mv_bm_hash") {
     sql """ DROP TABLE IF EXISTS dup_mv_bm_hash; """
 
@@ -40,30 +38,28 @@ suite ("dup_mv_bm_hash") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    explain {
-        sql("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;")
-        contains "(dup_mv_bm_hash_mv1)"
-    }
+    sql "analyze table dup_mv_bm_hash with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;", "dup_mv_bm_hash_mv1")
     order_qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table dup_mv_bm_hash modify column k1 set stats ('row_count'='5');"""
+    mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;", "dup_mv_bm_hash_mv1")
 
     createMV("create materialized view dup_mv_bm_hash_mv2 as select k1,bitmap_union(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;")
 
-    sql "SET experimental_enable_nereids_planner=false"
-
     sql "insert into dup_mv_bm_hash select 2,2,'bb';"
     sql "insert into dup_mv_bm_hash select 3,3,'c';"
-
-    sql "SET experimental_enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
 
     order_qt_select_k1 "select k1 from dup_mv_bm_hash order by k1;"
 
     order_qt_select_star "select * from dup_mv_bm_hash order by k1,k2,k3;"
 
-    explain {
-        sql("select k1,bitmap_union_count(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;")
-        contains "(dup_mv_bm_hash_mv2)"
-    }
+    mv_rewrite_success("select k1,bitmap_union_count(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;", "dup_mv_bm_hash_mv2")
     order_qt_select_mv_sub "select k1,bitmap_union_count(bitmap_hash(k3)) from dup_mv_bm_hash group by k1 order by k1;"
+
+    sql """set enable_stats=false;"""
+    mv_rewrite_success("select k1,bitmap_union_count(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;", "dup_mv_bm_hash_mv2")
 }

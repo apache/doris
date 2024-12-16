@@ -23,48 +23,13 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/block.h"
-#include "vec/exec/vunion_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
 class DataQueue;
-
-class UnionSinkOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
-public:
-    UnionSinkOperatorBuilder(int32_t id, int child_id, ExecNode* node,
-                             std::shared_ptr<DataQueue> queue);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override { return true; }
-
-private:
-    int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-};
-
-class UnionSinkOperator final : public StreamingOperator<vectorized::VUnionNode> {
-public:
-    UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
-                      std::shared_ptr<DataQueue> queue);
-
-    bool can_write() override { return true; }
-
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
-
-    Status close(RuntimeState* state) override;
-
-private:
-    int _cur_child_id;
-    std::shared_ptr<DataQueue> _data_queue;
-    std::unique_ptr<vectorized::Block> _output_block;
-};
 
 class UnionSinkOperatorX;
 class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
@@ -73,6 +38,7 @@ public:
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     friend class UnionSinkOperatorX;
     using Base = PipelineXSinkLocalState<UnionSharedState>;
     using Parent = UnionSinkOperatorX;
@@ -89,6 +55,7 @@ private:
 
     /// Index of current row in child_row_block_.
     int _child_row_idx;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
 class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
@@ -106,7 +73,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -123,6 +89,12 @@ public:
             return ss;
         }
     }
+
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
@@ -165,6 +137,7 @@ private:
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
         auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state._expr_timer);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {

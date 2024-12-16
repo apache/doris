@@ -37,17 +37,21 @@ public class PartitionCommitInfo implements Writable {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTime;
+    @SerializedName(value = "isTempPartition")
+    private boolean isTempPartition;
 
     public PartitionCommitInfo() {
 
     }
 
-    public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime) {
+    public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime,
+            boolean isTempPartition) {
         super();
         this.partitionId = partitionId;
         this.range = partitionRange;
         this.version = version;
         this.versionTime = visibleTime;
+        this.isTempPartition = isTempPartition;
     }
 
     @Override
@@ -85,12 +89,17 @@ public class PartitionCommitInfo implements Writable {
         this.versionTime = versionTime;
     }
 
+    public boolean isTempPartition() {
+        return this.isTempPartition;
+    }
+
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("partitionid=");
+        StringBuilder sb = new StringBuilder("partitionId=");
         sb.append(partitionId);
         sb.append(", version=").append(version);
         sb.append(", versionTime=").append(versionTime);
+        sb.append(", isTemp=").append(isTempPartition);
         return sb.toString();
     }
 }

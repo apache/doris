@@ -52,9 +52,6 @@ broker_info = palo_config.broker_info
 def setup_module():
     """setup"""
     client = common.get_client()
-    ret = client.show_variables('repeat_max_num')
-    if len(ret) == 1:
-        client.set_variables('repeat_max_num', '200000', True)
 
 
 def teardown_module():

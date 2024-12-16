@@ -17,10 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <string_view>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "common/status.h"
@@ -28,14 +26,13 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 
-namespace doris {
-namespace vectorized {
-class Block;
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+class Block;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 class VExplodeSplitTableFunction final : public TableFunction {
     ENABLE_FACTORY_CREATOR(VExplodeSplitTableFunction);
@@ -48,10 +45,11 @@ public:
     Status process_init(Block* block, RuntimeState* state) override;
     void process_row(size_t row_idx) override;
     void process_close() override;
-    void get_value(MutableColumnPtr& column) override;
+    void get_same_many_values(MutableColumnPtr& column, int length) override;
+    int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
-    std::vector<std::string_view> _backup;
+    std::vector<StringRef> _backup;
 
     ColumnPtr _text_column;
     const uint8_t* _test_null_map = nullptr;
@@ -60,4 +58,5 @@ private:
     StringRef _delimiter = {};
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

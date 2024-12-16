@@ -24,6 +24,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +46,8 @@ public abstract class ExternalScanNode extends ScanNode {
     protected boolean needCheckColumnPriv;
 
     protected final FederationBackendPolicy backendPolicy = (ConnectContext.get() != null
-            && ConnectContext.get().getSessionVariable().enableFileCache)
+            && (ConnectContext.get().getSessionVariable().enableFileCache
+                || ConnectContext.get().getSessionVariable().getUseConsistentHashForExternalScan()))
             ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
             : new FederationBackendPolicy();
 
@@ -95,5 +97,9 @@ public abstract class ExternalScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return scanRangeLocations.size();
+    }
+
+    protected void toThrift(TPlanNode msg) {
+        super.toThrift(msg);
     }
 }

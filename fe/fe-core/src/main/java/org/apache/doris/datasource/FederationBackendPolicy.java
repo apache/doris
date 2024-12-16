@@ -155,6 +155,7 @@ public class FederationBackendPolicy {
 
     public void init(List<String> preLocations) throws UserException {
         Set<Tag> tags = Sets.newHashSet();
+        boolean allowResourceTagDowngrade = false;
         if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
             String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
             // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
@@ -164,6 +165,7 @@ public class FederationBackendPolicy {
                 if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
                     throw new UserException("No valid resource tag for user: " + qualifiedUser);
                 }
+                allowResourceTagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(qualifiedUser);
             }
         } else {
             if (LOG.isDebugEnabled()) {
@@ -176,6 +178,7 @@ public class FederationBackendPolicy {
                 .needQueryAvailable()
                 .needLoadAvailable()
                 .addTags(tags)
+                .setAllowResourceTagDowngrade(allowResourceTagDowngrade)
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations)
@@ -184,9 +187,11 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getBackendsByCurrentCluster()));
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo()
+                .getBackendsByCurrentCluster().values().asList()));
         if (backends.isEmpty()) {
-            throw new UserException("No available backends");
+            throw new UserException("No available backends, "
+                + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
         }
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);
@@ -211,24 +216,18 @@ public class FederationBackendPolicy {
         this.enableSplitsRedistribution = enableSplitsRedistribution;
     }
 
+    /**
+     * Assign splits to each backend. Ensure that each backend receives a similar amount of data.
+     * In order to make sure backends utilize the os page cache as much as possible, and all backends read splits
+     * in the order of partitions(reading data in partition order can reduce the memory usage of backends),
+     * splits should be sorted by path.
+     * Fortunately, the process of obtaining splits ensures that the splits have been sorted according to the path.
+     * If the splits are unordered, it is strongly recommended to sort them before calling this function.
+     */
     public Multimap<Backend, Split> computeScanRangeAssignment(List<Split> splits) throws UserException {
-        // Sorting splits is to ensure that the same query utilizes the os page cache as much as possible.
-        splits.sort((split1, split2) -> {
-            int pathComparison = split1.getPathString().compareTo(split2.getPathString());
-            if (pathComparison != 0) {
-                return pathComparison;
-            }
-
-            int startComparison = Long.compare(split1.getStart(), split2.getStart());
-            if (startComparison != 0) {
-                return startComparison;
-            }
-            return Long.compare(split1.getLength(), split2.getLength());
-        });
-
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
-        List<Split> remainingSplits = null;
+        List<Split> remainingSplits;
 
         List<Backend> backends = new ArrayList<>();
         for (List<Backend> backendList : backendMap.values()) {
@@ -242,8 +241,7 @@ public class FederationBackendPolicy {
         // locality information
         if (Config.split_assigner_optimized_local_scheduling) {
             remainingSplits = new ArrayList<>(splits.size());
-            for (int i = 0; i < splits.size(); ++i) {
-                Split split = splits.get(i);
+            for (Split split : splits) {
                 if (split.isRemotelyAccessible() && (split.getHosts() != null && split.getHosts().length > 0)) {
                     List<Backend> candidateNodes = selectExactNodes(backendMap, split.getHosts());
 
@@ -502,7 +500,7 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getPathString().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
         }

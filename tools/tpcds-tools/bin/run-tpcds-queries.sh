@@ -81,19 +81,15 @@ fi
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpcds sf 1 queries"
     TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1"
-    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1.sql"
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Running tpcds sf 100 queries"
     TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf100"
-    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf100.sql"
 elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Running tpcds sf 1000 queries"
     TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1000"
-    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1000.sql"
 elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
     echo "Running tpcds sf 10000 queries"
     TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf10000"
-    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf10000.sql"
 else
     echo "${SCALE_FACTOR} scale is NOT support currently."
     exit 1
@@ -123,29 +119,7 @@ run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
-get_session_variable() {
-    k="$1"
-    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
-    echo "${v/*Value: /}"
-}
-backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
-backup_session_variables() {
-    while IFS= read -r line; do
-        k="${line/set global /}"
-        k="${k%=*}"
-        v=$(get_session_variable "${k}")
-        echo "set global ${k}='${v}';" >>"${backup_session_variables_file}"
-    done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
-}
-clean_up() {
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"source ${backup_session_variables_file};"
-    rm -f "${backup_session_variables_file}"
-}
-backup_session_variables
 
-echo '============================================'
-echo "Optimize session variables"
-run_sql "source ${TPCDS_OPT_CONF};"
 echo '============================================'
 run_sql "show variables;"
 echo '============================================'
@@ -170,19 +144,31 @@ for i in ${query_array[@]}; do
     hot2=0
     echo -ne "query${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCDS_QUERIES_DIR}/query${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (cold run). Output:\n%s\n" "${i}" "${output}" >&2
+        continue
+    fi
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCDS_QUERIES_DIR}/query${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (hot run 1). Output:\n%s\n" "${i}" "${output}" >&2
+        continue
+    fi
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCDS_QUERIES_DIR}/query${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (hot run 2). Output:\n%s\n" "${i}" "${output}" >&2
+        continue
+    fi
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv
@@ -198,8 +184,6 @@ for i in ${query_array[@]}; do
         echo "" | tee -a result.csv
     fi
 done
-
-clean_up
 
 echo "Total cold run time: ${cold_run_sum} ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"

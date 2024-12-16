@@ -41,7 +41,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
@@ -62,6 +61,7 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Stuff for comparing numbers.
   * Integer values are compared as usual.
@@ -129,12 +129,12 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
-class ColumnVector final : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
+class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(!IsDecimalNumber<T>);
 
 private:
     using Self = ColumnVector;
-    friend class COWHelper<ColumnVectorHelper, Self>;
+    friend class COWHelper<IColumn, Self>;
 
     struct less;
     struct greater;
@@ -143,7 +143,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-private:
     ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -152,18 +151,7 @@ private:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
-    void insert_many_default_type(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        T* input_val_ptr = (T*)data_ptr;
-        for (int i = 0; i < num; i++) {
-            data[old_size + i] = input_val_ptr[i];
-        }
-    }
-
 public:
-    bool is_numeric() const override { return IsNumber<T>; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -171,31 +159,31 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).get_data()[n]);
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
         data.push_back(unaligned_load<T>(pos));
     }
 
-    // note(wb) type of data_ptr element should be same with current column_vector's T
-    void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
-    }
-
-    void insert_raw_integers(T val, size_t n) {
+    void insert_many_vals(T val, size_t n) {
         auto old_size = data.size();
         data.resize(old_size + n);
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void insert_range_of_integer(T begin, T end) {
-        auto old_size = data.size();
-        data.resize(old_size + (end - begin));
-        for (int i = 0; i < end - begin; i++) {
-            data[old_size + i] = begin + i;
+        if constexpr (std::is_integral_v<T>) {
+            auto old_size = data.size();
+            auto new_size = old_size + static_cast<size_t>(end - begin);
+            data.resize(new_size);
+            std::iota(data.begin() + old_size, data.begin() + new_size, begin);
+        } else {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "double column not support insert_range_of_integer");
+            __builtin_unreachable();
         }
     }
 
@@ -234,16 +222,15 @@ public:
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else {
-            insert_many_in_copy_way(data_ptr, num);
+            insert_many_raw_data(data_ptr, num);
         }
     }
 
-    void insert_many_raw_data(const char* pos, size_t num) override {
-        if constexpr (std::is_same_v<T, vectorized::Int128>) {
-            insert_many_in_copy_way(pos, num);
-        } else {
-            insert_many_default_type(pos, num);
-        }
+    void insert_many_raw_data(const char* data_ptr, size_t num) override {
+        DCHECK(data_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_default() override { data.push_back(T()); }
@@ -296,7 +283,7 @@ public:
         } else {
             if (this->is_date_type() || this->is_datetime_type()) {
                 char buf[64];
-                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[idx];
+                const auto& date_val = (const VecDateTimeValue&)data[idx];
                 auto len = date_val.to_buffer(buf);
                 hash = HashUtil::zlib_crc_hash(buf, len, hash);
             } else {
@@ -336,8 +323,9 @@ public:
 
     /// This method implemented in header because it could be possibly devirtualized.
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
-        return CompareHelper<T>::compare(data[n], assert_cast<const Self&>(rhs_).data[m],
-                                         nan_direction_hint);
+        return CompareHelper<T>::compare(
+                data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m],
+                nan_direction_hint);
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -347,7 +335,13 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    const char* get_family_name() const override;
+    std::string get_name() const override {
+        // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
+        if (std::is_same_v<T, IPv4>) {
+            return "IPv4";
+        }
+        return TypeName<T>::get();
+    }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -355,13 +349,7 @@ public:
 
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
 
-    UInt64 get64(size_t n) const override;
-
-    Float64 get_float64(size_t n) const override;
-
     void clear() override { data.clear(); }
-
-    UInt64 get_uint(size_t n) const override { return UInt64(data[n]); }
 
     bool get_bool(size_t n) const override { return bool(data[n]); }
 
@@ -382,45 +370,13 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void fill(const value_type& element, size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        if constexpr (sizeof(value_type) == 1) {
-            memset(&data[old_size], element, sizeof(value_type) * num);
-        } else {
-            for (size_t i = 0; i < num; ++i) {
-                data[old_size + i] = element;
-            }
-        }
-    }
-
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    template <typename Type>
-    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
-    }
-
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                           const IColumn::Selector& selector) const override {
-        return this->template scatter_impl<Self>(num_columns, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -440,12 +396,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = assert_cast<const Self&>(rhs).data[row];
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data[self_row] = T();
+        data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
@@ -456,32 +407,10 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 protected:
     Container data;
 };
 
-template <typename T>
-template <typename Type>
-ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    size_t size = indexes.size();
-
-    if (limit == 0)
-        limit = size;
-    else
-        limit = std::min(size, limit);
-
-    auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[indexes[i]];
-
-    return res;
-}
-
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

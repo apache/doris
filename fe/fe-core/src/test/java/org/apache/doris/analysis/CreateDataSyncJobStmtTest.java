@@ -80,7 +80,7 @@ public class CreateDataSyncJobStmtTest {
                 minTimes = 0;
                 result = accessManager;
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 

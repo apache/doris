@@ -19,7 +19,7 @@ suite("test_action") {
     test {
         sql "abcdefg"
         // check exception message contains
-        exception "ParseException"
+        exception "extraneous input 'abcdefg'"
     }
 
     test {

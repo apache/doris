@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import mockit.Mocked;
 import org.junit.Assert;
@@ -70,14 +72,14 @@ public class MaterializedIndexTest {
         Path path = Files.createFile(Paths.get("./index"));
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
-        index.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(index));
 
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
-        MaterializedIndex rIndex = MaterializedIndex.read(dis);
+        MaterializedIndex rIndex = GsonUtils.GSON.fromJson(Text.readString(dis), MaterializedIndex.class);
         Assert.assertEquals(index, rIndex);
 
         // 3. delete files

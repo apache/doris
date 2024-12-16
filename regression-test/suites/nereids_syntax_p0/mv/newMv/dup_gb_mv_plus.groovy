@@ -44,18 +44,21 @@ suite ("dup_gb_mv_plus") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table dup_gb_mv_plus with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from dup_gb_mv_plus order by k1;"
 
-    explain {
-        sql("select k1,sum(k2+1) from dup_gb_mv_plus group by k1;")
-        contains "(k12sp)"
-    }
+    mv_rewrite_success("select k1,sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
     order_qt_select_mv "select k1,sum(k2+1) from dup_gb_mv_plus group by k1 order by k1;"
 
-    explain {
-        sql("select sum(k2+1) from dup_gb_mv_plus group by k1;")
-        contains "(k12sp)"
-    }
+    mv_rewrite_success("select sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
     order_qt_select_mv_sub "select sum(k2+1) from dup_gb_mv_plus group by k1 order by k1;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table dup_gb_mv_plus modify column k1 set stats ('row_count'='4');"""
+    mv_rewrite_success("select k1,sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
+
+    mv_rewrite_success("select sum(k2+1) from dup_gb_mv_plus group by k1;", "k12sp")
 }

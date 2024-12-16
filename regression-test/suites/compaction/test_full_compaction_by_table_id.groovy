@@ -20,6 +20,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_full_compaction_by_table_id") {
     def tableName = "test_full_compaction_by_table_id"
 
+    if (isCloudMode()) {
+        logger.info("compaction by table id in be is not supported in cloud mode");
+        return;
+    }
+
     try {
         String backend_id;
 
@@ -53,6 +58,7 @@ suite("test_full_compaction_by_table_id") {
             BUCKETS 8 
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
+            "enable_mow_light_delete" = "false",
             "enable_unique_key_merge_on_write" = "true");"""
 
         // version1 (1,1)(2,2)
@@ -169,7 +175,11 @@ suite("test_full_compaction_by_table_id") {
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
             rowsetCount =((List<String>) tabletJson.rowsets).size()
-            assertEquals (rowsetCount, 1)
+            if (isCloudMode()) {
+                assertEquals (rowsetCount, 2)
+            } else {
+                assertEquals (rowsetCount, 1)
+            }
         }
 
 

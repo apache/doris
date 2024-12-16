@@ -18,11 +18,13 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_compaction_null", "nonConcurrent") {
+    def isCloudMode = isCloudMode()
     def tableName = "test_index_compaction_null_dups"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql """ set global enable_match_without_inverted_index = false """
     boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
@@ -118,6 +120,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
     }
 
     def run_sql = { -> 
+        sql """ set enable_common_expr_pushdown=true """
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"
 
@@ -178,7 +181,11 @@ suite("test_index_compaction_null", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
 
@@ -188,7 +195,11 @@ suite("test_index_compaction_null", "nonConcurrent") {
         run_sql.call()
 
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 2 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (2 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 2 * replicaNum)
+        }
 
         // tigger full compaction for all tablets
         trigger_full_compaction_on_tablets.call(tablets)
@@ -198,7 +209,11 @@ suite("test_index_compaction_null", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
     }
@@ -255,7 +270,8 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "replication_allocation" = "tag.location.default: 1",
                 "disable_auto_compaction" = "true",
                 "in_memory" = "false",
-                "storage_format" = "V2"
+                "storage_format" = "V2",
+                "inverted_index_storage_format" = "V1"
             )
             """
 
@@ -290,9 +306,11 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "in_memory" = "false",
-                "storage_format" = "V2"
+                "storage_format" = "V2",
+                "inverted_index_storage_format" = "V1"
             )
             """
+        sql """ set enable_common_expr_pushdown = true """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
         run_test.call(tablets)
@@ -301,5 +319,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
         }
+
+        sql """ set global enable_match_without_inverted_index = true """
     }
 }

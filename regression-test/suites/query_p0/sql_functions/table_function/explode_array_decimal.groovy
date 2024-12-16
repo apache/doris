@@ -39,22 +39,6 @@ suite("explode_array_decimal") {
 
     sql """insert into ods_device_data_1d_inc values(1, "[0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,1,9,5,5,5,5,5,5,5,5,5,0.8,0.8,0.8,0.8,0.8]")"""
 
-    sql "SET enable_nereids_planner=false;"
-
-    qt_sql_old_planner """
-    SELECT * from
-        (
-            select
-                e1,t.electricityPrice
-            from
-                ods_device_data_1d_inc as t
-                lateral view explode(cast (electricityPrice as ARRAY<DECIMAL(10,3)>)) tmp1 as e1
-        ) kk limit 1
-        """
-
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
-
     qt_sql_nereid """
         SELECT * from
             (

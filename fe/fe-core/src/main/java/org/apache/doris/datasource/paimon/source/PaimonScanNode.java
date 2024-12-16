@@ -17,37 +17,37 @@
 
 package org.apache.doris.datasource.paimon.source;
 
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
-import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.fs.Path;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -63,34 +63,74 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
+    private enum SplitReadType {
+        JNI,
+        NATIVE,
+    }
+
+    private class SplitStat {
+        SplitReadType type = SplitReadType.JNI;
+        private long rowCount = 0;
+        private boolean rawFileConvertable = false;
+        private boolean hasDeletionVector = false;
+
+        public void setType(SplitReadType type) {
+            this.type = type;
+        }
+
+        public void setRowCount(long rowCount) {
+            this.rowCount = rowCount;
+        }
+
+        public void setRawFileConvertable(boolean rawFileConvertable) {
+            this.rawFileConvertable = rawFileConvertable;
+        }
+
+        public void setHasDeletionVector(boolean hasDeletionVector) {
+            this.hasDeletionVector = hasDeletionVector;
+        }
+
+        @Override
+        public String toString() {
+            return "SplitStat [type=" + type + ", rowCount=" + rowCount + ", rawFileConvertable=" + rawFileConvertable
+                    + ", hasDeletionVector=" + hasDeletionVector + "]";
+        }
+    }
+
     private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
     private PaimonSource source = null;
     private List<Predicate> predicates;
+    private int rawFileSplitNum = 0;
+    private int paimonSplitNum = 0;
+    private List<SplitStat> splitStats = new ArrayList<>();
+    private String serializedTable;
 
-    public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
+    private boolean pushDownCount = false;
+    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
+
+    public PaimonScanNode(PlanNodeId id,
+            TupleDescriptor desc,
+            boolean needCheckColumnPriv,
+            SessionVariable sv) {
+        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv, sv);
     }
 
     @Override
     protected void doInitialize() throws UserException {
-        ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                    String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
-                            table.getName()));
-        }
-        computeColumnsFilter();
-        initBackendPolicy();
-        source = new PaimonSource((PaimonExternalTable) table, desc, columnNameToRange);
+        super.doInitialize();
+        source = new PaimonSource(desc);
+        serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
-        initSchemaParams();
+    }
+
+    @Override
+    protected void convertPredicate() {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
                 source.getPaimonTable().rowType());
         predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
     }
 
-    private static final Base64.Encoder BASE64_ENCODER =
-            java.util.Base64.getUrlEncoder().withoutPadding();
+    private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
 
     public static <T> String encodeObjectToString(T t) {
         try {
@@ -108,16 +148,34 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
+    @Override
+    protected Optional<String> getSerializedTable() {
+        return Optional.of(serializedTable);
+    }
+
+    private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
         org.apache.paimon.table.source.Split split = paimonSplit.getSplit();
+
+        String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
             // use jni reader
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setPaimonSplit(encodeObjectToString(split));
+        } else {
+            // use native reader
+            if (fileFormat.equals("orc")) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+            } else if (fileFormat.equals("parquet")) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            } else {
+                throw new RuntimeException("Unsupported file format: " + fileFormat);
+            }
         }
-        fileDesc.setFileFormat(source.getFileFormat());
+
+        fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
                 .collect(Collectors.joining(",")));
@@ -127,14 +185,27 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setCtlId(source.getCatalog().getId());
         fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
         fileDesc.setTblId(source.getTargetTable().getId());
-        fileDesc.setLastUpdateTime(source.getTargetTable().getLastUpdateTime());
+        fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
+        // The hadoop conf should be same with PaimonExternalCatalog.createCatalog()#getConfiguration()
+        fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getHadoopProperties());
+        Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
+        if (optDeletionFile.isPresent()) {
+            DeletionFile deletionFile = optDeletionFile.get();
+            TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
+            tDeletionFile.setPath(deletionFile.path());
+            tDeletionFile.setOffset(deletionFile.offset());
+            tDeletionFile.setLength(deletionFile.length());
+            fileDesc.setDeletionFile(tDeletionFile);
+        }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
-        boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
+    public List<Split> getSplits(int numBackends) throws UserException {
+        boolean forceJniScanner = sessionVariable.isForceJniScanner();
+        SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
+                .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
@@ -143,77 +214,120 @@ public class PaimonScanNode extends FileQueryScanNode {
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
                 .withProjection(projected)
                 .newScan().plan().splits();
-        boolean supportNative = supportNativeReader();
+
+        boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+        // Just for counting the number of selected partitions for this paimon table
+        Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
-            if (!forceJniScanner && supportNative && split instanceof DataSplit) {
+            SplitStat splitStat = new SplitStat();
+            splitStat.setRowCount(split.rowCount());
+            if (!forceJniScanner && split instanceof DataSplit) {
                 DataSplit dataSplit = (DataSplit) split;
-                Optional<List<RawFile>> optRowFiles = dataSplit.convertToRawFiles();
-                if (optRowFiles.isPresent()) {
-                    List<RawFile> rawFiles = optRowFiles.get();
-                    for (RawFile file : rawFiles) {
-                        LocationPath locationPath = new LocationPath(file.path(), source.getCatalog().getProperties());
-                        Path finalDataFilePath = locationPath.toScanRangeLocation();
-                        try {
-                            splits.addAll(
-                                    splitFile(
-                                        finalDataFilePath,
-                                        0,
+                BinaryRow partitionValue = dataSplit.partition();
+                selectedPartitionValues.add(partitionValue);
+                Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
+                Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
+
+                if (supportNativeReader(optRawFiles)) {
+                    if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
+                        continue;
+                    }
+                    splitStat.setType(SplitReadType.NATIVE);
+                    splitStat.setRawFileConvertable(true);
+                    List<RawFile> rawFiles = optRawFiles.get();
+                    if (optDeletionFiles.isPresent()) {
+                        List<DeletionFile> deletionFiles = optDeletionFiles.get();
+                        for (int i = 0; i < rawFiles.size(); i++) {
+                            RawFile file = rawFiles.get(i);
+                            DeletionFile deletionFile = deletionFiles.get(i);
+                            LocationPath locationPath = new LocationPath(file.path(),
+                                    source.getCatalog().getProperties());
+                            try {
+                                List<Split> dorisSplits = FileSplitter.splitFile(
+                                        locationPath,
+                                        getRealFileSplitSize(0),
                                         null,
                                         file.length(),
                                         -1,
                                         true,
                                         null,
-                                        PaimonSplit.PaimonSplitCreator.DEFAULT));
-                        } catch (IOException e) {
-                            throw new UserException("Paimon error to split file: " + e.getMessage(), e);
+                                        PaimonSplit.PaimonSplitCreator.DEFAULT);
+                                for (Split dorisSplit : dorisSplits) {
+                                    // the element in DeletionFiles might be null
+                                    if (deletionFile != null) {
+                                        splitStat.setHasDeletionVector(true);
+                                        ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
+                                    }
+                                    splits.add(dorisSplit);
+                                }
+                                ++rawFileSplitNum;
+                            } catch (IOException e) {
+                                throw new UserException("Paimon error to split file: " + e.getMessage(), e);
+                            }
                         }
+                    } else {
+                        createRawFileSplits(rawFiles, splits, applyCountPushdown ? Long.MAX_VALUE : 0);
                     }
                 } else {
+                    if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
+                        continue;
+                    }
                     splits.add(new PaimonSplit(split));
+                    ++paimonSplitNum;
                 }
             } else {
+                if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
+                    continue;
+                }
                 splits.add(new PaimonSplit(split));
+                ++paimonSplitNum;
             }
+            splitStats.add(splitStat);
         }
+
+        this.selectedPartitionNum = selectedPartitionValues.size();
+        // TODO: get total partition number
         return splits;
     }
 
-    private boolean supportNativeReader() {
-        String fileFormat = source.getFileFormat().toLowerCase();
-        switch (fileFormat) {
-            case "orc":
-            case "parquet":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    //When calling 'setPaimonParams' and 'getSplits', the column trimming has not been performed yet,
-    // Therefore, paimon_column_names is temporarily reset here
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        super.updateRequiredSlots(planTranslatorContext, requiredByProjectSlotIdSet);
-        String cols = desc.getSlots().stream().map(slot -> slot.getColumn().getName())
-                .collect(Collectors.joining(","));
-        for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
-            List<TFileRangeDesc> ranges = tScanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges;
-            for (TFileRangeDesc tFileRangeDesc : ranges) {
-                tFileRangeDesc.table_format_params.paimon_params.setPaimonColumnNames(cols);
+    private void createRawFileSplits(List<RawFile> rawFiles, List<Split> splits, long blockSize) throws UserException {
+        for (RawFile file : rawFiles) {
+            LocationPath locationPath = new LocationPath(file.path(),
+                    source.getCatalog().getProperties());
+            try {
+                splits.addAll(
+                        FileSplitter.splitFile(
+                                locationPath,
+                                getRealFileSplitSize(blockSize),
+                                null,
+                                file.length(),
+                                -1,
+                                true,
+                                null,
+                                PaimonSplit.PaimonSplitCreator.DEFAULT));
+                ++rawFileSplitNum;
+            } catch (IOException e) {
+                throw new UserException("Paimon error to split file: " + e.getMessage(), e);
             }
         }
     }
 
-    @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType(((AbstractFileStoreTable) source.getPaimonTable()).location().toString());
+    private String getFileFormat(String path) {
+        return FileFormatUtils.getFileFormatBySuffix(path).orElse(source.getFileFormatFromTableProperties());
     }
 
-    @Override
-    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for paimon table "));
+    private boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
+        if (!optRawFiles.isPresent()) {
+            return false;
+        }
+        List<String> files = optRawFiles.get().stream().map(RawFile::path).collect(Collectors.toList());
+        for (String f : files) {
+            String splitFileFormat = getFileFormat(f);
+            if (!splitFileFormat.equals("orc") && !splitFileFormat.equals("parquet")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -223,14 +337,15 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        //                return new ArrayList<>(source.getPaimonTable().partitionKeys());
-        //Paymon is not aware of partitions and bypasses some existing logic by returning an empty list
+        // return new ArrayList<>(source.getPaimonTable().partitionKeys());
+        // Paymon is not aware of partitions and bypasses some existing logic by
+        // returning an empty list
         return new ArrayList<>();
     }
 
     @Override
     public TableIf getTargetTable() {
-        return source.getTargetTable();
+        return desc.getTable();
     }
 
     @Override
@@ -244,4 +359,40 @@ public class PaimonScanNode extends FileQueryScanNode {
         return map;
     }
 
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder sb = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
+        sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",
+                prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum)));
+
+        sb.append(prefix).append("predicatesFromPaimon:");
+        if (predicates.isEmpty()) {
+            sb.append(" NONE\n");
+        } else {
+            sb.append("\n");
+            for (Predicate predicate : predicates) {
+                sb.append(prefix).append(prefix).append(predicate).append("\n");
+            }
+        }
+
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            sb.append(prefix).append("PaimonSplitStats: \n");
+            int size = splitStats.size();
+            if (size <= 4) {
+                for (SplitStat splitStat : splitStats) {
+                    sb.append(String.format("%s  %s\n", prefix, splitStat));
+                }
+            } else {
+                for (int i = 0; i < 3; i++) {
+                    SplitStat splitStat = splitStats.get(i);
+                    sb.append(String.format("%s  %s\n", prefix, splitStat));
+                }
+                int other = size - 4;
+                sb.append(prefix).append("  ... other ").append(other).append(" paimon split stats ...\n");
+                SplitStat split = splitStats.get(size - 1);
+                sb.append(String.format("%s  %s\n", prefix, split));
+            }
+        }
+        return sb.toString();
+    }
 }

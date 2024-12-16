@@ -59,7 +59,8 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         JDBC,
         HDFS,
         HMS,
-        ES;
+        ES,
+        AZURE;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -176,6 +177,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                 break;
             case S3:
                 resource = new S3Resource(name);
+                break;
+            case AZURE:
+                resource = new AzureResource(name);
                 break;
             case JDBC:
                 resource = new JdbcResource(name);

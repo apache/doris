@@ -35,6 +35,7 @@
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_) {
     /// Squash Const of Const.
@@ -43,18 +44,32 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
     }
 
     if (data->size() != 1) {
-        LOG(FATAL) << fmt::format(
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
                 "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
                 data->size());
     }
 }
 
-ColumnPtr ColumnConst::convert_to_full_column() const {
-    return data->replicate(Offsets(1, s));
+ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty)
+        : data(data_), s(s_) {
+    /// Squash Const of Const.
+    while (const auto* const_data = typeid_cast<const ColumnConst*>(data.get())) {
+        data = const_data->get_data_column_ptr();
+    }
+
+    if (!(data->empty() && create_with_empty)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Incorrect size of nested column in constructor of ColumnConst: {}, "
+                               "create_with_empty: {}.",
+                               data->size(), create_with_empty);
+    }
 }
 
-ColumnPtr ColumnConst::remove_low_cardinality() const {
-    return ColumnConst::create(data->convert_to_full_column_if_low_cardinality(), s);
+ColumnPtr ColumnConst::convert_to_full_column() const {
+    // Assuming the number of replicate rows will not exceed Offset(UInt32),
+    // currently Column::replicate only supports Uint32 Offsets
+    return data->replicate(Offsets(1, cast_set<Offset>(s)));
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
@@ -86,60 +101,12 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     if (perm.size() < limit) {
-        LOG(FATAL) << fmt::format("Size of permutation ({}) is less than required ({})",
-                                  perm.size(), limit);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
     }
 
     return ColumnConst::create(data, limit);
-}
-
-void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
-                                         uint32_t rows, uint32_t offset,
-                                         const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(rows == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
-        }
-    }
-}
-
-void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto real_data = data->get_data_at(0);
-    auto real_size = size();
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
-        }
-    }
-}
-
-MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
-    if (s != selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",
-                                  selector.size(), s);
-    }
-
-    std::vector<size_t> counts = count_columns_size_in_selector(num_columns, selector);
-
-    MutableColumns res(num_columns);
-    for (size_t i = 0; i < num_columns; ++i) {
-        res[i] = clone_resized(counts[i]);
-    }
-
-    return res;
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
@@ -150,29 +117,8 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
-void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                  size_t limit) const {
-    if (!data->is_default_at(0)) {
-        size_t to = limit && from + limit < size() ? from + limit : size();
-        indices.reserve(indices.size() + to - from);
-        for (size_t i = from; i < to; ++i) {
-            indices.push_back(i);
-        }
-    }
-}
-
-ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
-    if (limit == 0) {
-        limit = indexes.size();
-    }
-    if (indexes.size() < limit) {
-        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
-    }
-    return ColumnConst::create(data, limit);
-}
-
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
-                                                                const size_t row_num) noexcept {
+                                                                size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
     if (is_column_const(column)) {
         result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
@@ -194,7 +140,7 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept
 
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+                                          Block& block, const ColumnNumbers& arg_indexes) {
     if (std::all_of(parameters.begin(), parameters.end(),
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const

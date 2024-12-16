@@ -19,15 +19,12 @@
 
 #include <cmath>
 #include <map>
-#include <new>
 #include <ostream>
 
 #include "common/logging.h"
 #include "util/coding.h"
 #include "util/slice.h"
 
-using std::map;
-using std::nothrow;
 using std::string;
 using std::stringstream;
 
@@ -328,27 +325,27 @@ int64_t HyperLogLog::estimate_cardinality() const {
     float alpha = 0;
 
     if (num_streams == 16) {
-        alpha = 0.673f;
+        alpha = 0.673F;
     } else if (num_streams == 32) {
-        alpha = 0.697f;
+        alpha = 0.697F;
     } else if (num_streams == 64) {
-        alpha = 0.709f;
+        alpha = 0.709F;
     } else {
-        alpha = 0.7213f / (1 + 1.079f / num_streams);
+        alpha = 0.7213F / (1 + 1.079F / num_streams);
     }
 
     float harmonic_mean = 0;
     int num_zero_registers = 0;
 
     for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-        harmonic_mean += powf(2.0f, -_registers[i]);
+        harmonic_mean += powf(2.0F, -_registers[i]);
 
         if (_registers[i] == 0) {
             ++num_zero_registers;
         }
     }
 
-    harmonic_mean = 1.0f / harmonic_mean;
+    harmonic_mean = 1.0F / harmonic_mean;
     double estimate = alpha * num_streams * num_streams * harmonic_mean;
     // according to HyperLogLog current correction, if E is cardinal
     // E =< num_streams * 2.5 , LC has higher accuracy.
@@ -368,45 +365,6 @@ int64_t HyperLogLog::estimate_cardinality() const {
         estimate -= estimate * (bias / 100);
     }
     return (int64_t)(estimate + 0.5);
-}
-
-void HllSetResolver::parse() {
-    // skip LengthValueType
-    char* pdata = _buf_ref;
-    _set_type = (HllDataType)pdata[0];
-    char* sparse_data = nullptr;
-    switch (_set_type) {
-    case HLL_DATA_EXPLICIT:
-        // first byte : type
-        // second～five byte : hash values's number
-        // five byte later : hash value
-        _explicit_num = (ExplicitLengthValueType)(pdata[sizeof(SetTypeValueType)]);
-        _explicit_value =
-                (uint64_t*)(pdata + sizeof(SetTypeValueType) + sizeof(ExplicitLengthValueType));
-        break;
-    case HLL_DATA_SPARSE:
-        // first byte : type
-        // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
-        // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
-        _sparse_count = (SparseLengthValueType*)(pdata + sizeof(SetTypeValueType));
-        sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-        for (int i = 0; i < *_sparse_count; i++) {
-            SparseIndexType* index = (SparseIndexType*)sparse_data;
-            sparse_data += sizeof(SparseIndexType);
-            SparseValueType* value = (SparseValueType*)sparse_data;
-            _sparse_map[*index] = *value;
-            sparse_data += sizeof(SetTypeValueType);
-        }
-        break;
-    case HLL_DATA_FULL:
-        // first byte : type
-        // second byte later : hll register value
-        _full_value_position = pdata + sizeof(SetTypeValueType);
-        break;
-    default:
-        // HLL_DATA_EMPTY
-        break;
-    }
 }
 
 } // namespace doris

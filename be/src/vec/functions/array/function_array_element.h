@@ -17,6 +17,7 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayElement.cpp
 // and modified by Doris
+
 #pragma once
 
 #include <glog/logging.h>
@@ -38,6 +39,7 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -56,6 +58,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -95,8 +98,8 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
@@ -145,14 +148,16 @@ private:
             size_t end = offsets[i];
             for (size_t j = begin; j < end; j++) {
                 if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
-                    matched_indices->insert_value(j - begin + 1);
+                    matched_indices->insert_value(
+                            cast_set<MapIndiceDataType::FieldType, size_t, false>(j - begin + 1));
                     matched = true;
                     break;
                 }
             }
 
             if (!matched) {
-                matched_indices->insert_value(end - begin + 1); // make indices for null
+                matched_indices->insert_value(cast_set<MapIndiceDataType::FieldType, size_t, false>(
+                        end - begin + 1)); // make indices for null
             }
         }
 
@@ -360,8 +365,8 @@ private:
             res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);
         } else if (which_type.is_date_time_v2()) {
-            res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
-                                                  nested_null_map, dst_null_map);
+            res = _execute_number<ColumnDateTimeV2>(offsets, *nested_column, src_null_map, *idx_col,
+                                                    nested_null_map, dst_null_map);
         } else if (which_type.is_uint8()) {
             res = _execute_number<ColumnUInt8>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
@@ -413,4 +418,5 @@ private:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

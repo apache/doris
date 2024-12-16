@@ -25,6 +25,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,9 +38,13 @@ import java.util.stream.Collectors;
  * This class saves the schema of a colocation group
  */
 public class ColocateGroupSchema implements Writable {
+    @SerializedName(value = "groupId")
     private GroupId groupId;
+    @SerializedName(value = "distributionColTypes")
     private List<Type> distributionColTypes = Lists.newArrayList();
+    @SerializedName(value = "bucketsNum")
     private int bucketsNum;
+    @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
 
     private ColocateGroupSchema() {
@@ -89,12 +94,13 @@ public class ColocateGroupSchema implements Writable {
             HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
             // buckets num
             if (info.getBucketNum() != bucketsNum) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM, bucketsNum);
+                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM,
+                        info.getBucketNum(), bucketsNum);
             }
             // distribution col size
             if (info.getDistributionColumns().size() != distributionColTypes.size()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE,
-                        distributionColTypes.size());
+                        info.getDistributionColumns().size(), distributionColTypes.size());
             }
             // distribution col type
             for (int i = 0; i < distributionColTypes.size(); i++) {

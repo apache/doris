@@ -18,15 +18,19 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +53,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     // just for multi load
     public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
     public static final String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
+    @SerializedName("cts3")
     private boolean convertedToS3 = false;
 
     // Only used for recovery
@@ -132,13 +137,8 @@ public class BrokerDesc extends StorageDesc implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        properties.put(PersistentFileSystem.STORAGE_TYPE, storageType.name());
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -163,6 +163,9 @@ public class BrokerDesc extends StorageDesc implements Writable {
     }
 
     public static BrokerDesc read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), BrokerDesc.class);
+        }
         BrokerDesc desc = new BrokerDesc();
         desc.readFields(in);
         return desc;

@@ -58,7 +58,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
                 catalogProperties.get(S3Properties.Env.ENDPOINT));
         catalogProperties.putIfAbsent(S3FileIOProperties.ENDPOINT, endpoint);
 
-        glueCatalog.initialize(icebergCatalogType, catalogProperties);
+        glueCatalog.initialize(getName(), catalogProperties);
         catalog = glueCatalog;
     }
 

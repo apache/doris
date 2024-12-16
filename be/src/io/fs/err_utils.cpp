@@ -27,9 +27,16 @@
 
 #include "common/status.h"
 #include "io/fs/hdfs.h"
+#include "io/fs/obj_storage_client.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+io::ObjectStorageStatus convert_to_obj_response(Status st) {
+    int code = st._code;
+    std::string msg = st._err_msg == nullptr ? "" : std::move(st._err_msg->_msg);
+    return io::ObjectStorageStatus {.code = code, .msg = std::move(msg)};
+}
 
 namespace io {
 
@@ -115,16 +122,17 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     using namespace Aws::Http;
     switch (err.GetResponseCode()) {
     case HttpResponseCode::NOT_FOUND:
-        return Status::Error<NOT_FOUND, false>("{}: {} {} type={}", msg, err.GetExceptionName(),
-                                               err.GetMessage(), err.GetErrorType());
+        return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
+                                               msg, err.GetExceptionName(), err.GetMessage(),
+                                               err.GetErrorType(), err.GetRequestId());
     case HttpResponseCode::FORBIDDEN:
-        return Status::Error<PERMISSION_DENIED, false>("{}: {} {} type={}", msg,
-                                                       err.GetExceptionName(), err.GetMessage(),
-                                                       err.GetErrorType());
+        return Status::Error<PERMISSION_DENIED, false>(
+                "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
+                err.GetMessage(), err.GetErrorType(), err.GetRequestId());
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                "{}: {} {} code={} type={}", msg, err.GetExceptionName(), err.GetMessage(),
-                err.GetResponseCode(), err.GetErrorType());
+                "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),
+                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), err.GetRequestId());
     }
 }
 

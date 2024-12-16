@@ -17,6 +17,7 @@
 
 suite("push_filter_through_window") {
     sql """set enable_nereids_planner=true"""
+    sql "set enable_parallel_result_sink=false;"
     sql """
         DROP TABLE IF EXISTS push_filter_through_window_tbl
     """

@@ -31,14 +31,14 @@ public class RestoreFileMappingTest {
 
     @Before
     public void setUp() {
-        src = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L);
-        dest = new IdChain(10004L, 10003L, 10004L, 10007L, -1L);
+        src = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L, -1L);
+        dest = new IdChain(10004L, 10003L, 10004L, 10007L, -1L, -1L);
         fileMapping.putMapping(src, dest, true);
     }
 
     @Test
     public void test() {
-        IdChain key = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L);
+        IdChain key = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L, -1L);
         Assert.assertEquals(key, src);
         Assert.assertEquals(src, key);
         IdChain val = fileMapping.get(key);

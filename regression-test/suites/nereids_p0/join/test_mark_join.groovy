@@ -140,4 +140,27 @@ suite("test_mark_join", "nereids_p0") {
             WHERE EXISTS ( SELECT MIN(`pk`) FROM table_7_undef_partitions2_keys3_properties4_distributed_by5 AS t2 WHERE t1.pk = 6 ) 
             OR EXISTS ( SELECT `pk` FROM table_7_undef_partitions2_keys3_properties4_distributed_by5 AS t2 WHERE t1.pk = 5 ) order by pk ;
     """
+
+    qt_mark_join_null_conjunct """select null in ( select k1 from test_mark_join_t1);"""
+
+    qt_mark_join8 """
+            select
+                k1,
+                k2,
+                k3,
+                k1 not in (
+                    select
+                        test_mark_join_t2.k2
+                    from
+                        test_mark_join_t2
+                    where
+                        test_mark_join_t2.k3 <=> test_mark_join_t1.k3
+                ) vv
+            from
+                test_mark_join_t1
+            order by
+                1,
+                2,
+                3;
+    """
 }

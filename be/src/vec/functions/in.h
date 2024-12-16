@@ -19,10 +19,9 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -49,13 +48,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
-namespace doris {
-namespace vectorized {
-class ColumnString;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
 
 struct InState {
     bool use_set = true;
@@ -117,7 +114,7 @@ public:
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
-            state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
+            state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
         } else {
             state->hybrid_set.reset(
                     create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
@@ -138,9 +135,67 @@ public:
         return Status::OK();
     }
 
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        auto data_type_with_name = data_type_with_names[0];
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        if (iter->get_inverted_index_reader_type() ==
+            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+            //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::OK();
+        }
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        }
+        std::string column_name = data_type_with_name.first;
+        for (const auto& arg : arguments) {
+            Field param_value;
+            arg.column->get(0, param_value);
+            auto param_type = arg.type->get_type_as_type_descriptor().type;
+            if (param_value.is_null()) {
+                // predicate like column NOT IN (NULL, '') should not push down to index.
+                if (negative) {
+                    return Status::OK();
+                }
+                *roaring |= *null_bitmap;
+                continue;
+            }
+            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+                    param_type, &param_value, query_param));
+            InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, query_param->get_value(),
+                                                           query_type, num_rows, index));
+            *roaring |= *index;
+        }
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
+        bitmap_result.mask_out_null();
+        if constexpr (negative) {
+            roaring::Roaring full_result;
+            full_result.addRange(0, num_rows);
+            bitmap_result.op_not(&full_result);
+        }
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        auto in_state = reinterpret_cast<InState*>(
+                        uint32_t result, size_t input_rows_count) const override {
+        auto* in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
             return Status::RuntimeError("funciton context for function '{}' must have Set;",
@@ -159,12 +214,13 @@ public:
 
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
-                auto* null_col_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                        materialized_column);
-                auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
-                                         null_col_ptr->get_null_map_column())
-                                         .get_data();
-                auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
+                const auto* null_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                                materialized_column);
+                const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
+                                               null_col_ptr->get_null_map_column())
+                                               .get_data();
+                const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {
                     const auto* column_string_ptr =
@@ -267,8 +323,9 @@ private:
                 continue;
             }
 
-            std::unique_ptr<HybridSetBase> hybrid_set(
-                    create_set(context->get_arg_type(0)->type, set_columns.size()));
+            std::vector<StringRef> set_datas;
+            // To comply with the SQL standard, IN() returns NULL not only if the expression on the left hand side is NULL,
+            // but also if no match is found in the list and one of the expressions in the list is NULL.
             bool null_in_set = false;
 
             for (const auto& set_column : set_columns) {
@@ -276,9 +333,15 @@ private:
                 if (set_data.data == nullptr) {
                     null_in_set = true;
                 } else {
-                    hybrid_set->insert((void*)(set_data.data), set_data.size);
+                    set_datas.push_back(set_data);
                 }
             }
+            std::unique_ptr<HybridSetBase> hybrid_set(
+                    create_set(context->get_arg_type(0)->type, set_datas.size()));
+            for (auto& set_data : set_datas) {
+                hybrid_set->insert((void*)(set_data.data), set_data.size);
+            }
+
             vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
             if (null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];

@@ -21,47 +21,26 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class HashJoinProbeOperatorBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
-public:
-    HashJoinProbeOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-};
-
-class HashJoinProbeOperator final : public StatefulOperator<vectorized::HashJoinNode> {
-public:
-    HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resource()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
-
+#include "common/compile_check_begin.h"
 class HashJoinProbeLocalState;
 
-using HashTableCtxVariants = std::variant<
-        std::monostate,
-        vectorized::ProcessHashTableProbe<TJoinOp::INNER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::CROSS_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
-                                          HashJoinProbeLocalState>,
-        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN,
-                                          HashJoinProbeLocalState>>;
+using HashTableCtxVariants =
+        std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
@@ -78,7 +57,6 @@ public:
 
     void prepare_for_next();
     void add_tuple_is_null_column(vectorized::Block* block) override;
-    void init_for_probe(RuntimeState* state);
     Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
                                         bool* eos, vectorized::Block* temp_block,
                                         bool check_rows_count = true);
@@ -94,24 +72,25 @@ public:
     const std::shared_ptr<vectorized::Block>& build_block() const {
         return _shared_state->build_block;
     }
+    bool empty_right_table_shortcut() const {
+        // !Base::_projections.empty() means nereids planner
+        return _shared_state->empty_right_table_need_probe_dispose && !Base::_projections.empty();
+    }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     void _prepare_probe_block();
     bool _need_probe_null_map(vectorized::Block& block, const std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
-    Status _extract_join_column(vectorized::Block& block,
-                                vectorized::ColumnUInt8::MutablePtr& null_map,
-                                vectorized::ColumnRawPtrs& raw_ptrs,
-                                const std::vector<int>& res_col_ids);
+    Status _extract_join_column(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
-    template <int JoinOpType, typename Parent>
-    friend struct vectorized::ProcessHashTableProbe;
+    template <int JoinOpType>
+    friend struct ProcessHashTableProbe;
 
     int _probe_index = -1;
     uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
-    std::atomic<bool> _probe_inited = false;
     int _last_probe_match;
 
     // For mark join, last probe index of null mark
@@ -123,6 +102,8 @@ private:
     vectorized::VExprContextSPtrs _other_join_conjuncts;
 
     vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -136,14 +117,12 @@ private:
             std::make_unique<HashTableCtxVariants>();
 
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
-    RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
+    RuntimeProfile::Counter* _non_equal_join_conjuncts_timer = nullptr;
 };
 
 class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
@@ -151,7 +130,6 @@ public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
@@ -172,8 +150,12 @@ public:
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+    bool require_data_distribution() const override {
+        return _join_distribution != TJoinDistributionType::BROADCAST &&
+               _join_distribution != TJoinDistributionType::NONE;
     }
 
 private:
@@ -205,3 +187,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

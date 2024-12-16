@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -34,7 +35,20 @@ import java.util.Map;
 
 public class PlsqlManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(PlsqlManager.class);
-
+    public static final ImmutableList<String> ROUTINE_INFO_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("SPECIFIC_NAME").add("ROUTINE_CATALOG").add("ROUTINE_SCHEMA").add("ROUTINE_NAME")
+            .add("ROUTINE_TYPE")
+            .add("DTD_IDENTIFIER").add("ROUTINE_BODY")
+            .add("ROUTINE_DEFINITION").add("EXTERNAL_NAME")
+            .add("EXTERNAL_LANGUAGE").add("PARAMETER_STYLE")
+            .add("IS_DETERMINISTIC")
+            .add("SQL_DATA_ACCESS").add("SQL_PATH")
+            .add("SECURITY_TYPE").add("CREATED")
+            .add("LAST_ALTERED").add("SQL_MODE")
+            .add("ROUTINE_COMMENT")
+            .add("DEFINER").add("CHARACTER_SET_CLIENT")
+            .add("COLLATION_CONNECTION").add("DATABASE_COLLATION")
+            .build();
     @SerializedName(value = "nameToStoredProcedures")
     Map<PlsqlProcedureKey, PlsqlStoredProcedure> nameToStoredProcedures = Maps.newConcurrentMap();
 

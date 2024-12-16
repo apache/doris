@@ -17,21 +17,26 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
@@ -54,12 +59,12 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.net.InetAddress;
 import java.net.URI;
-import java.security.SecureRandom;
+import java.util.Enumeration;
 import java.util.List;
-import java.util.Random;
+import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -70,13 +75,18 @@ public class LoadAction extends RestBaseController {
 
     public static final String SUB_LABEL_NAME_PARAM = "sub_label";
 
+    public static final String HEADER_REDIRECT_POLICY = "redirect-policy";
+
+    public static final String REDIRECT_POLICY_PUBLIC_PRIVATE = "public-private";
+    public static final String REDIRECT_POLICY_RANDOM_BE = "random-be";
+
     private ExecuteEnv execEnv = ExecuteEnv.getInstance();
 
     private int lastSelectedBackendIndex = 0;
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
-                       @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -93,20 +103,29 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load", method = RequestMethod.PUT)
     public Object streamLoad(HttpServletRequest request,
-                             HttpServletResponse response,
-                             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                if (isGroupCommitBlock(db, table)) {
-                    String msg = "insert table " + table + " is blocked on schema change";
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")
+                    && !groupCommitStr.equalsIgnoreCase("off_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode`, `async_mode` or `off_mode`.");
+            }
+            if (!groupCommitStr.equalsIgnoreCase("off_mode")) {
+                groupCommit = true;
+                if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                    try {
+                        if (isGroupCommitBlock(db, table)) {
+                            String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
+                            return new RestBaseResult(msg);
+                        }
+                    } catch (Exception e) {
+                        LOG.info("exception:" + e);
+                        return new RestBaseResult(e.getMessage());
+                    }
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
             }
         }
         if (needRedirect(request.getScheme())) {
@@ -135,18 +154,34 @@ public class LoadAction extends RestBaseController {
         String sql = request.getHeader("sql");
         LOG.info("streaming load sql={}", sql);
         boolean groupCommit = false;
+        long tableId = -1;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                String[] pair = parseDbAndTb(sql);
-                if (isGroupCommitBlock(pair[0], pair[1])) {
-                    String msg = "insert table " + pair[1] + " is blocked on schema change";
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")
+                    && !groupCommitStr.equalsIgnoreCase("off_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode`, `async_mode` or `off_mode`.");
+            }
+            if (!groupCommitStr.equalsIgnoreCase("off_mode")) {
+                try {
+                    groupCommit = true;
+                    String[] pair = parseDbAndTb(sql);
+                    Database db = Env.getCurrentInternalCatalog()
+                            .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
+                    Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
+                    tableId = tbl.getId();
+
+                    // async mode needs to write WAL, we need to block load during waiting WAL.
+                    if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                        if (isGroupCommitBlock(pair[0], pair[1])) {
+                            String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
+                            return new RestBaseResult(msg);
+                        }
+
+                    }
+                } catch (Exception e) {
+                    LOG.info("exception:" + e);
+                    return new RestBaseResult(e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
             }
         }
         executeCheckPassword(request, response);
@@ -157,7 +192,7 @@ public class LoadAction extends RestBaseController {
             }
 
             String label = request.getHeader(LABEL_KEY);
-            TNetworkAddress redirectAddr = selectRedirectBackend(request, groupCommit);
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
 
             LOG.info("redirect load action to destination={}, label: {}",
                     redirectAddr.toString(), label);
@@ -208,8 +243,9 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC(HttpServletRequest request,
-                                   HttpServletResponse response,
-                                   @PathVariable(value = DB_KEY) String db) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db) {
+        LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -220,9 +256,10 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC_table(HttpServletRequest request,
-                                      HttpServletResponse response,
-                                      @PathVariable(value = DB_KEY) String db,
-                                      @PathVariable(value = TABLE_KEY) String table) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db,
+            @PathVariable(value = TABLE_KEY) String table) {
+        LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -277,7 +314,21 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                redirectAddr = selectRedirectBackend(request, groupCommit);
+                long tableId = -1;
+                if (groupCommit) {
+                    Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                    if (!database.isPresent()) {
+                        return new RestBaseResult("Database not found.");
+                    }
+
+                    Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                    if (!olapTable.isPresent()) {
+                        return new RestBaseResult("OlapTable not found.");
+                    }
+
+                    tableId = ((OlapTable) olapTable.get()).getId();
+                }
+                redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
@@ -310,7 +361,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
             }
 
-            TNetworkAddress redirectAddr = selectRedirectBackend(request, false);
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, false, -1);
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
@@ -334,7 +385,12 @@ public class LoadAction extends RestBaseController {
             return cloudClusterName;
         }
 
-        cloudClusterName = ConnectContext.get().getCloudCluster();
+        try {
+            cloudClusterName = ConnectContext.get().getCloudCluster();
+        } catch (ComputeGroupException e) {
+            LOG.warn("get cloud cluster name failed", e);
+            return "";
+        }
         if (!Strings.isNullOrEmpty(cloudClusterName)) {
             return cloudClusterName;
         }
@@ -342,27 +398,37 @@ public class LoadAction extends RestBaseController {
         return "";
     }
 
-    private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit)
+    private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit, long tableId)
             throws LoadException {
+        long debugBackendId = DebugPointUtil.getDebugParamOrDefault("LoadAction.selectRedirectBackend.backendId", -1L);
+        if (debugBackendId != -1L) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(debugBackendId);
+            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+        }
         if (Config.isCloudMode()) {
             String cloudClusterName = getCloudClusterName(request);
             if (Strings.isNullOrEmpty(cloudClusterName)) {
                 throw new LoadException("No cloud cluster name selected.");
             }
-            String reqHostStr = request.getHeader(HttpHeaderNames.HOST.toString());
-            return selectCloudRedirectBackend(cloudClusterName, reqHostStr, groupCommit);
+            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId);
         } else {
-            return selectLocalRedirectBackend(groupCommit);
+            if (groupCommit && tableId == -1) {
+                throw new LoadException("Group commit table id wrong.");
+            }
+            return selectLocalRedirectBackend(groupCommit, request, tableId);
         }
     }
 
-    private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit) throws LoadException {
+    private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)
+            throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
         String qualifiedUser = ConnectContext.get().getQualifiedUser();
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+        boolean allowResourceTagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(qualifiedUser);
         policy = new BeSelectionPolicy.Builder()
                 .addTags(userTags)
+                .setAllowResourceTagDowngrade(allowResourceTagDowngrade)
                 .setEnableRoundRobin(true)
                 .needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
@@ -376,13 +442,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            for (Long backendId : backendIds) {
-                Backend candidateBe = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (!candidateBe.isDecommissioned()) {
-                    backend = candidateBe;
-                    break;
-                }
-            }
+            backend = selectBackendForGroupCommit("", request, tableId);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
@@ -392,21 +452,23 @@ public class LoadAction extends RestBaseController {
         return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 
-    private TNetworkAddress selectCloudRedirectBackend(String clusterName, String reqHostStr, boolean groupCommit)
+    private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
+            long tableId)
             throws LoadException {
-        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getBackendsByClusterName(clusterName)
-                .stream().filter(be -> be.isAlive() && (!groupCommit || groupCommit && !be.isDecommissioned()))
-                .collect(Collectors.toList());
-
-        if (backends.isEmpty()) {
-            LOG.warn("No available backend for stream load redirect, cluster name {}", clusterName);
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", cluster: " + clusterName);
+        Backend backend = null;
+        if (groupCommit) {
+            backend = selectBackendForGroupCommit(clusterName, req, tableId);
+        } else {
+            backend = StreamLoadHandler.selectBackend(clusterName);
         }
 
-        Random rand = new SecureRandom();
-        int randomIndex = rand.nextInt(backends.size());
-        Backend backend = backends.get(randomIndex);
+        String redirectPolicy = req.getHeader(LoadAction.HEADER_REDIRECT_POLICY);
+        // User specified redirect policy
+        if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE)) {
+            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+        }
+        redirectPolicy = redirectPolicy == null || redirectPolicy.isEmpty()
+                ? Config.streamload_redirect_policy : redirectPolicy;
 
         Pair<String, Integer> publicHostPort = null;
         Pair<String, Integer> privateHostPort = null;
@@ -426,6 +488,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(e.getMessage());
         }
 
+        String reqHostStr = req.getHeader(HttpHeaderNames.HOST.toString());
         reqHostStr = reqHostStr.replaceAll("\\s+", "");
         if (reqHostStr.isEmpty()) {
             LOG.info("Invalid header host: {}", reqHostStr);
@@ -443,13 +506,46 @@ public class LoadAction extends RestBaseController {
             throw new LoadException("Invalid header host: " + reqHost);
         }
 
-        if (InetAddressValidator.getInstance().isValid(reqHost)
-                && publicHostPort != null && reqHost == publicHostPort.first) {
-            return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
-        } else if (privateHostPort != null) {
-            return new TNetworkAddress(reqHost, privateHostPort.second);
+        if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_PUBLIC_PRIVATE)) {
+            // redirect with ip
+            if (InetAddressValidator.getInstance().isValid(reqHost)) {
+                InetAddress addr;
+                try {
+                    addr = InetAddress.getByName(reqHost);
+                } catch (Exception e) {
+                    LOG.warn("unknown host expection: {}", e.getMessage());
+                    throw new LoadException(e.getMessage());
+                }
+                if (addr.isSiteLocalAddress() && privateHostPort != null) {
+                    return new TNetworkAddress(privateHostPort.first, privateHostPort.second);
+                } else if (publicHostPort != null) {
+                    return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
+                } else {
+                    LOG.warn("Invalid ip or wrong cluster, host: {}, public endpoint: {}, private endpoint: {}",
+                            reqHostStr, publicHostPort, privateHostPort);
+                    throw new LoadException("Invalid header host: " + reqHost);
+                }
+            }
+
+            // redirect with domain
+            if (publicHostPort != null && reqHost.toLowerCase().contains("public")) {
+                return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
+            } else if (privateHostPort != null) {
+                return new TNetworkAddress(privateHostPort.first, privateHostPort.second);
+            } else {
+                LOG.warn("Invalid host or wrong cluster, host: {}, public endpoint: {}, private endpoint: {}",
+                        reqHostStr, publicHostPort, privateHostPort);
+                throw new LoadException("Invalid header host: " + reqHost);
+            }
         } else {
-            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+            if (InetAddressValidator.getInstance().isValid(reqHost)
+                    && publicHostPort != null && reqHost == publicHostPort.first) {
+                return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
+            } else if (privateHostPort != null) {
+                return new TNetworkAddress(reqHost, privateHostPort.second);
+            } else {
+                return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+            }
         }
     }
 
@@ -481,7 +577,7 @@ public class LoadAction extends RestBaseController {
     // So this function is not widely tested under general scenario
     private boolean checkClusterToken(String token) {
         try {
-            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (UserException e) {
             throw new UnauthorizedException(e.getMessage());
         }
@@ -492,7 +588,7 @@ public class LoadAction extends RestBaseController {
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
     private Object executeWithClusterToken(HttpServletRequest request, String db,
-                                          String table, boolean isStreamLoad) {
+            String table, boolean isStreamLoad) {
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(Env.getCurrentEnv());
@@ -500,6 +596,8 @@ public class LoadAction extends RestBaseController {
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
             ctx.setQualifiedUser(Auth.ADMIN_USER);
+            // cloud need
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.setThreadLocalInfo();
 
             String dbName = db;
@@ -527,10 +625,10 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No label selected.");
             }
 
-            TNetworkAddress redirectAddr = selectRedirectBackend(request, false);
+            TNetworkAddress redirectAddr = selectRedirectBackend(request, false, -1);
 
             LOG.info("Redirect load action with auth token to destination={},"
-                        + "stream: {}, db: {}, tbl: {}, label: {}",
+                            + "stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
             URI urlObj = null;
@@ -562,5 +660,40 @@ public class LoadAction extends RestBaseController {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    private String getAllHeaders(HttpServletRequest request) {
+        StringBuilder headers = new StringBuilder();
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            String headerValue = request.getHeader(headerName);
+            headers.append(headerName).append(":").append(headerValue).append(", ");
+        }
+        return headers.toString();
+    }
+
+    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
+            throws LoadException {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setThreadLocalInfo();
+        ctx.setRemoteIP(req.getRemoteAddr());
+        // We set this variable to fulfill required field 'user' in
+        // TMasterOpRequest(FrontendService.thrift)
+        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setThreadLocalInfo();
+        if (Config.isCloudMode()) {
+            ctx.setCloudCluster(clusterName);
+        }
+
+        Backend backend = null;
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(tableId, ctx);
+        } catch (DdlException e) {
+            throw new LoadException(e.getMessage(), e);
+        }
+        return backend;
     }
 }

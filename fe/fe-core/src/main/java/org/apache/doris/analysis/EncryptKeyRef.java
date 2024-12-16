@@ -26,13 +26,16 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 public class EncryptKeyRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(EncryptKeyRef.class);
+    @SerializedName("ekn")
     private EncryptKeyName encryptKeyName;
     private EncryptKey encryptKey;
+
+    private EncryptKeyRef() {
+        // only for serde
+    }
 
     public EncryptKeyRef(EncryptKeyName encryptKeyName) {
         super();
@@ -44,6 +47,7 @@ public class EncryptKeyRef extends Expr {
         super(other);
         this.encryptKeyName = other.encryptKeyName;
         this.encryptKey = other.encryptKey;
+        this.type = Type.VARCHAR;
     }
 
     public EncryptKey getEncryptKey() {

@@ -21,6 +21,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TExpr;
 
 namespace vectorized {
@@ -37,11 +38,14 @@ std::shared_ptr<DeltaWriterV2> DeltaWriterV2Map::get_or_create(
         return _map.at(tablet_id);
     }
     std::shared_ptr<DeltaWriterV2> writer = creator();
-    _map[tablet_id] = writer;
+    if (writer != nullptr) {
+        _map[tablet_id] = writer;
+    }
     return writer;
 }
 
-Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
+Status DeltaWriterV2Map::close(std::unordered_map<int64_t, int32_t>& segments_for_tablet,
+                               RuntimeProfile* profile) {
     int num_use = --_use_cnt;
     if (num_use > 0) {
         LOG(INFO) << "keeping DeltaWriterV2Map, load_id=" << _load_id << " , use_cnt=" << num_use;
@@ -56,8 +60,10 @@ Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
         RETURN_IF_ERROR(writer->close());
     }
     LOG(INFO) << "close-waiting DeltaWriterV2Map, load_id=" << _load_id;
-    for (auto& [_, writer] : _map) {
-        RETURN_IF_ERROR(writer->close_wait(profile));
+    for (auto& [tablet_id, writer] : _map) {
+        int32_t num_segments;
+        RETURN_IF_ERROR(writer->close_wait(num_segments, profile));
+        segments_for_tablet[tablet_id] = num_segments;
     }
     return Status::OK();
 }

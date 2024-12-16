@@ -24,15 +24,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TFunctionName;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
@@ -40,10 +39,12 @@ import java.util.Objects;
  * Class to represent a function name. Function names are specified as
  * db.function_name.
  */
-public class FunctionName implements Writable {
+public class FunctionName {
     private static final Logger LOG = LogManager.getLogger(FunctionName.class);
 
+    @SerializedName("db")
     private String db;
+    @SerializedName("fn")
     private String fn;
 
     private FunctionName() {
@@ -165,17 +166,6 @@ public class FunctionName implements Writable {
         return name;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (db != null) {
-            out.writeBoolean(true);
-            Text.writeString(out, db);
-        } else {
-            out.writeBoolean(false);
-        }
-        Text.writeString(out, fn);
-    }
-
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             db = Text.readString(in);
@@ -192,5 +182,10 @@ public class FunctionName implements Writable {
     @Override
     public int hashCode() {
         return 31 * Objects.hashCode(db) + Objects.hashCode(fn);
+    }
+
+    @Override
+    public FunctionName clone() {
+        return new FunctionName(db, fn);
     }
 }

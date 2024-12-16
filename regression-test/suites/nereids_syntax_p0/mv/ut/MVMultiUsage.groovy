@@ -37,16 +37,17 @@ suite ("MVMultiUsage") {
     sql """insert into MVMultiUsage values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into MVMultiUsage values("2020-01-03",3,"c",3,3,3);"""
 
+
     createMV("create materialized view MVMultiUsage_mv as select deptno, empid, salary from MVMultiUsage order by deptno;")
 
     sleep(3000)
 
     sql """insert into MVMultiUsage values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from MVMultiUsage order by empid;")
-        contains "(MVMultiUsage)"
-    }
+    sql "analyze table MVMultiUsage with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from MVMultiUsage order by empid;", "MVMultiUsage_mv")
     order_qt_select_star "select * from MVMultiUsage order by empid;"
 
 
@@ -56,5 +57,15 @@ suite ("MVMultiUsage") {
         notContains "(MVMultiUsage)"
     }
     order_qt_select_mv "select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno) order by 1;"
+
+    sql """set enable_stats=true;"""
+    sql """alter table MVMultiUsage modify column time_col set stats ('row_count'='4');"""
+
+    mv_rewrite_fail("select * from MVMultiUsage order by empid;", "MVMultiUsage_mv")
+    explain {
+        sql("select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno);")
+        contains "(MVMultiUsage_mv)"
+        notContains "(MVMultiUsage)"
+    }
 
 }

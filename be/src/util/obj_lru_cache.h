@@ -27,6 +27,8 @@ namespace doris {
 // Caller must hold a CacheHandle instance when visiting the cached object.
 class ObjLRUCache : public LRUCachePolicy {
 public:
+    using LRUCachePolicy::insert;
+
     struct ObjKey {
         ObjKey(const std::string& key_) : key(key_) {}
 
@@ -36,8 +38,7 @@ public:
     template <typename T>
     class ObjValue : public LRUCacheValueBase {
     public:
-        ObjValue(const T* value)
-                : LRUCacheValueBase(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE), value(value) {}
+        ObjValue(const T* value) : value(value) {}
         ~ObjValue() override {
             T* v = (T*)value;
             delete v;

@@ -47,15 +47,15 @@ EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_i
           _tablet_id(tablet_id),
           _schema_hash(schema_hash),
           _version(version),
-          _checksum(checksum),
-          _mem_tracker(std::make_shared<MemTrackerLimiter>(
-                  MemTrackerLimiter::Type::LOAD,
-                  "EngineChecksumTask#tabletId=" + std::to_string(tablet_id))) {}
+          _checksum(checksum) {
+    _mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::LOAD,
+            "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
+}
 
 EngineChecksumTask::~EngineChecksumTask() = default;
 
 Status EngineChecksumTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     return _compute_checksum();
 } // execute
 
@@ -93,7 +93,7 @@ Status EngineChecksumTask::_compute_checksum() {
     }
     size_t input_size = 0;
     for (const auto& rowset : input_rowsets) {
-        input_size += rowset->data_disk_size();
+        input_size += rowset->total_disk_size();
     }
 
     auto res = reader.init(reader_params);

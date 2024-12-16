@@ -46,6 +46,9 @@ public class DropTableStmtTest {
 
     @Before
     public void setUp() {
+        MockedAuth.mockedAccess(accessManager);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+
         tbl = new TableName(internalCtl, "db1", "table1");
         noDbTbl = new TableName(internalCtl, "", "table1");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
@@ -61,9 +64,6 @@ public class DropTableStmtTest {
                 result = "";
             }
         };
-
-        MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -72,12 +72,13 @@ public class DropTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertEquals("DROP TABLE `db1`.`table1`", stmt.toString());
+        // one with force.
+        Assert.assertEquals("DROP TABLE `db1`.`table1` FORCE", stmt.toString());
     }
 
     @Test
     public void testDefaultNormal() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, noDbTbl, true);
+        DropTableStmt stmt = new DropTableStmt(false, noDbTbl, false);
         stmt.analyze(analyzer);
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());

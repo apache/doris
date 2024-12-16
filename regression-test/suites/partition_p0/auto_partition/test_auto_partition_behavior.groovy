@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_auto_partition_behavior") {
+    sql "set experimental_enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
+
     /// unique key table
     sql "drop table if exists unique_table"
     sql """
@@ -47,11 +50,9 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 10)
     // add partition
-    try {
+    test {
         sql """ alter table unique_table add partition padd values in ("Xxx") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+        exception "is conflict with current partitionKeys"
     }
     // drop partition
     def partitions = sql "show partitions from unique_table order by PartitionName"
@@ -91,11 +92,9 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 10)
     // add partition
-    try {
+    test {
         sql """ alter table dup_table add partition padd values in ("Xxx") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+        exception "is conflict with current partitionKeys"
     }
     // drop partition
     partitions = sql "show partitions from dup_table order by PartitionName"
@@ -116,7 +115,7 @@ suite("test_auto_partition_behavior") {
         ) ENGINE=OLAP
         AGGREGATE KEY(`k0`)
         COMMENT 'OLAP'
-        AUTO PARTITION BY RANGE date_trunc(`k0`, 'year')
+        auto partition by range (date_trunc(`k0`, 'year'))
         (
         )
         DISTRIBUTED BY HASH(`k0`) BUCKETS 10
@@ -165,139 +164,52 @@ suite("test_auto_partition_behavior") {
         );
         """
     sql """ insert into rewrite values ("Xxx"); """
-    // legacy planner
-    sql " set experimental_enable_nereids_planner=false "
-    try {
-        sql """ insert overwrite table rewrite partition(p1) values ("XXX") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
-    }
-    sql """ insert overwrite table rewrite partition(p1) values ("Yyy") """
-    qt_sql_overwrite1 """ select * from rewrite """ // Yyy
-    // nereids planner
-    sql " set experimental_enable_nereids_planner=true "
-    try {
+    test {
         sql """ insert overwrite table rewrite partition(p1) values ("") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+        exception "Insert has filtered data in strict mode"
     }
     sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
-    qt_sql_overwrite2 """ select * from rewrite """ // Xxx
+    qt_sql_overwrite """ select * from rewrite """ // Xxx
 
-    // prohibit NULLABLE auto partition column
-    // legacy
-    sql " set experimental_enable_nereids_planner=false "
+    sql " drop table if exists non_order; "
+    sql """
+        CREATE TABLE `non_order` (
+            `k0` int not null,
+            `k1` datetime(6) not null
+        )
+        auto partition by range (date_trunc(`k1`, 'year'))
+        (
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+    // insert
+    sql """ insert into non_order values (1, '2020-12-12'); """
+    sql """ insert into non_order values (2, '2023-12-12'); """
+    sql """ insert into non_order values (3, '2013-12-12'); """
+    qt_sql_non_order1 """ select * from non_order where k1 = '2020-12-12'; """
+    qt_sql_non_order2 """ select * from non_order where k1 = '2023-12-12'; """
+    qt_sql_non_order3 """ select * from non_order where k1 = '2013-12-12'; """
+
+    // range partition can't auto create null partition
+    sql "drop table if exists invalid_null_range"
     test {
-        sql "drop table if exists test_null1"
         sql """
-            create table test_null1(
+            create table invalid_null_range(
                 k0 datetime(6) null
             )
-            auto partition by range date_trunc(k0, 'hour')
+            auto partition by range (date_trunc(k0, 'hour'))
             (
             )
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
             properties("replication_num" = "1");
         """
-        exception "The auto partition column must be NOT NULL"
-    }
-    test {
-        sql "drop table if exists test_null2"
-        sql """
-            create table test_null2(
-                k0 int null
-            )
-            auto partition by list (k0)
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
-        """
-        exception "The auto partition column must be NOT NULL"
-    }
-    // nereids
-    sql " set experimental_enable_nereids_planner=true "
-    test {
-        sql "drop table if exists test_null1"
-        sql """
-            create table test_null1(
-                k0 datetime(6) null
-            )
-            auto partition by range date_trunc(k0, 'hour')
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
-        """
-        exception "The auto partition column must be NOT NULL"
-    }
-    test {
-        sql "drop table if exists test_null2"
-        sql """
-            create table test_null2(
-                k0 int null
-            )
-            auto partition by list (k0)
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
-        """
-        exception "The auto partition column must be NOT NULL"
+        exception "AUTO RANGE PARTITION doesn't support NULL column"
     }
 
-    // PROHIBIT different timeunit of interval when use both auto & dynamic partition
-    sql "set experimental_enable_nereids_planner=true;"
-    test{
-        sql """
-            CREATE TABLE tbl3
-            (
-                k1 DATETIME NOT NULL,
-                col1 int 
-            )
-            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
-            DISTRIBUTED BY HASH(k1)
-            PROPERTIES
-            (
-                "replication_num" = "1",
-                "dynamic_partition.create_history_partition"="true",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "HOUR",
-                "dynamic_partition.start" = "-2",
-                "dynamic_partition.end" = "2",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.buckets" = "8"
-            ); 
-        """
-        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
-    }
 
-    sql "set experimental_enable_nereids_planner=false;"
-    test{
-        sql """
-            CREATE TABLE tbl3
-            (
-                k1 DATETIME NOT NULL,
-                col1 int 
-            )
-            auto PARTITION BY RANGE date_trunc(`k1`, 'year') ()
-            DISTRIBUTED BY HASH(k1)
-            PROPERTIES
-            (
-                "replication_num" = "1",
-                "dynamic_partition.create_history_partition"="true",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "HOUR",
-                "dynamic_partition.start" = "-2",
-                "dynamic_partition.end" = "2",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.buckets" = "8"
-            ); 
-        """
-        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
-    }
 
     // prohibit too long value for partition column
     sql "drop table if exists `long_value`"
@@ -315,29 +227,14 @@ suite("test_auto_partition_behavior") {
     """
     test{
         sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
-
-        exception "Partition name's length is over limit of 50."
+        def exception_str = isGroupCommitMode() ? "s length is over limit of 50." : "Partition name's length is over limit of 50."
+        exception exception_str
     }
 
-    // illegal partiton definetion
-    sql "set experimental_enable_nereids_planner=false;"
-    test{
-        sql """
-            create table illegal(
-                k0 datetime(6) NOT null,
-                k1 datetime(6) NOT null
-            )
-            auto partition by range date_trunc(k0, k1, 'hour')
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
-        """
-        exception "auto create partition only support one slotRef in function expr"
-    }
 
-    sql "set experimental_enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
+
+
+    /// illegal partition exprs
     test{
         sql """
             create table illegal(
@@ -350,7 +247,7 @@ suite("test_auto_partition_behavior") {
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
             properties("replication_num" = "1");
         """
-        exception "partition expr date_trunc is illegal!"
+        exception "auto create partition only support one slotRef in function expr"
     }
     // test displacement of partition function
     test{
@@ -366,5 +263,86 @@ suite("test_auto_partition_behavior") {
             properties("replication_num" = "1");
         """
         exception "partition expr date_trunc is illegal!"
+    }
+
+
+
+
+    // altering table property effects new partitions.
+    sql " drop table if exists test_change "
+    sql """
+        create table test_change(
+            k0 datetime not null
+        )
+        auto partition by range (date_trunc(k0, 'year'))
+        (
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+        properties("replication_num" = "1");
+    """
+    def replicaNum = get_table_replica_num("test_change")
+    logger.info("get table replica num: " + replicaNum)
+
+    sql """ insert into test_change values ("20201212"); """
+    def part_result = sql " show tablets from test_change "
+    assertEquals(part_result.size, 2 * replicaNum)
+    sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
+    sql """ insert into test_change values ("20001212"); """
+    part_result = sql " show tablets from test_change "
+    assertEquals(part_result.size, 52 * replicaNum)
+
+
+
+    // test not auto partition have expr.
+    test {
+        sql """
+            CREATE TABLE not_auto_expr (
+                `TIME_STAMP` date NOT NULL
+            )
+            partition by range (date_trunc(`TIME_STAMP`, 'day'))()
+            DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        exception "Non-auto partition table not support partition expr!"
+    }
+
+
+    // test insert empty
+    sql "create table if not exists empty_range like test_change"
+    sql "insert into test_change select * from empty_range"
+    sql "create table if not exists empty_list like long_value"
+    sql "insert into long_value select * from empty_list"
+
+
+    // test not auto partition have expr.
+    test {
+        sql """
+            CREATE TABLE if not exists dup_dynamic_t_logs (
+                `timestamp` datetime NOT NULL,
+                `source` text NULL,
+                `node` text NULL,
+                `level` text NULL,
+                `component` text NULL,
+                `clientRequestId` varchar(50) NULL,
+                `message` text NULL,
+                `properties` variant NULL,
+            INDEX idx_source (`source`) USING INVERTED COMMENT '',
+            INDEX idx_node (`node`) USING INVERTED COMMENT '',
+            INDEX idx_level (`level`) USING INVERTED COMMENT '',
+            INDEX idx_component (`component`) USING INVERTED COMMENT '',
+            INDEX idx_clientRequestId (`clientRequestId`) USING INVERTED COMMENT '',
+            INDEX idx_message (`message`) USING INVERTED PROPERTIES("parser"="english") COMMENT '',
+            -- INDEX idx_properties (`properties`) USING INVERTED COMMENT '',
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`timestamp`)
+            AUTO PARTITION BY RANGE (`timestamp`)()
+            DISTRIBUTED BY RANDOM BUCKETS 100
+            PROPERTIES (
+            "file_cache_ttl_seconds" = "600"
+            );
+        """
+        exception "auto create partition only support date_trunc function of RANGE partition"
     }
 }

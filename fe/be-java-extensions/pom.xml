@@ -22,12 +22,14 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
     <modules>
         <module>hudi-scanner</module>
+        <module>hadoop-hudi-scanner</module>
         <module>java-common</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
         <module>max-compute-scanner</module>
         <module>avro-scanner</module>
+        <module>lakesoul-scanner</module>
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
     </modules>

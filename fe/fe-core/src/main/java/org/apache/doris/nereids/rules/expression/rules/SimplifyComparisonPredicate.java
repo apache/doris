@@ -17,16 +17,17 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -42,30 +43,32 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
+import java.util.Optional;
 
 /**
- * simplify comparison
+ * simplify comparison, not support large int.
  * such as: cast(c1 as DateV2) >= DateV2Literal --> c1 >= DateLiteral
  *          cast(c1 AS double) > 2.0 --> c1 >= 2 (c1 is integer like type)
  */
-public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
-
+public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
     enum AdjustType {
@@ -75,9 +78,19 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
-        cp = (ComparisonPredicate) visit(cp, context);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(ComparisonPredicate.class).then(SimplifyComparisonPredicate::simplify)
+        );
+    }
 
+    @Override
+    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
+        return simplify(cp);
+    }
+
+    /** simplify */
+    public static Expression simplify(ComparisonPredicate cp) {
         if (cp.left() instanceof Literal && !(cp.right() instanceof Literal)) {
             cp = cp.commute();
         }
@@ -85,22 +98,25 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         Expression left = cp.left();
         Expression right = cp.right();
 
-        // float like type: float, double
+        Expression result;
+
+        // process type coercion
         if (left.getDataType().isFloatLikeType() && right.getDataType().isFloatLikeType()) {
-            return processFloatLikeTypeCoercion(cp, left, right);
+            result = processFloatLikeTypeCoercion(cp, left, right);
+        } else if (left.getDataType() instanceof DecimalV3Type && right.getDataType() instanceof DecimalV3Type) {
+            result = processDecimalV3TypeCoercion(cp, left, right);
+        } else if (left.getDataType() instanceof DateLikeType && right.getDataType() instanceof DateLikeType) {
+            result = processDateLikeTypeCoercion(cp, left, right);
+        } else {
+            result = cp;
         }
 
-        // decimalv3 type
-        if (left.getDataType() instanceof DecimalV3Type && right.getDataType() instanceof DecimalV3Type) {
-            return processDecimalV3TypeCoercion(cp, left, right);
+        if (result instanceof ComparisonPredicate && ((ComparisonPredicate) result).right() instanceof NumericLiteral) {
+            ComparisonPredicate cmp = (ComparisonPredicate) result;
+            result = processTypeRangeLimitComparison(cmp, cmp.left(), (NumericLiteral) cmp.right());
         }
 
-        // date like type
-        if (left.getDataType() instanceof DateLikeType && right.getDataType() instanceof DateLikeType) {
-            return processDateLikeTypeCoercion(cp, left, right);
-        }
-
-        return cp;
+        return result;
     }
 
     private static Expression processComparisonPredicateDateTimeV2Literal(
@@ -115,17 +131,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                 if (right.getMicroSecond() == originValue) {
                     return comparisonPredicate.withChildren(left, right);
                 } else {
-                    if (left.nullable()) {
-                        // TODO: the ideal way is to return an If expr like:
-                        // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
-                        // BooleanLiteral.of(false));
-                        // but current fold constant rule can't handle such complex expr with null literal
-                        // before supporting complex conjuncts with null literal folding rules,
-                        // we use a trick way like this:
-                        return new And(new IsNull(left), new NullLiteral(BooleanType.INSTANCE));
-                    } else {
-                        return BooleanLiteral.of(false);
-                    }
+                    // TODO: the ideal way is to return an If expr like:
+                    // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                    // BooleanLiteral.of(false));
+                    // but current fold constant rule can't handle such complex expr with null literal
+                    // before supporting complex conjuncts with null literal folding rules,
+                    // we use a trick way like this:
+                    return ExpressionUtils.falseOrNull(left);
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
                 long originValue = right.getMicroSecond();
@@ -146,7 +158,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         return comparisonPredicate;
     }
 
-    private Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
+    private static Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
         if (left instanceof Cast && right instanceof DateLiteral) {
             Cast cast = (Cast) left;
             if (cast.child().getDataType() instanceof DateTimeType) {
@@ -196,7 +208,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression processFloatLikeTypeCoercion(ComparisonPredicate comparisonPredicate,
+    private static Expression processFloatLikeTypeCoercion(ComparisonPredicate comparisonPredicate,
             Expression left, Expression right) {
         if (left instanceof Cast && left.child(0).getDataType().isIntegerLikeType()
                 && (right instanceof DoubleLiteral || right instanceof FloatLiteral)) {
@@ -209,79 +221,72 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression processDecimalV3TypeCoercion(ComparisonPredicate comparisonPredicate,
+    private static Expression processDecimalV3TypeCoercion(ComparisonPredicate comparisonPredicate,
             Expression left, Expression right) {
         if (left instanceof Cast && right instanceof DecimalV3Literal) {
             Cast cast = (Cast) left;
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
-                if (((DecimalV3Type) left.getDataType())
-                        .getScale() < ((DecimalV3Type) literal.getDataType()).getScale()) {
+                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+                DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
+                if (leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
-                            if (left.nullable()) {
-                                // TODO: the ideal way is to return an If expr like:
-                                // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
-                                // BooleanLiteral.of(false));
-                                // but current fold constant rule can't handle such complex expr with null literal
-                                // before supporting complex conjuncts with null literal folding rules,
-                                // we use a trick way like this:
-                                return new And(new IsNull(left),
-                                        new NullLiteral(BooleanType.INSTANCE));
-                            } else {
-                                return BooleanLiteral.of(false);
-                            }
+                            // TODO: the ideal way is to return an If expr like:
+                            // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                            // BooleanLiteral.of(false));
+                            // but current fold constant rule can't handle such complex expr with null literal
+                            // before supporting complex conjuncts with null literal folding rules,
+                            // we use a trick way like this:
+                            return ExpressionUtils.falseOrNull(left);
                         }
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
                         }
                     } else if (comparisonPredicate instanceof GreaterThan
                             || comparisonPredicate instanceof LessThanEqual) {
-                        return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundFloor(toScale)));
                     } else if (comparisonPredicate instanceof LessThan
                             || comparisonPredicate instanceof GreaterThanEqual) {
-                        return comparisonPredicate.withChildren(left,
-                                literal.roundCeiling(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundCeiling(toScale)));
                     }
                 }
             } else if (left.getDataType().isIntegerLikeType()) {
-                return processIntegerDecimalLiteralComparison(comparisonPredicate, left,
-                        literal.getValue());
+                return processIntegerDecimalLiteralComparison(comparisonPredicate, left, literal.getValue());
             }
         }
 
         return comparisonPredicate;
     }
 
-    private Expression processIntegerDecimalLiteralComparison(
+    private static Expression processIntegerDecimalLiteralComparison(
             ComparisonPredicate comparisonPredicate, Expression left, BigDecimal literal) {
         // we only process isIntegerLikeType, which are tinyint, smallint, int, bigint
-        if (literal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0) {
+        if (literal.compareTo(new BigDecimal(Long.MIN_VALUE)) >= 0
+                && literal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0) {
             literal = literal.stripTrailingZeros();
             if (literal.scale() > 0) {
                 if (comparisonPredicate instanceof EqualTo) {
-                    if (left.nullable()) {
-                        // TODO: the ideal way is to return an If expr like:
-                        // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
-                        // BooleanLiteral.of(false));
-                        // but current fold constant rule can't handle such complex expr with null literal
-                        // before supporting complex conjuncts with null literal folding rules,
-                        // we use a trick way like this:
-                        return new And(new IsNull(left), new NullLiteral(BooleanType.INSTANCE));
-                    } else {
-                        return BooleanLiteral.of(false);
-                    }
+                    // TODO: the ideal way is to return an If expr like:
+                    // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                    // BooleanLiteral.of(false));
+                    // but current fold constant rule can't handle such complex expr with null literal
+                    // before supporting complex conjuncts with null literal folding rules,
+                    // we use a trick way like this:
+                    return ExpressionUtils.falseOrNull(left);
                 } else if (comparisonPredicate instanceof NullSafeEqual) {
                     return BooleanLiteral.of(false);
                 } else if (comparisonPredicate instanceof GreaterThan
@@ -306,10 +311,95 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         return comparisonPredicate;
     }
 
-    private IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
-        Preconditions.checkArgument(
-                decimal.scale() <= 0 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
-                "decimal literal must have 0 scale and smaller than Long.MAX_VALUE");
+    private static Expression processTypeRangeLimitComparison(ComparisonPredicate cp, Expression left,
+            NumericLiteral right) {
+        BigDecimal typeMinValue = null;
+        BigDecimal typeMaxValue = null;
+        // cmp float like have lost precision, for example float.max_value + 0.01 still eval to float.max_value
+        if (left.getDataType().isIntegerLikeType() || left.getDataType().isDecimalV3Type()) {
+            Optional<Pair<BigDecimal, BigDecimal>> minMaxOpt =
+                    TypeCoercionUtils.getDataTypeMinMaxValue(left.getDataType());
+            if (minMaxOpt.isPresent()) {
+                typeMinValue = minMaxOpt.get().first;
+                typeMaxValue = minMaxOpt.get().second;
+            }
+        }
+
+        // cast(child as dataType2) range should be:
+        //  [ max(childDataType.min_value, dataType2.min_value), min(childDataType.max_value, dataType2.max_value)]
+        if (left instanceof Cast) {
+            left = ((Cast) left).child();
+            if (left.getDataType().isIntegerLikeType() || left.getDataType().isDecimalV3Type()) {
+                Optional<Pair<BigDecimal, BigDecimal>> minMaxOpt =
+                        TypeCoercionUtils.getDataTypeMinMaxValue(left.getDataType());
+                if (minMaxOpt.isPresent()) {
+                    if (typeMinValue == null || typeMinValue.compareTo(minMaxOpt.get().first) < 0) {
+                        typeMinValue = minMaxOpt.get().first;
+                    }
+                    if (typeMaxValue == null || typeMaxValue.compareTo(minMaxOpt.get().second) > 0) {
+                        typeMaxValue = minMaxOpt.get().second;
+                    }
+                }
+            }
+        }
+
+        if (typeMinValue == null || typeMaxValue == null) {
+            return cp;
+        }
+        BigDecimal literal = new BigDecimal(right.getStringValue());
+        int cmpMin = literal.compareTo(typeMinValue);
+        int cmpMax = literal.compareTo(typeMaxValue);
+        if (cp instanceof EqualTo) {
+            if (cmpMin < 0 || cmpMax > 0) {
+                return ExpressionUtils.falseOrNull(left);
+            }
+        } else if (cp instanceof NullSafeEqual) {
+            if (cmpMin < 0 || cmpMax > 0) {
+                return BooleanLiteral.of(false);
+            }
+        } else if (cp instanceof GreaterThan) {
+            if (cmpMin < 0) {
+                return ExpressionUtils.trueOrNull(left);
+            }
+            if (cmpMax >= 0) {
+                return ExpressionUtils.falseOrNull(left);
+            }
+        } else if (cp instanceof GreaterThanEqual) {
+            if (cmpMin <= 0) {
+                return ExpressionUtils.trueOrNull(left);
+            }
+            if (cmpMax == 0) {
+                return new EqualTo(cp.left(), cp.right());
+            }
+            if (cmpMax > 0) {
+                return ExpressionUtils.falseOrNull(left);
+            }
+        } else if (cp instanceof LessThan) {
+            if (cmpMin <= 0) {
+                return ExpressionUtils.falseOrNull(left);
+            }
+            if (cmpMax > 0) {
+                return ExpressionUtils.trueOrNull(left);
+            }
+        } else if (cp instanceof LessThanEqual) {
+            if (cmpMin < 0) {
+                return ExpressionUtils.falseOrNull(left);
+            }
+            if (cmpMin == 0) {
+                return new EqualTo(cp.left(), cp.right());
+            }
+            if (cmpMax >= 0) {
+                return ExpressionUtils.trueOrNull(left);
+            }
+        }
+        return cp;
+    }
+
+    private static IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
+        Preconditions.checkArgument(decimal.scale() <= 0
+                && decimal.compareTo(new BigDecimal(Long.MIN_VALUE)) >= 0
+                && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
+                "decimal literal must have 0 scale and in range [Long.MIN_VALUE, Long.MAX_VALUE]");
         long val = decimal.longValue();
         if (val >= Byte.MIN_VALUE && val <= Byte.MAX_VALUE) {
             return new TinyIntLiteral((byte) val);
@@ -322,23 +412,24 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression migrateToDateTime(DateTimeV2Literal l) {
+    private static Expression migrateToDateTime(DateTimeV2Literal l) {
         return new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), l.getHour(), l.getMinute(), l.getSecond());
     }
 
-    private boolean cannotAdjust(DateTimeLiteral l, ComparisonPredicate cp) {
+    private static boolean cannotAdjust(DateTimeLiteral l, ComparisonPredicate cp) {
         return cp instanceof EqualTo && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0);
     }
 
-    private Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
+    private static Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
         DateV2Literal d = new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         if (type == AdjustType.UPPER && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0)) {
-            d = ((DateV2Literal) d.plusDays(1));
+            return d.plusDays(1);
+        } else {
+            return d;
         }
-        return d;
     }
 
-    private Expression migrateToDate(DateV2Literal l) {
+    private static Expression migrateToDate(DateV2Literal l) {
         return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
     }
 }

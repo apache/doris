@@ -122,10 +122,14 @@ private:
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn;
+extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict;
+extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator;
+extern BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn;
+extern BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_version;
 extern BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version;
@@ -146,6 +150,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_drop_partition;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info;
+extern BvarLatencyRecorderWithTag g_bvar_ms_alter_storage_vault;
 extern BvarLatencyRecorderWithTag g_bvar_ms_create_instance;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_instance;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_cluster;
@@ -167,9 +172,15 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock;
+extern BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap;
+extern BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_instance;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
+extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
+extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
@@ -187,6 +198,7 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_batch_get;
 
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
+extern bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized;
 
 extern const int64_t BVAR_FDB_INVALID_VALUE;
 extern bvar::Status<int64_t> g_bvar_fdb_client_count;
@@ -226,6 +238,7 @@ extern bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
+extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
@@ -235,3 +248,9 @@ extern BvarStatusWithTag<long> g_bvar_checker_check_cost_s;
 extern BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s;
 extern BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms;
 extern BvarStatusWithTag<long> g_bvar_checker_instance_volume;
+extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned;
+extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
+
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned;

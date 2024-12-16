@@ -17,45 +17,102 @@
 
 #pragma once
 
+// clang-format off
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "CLucene/search/PhraseQuery.h"
+// clang-format on
+
+#include <variant>
+
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 CL_NS_USE(index)
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
 
+class PostingsAndPosition {
+public:
+    PostingsAndPosition(const TermPositionIterator& postings, int32_t offset)
+            : _postings(postings), _offset(offset) {}
+
+    TermPositionIterator _postings;
+    int32_t _offset = 0;
+    int32_t _freq = 0;
+    int32_t _upTo = 0;
+    int32_t _pos = 0;
+};
+
+template <typename Derived>
+class PhraseMatcherBase {
+public:
+    // Handle position information for different types of phrase queries
+    bool matches(int32_t doc);
+
+private:
+    void reset(int32_t doc);
+
+protected:
+    bool advance_position(PostingsAndPosition& posting, int32_t target);
+
+public:
+    std::vector<PostingsAndPosition> _postings;
+};
+
+class ExactPhraseMatcher : public PhraseMatcherBase<ExactPhraseMatcher> {
+public:
+    bool next_match();
+};
+
+class OrderedSloppyPhraseMatcher : public PhraseMatcherBase<OrderedSloppyPhraseMatcher> {
+public:
+    bool next_match();
+
+private:
+    bool stretch_to_order(PostingsAndPosition* prev_posting);
+
+public:
+    int32_t _allowed_slop = 0;
+
+private:
+    int32_t _match_width = -1;
+};
+
+// ExactPhraseMatcher: x match_phrase 'aaa bbb'
+// PhraseQueryPtr: x match_phrase 'aaa bbb ~2', support slop
+// OrderedSloppyPhraseMatcher: x match_phrase 'aaa bbb ~2+', ensuring that the words appear in the specified order.
+using PhraseQueryPtr = std::unique_ptr<CL_NS(search)::PhraseQuery>;
+using Matcher = std::variant<ExactPhraseMatcher, OrderedSloppyPhraseMatcher>;
+
 class PhraseQuery : public Query {
 public:
     PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                const TQueryOptions& query_options);
+                const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~PhraseQuery() override;
 
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
-    class PostingsAndPosition {
-    public:
-        PostingsAndPosition(const TermPositionIterator& postings, int32_t offset)
-                : _postings(postings), _offset(offset) {}
-
-        TermPositionIterator _postings;
-        int32_t _offset = 0;
-        int32_t _freq = 0;
-        int32_t _upTo = 0;
-        int32_t _pos = 0;
-    };
-
+    // Use bitmap for merging inverted lists
     void search_by_bitmap(roaring::Roaring& roaring);
+    // Use skiplist for merging inverted lists
     void search_by_skiplist(roaring::Roaring& roaring);
 
     int32_t do_next(int32_t doc);
-    bool next_match();
-    bool advance_position(PostingsAndPosition& posting, int32_t target);
-    void reset();
+    bool matches(int32_t doc);
+
+public:
+    static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
+    static void parser_info(std::string& query, const std::string& field_name,
+                            InvertedIndexQueryType query_type,
+                            const std::map<std::string, std::string>& properties,
+                            InvertedIndexQueryInfo& query_info, bool sequential_opt);
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    const io::IOContext* _io_ctx = nullptr;
 
     TermIterator _lead1;
     TermIterator _lead2;
@@ -65,6 +122,11 @@ private:
 
     std::vector<Term*> _terms;
     std::vector<TermDocs*> _term_docs;
+
+    int32_t _slop = 0;
+    std::vector<std::vector<std::string>> _additional_terms;
+    PhraseQueryPtr _phrase_query = nullptr;
+    std::vector<Matcher> _matchers;
 };
 
 } // namespace doris::segment_v2

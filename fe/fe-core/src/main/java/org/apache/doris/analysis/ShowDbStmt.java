@@ -25,10 +25,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 // Show database statement.
-public class ShowDbStmt extends ShowStmt {
+public class ShowDbStmt extends ShowStmt implements NotFallbackInParser {
     private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
             InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";
@@ -95,7 +96,7 @@ public class ShowDbStmt extends ShowStmt {
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
         }
-        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
+        if (!Strings.isNullOrEmpty(catalogName) && !InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
             sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();

@@ -19,17 +19,28 @@
 
 package org.apache.doris.service.arrowflight.tokens;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.CustomThreadFactory;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.auth2.FlightAuthResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.math.BigInteger;
 import java.security.SecureRandom;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -39,22 +50,46 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     private static final Logger LOG = LogManager.getLogger(FlightTokenManagerImpl.class);
 
     private final SecureRandom generator = new SecureRandom();
+    private final int cacheSize;
     private final int cacheExpiration;
 
-    private LoadingCache<String, FlightTokenDetails> tokenCache;
+    private final LoadingCache<String, FlightTokenDetails> tokenCache;
+    // <username, <token, 1>>
+    private final ConcurrentHashMap<String, LoadingCache<String, Integer>> usersTokenLRU = new ConcurrentHashMap<>();
+    private ScheduledExecutorService cleanupExecutor;
 
     public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
+        this.cacheSize = cacheSize;
         this.cacheExpiration = cacheExpiration;
 
-        this.tokenCache = CacheBuilder.newBuilder()
-                .maximumSize(cacheSize)
+        this.tokenCache = CacheBuilder.newBuilder().maximumSize(cacheSize)
                 .expireAfterWrite(cacheExpiration, TimeUnit.MINUTES)
-                .build(new CacheLoader<String, FlightTokenDetails>() {
+                .removalListener(new RemovalListener<String, FlightTokenDetails>() {
+                    @Override
+                    public void onRemoval(@NotNull RemovalNotification<String, FlightTokenDetails> notification) {
+                        // TODO: broadcast this message to other FE
+                        String token = notification.getKey();
+                        FlightTokenDetails tokenDetails = notification.getValue();
+                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getContext(token);
+                        if (context != null) {
+                            ExecuteEnv.getInstance().getScheduler().unregisterConnection(context);
+                            LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
+                                    + notification.getCause()
+                                    + ", and unregister flight connection context after evict bearer token");
+                        } else {
+                            LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
+                                    + notification.getCause() + ", and flight connection context not exist");
+                        }
+                        usersTokenLRU.get(tokenDetails.getUsername()).invalidate(token);
+                    }
+                }).build(new CacheLoader<String, FlightTokenDetails>() {
                     @Override
                     public FlightTokenDetails load(String key) {
                         return new FlightTokenDetails();
                     }
                 });
+        this.cleanupExecutor = Executors.newScheduledThreadPool(1, new CustomThreadFactory("flight-token-cleanup"));
+        this.cleanupExecutor.scheduleAtFixedRate(() -> this.tokenCache.cleanUp(), 1, 1, TimeUnit.MINUTES);
     }
 
     // From https://stackoverflow.com/questions/41107/how-to-generate-a-random-alpha-numeric-string
@@ -77,26 +112,65 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                 flightAuthResult.getUserIdentity(), flightAuthResult.getRemoteIp());
 
         tokenCache.put(token, flightTokenDetails);
-        LOG.trace("Created flight token for user: {}", username);
+        if (!usersTokenLRU.containsKey(username)) {
+            // TODO Modify usersTokenLRU size when user property maxConn changes. but LoadingCache currently not
+            // support modify.
+            usersTokenLRU.put(username,
+                    CacheBuilder.newBuilder().maximumSize(Env.getCurrentEnv().getAuth().getMaxConn(username) / 2)
+                            .removalListener(new RemovalListener<String, Integer>() {
+                                @Override
+                                public void onRemoval(@NotNull RemovalNotification<String, Integer> notification) {
+                                    // TODO: broadcast this message to other FE
+                                    assert notification.getKey() != null;
+                                    LOG.info("evict bearer token: " + notification.getKey()
+                                            + " from usersTokenLRU, reason: " + notification.getCause());
+                                    tokenCache.invalidate(notification.getKey());
+                                }
+                            }).build(new CacheLoader<String, Integer>() {
+                                @NotNull
+                                @Override
+                                public Integer load(@NotNull String key) {
+                                    return 1;
+                                }
+                            }));
+        }
+        usersTokenLRU.get(username).put(token, 1);
+        LOG.info("Created flight token for user: {}, token: {}", username, token);
         return flightTokenDetails;
     }
 
     @Override
     public FlightTokenDetails validateToken(final String token) throws IllegalArgumentException {
         final FlightTokenDetails value = getTokenDetails(token);
-        if (System.currentTimeMillis() >= value.getExpiresAt()) {
-            tokenCache.invalidate(token); // removes from the store as well
-            throw new IllegalArgumentException("token expired");
+        if (value.getToken().equals("")) {
+            throw new IllegalArgumentException("invalid bearer token: " + token
+                    + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
+                    + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_token_cache_size`="
+                    + this.cacheSize + ", `arrow_flight_token_alive_time`=" + this.cacheExpiration);
         }
-
-        LOG.trace("Validated flight token for user: {}", value.getUsername());
+        if (System.currentTimeMillis() >= value.getExpiresAt()) {
+            tokenCache.invalidate(token);
+            throw new IllegalArgumentException("bearer token expired: " + token + ", try reconnect, "
+                    + "currently in fe.conf, `arrow_flight_token_alive_time`=" + this.cacheExpiration);
+        }
+        if (usersTokenLRU.containsKey(value.getUsername())) {
+            try {
+                usersTokenLRU.get(value.getUsername()).get(token);
+            } catch (ExecutionException ignored) {
+                throw new IllegalArgumentException("usersTokenLRU not exist bearer token: " + token);
+            }
+        } else {
+            throw new IllegalArgumentException(
+                    "bearer token not created: " + token + ", username:  " + value.getUsername());
+        }
+        LOG.info("Validated bearer token for user: {}", value.getUsername());
         return value;
     }
 
     @Override
     public void invalidateToken(final String token) {
-        LOG.trace("Invalidate flight token, {}", token);
-        tokenCache.invalidate(token); // removes from the store as well
+        LOG.info("Invalidate bearer token, {}", token);
+        tokenCache.invalidate(token);
     }
 
     private FlightTokenDetails getTokenDetails(final String token) {
@@ -105,7 +179,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
         try {
             value = tokenCache.getUnchecked(token);
         } catch (CacheLoader.InvalidCacheLoadException ignored) {
-            throw new IllegalArgumentException("invalid token");
+            throw new IllegalArgumentException("InvalidCacheLoadException, invalid bearer token: " + token);
         }
 
         return value;

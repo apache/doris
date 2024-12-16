@@ -36,10 +36,12 @@
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema_change.h"
@@ -48,7 +50,9 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
@@ -121,7 +125,8 @@ void RowsetBuilder::_garbage_collection() {
 
 Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
     std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
-    int64_t cur_max_version = tablet()->max_version_unlocked();
+    _max_version_in_flush_phase = tablet()->max_version_unlocked();
+    std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet()->tablet_state() == TABLET_NOTREADY) {
         // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
@@ -132,17 +137,24 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
         }
         _rowset_ids.clear();
     } else {
-        RETURN_IF_ERROR(tablet()->get_all_rs_id_unlocked(cur_max_version, &_rowset_ids));
+        RETURN_IF_ERROR(
+                tablet()->get_all_rs_id_unlocked(_max_version_in_flush_phase, &_rowset_ids));
+        rowset_ptrs = tablet()->get_rowset_by_ids(&_rowset_ids);
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet()->tablet_id());
-    mow_context =
-            std::make_shared<MowContext>(cur_max_version, _req.txn_id, _rowset_ids, _delete_bitmap);
+    mow_context = std::make_shared<MowContext>(_max_version_in_flush_phase, _req.txn_id,
+                                               _rowset_ids, rowset_ptrs, _delete_bitmap);
     return Status::OK();
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
-    if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
-        MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+    bool injection = false;
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { injection = true; });
+    if (injection) {
+        // do not return if injection
+    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
     //trigger compaction
@@ -158,16 +170,19 @@ Status RowsetBuilder::check_tablet_version_count() {
     if (version_count > config::max_tablet_version_num) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 version_count, config::max_tablet_version_num, _tablet->tablet_id());
     }
     return Status::OK();
 }
 
 Status RowsetBuilder::prepare_txn() {
-    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::try_to_lock);
-    if (!base_migration_lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("try migration lock failed");
+    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
+    if (!base_migration_lock.try_lock_for(
+                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
+        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
+                                              config::migration_lock_timeout_ms);
     }
     std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
     return _engine.txn_manager()->prepare_txn(_req.partition_id, *tablet(), _req.txn_id,
@@ -184,6 +199,17 @@ Status RowsetBuilder::init() {
     if (!config::disable_auto_compaction &&
         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
         RETURN_IF_ERROR(check_tablet_version_count());
+    }
+
+    int version_count = tablet()->version_count() + tablet()->stale_version_count();
+    if (tablet()->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
+                tablet()->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, _tablet->tablet_id());
     }
 
     RETURN_IF_ERROR(prepare_txn());
@@ -203,7 +229,6 @@ Status RowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;
@@ -238,6 +263,17 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
+    if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
+        if (_rowset->num_segments() > 1) {
+            // in flexible partial update, when there are more one segment in one load,
+            // we need to do alignment process for same keys between segments, we haven't
+            // implemented it yet and just report an error when encouter this situation
+            return Status::NotSupported(
+                    "too large input data in flexible partial update, Please "
+                    "reduce the amount of data imported in a single load.");
+        }
+    }
+
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
@@ -257,7 +293,18 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     // For partial update, we need to fill in the entire row of data, during the calculation
     // of the delete bitmap. This operation is resource-intensive, and we need to minimize
     // the number of times it occurs. Therefore, we skip this operation here.
-    if (_partial_update_info->is_partial_update) {
+    if (_partial_update_info->is_partial_update()) {
+        // for partial update, the delete bitmap calculation is done while append_block()
+        // we print it's summarize logs here before commit.
+        LOG(INFO) << fmt::format(
+                "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
+                "rowset_ids({}), cur max_version({}), bitmap num({}), num rows updated({}), num "
+                "rows new added({}), num rows deleted({}), total rows({})",
+                _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
+                _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
+                _delete_bitmap->delete_bitmap.size(), rowset_writer()->num_rows_updated(),
+                rowset_writer()->num_rows_new_added(), rowset_writer()->num_rows_deleted(),
+                rowset_writer()->num_rows());
         return Status::OK();
     }
 
@@ -269,7 +316,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
 }
 
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
-    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update()) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -297,18 +344,29 @@ Status RowsetBuilder::commit_txn() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-    if (tablet()->tablet_schema()->num_variant_columns() > 0) {
+
+    const RowsetWriterContext& rw_ctx = _rowset_writer->context();
+    if (rw_ctx.tablet_schema->num_variant_columns() > 0) {
+        // Need to merge schema with `rw_ctx.merged_tablet_schema` in prior,
+        // merged schema keeps the newest merged schema for the rowset, which is updated and merged
+        // during flushing segments.
+        if (rw_ctx.merged_tablet_schema != nullptr) {
+            RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.merged_tablet_schema));
+        }
+        // We should merge rowset schema further, in case that the merged_tablet_schema maybe null
+        // when enable_memtable_on_sink_node is true, the merged_tablet_schema will not be passed to
+        // the destination backend.
         // update tablet schema when meet variant columns, before commit_txn
         // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
         // _tabelt->tablet_schema:  A(bigint), B(double)
         //  => update_schema:       A(bigint), B(double), C(int), D(int)
-        const RowsetWriterContext& rw_ctx = _rowset_writer->context();
         RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.tablet_schema));
     }
+
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
-    Status res = _engine.txn_manager()->commit_txn(_req.partition_id, *tablet(), _req.txn_id,
-                                                   _req.load_id, _rowset,
-                                                   std::move(_pending_rs_guard), false);
+    Status res = _engine.txn_manager()->commit_txn(
+            _req.partition_id, *tablet(), _req.txn_id, _req.load_id, _rowset,
+            std::move(_pending_rs_guard), false, _partial_update_info);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
@@ -378,9 +436,13 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
-                               table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode());
+    _partial_update_info->init(
+            *_tablet_schema, table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_input_columns(),
+            table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
+            table_schema_param->nano_seconds(), table_schema_param->timezone(),
+            table_schema_param->auto_increment_coulumn(),
+            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase);
 }
 
 } // namespace doris

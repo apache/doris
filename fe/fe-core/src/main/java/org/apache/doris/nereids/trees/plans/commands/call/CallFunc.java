@@ -36,6 +36,8 @@ public abstract class CallFunc {
             // TODO, built-in functions require a separate management
             case "EXECUTE_STMT": // Call built-in functions first
                 return CallExecuteStmtFunc.create(user, unboundFunction.getArguments());
+            case "FLUSH_AUDIT_LOG":
+                return CallFlushAuditLogFunc.create(user, unboundFunction.getArguments());
             default:
                 return CallProcedure.create(ctx, originSql);
         }

@@ -65,7 +65,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ALTER_PARTITION));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
         try {
             AlterPartitionMessage alterPartitionMessage =
                     MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
@@ -109,7 +109,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNameBefore:[{}],partitionNameAfter:[{}]",
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNameBefore:[{}],partitionNameAfter:[{}]",
                     catalogName, dbName, tblName, partitionNameBefore, partitionNameAfter);
             if (isRename) {
                 Env.getCurrentEnv().getCatalogMgr()
@@ -119,13 +119,13 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
                         .addExternalPartitions(catalogName, dbName, tblName,
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             } else {
-                Env.getCurrentEnv().getCatalogMgr()
-                        .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshPartitions(catalogName, dbName, hmsTbl.getTableName(),
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             }
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 
@@ -145,9 +145,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
         // `that` event can be batched if this event's partitions contains all of the partitions which `that` event has
         // else just remove `that` event's relevant partitions
         for (String partitionName : getAllPartitionNames()) {
-            if (thatPartitionEvent instanceof AddPartitionEvent) {
-                ((AddPartitionEvent) thatPartitionEvent).removePartition(partitionName);
-            } else if (thatPartitionEvent instanceof DropPartitionEvent) {
+            if (thatPartitionEvent instanceof DropPartitionEvent) {
                 ((DropPartitionEvent) thatPartitionEvent).removePartition(partitionName);
             }
         }

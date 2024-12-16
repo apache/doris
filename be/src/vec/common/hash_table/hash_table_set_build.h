@@ -18,13 +18,13 @@
 #include "pipeline/exec/set_sink_operator.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris::vectorized {
+constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     template <typename Parent>
-    HashTableBuild(Parent* parent, int rows, ColumnRawPtrs& build_raw_ptrs, RuntimeState* state)
+    HashTableBuild(Parent* parent, size_t rows, ColumnRawPtrs& build_raw_ptrs, RuntimeState* state)
             : _rows(rows), _build_raw_ptrs(build_raw_ptrs), _state(state) {}
 
     Status operator()(HashTableContext& hash_table_ctx, Arena& arena) {
@@ -50,7 +50,7 @@ struct HashTableBuild {
     }
 
 private:
-    const int _rows;
+    const size_t _rows;
     ColumnRawPtrs& _build_raw_ptrs;
     RuntimeState* _state = nullptr;
 };

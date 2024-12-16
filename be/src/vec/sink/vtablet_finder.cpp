@@ -22,24 +22,17 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
-#include <memory>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "exprs/runtime_filter.h"
-#include "gutil/integral_types.h"
-#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
-#include "vec/core/columns_with_type_and_name.h"
-#include "vec/data_types/data_type.h"
-#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
                                       std::vector<uint32_t>& tablet_index, bool& stop_processing,
@@ -70,7 +63,7 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
             _num_filtered_rows++;
             _filter_bitmap.Set(row_index, true);
             if (stop_processing) {
-                return Status::EndOfFile("Encountered unqualified data, stop processing");
+                return Status::DataQualityError("Encountered unqualified data, stop processing");
             }
             skip[row_index] = true;
             continue;

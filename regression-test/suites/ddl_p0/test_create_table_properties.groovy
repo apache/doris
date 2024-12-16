@@ -336,7 +336,7 @@ suite("test_create_table_properties") {
         )
     """
     sql """ insert into ${bool_tab} values (1, '2020-12-12 12:12:12', '2000-01-01 12:12:12.123456'), (0, '20201212 121212', '2000-01-01'), (1, '20201212121212', '2000-01-01'), (0, 'AaA', '2000-01-01') """
-    result = sql "show partitions from ${bool_tab}"
+    def result = sql "show partitions from ${bool_tab}"
     logger.info("${result}")
     assertEquals(result.size(), 2)
     

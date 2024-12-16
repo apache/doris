@@ -21,7 +21,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
 class ExecNode;
@@ -60,9 +59,6 @@ protected:
     int64_t _external_sort_bytes_threshold = 134217728; // 128M
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
-    bool _is_merging = false;
-    std::mutex _merge_spill_lock;
-    std::condition_variable _merge_spill_cv;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     // counters for spill merge sort
@@ -82,8 +78,6 @@ public:
     ~SpillSortSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
@@ -94,7 +88,6 @@ public:
 
 private:
     friend class SpillSortLocalState;
-    Status _initiate_merge_spill_partition_agg_data(RuntimeState* state);
 
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };

@@ -35,6 +35,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -275,7 +276,27 @@ public class GroupExpression {
         this.getLowestCostTable()
                 .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
         // requestPropertiesMap
-        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
+        // ATTN: when do merge, we should update target requestPropertiesMap
+        //   ONLY IF the cost of source's request property lower than target one.
+        //   Otherwise, the requestPropertiesMap will not sync with lowestCostTable.
+        //   Then, we will get wrong output property when get the final plan.
+        for (Map.Entry<PhysicalProperties, PhysicalProperties> entry : requestPropertiesMap.entrySet()) {
+            PhysicalProperties request = entry.getKey();
+            if (!target.requestPropertiesMap.containsKey(request)) {
+                target.requestPropertiesMap.put(entry.getKey(), entry.getValue());
+            } else {
+                PhysicalProperties sourceOutput = entry.getValue();
+                PhysicalProperties targetOutput = target.getRequestPropertiesMap().get(request);
+                if (this.getLowestCostTable().containsKey(sourceOutput)
+                        && target.getLowestCostTable().containsKey(targetOutput)) {
+                    Cost sourceCost = this.getLowestCostTable().get(sourceOutput).first;
+                    Cost targetCost = target.getLowestCostTable().get(targetOutput).first;
+                    if (sourceCost.getValue() < targetCost.getValue()) {
+                        target.requestPropertiesMap.put(entry.getKey(), entry.getValue());
+                    }
+                }
+            }
+        }
         // ruleMasks
         target.ruleMasks.or(this.ruleMasks);
 
@@ -318,6 +339,10 @@ public class GroupExpression {
         this.estOutputRowCount = estOutputRowCount;
     }
 
+    public Map<PhysicalProperties, PhysicalProperties> getRequestPropertiesMap() {
+        return ImmutableMap.copyOf(requestPropertiesMap);
+    }
+
     @Override
     public String toString() {
         DecimalFormat format = new DecimalFormat("#,###.##");
@@ -329,7 +354,7 @@ public class GroupExpression {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
         if (cost != null) {
-            builder.append(" cost=").append(format.format((long) cost.getValue()) + " " + cost);
+            builder.append(" cost=").append(cost.getValue() + " " + cost);
         } else {
             builder.append(" cost=null");
         }
@@ -343,5 +368,29 @@ public class GroupExpression {
 
     public ObjectId getId() {
         return id;
+    }
+
+    /**
+     * the first child plan of clazz
+     * @param clazz the operator type, like join/aggregate
+     * @return child operator of type clazz, if not found, return null
+     */
+    public Plan getFirstChildPlan(Class clazz) {
+        for (Group childGroup : children) {
+            for (GroupExpression logical : childGroup.getLogicalExpressions()) {
+                if (clazz.isInstance(logical.getPlan())) {
+                    return logical.getPlan();
+                }
+            }
+        }
+        // for dphyp
+        for (Group childGroup : children) {
+            for (GroupExpression physical : childGroup.getPhysicalExpressions()) {
+                if (clazz.isInstance(physical.getPlan())) {
+                    return physical.getPlan();
+                }
+            }
+        }
+        return null;
     }
 }

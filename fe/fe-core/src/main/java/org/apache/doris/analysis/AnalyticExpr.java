@@ -475,22 +475,8 @@ public class AnalyticExpr extends Expr {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         fnCall.analyze(analyzer);
         type = getFnCall().getType();
-
-        for (Expr e : partitionExprs) {
-            if (e.isLiteral()) {
-                throw new AnalysisException(
-                    "Expressions in the PARTITION BY clause must not be constant: "
-                    + e.toSql() + " (in " + toSql() + ")");
-            }
-        }
-
-        for (OrderByElement e : orderByElements) {
-            if (e.getExpr().isLiteral()) {
-                throw new AnalysisException(
-                    "Expressions in the ORDER BY clause must not be constant: "
-                            + e.getExpr().toSql() + " (in " + toSql() + ")");
-            }
-        }
+        partitionExprs.removeIf(expr -> expr.isConstant());
+        orderByElements.removeIf(expr -> expr.getExpr().isConstant());
 
         if (getFnCall().getParams().isDistinct()) {
             throw new AnalysisException(
@@ -972,5 +958,10 @@ public class AnalyticExpr extends Expr {
             strings.add(expr.toDigest());
         }
         return Joiner.on(", ").join(strings);
+    }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
     }
 }

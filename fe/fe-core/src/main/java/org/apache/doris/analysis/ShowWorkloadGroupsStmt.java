@@ -25,7 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
-public class ShowWorkloadGroupsStmt extends ShowStmt {
+public class ShowWorkloadGroupsStmt extends ShowStmt implements NotFallbackInParser {
 
     private String pattern;
     // TODO: not supported yet

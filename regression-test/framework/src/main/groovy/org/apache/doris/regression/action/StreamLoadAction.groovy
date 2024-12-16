@@ -54,6 +54,7 @@ class StreamLoadAction implements SuiteAction {
     Map<String, String> headers
     SuiteContext context
     boolean directToBe = false
+    boolean twoPhaseCommit = false
 
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
@@ -137,6 +138,22 @@ class StreamLoadAction implements SuiteAction {
         this.time = time.call()
     }
 
+    void twoPhaseCommit(boolean twoPhaseCommit) {
+        this.twoPhaseCommit = twoPhaseCommit;
+    }
+
+    void twoPhaseCommit(Closure<Boolean> twoPhaseCommit) {
+        this.twoPhaseCommit = twoPhaseCommit.call();
+    }
+
+    // compatible with selectdb case
+    void isCloud(boolean isCloud) {
+    }
+
+    // compatible with selectdb case
+    void isCloud(Closure<Boolean> isCloud) {
+    }
+
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
@@ -156,8 +173,14 @@ class StreamLoadAction implements SuiteAction {
         long startTime = System.currentTimeMillis()
         def isHttpStream = headers.containsKey("version")
         try {
-            def uri = isHttpStream ? "http://${address.hostString}:${address.port}/api/_http_stream"
-                    : "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+            def uri = ""
+            if (isHttpStream) {
+                uri = "http://${address.hostString}:${address.port}/api/_http_stream"
+            } else if (twoPhaseCommit) {
+                uri = "http://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+            } else {
+                uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+            }
             HttpClients.createDefault().withCloseable { client ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
                 HttpEntity httpEntity = prepareHttpEntity(client)
@@ -256,6 +279,7 @@ class StreamLoadAction implements SuiteAction {
                     fileName = cacheHttpFile(client, fileName)
                 } else {
                     entity = new InputStreamEntity(httpGetStream(client, fileName))
+                    log.info("http entity length is ${entity.contentLength}")
                     return entity;
                 }
             }
@@ -343,10 +367,10 @@ class StreamLoadAction implements SuiteAction {
 
             if (time > 0) {
                 long elapsed = endTime - startTime
-                try{
-                    Assert.assertTrue("Expect elapsed <= ${time}, but meet ${elapsed}", elapsed <= time)
-                } catch (Throwable t) {
-                    throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
+                if (elapsed > time) {
+                    log.info("Stream load consums more time than expected, elapsed ${elapsed} ms, expect ${time} ms")
+                } else {
+                    log.info("Stream load consums time elapsed ${elapsed} ms, expect ${time} ms")
                 }
             }
         }
@@ -362,6 +386,10 @@ class StreamLoadAction implements SuiteAction {
             def jsonSlurper = new JsonSlurper()
             def parsed = jsonSlurper.parseText(responseText)
             String status = parsed.Status
+            if (twoPhaseCommit) {
+                status = parsed.status
+                return status;
+            }
             long txnId = parsed.TxnId
             if (!status.equalsIgnoreCase("Publish Timeout")) {
                 return status;

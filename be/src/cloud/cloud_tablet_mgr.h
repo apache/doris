@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -29,6 +32,9 @@ namespace doris {
 class CloudTablet;
 class CloudStorageEngine;
 class LRUCachePolicy;
+class CountDownLatch;
+
+extern uint64_t g_tablet_report_inactive_duration_ms;
 
 class CloudTabletMgr {
 public:
@@ -37,17 +43,18 @@ public:
 
     // If the tablet is in cache, return this tablet directly; otherwise will get tablet meta first,
     // sync rowsets after, and download segment data in background if `warmup_data` is true.
-    Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false);
+    Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
+                                                    bool sync_delete_bitmap = true);
 
     void erase_tablet(int64_t tablet_id);
 
-    void vacuum_stale_rowsets();
+    void vacuum_stale_rowsets(const CountDownLatch& stop_latch);
 
     // Return weak ptr of all cached tablets.
     // We return weak ptr to avoid extend lifetime of tablets that are no longer cached.
     std::vector<std::weak_ptr<CloudTablet>> get_weak_tablets();
 
-    void sync_tablets();
+    void sync_tablets(const CountDownLatch& stop_latch);
 
     /**
      * Gets top N tablets that are considered to be compacted first
@@ -63,6 +70,17 @@ public:
                                        const std::function<bool(CloudTablet*)>& filter_out,
                                        std::vector<std::shared_ptr<CloudTablet>>* tablets,
                                        int64_t* max_score);
+
+    /**
+     * Gets tablets info and total tablet num that are reported
+     *
+     * @param tablets_info used by report
+     * @param tablet_num tablets in be tabletMgr, total num
+     */
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
+                                       uint64_t* tablet_num);
+
+    void get_tablet_info(int64_t num_tablets, std::vector<TabletInfo>* tablets_info);
 
 private:
     CloudStorageEngine& _engine;

@@ -42,7 +42,11 @@ public abstract class MetricVisitor {
 
     public abstract void visitHistogram(String prefix, String name, Histogram histogram);
 
-    public abstract void getNodeInfo();
+    public abstract void visitNodeInfo();
+
+    public abstract void visitCloudTableStats();
+
+    public abstract void visitWorkloadGroup();
 
     public String finish() {
         return sb.toString();

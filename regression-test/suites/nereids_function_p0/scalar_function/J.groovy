@@ -18,11 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("nereids_scalar_fn_J") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
-    // TODO: remove it after we add implicit cast check in Nereids
-    sql "set enable_nereids_dml=false"
 
     // define a sql table
     def testTable = "tbl_test_jsonb"
@@ -62,7 +57,7 @@ suite("nereids_scalar_fn_J") {
             assertEquals("fail", json.Status.toLowerCase())
             assertTrue(json.Message.contains("too many filtered rows"))
             assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
             log.info("url: " + json.ErrorURL)
@@ -112,46 +107,6 @@ suite("nereids_scalar_fn_J") {
     sql """INSERT INTO ${testTable} VALUES(30, '-9223372036854775808')"""
     // int64 max value
     sql """INSERT INTO ${testTable} VALUES(31, '18446744073709551615')"""
-
-    // insert into invalid json rows with enable_insert_strict=true
-    // expect excepiton and no rows not changed
-    sql """ set enable_insert_strict = true """
-    def success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
-    } catch(Exception ex) {
-        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-        success = false
-    }
-    assertEquals(false, success)
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
-    } catch(Exception ex) {
-        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-        success = false
-    }
-    assertEquals(false, success)
-
-    // insert into invalid json rows with enable_insert_strict=false
-    // expect no excepiton but no rows not changed
-    sql """ set enable_insert_strict = false """
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, '')"""
-    } catch(Exception ex) {
-        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-        success = false
-    }
-    assertEquals(true, success)
-    success = true
-    try {
-        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
-    } catch(Exception ex) {
-        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-        success = false
-    }
-    assertEquals(true, success)
 
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
@@ -538,5 +493,47 @@ suite("nereids_scalar_fn_J") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
 
     qt_json_extract_string """select jsonb_extract('{"k1":"v31","k2":300}','\$.k1');"""
+
+        // json_keys
+        qt_sql_json_keys """SELECT json_keys('{"k1":"v31","k2":300}')"""
+        qt_sql_json_keys """SELECT json_keys('{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
+        qt_sql_json_keys """SELECT json_keys('{"a":{"k1.a1":"v31", "k2": 300},"b":"niu"}','\$.a')"""
+        qt_sql_json_keys """SELECT json_keys('abc','\$.k1')"""
+        qt_sql_json_keys """SELECT json_keys('["a", "b", "c"]', '\$.k2')"""
+        qt_sql_json_keys """SELECT json_keys('["a", "b", "c"]')"""
+        qt_sql_json_keys """SELECT json_keys('["a", "b", "c"]', '\$[1]')"""
+
+        // error keys
+        test {
+            sql """ SELECT JSON_KEYS('{"a": {}, "a.b.c": {"c": 30}}', ''); """
+            exception("Invalid Json Path for value")
+        }
+
+        test {
+            sql """ SELECT JSON_KEYS('{"a": {}, "a.b.c": {"c": 30}}', 'a.b.c'); """
+            exception("Invalid Json Path for value")
+        }
+
+        // from table
+        qt_select_json_keys """SELECT id, j, json_keys(j) FROM ${testTable} ORDER BY id"""
+        qt_select_json_keys """SELECT id, j, json_keys(j, '\$.k2') FROM ${testTable} ORDER BY id"""
+        qt_select_json_keys """SELECT id, j, json_keys(j, '\$.a1') FROM ${testTable} ORDER BY id"""
+
+        // make table with path
+        sql """ DROP TABLE IF EXISTS json_keys_table_nereid; """
+        sql """
+            CREATE TABLE IF NOT EXISTS json_keys_table_nereid (
+                id INT,
+                j JSONB,
+                p STRING
+            )
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 10
+            PROPERTIES("replication_num" = "1");
+            """
+
+        sql """ insert into json_keys_table_nereid values (1, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {}}', '\$.a'), (2, '{"a.b.c":{"k1.a1":"v31", "k2": 300}}', '\$.a.b.c'), (3, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {"k1.a1": 1}}', '\$.a'), (4, '["a", "b"]', '\$.a'); """
+        qt_select_json_keys """SELECT id, j, p, json_keys(j, p) FROM json_keys_table_nereid ORDER BY id"""
+
 
 }

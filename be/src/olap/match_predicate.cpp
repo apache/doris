@@ -45,15 +45,15 @@ PredicateType MatchPredicate::type() const {
     return PredicateType::MATCH;
 }
 
-Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                                 InvertedIndexIterator* iterator, uint32_t num_rows,
                                 roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
         return Status::OK();
     }
-    if (_skip_evaluate(iterator)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                "match predicate evaluate skipped.");
+    if (_check_evaluate(iterator)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "phrase queries require setting support_phrase = true");
     }
     auto type = name_with_type.second;
     const std::string& name = name_with_type.first;
@@ -71,12 +71,12 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
     } else if (column_desc.type == TYPE_ARRAY &&
                is_numeric_type(
                        TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
-        char buf[column_desc.children[0].len];
+        std::vector<char> buf(column_desc.children[0].len);
         const TypeInfo* type_info = get_scalar_type_info(
                 TabletColumn::get_field_type_by_type(column_desc.children[0].type));
-        RETURN_IF_ERROR(type_info->from_string(buf, _value));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(name, buf, inverted_index_query_type,
-                                                           num_rows, roaring, true));
+        RETURN_IF_ERROR(type_info->from_string(buf.data(), _value));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                name, buf.data(), inverted_index_query_type, num_rows, roaring, true));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -116,34 +116,20 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     case MatchType::MATCH_PHRASE_EDGE:
         ret = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
         break;
-    case MatchType::MATCH_ELEMENT_EQ:
-        ret = InvertedIndexQueryType::EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LT:
-        ret = InvertedIndexQueryType::LESS_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GT:
-        ret = InvertedIndexQueryType::GREATER_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LE:
-        ret = InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GE:
-        ret = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-        break;
     default:
         DCHECK(false);
     }
     return ret;
 }
 
-bool MatchPredicate::_skip_evaluate(InvertedIndexIterator* iterator) const {
-    if ((_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX ||
-         _match_type == MatchType::MATCH_PHRASE_EDGE) &&
-        iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
-        get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
-                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
-        return true;
+bool MatchPredicate::_check_evaluate(InvertedIndexIterator* iterator) const {
+    if (_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX ||
+        _match_type == MatchType::MATCH_PHRASE_EDGE) {
+        if (iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
+            get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+            return true;
+        }
     }
     return false;
 }

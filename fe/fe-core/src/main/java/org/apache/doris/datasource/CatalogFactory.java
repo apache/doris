@@ -32,10 +32,12 @@ import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -83,6 +85,15 @@ public class CatalogFactory {
     }
 
     /**
+     * create the catalog instance from CreateCatalogCommand.
+     */
+    public static CatalogIf createFromCommand(long catalogId, CreateCatalogCommand cmd)
+            throws DdlException {
+        return createCatalog(catalogId, cmd.getCatalogName(), cmd.getResource(),
+                cmd.getComment(), cmd.getProperties(), false);
+    }
+
+    /**
      * create the catalog instance from creating statement.
      */
     public static CatalogIf createFromStmt(long catalogId, CreateCatalogStmt stmt)
@@ -123,7 +134,7 @@ public class CatalogFactory {
                 catalog = new EsExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "jdbc":
-                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment, isReplay);
+                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
@@ -137,6 +148,9 @@ public class CatalogFactory {
             case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);
                 break;
+            case "lakesoul":
+                catalog = new LakeSoulExternalCatalog(catalogId, name, resource, props, comment);
+                break;
             case "test":
                 if (!FeConstants.runningUnitTest) {
                     throw new DdlException("test catalog is only for FE unit test");
@@ -146,15 +160,18 @@ public class CatalogFactory {
             default:
                 throw new DdlException("Unknown catalog type: " + catalogType);
         }
+
+        // set some default properties if missing when creating catalog.
+        // both replaying the creating logic will call this method.
+        catalog.setDefaultPropsIfMissing(isReplay);
+
         if (!isReplay) {
-            // set some default properties when creating catalog.
-            // do not call this method when replaying edit log. Because we need to keey the original properties.
-            catalog.setDefaultPropsWhenCreating(isReplay);
+            catalog.checkWhenCreating();
             // This will check if the customized access controller can be created successfully.
             // If failed, it will throw exception and the catalog will not be created.
             try {
                 catalog.initAccessController(true);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 LOG.warn("Failed to init access controller", e);
                 throw new DdlException("Failed to init access controller: " + e.getMessage());
             }
@@ -162,3 +179,5 @@ public class CatalogFactory {
         return catalog;
     }
 }
+
+

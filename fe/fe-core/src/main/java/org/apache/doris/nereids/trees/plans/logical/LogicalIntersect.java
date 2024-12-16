@@ -18,10 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.ExprFdItem;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,8 +35,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Intersect.
@@ -109,54 +104,55 @@ public class LogicalIntersect extends LogicalSetOperation {
                 Optional.empty(), Optional.empty(), children);
     }
 
-    void replaceSlotInFuncDeps(FunctionalDependencies.Builder builder,
-            List<Slot> originalOutputs, List<Slot> newOutputs) {
+    Map<Slot, Slot> constructReplaceMap() {
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        for (int i = 0; i < newOutputs.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), newOutputs.get(i));
+        for (int i = 0; i < children.size(); i++) {
+            List<? extends Slot> originOutputs = this.regularChildrenOutputs.size() == children.size()
+                    ? child(i).getOutput()
+                    : regularChildrenOutputs.get(i);
+            for (int j = 0; j < originOutputs.size(); j++) {
+                replaceMap.put(originOutputs.get(j), getOutput().get(j));
+            }
         }
-        builder.replace(replaceMap);
+        return replaceMap;
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+    public void computeUnique(Builder builder) {
         for (Plan child : children) {
-            builder.addFunctionalDependencies(
-                    child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(builder, child.getOutput(), outputSupplier.get());
+            builder.addUniqueSlot(
+                    child.getLogicalProperties().getTrait());
         }
+        builder.replaceUniqueBy(constructReplaceMap());
         if (qualifier == Qualifier.DISTINCT) {
-            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+            builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        ImmutableSet<SlotReference> exprs = output.stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .collect(ImmutableSet.toImmutableSet());
-
-        if (qualifier == Qualifier.DISTINCT) {
-            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(exprs, true, exprs);
-            builder.add(fdItem);
-            // inherit from both sides
-            ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties()
-                    .getFunctionalDependencies().getFdItems();
-            ImmutableSet<FdItem> rightFdItems = child(1).getLogicalProperties()
-                    .getFunctionalDependencies().getFdItems();
-
-            builder.addAll(leftFdItems);
-            builder.addAll(rightFdItems);
+    public void computeUniform(Builder builder) {
+        for (Plan child : children) {
+            builder.addUniformSlot(
+                    child.getLogicalProperties().getTrait());
         }
+        builder.replaceUniformBy(constructReplaceMap());
+    }
 
-        return builder.build();
+    @Override
+    public void computeEqualSet(Builder builder) {
+        for (Plan child : children) {
+            builder.addEqualSet(
+                    child.getLogicalProperties().getTrait());
+        }
+        builder.replaceEqualSetBy(constructReplaceMap());
+    }
+
+    @Override
+    public void computeFd(Builder builder) {
+        for (Plan child : children) {
+            builder.addFuncDepsDG(
+                    child.getLogicalProperties().getTrait());
+        }
+        builder.replaceFuncDepsBy(constructReplaceMap());
     }
 }

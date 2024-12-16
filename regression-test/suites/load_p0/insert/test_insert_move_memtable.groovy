@@ -51,6 +51,36 @@ suite("test_insert_move_memtable") {
 
     qt_sql1 "select * from ${insert_tbl} order by 1, 2, 3, 4"
 
+    def insert_tbl2 = "test_insert_tbl_no_light_schema_change";
+
+    sql """ DROP TABLE IF EXISTS ${insert_tbl2}"""
+    sql """
+     CREATE TABLE ${insert_tbl2} (
+       `k1` char(5) NULL,
+       `k2` int(11) NULL,
+       `k3` tinyint(4) NULL,
+       `k4` int(11) NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`k1`, `k2`, `k3`, `k4`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+     PROPERTIES (
+       "replication_num"="1",
+       "light_schema_change" = "false"
+     );
+    """
+
+    sql """ 
+    INSERT INTO ${insert_tbl2}
+    SELECT a.k6, a.k3, b.k1
+    	, sum(b.k1) OVER (PARTITION BY a.k6 ORDER BY a.k3) AS w_sum
+    FROM ${test_baseall} a
+    	JOIN ${test_bigtable} b ON a.k1 = b.k1 + 5
+    ORDER BY a.k6, a.k3, a.k1, w_sum
+    """
+
+    qt_sql2 "select * from ${insert_tbl2} order by 1, 2, 3, 4"
+
     def insert_tbl_dft = "test_insert_dft_tbl_mm"
     sql """ DROP TABLE IF EXISTS ${insert_tbl_dft}"""
     
@@ -80,13 +110,8 @@ suite("test_insert_move_memtable") {
             "replication_num"="1"
         );
     """
-    
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_nereids_dml=true """
-    sql """ insert into ${insert_tbl_dft} values() """
 
-    sql """ set enable_nereids_planner=false """
-    sql """ set enable_nereids_dml=false """
+    sql """ insert into ${insert_tbl_dft} values() """
     sql """ insert into ${insert_tbl_dft} values() """
     
     qt_select """ select k1,k2,k3,k4,k5,k6,k8,k10,k11,k12 from ${insert_tbl_dft} """

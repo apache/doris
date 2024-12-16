@@ -116,6 +116,8 @@ public abstract class RemoteBase {
 
     public ObjectInfo obj;
 
+    protected static long SESSION_EXPIRE_SECOND = 3600;
+
     public RemoteBase(ObjectInfo obj) {
         this.obj = obj;
     }
@@ -140,6 +142,7 @@ public abstract class RemoteBase {
         switch (obj.provider) {
             case OSS:
                 return new OssRemote(obj);
+            case GCP:
             case S3:
                 return new S3Remote(obj);
             case COS:
@@ -148,6 +151,8 @@ public abstract class RemoteBase {
                 return new ObsRemote(obj);
             case BOS:
                 return new BosRemote(obj);
+            case AZURE:
+                return new AzureRemote(obj);
             default:
                 throw new Exception("current not support obj : " + obj.toString());
         }

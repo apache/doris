@@ -71,13 +71,16 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
             }
         }
         int non_share_len = entry_len - share_len;
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION({
+            put_varint32(&_buffer, share_len);
+            put_varint32(&_buffer, non_share_len);
+            _buffer.append(entry + share_len, non_share_len);
 
-        put_varint32(&_buffer, share_len);
-        put_varint32(&_buffer, non_share_len);
-        _buffer.append(entry + share_len, non_share_len);
-
-        _last_entry.clear();
-        _last_entry.append(entry, entry_len);
+            _last_entry.clear();
+            _last_entry.append(entry, entry_len);
+        });
 
         ++_count;
     }
@@ -85,18 +88,21 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     return Status::OK();
 }
 
-OwnedSlice BinaryPrefixPageBuilder::finish() {
+Status BinaryPrefixPageBuilder::finish(OwnedSlice* slice) {
     DCHECK(!_finished);
     _finished = true;
-    put_fixed32_le(&_buffer, (uint32_t)_count);
-    uint8_t restart_point_internal = RESTART_POINT_INTERVAL;
-    _buffer.append(&restart_point_internal, 1);
-    auto restart_point_size = _restart_points_offset.size();
-    for (uint32_t i = 0; i < restart_point_size; ++i) {
-        put_fixed32_le(&_buffer, _restart_points_offset[i]);
-    }
-    put_fixed32_le(&_buffer, restart_point_size);
-    return _buffer.build();
+    RETURN_IF_CATCH_EXCEPTION({
+        put_fixed32_le(&_buffer, (uint32_t)_count);
+        uint8_t restart_point_internal = RESTART_POINT_INTERVAL;
+        _buffer.append(&restart_point_internal, 1);
+        auto restart_point_size = _restart_points_offset.size();
+        for (uint32_t i = 0; i < restart_point_size; ++i) {
+            put_fixed32_le(&_buffer, _restart_points_offset[i]);
+        }
+        put_fixed32_le(&_buffer, restart_point_size);
+        *slice = _buffer.build();
+    });
+    return Status::OK();
 }
 
 const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr, uint32_t* shared,

@@ -20,7 +20,9 @@
 suite("query14") {
 
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql 'set topn_opt_limit_threshold = 1024'
     def ckBench = """SELECT SearchPhrase, COUNT(DISTINCT UserID) AS u FROM hits WHERE SearchPhrase <> '' GROUP BY SearchPhrase ORDER BY u DESC LIMIT 10"""

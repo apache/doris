@@ -26,6 +26,7 @@
 #include <butil/iobuf.h>
 #include <fcntl.h>
 #include <fmt/core.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -69,6 +70,7 @@
 #include "io/io_common.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -155,6 +157,11 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::N
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
+
 bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
@@ -199,9 +206,13 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_light_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_light"),
-          _load_stream_mgr(new LoadStreamMgr(
-                  exec_env->store_paths().size() * config::flush_thread_num_per_store,
-                  &_heavy_work_pool, &_light_work_pool)) {
+          _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
+                                          ? config::brpc_arrow_flight_work_pool_threads
+                                          : std::max(512, CpuInfo::num_cores() * 16),
+                                  config::brpc_arrow_flight_work_pool_max_queue_size != -1
+                                          ? config::brpc_arrow_flight_work_pool_max_queue_size
+                                          : std::max(20480, CpuInfo::num_cores() * 640),
+                                  "brpc_arrow_flight") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -219,6 +230,18 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                          []() { return config::brpc_heavy_work_pool_threads; });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
+
+    REGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size,
+                         [this]() { return _arrow_flight_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(arrow_flight_work_active_threads,
+                         [this]() { return _arrow_flight_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size,
+                         []() { return config::brpc_arrow_flight_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
+                         []() { return config::brpc_arrow_flight_work_pool_threads; });
+
+    _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
+    _exec_env->load_stream_mgr()->set_light_work_pool(&_light_work_pool);
 
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
@@ -239,6 +262,11 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
+
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_active_threads);
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
 
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
@@ -286,6 +314,9 @@ void PInternalService::exec_plan_fragment(google::protobuf::RpcController* contr
                                           const PExecPlanFragmentRequest* request,
                                           PExecPlanFragmentResult* response,
                                           google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -299,6 +330,9 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
+    timeval tv1 {};
+    gettimeofday(&tv1, nullptr);
+    response->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
@@ -316,12 +350,18 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
     st.to_protobuf(response->mutable_status());
+    timeval tv2 {};
+    gettimeofday(&tv2, nullptr);
+    response->set_execution_done_time(tv2.tv_sec * 1000LL + tv2.tv_usec / 1000);
 }
 
 void PInternalService::exec_plan_fragment_prepare(google::protobuf::RpcController* controller,
                                                   const PExecPlanFragmentRequest* request,
                                                   PExecPlanFragmentResult* response,
                                                   google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    response->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
@@ -335,10 +375,19 @@ void PInternalService::exec_plan_fragment_start(google::protobuf::RpcController*
                                                 const PExecPlanFragmentStartRequest* request,
                                                 PExecPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
+    timeval tv {};
+    gettimeofday(&tv, nullptr);
+    result->set_received_time(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
+        timeval tv1 {};
+        gettimeofday(&tv1, nullptr);
+        result->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
+        timeval tv2 {};
+        gettimeofday(&tv2, nullptr);
+        result->set_execution_done_time(tv2.tv_sec * 1000LL + tv2.tv_usec / 1000);
     });
     if (!ret) {
         offer_failed(result, done, _light_work_pool);
@@ -375,14 +424,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
         }
 
-        LoadStreamSharedPtr load_stream;
-        auto st = _load_stream_mgr->open_load_stream(request, load_stream);
+        LoadStream* load_stream = nullptr;
+        auto st = _exec_env->load_stream_mgr()->open_load_stream(request, load_stream);
         if (!st.ok()) {
             st.to_protobuf(response->mutable_status());
             return;
         }
 
-        stream_options.handler = load_stream.get();
+        stream_options.handler = load_stream;
         stream_options.idle_timeout_ms = request->idle_timeout_ms();
         DBUG_EXECUTE_IF("PInternalServiceImpl.open_load_stream.set_idle_timeout",
                         { stream_options.idle_timeout_ms = 1; });
@@ -477,7 +526,7 @@ Status PInternalService::_exec_plan_fragment_impl(
         const std::function<void(RuntimeState*, Status*)>& cb) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
-    if (ExecEnv::GetInstance()->master_info() == nullptr) {
+    if (ExecEnv::GetInstance()->cluster_info() == nullptr) {
         return Status::InternalError(
                 "Have not receive the first heartbeat message from master, not ready to provide "
                 "service");
@@ -491,9 +540,11 @@ Status PInternalService::_exec_plan_fragment_impl(
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
         if (cb) {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request, cb);
+            return _exec_env->fragment_mgr()->exec_plan_fragment(
+                    t_request, QuerySource::INTERNAL_FRONTEND, cb);
         } else {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request,
+                                                                 QuerySource::INTERNAL_FRONTEND);
         }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
@@ -508,9 +559,11 @@ Status PInternalService::_exec_plan_fragment_impl(
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        params, QuerySource::INTERNAL_FRONTEND, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        params, QuerySource::INTERNAL_FRONTEND));
             }
         }
 
@@ -532,13 +585,18 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
 
         const auto& fragment_list = t_request.params_list;
+        if (fragment_list.empty()) {
+            return Status::InternalError("Invalid TPipelineFragmentParamsList!");
+        }
         MonotonicStopWatch timer;
         timer.start();
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        fragment, QuerySource::INTERNAL_FRONTEND, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                        fragment, QuerySource::INTERNAL_FRONTEND));
             }
         }
         timer.stop();
@@ -567,23 +625,33 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
-        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
-                                 has_cancel_reason
-                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
-                                         : "INTERNAL_ERROR");
-        if (request->has_fragment_id()) {
-            TUniqueId query_id;
-            query_id.__set_hi(request->query_id().hi());
-            query_id.__set_lo(request->query_id().lo());
-            _exec_env->fragment_mgr()->cancel_fragment(
-                    query_id, request->fragment_id(),
-                    has_cancel_reason ? request->cancel_reason()
-                                      : PPlanFragmentCancelReason::INTERNAL_ERROR);
+        const bool has_cancel_status = request->has_cancel_status();
+        // During upgrade only LIMIT_REACH is used, other reason is changed to internal error
+        Status actual_cancel_status = Status::OK();
+        // Convert PPlanFragmentCancelReason to Status
+        if (has_cancel_status) {
+            // If fe set cancel status, then it is new FE now, should use cancel status.
+            actual_cancel_status = Status::create(request->cancel_status());
+        } else if (has_cancel_reason) {
+            // If fe not set cancel status, but set cancel reason, should convert cancel reason
+            // to cancel status here.
+            if (request->cancel_reason() == PPlanFragmentCancelReason::LIMIT_REACH) {
+                actual_cancel_status = Status::Error<ErrorCode::LIMIT_REACH>("limit reach");
+            } else {
+                // Use cancel reason as error message
+                actual_cancel_status = Status::InternalError(
+                        PPlanFragmentCancelReason_Name(request->cancel_reason()));
+            }
         } else {
-            _exec_env->fragment_mgr()->cancel_instance(
-                    tid, has_cancel_reason ? request->cancel_reason()
-                                           : PPlanFragmentCancelReason::INTERNAL_ERROR);
+            actual_cancel_status = Status::InternalError("unknown error");
         }
+
+        TUniqueId query_id;
+        query_id.__set_hi(request->query_id().hi());
+        query_id.__set_lo(request->query_id().lo());
+        LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+                                 actual_cancel_status.to_string());
+        _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -597,10 +665,105 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
 void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   const PFetchDataRequest* request, PFetchDataResult* result,
                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, result, done]() {
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
-        _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
+    // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
+    auto* cntl = static_cast<brpc::Controller*>(controller);
+    auto* ctx = new GetResultBatchCtx(cntl, result, done);
+    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+}
+
+void PInternalService::fetch_arrow_data(google::protobuf::RpcController* controller,
+                                        const PFetchArrowDataRequest* request,
+                                        PFetchArrowDataResult* result,
+                                        google::protobuf::Closure* done) {
+    bool ret = _arrow_flight_work_pool.try_offer([this, controller, request, result, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto* cntl = static_cast<brpc::Controller*>(controller);
+        auto* ctx = new GetArrowResultBatchCtx(cntl, result, done);
+        _exec_env->result_mgr()->fetch_arrow_data(request->finst_id(), ctx);
+    });
+    if (!ret) {
+        offer_failed(result, done, _arrow_flight_work_pool);
+        return;
+    }
+}
+
+void PInternalService::outfile_write_success(google::protobuf::RpcController* controller,
+                                             const POutfileWriteSuccessRequest* request,
+                                             POutfileWriteSuccessResult* result,
+                                             google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        VLOG_RPC << "outfile write success file";
+        brpc::ClosureGuard closure_guard(done);
+        TResultFileSink result_file_sink;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)(request->result_file_sink().data());
+            uint32_t len = request->result_file_sink().size();
+            st = deserialize_thrift_msg(buf, &len, false, &result_file_sink);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        TResultFileSinkOptions file_options = result_file_sink.file_options;
+        std::stringstream ss;
+        ss << file_options.file_path << file_options.success_file_name;
+        std::string file_name = ss.str();
+        if (result_file_sink.storage_backend_type == TStorageBackendType::LOCAL) {
+            // For local file writer, the file_path is a local dir.
+            // Here we do a simple security verification by checking whether the file exists.
+            // Because the file path is currently arbitrarily specified by the user,
+            // Doris is not responsible for ensuring the correctness of the path.
+            // This is just to prevent overwriting the existing file.
+            bool exists = true;
+            st = io::global_local_filesystem()->exists(file_name, &exists);
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success filefailed, errmsg = " << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            if (exists) {
+                st = Status::InternalError("File already exists: {}", file_name);
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
+
+        auto&& res = FileFactory::create_file_writer(
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
+                ExecEnv::GetInstance(), file_options.broker_addresses,
+                file_options.broker_properties, file_name,
+                {
+                        .write_file_cache = false,
+                        .sync_file_data = false,
+                });
+        using T = std::decay_t<decltype(res)>;
+        if (!res.has_value()) [[unlikely]] {
+            st = std::forward<T>(res).error();
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
+        // must write somthing because s3 file writer can not writer empty file
+        st = _file_writer_impl->append({"success"});
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = _file_writer_impl->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
@@ -639,6 +802,12 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
+
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::fetch_table_schema:{}#{}", params.format_type,
+                            params.file_type));
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
@@ -682,13 +851,17 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            static_cast<void>(
-                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
+            st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -722,23 +895,24 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
                                                  google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        std::shared_ptr<arrow::Schema> schema =
-                ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
-                        UniqueId(request->finst_id()).to_thrift());
-        if (schema == nullptr) {
-            LOG(INFO) << "not found arrow flight schema, maybe query has been canceled";
-            auto st = Status::NotFound(
-                    "not found arrow flight schema, maybe query has been canceled");
+        std::shared_ptr<arrow::Schema> schema;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
+                UniqueId(request->finst_id()).to_thrift(), &schema);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
 
         std::string schema_str;
-        auto st = serialize_arrow_schema(&schema, &schema_str);
+        st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
-            if (config::public_access_ip != "") {
-                result->set_be_arrow_flight_ip(config::public_access_ip);
+            if (!config::public_host.empty()) {
+                result->set_be_arrow_flight_ip(config::public_host);
+            }
+            if (config::arrow_flight_sql_proxy_port != -1) {
+                result->set_be_arrow_flight_port(config::arrow_flight_sql_proxy_port);
             }
         }
         st.to_protobuf(result->mutable_status());
@@ -751,13 +925,10 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
 
 Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                             PTabletKeyLookupResponse* response) {
-    PointQueryExecutor lookup_util;
-    RETURN_IF_ERROR(lookup_util.init(request, response));
-    RETURN_IF_ERROR(lookup_util.lookup_up());
-    if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << lookup_util.print_profile();
-    }
-    LOG_EVERY_N(INFO, 500) << lookup_util.print_profile();
+    PointQueryExecutor executor;
+    RETURN_IF_ERROR(executor.init(request, response));
+    RETURN_IF_ERROR(executor.lookup_up());
+    executor.print_profile();
     return Status::OK();
 }
 
@@ -937,11 +1108,11 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
-                                                      const PFetchRemoteSchemaRequest* request,
-                                                      PFetchRemoteSchemaResponse* response,
-                                                      google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                  const PFetchRemoteSchemaRequest* request,
+                                                  PFetchRemoteSchemaResponse* response,
+                                                  google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -958,7 +1129,13 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
+                if (stub == nullptr) {
+                    LOG(WARNING) << "Failed to init rpc to " << host << ":" << brpc_port;
+                    st = Status::InternalError("Failed to init rpc to {}:{}", host, brpc_port);
+                    continue;
+                }
                 rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
+                rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
                                                  &rpc_contexts[i].response, brpc::DoNothing());
             }
@@ -1012,13 +1189,16 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             if (!target_tablets.empty()) {
                 std::vector<TabletSchemaSPtr> tablet_schemas;
                 for (int64_t tablet_id : target_tablets) {
-                    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id, false);
-                    if (tablet == nullptr) {
+                    auto res = ExecEnv::get_tablet(tablet_id);
+                    if (!res.has_value()) {
                         // just ignore
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(tablet->tablet_schema());
+                    auto schema = res.value()->merged_tablet_schema();
+                    if (schema != nullptr) {
+                        tablet_schemas.push_back(schema);
+                    }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -1056,20 +1236,41 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
 void PInternalService::get_info(google::protobuf::RpcController* controller,
                                 const PProxyRequest* request, PProxyResult* response,
                                 google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->routine_load_task_executor()->get_thread_pool().submit_func([this,
+                                                                                       request,
+                                                                                       response,
+                                                                                       done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:
         // 1. get all kafka partition ids for given topic
         // 2. get all kafka partition offsets for given topic and timestamp.
+        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 60 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
-            if (!kafka_request.partition_id_for_latest_offsets().empty()) {
+            if (!kafka_request.offset_flags().empty()) {
+                std::vector<PIntegerPair> partition_offsets;
+                Status st = _exec_env->routine_load_task_executor()
+                                    ->get_kafka_real_offsets_for_partitions(
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
+                if (st.ok()) {
+                    PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
+                    for (const auto& entry : partition_offsets) {
+                        PIntegerPair* res = part_offsets->add_offset_times();
+                        res->set_key(entry.key());
+                        res->set_val(entry.val());
+                    }
+                }
+                st.to_protobuf(response->mutable_status());
+                return;
+            } else if (!kafka_request.partition_id_for_latest_offsets().empty()) {
                 // get latest offsets for specified partition ids
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
                                     ->get_kafka_latest_offsets_for_partitions(
-                                            request->kafka_meta_request(), &partition_offsets);
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -1085,7 +1286,8 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
                 std::vector<PIntegerPair> partition_offsets;
                 Status st = _exec_env->routine_load_task_executor()
                                     ->get_kafka_partition_offsets_for_times(
-                                            request->kafka_meta_request(), &partition_offsets);
+                                            request->kafka_meta_request(), &partition_offsets,
+                                            timeout_ms);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -1167,9 +1369,6 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
         Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "merge meet error" << st.to_string();
-        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1178,20 +1377,28 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
     }
 }
 
-void PInternalService::apply_filter(::google::protobuf::RpcController* controller,
-                                    const ::doris::PPublishFilterRequest* request,
-                                    ::doris::PPublishFilterResponse* response,
-                                    ::google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+void PInternalService::send_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSendFilterSizeRequest* request,
+                                        ::doris::PSendFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
-        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        UniqueId unique_id(request->query_id());
-        VLOG_NOTICE << "rpc apply_filter recv";
-        Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "apply filter meet error: " << st.to_string();
-        }
+        Status st = _exec_env->fragment_mgr()->send_filter_size(request);
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::sync_filter_size(::google::protobuf::RpcController* controller,
+                                        const ::doris::PSyncFilterSizeRequest* request,
+                                        ::doris::PSyncFilterSizeResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1309,7 +1516,22 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        Status st = _fold_constant_expr(request->request(), response);
+        TFoldConstantParams t_request;
+        Status st = Status::OK();
+        {
+            const uint8_t* buf = (const uint8_t*)request->request().data();
+            uint32_t len = request->request().size();
+            st = deserialize_thrift_msg(buf, &len, false, &t_request);
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
+                         << " .and query_id_is: " << t_request.query_id;
+        }
+        st = _fold_constant_expr(request->request(), response);
+        if (!st.ok()) {
+            LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
+                         << " .and query_id_is: " << t_request.query_id;
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1327,12 +1549,8 @@ Status PInternalService::_fold_constant_expr(const std::string& ser_request,
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
     std::unique_ptr<FoldConstantExecutor> fold_executor = std::make_unique<FoldConstantExecutor>();
-    Status st = fold_executor->fold_constant_vexpr(t_request, response);
-    if (!st.ok()) {
-        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
-                     << " .and query_id_is: " << fold_executor->query_id_string();
-    }
-    return st;
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(fold_executor->fold_constant_vexpr(t_request, response));
+    return Status::OK();
 }
 
 void PInternalService::transmit_block(google::protobuf::RpcController* controller,
@@ -1340,26 +1558,45 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
                                       PTransmitDataResult* response,
                                       google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
-    response->set_receive_time(receive_time);
-
-    // under high concurrency, thread pool will have a lot of lock contention.
-    // May offer failed to the thread pool, so that we should avoid using thread
-    // pool here.
-    _transmit_block(controller, request, response, done, Status::OK());
+    if (config::enable_bthread_transmit_block) {
+        response->set_receive_time(receive_time);
+        // under high concurrency, thread pool will have a lot of lock contention.
+        // May offer failed to the thread pool, so that we should avoid using thread
+        // pool here.
+        _transmit_block(controller, request, response, done, Status::OK(), 0);
+    } else {
+        bool ret = _light_work_pool.try_offer([this, controller, request, response, done,
+                                               receive_time]() {
+            response->set_receive_time(receive_time);
+            // Sometimes transmit block function is the last owner of PlanFragmentExecutor
+            // It will release the object. And the object maybe a JNIContext.
+            // JNIContext will hold some TLS object. It could not work correctly under bthread
+            // Context. So that put the logic into pthread.
+            // But this is rarely happens, so this config is disabled by default.
+            _transmit_block(controller, request, response, done, Status::OK(),
+                            GetCurrentTimeNanos() - receive_time);
+        });
+        if (!ret) {
+            offer_failed(response, done, _light_work_pool);
+            return;
+        }
+    }
 }
 
 void PInternalService::transmit_block_by_http(google::protobuf::RpcController* controller,
                                               const PEmptyRequest* request,
                                               PTransmitDataResult* response,
                                               google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
+    int64_t receive_time = GetCurrentTimeNanos();
+    bool ret = _heavy_work_pool.try_offer([this, controller, response, done, receive_time]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         Status st =
                 attachment_extract_request_contain_block<PTransmitDataParams>(new_request, cntl);
-        _transmit_block(controller, new_request, response, new_done, st);
+        _transmit_block(controller, new_request, response, new_done, st,
+                        GetCurrentTimeNanos() - receive_time);
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
@@ -1370,7 +1607,8 @@ void PInternalService::transmit_block_by_http(google::protobuf::RpcController* c
 void PInternalService::_transmit_block(google::protobuf::RpcController* controller,
                                        const PTransmitDataParams* request,
                                        PTransmitDataResult* response,
-                                       google::protobuf::Closure* done, const Status& extract_st) {
+                                       google::protobuf::Closure* done, const Status& extract_st,
+                                       const int64_t wait_for_worker) {
     if (request->has_query_id()) {
         VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
                  << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();
@@ -1380,7 +1618,7 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
     if (extract_st.ok()) {
-        st = _exec_env->vstream_mgr()->transmit_block(request, &done);
+        st = _exec_env->vstream_mgr()->transmit_block(request, &done, wait_for_worker);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
@@ -1473,17 +1711,13 @@ void PInternalService::reset_rpc_channel(google::protobuf::RpcController* contro
 void PInternalService::hand_shake(google::protobuf::RpcController* controller,
                                   const PHandShakeRequest* request, PHandShakeResponse* response,
                                   google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        if (request->has_hello()) {
-            response->set_hello(request->hello());
-        }
-        response->mutable_status()->set_status_code(0);
-    });
-    if (!ret) {
-        offer_failed(response, done, _light_work_pool);
-        return;
+    // The light pool may be full. Handshake is used to check the connection state of brpc.
+    // Should not be interfered by the thread pool logic.
+    brpc::ClosureGuard closure_guard(done);
+    if (request->has_hello()) {
+        response->set_hello(request->hello());
     }
+    response->mutable_status()->set_status_code(0);
 }
 
 constexpr char HttpProtocol[] = "http://";
@@ -1494,11 +1728,6 @@ static std::string construct_url(const std::string& host_port, const std::string
                                  const std::string& path) {
     return fmt::format("{}{}{}{}{}{}", HttpProtocol, host_port, DownloadApiPath, token, FileParam,
                        path);
-}
-
-static std::string construct_file_path(const std::string& tablet_path, const std::string& rowset_id,
-                                       int64_t segment) {
-    return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id, segment);
 }
 
 static Status download_file_action(std::string& remote_file_url, std::string& local_file_path,
@@ -1531,8 +1760,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveRequest* request,
         PTabletWriteSlaveResult* response, google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    RowsetMetaPB rowset_meta_pb = request->rowset_meta();
-    std::string rowset_path = request->rowset_path();
+    const RowsetMetaPB& rowset_meta_pb = request->rowset_meta();
+    const std::string& rowset_path = request->rowset_path();
     google::protobuf::Map<int64, int64> segments_size = request->segments_size();
     google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
             request->inverted_indices_size();
@@ -1590,7 +1819,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                       << ", txn_id=" << rowset_meta->txn_id();
 
         auto tablet_scheme = rowset_meta->tablet_schema();
-        for (auto& segment : segments_size) {
+        for (const auto& segment : segments_size) {
             uint64_t file_size = segment.second;
             uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
             if (estimate_timeout < config::download_low_speed_time) {
@@ -1598,11 +1827,11 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             }
 
             std::string remote_file_path =
-                    construct_file_path(rowset_path, remote_rowset_id.to_string(), segment.first);
+                    local_segment_path(rowset_path, remote_rowset_id.to_string(), segment.first);
             std::string remote_file_url =
                     construct_url(get_host_port(host, http_port), token, remote_file_path);
 
-            std::string local_file_path = construct_file_path(
+            std::string local_file_path = local_segment_path(
                     tablet->tablet_path(), rowset_meta->rowset_id().to_string(), segment.first);
 
             auto st = download_file_action(remote_file_url, local_file_path, estimate_timeout,
@@ -1630,23 +1859,31 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     std::string remote_inverted_index_file;
                     std::string local_inverted_index_file;
                     std::string remote_inverted_index_file_url;
-                    if (tablet_scheme->get_inverted_index_storage_format() !=
+                    if (tablet_scheme->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
                         remote_inverted_index_file =
-                                InvertedIndexDescriptor::get_index_file_name(remote_file_path);
+                                InvertedIndexDescriptor::get_index_file_path_v1(
+                                        InvertedIndexDescriptor::get_index_file_path_prefix(
+                                                remote_file_path),
+                                        index_id, suffix_path);
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file =
-                                InvertedIndexDescriptor::get_index_file_name(local_file_path);
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        local_file_path),
+                                index_id, suffix_path);
                     } else {
-                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                                remote_file_path, index_id, suffix_path);
+                        remote_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_path_v2(
+                                        InvertedIndexDescriptor::get_index_file_path_prefix(
+                                                remote_file_path));
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                                local_file_path, index_id, suffix_path);
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        local_file_path));
                     }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
@@ -1756,11 +1993,6 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 
     pull_rowset_callback->join();
     if (pull_rowset_callback->cntl_->Failed()) {
-        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(stub, remote_host,
-                                                                             brpc_port)) {
-            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl_->remote_side());
-        }
         LOG(WARNING) << "failed to response result of slave replica to master replica, error="
                      << berror(pull_rowset_callback->cntl_->ErrorCode())
                      << ", error_text=" << pull_rowset_callback->cntl_->ErrorText()
@@ -1776,7 +2008,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response,
+    bool ret = _light_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response,
                                            done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
@@ -1803,6 +2035,7 @@ void PInternalService::multiget_data(google::protobuf::RpcController* controller
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
         Status st = RowIdStorageReader::read_by_rowids(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
@@ -1851,7 +2084,10 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
     TUniqueId load_id;
     load_id.__set_hi(request->load_id().hi());
     load_id.__set_lo(request->load_id().lo());
-    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id]() {
+    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+    std::shared_ptr<bool> is_done = std::make_shared<bool>(false);
+    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id, lock,
+                                           is_done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
         auto pipe = std::make_shared<io::StreamLoadPipe>(
@@ -1860,23 +2096,29 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
         if (st.ok()) {
-            std::mutex mutex;
-            std::condition_variable cv;
-            bool handled = false;
             try {
                 st = _exec_plan_fragment_impl(
                         request->exec_plan_fragment_request().request(),
                         request->exec_plan_fragment_request().version(),
                         request->exec_plan_fragment_request().compact(),
-                        [&](RuntimeState* state, Status* status) {
+                        [&, response, done, load_id, lock, is_done](RuntimeState* state,
+                                                                    Status* status) {
+                            std::lock_guard<std::mutex> lock1(*lock);
+                            if (*is_done) {
+                                return;
+                            }
+                            *is_done = true;
+                            brpc::ClosureGuard cb_closure_guard(done);
                             response->set_label(state->import_label());
                             response->set_txn_id(state->wal_id());
                             response->set_loaded_rows(state->num_rows_load_success());
                             response->set_filtered_rows(state->num_rows_load_filtered());
-                            st = *status;
-                            std::unique_lock l(mutex);
-                            handled = true;
-                            cv.notify_one();
+                            status->to_protobuf(response->mutable_status());
+                            if (!state->get_error_log_file_path().empty()) {
+                                response->set_error_url(
+                                        to_load_error_http_path(state->get_error_log_file_path()));
+                            }
+                            _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
@@ -1885,8 +2127,18 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                                    "_exec_plan_fragment_impl meet unknown error");
             }
             if (!st.ok()) {
-                LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
+                LOG(WARNING) << "exec plan fragment failed, load_id=" << print_id(load_id)
+                             << ", errmsg=" << st;
+                std::lock_guard<std::mutex> lock1(*lock);
+                if (*is_done) {
+                    closure_guard.release();
+                } else {
+                    *is_done = true;
+                    st.to_protobuf(response->mutable_status());
+                    _exec_env->new_load_stream_mgr()->remove(load_id);
+                }
             } else {
+                closure_guard.release();
                 for (int i = 0; i < request->data().size(); ++i) {
                     std::unique_ptr<PDataRow> row(new PDataRow());
                     row->CopyFrom(request->data(i));
@@ -1897,15 +2149,9 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                 }
                 if (st.ok()) {
                     static_cast<void>(pipe->finish());
-                    std::unique_lock l(mutex);
-                    if (!handled) {
-                        cv.wait(l);
-                    }
                 }
             }
         }
-        st.to_protobuf(response->mutable_status());
-        _exec_env->new_load_stream_mgr()->remove(load_id);
     });
     if (!ret) {
         _exec_env->new_load_stream_mgr()->remove(load_id);
@@ -1924,6 +2170,27 @@ void PInternalService::get_wal_queue_size(google::protobuf::RpcController* contr
         auto table_id = request->table_id();
         auto count = _exec_env->wal_mgr()->get_wal_queue_size(table_id);
         response->set_size(count);
+        response->mutable_status()->set_status_code(st.code());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
+
+void PInternalService::get_be_resource(google::protobuf::RpcController* controller,
+                                       const PGetBeResourceRequest* request,
+                                       PGetBeResourceResponse* response,
+                                       google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        int64_t mem_limit = MemInfo::mem_limit();
+        int64_t mem_usage = PerfCounters::get_vm_rss();
+
+        PGlobalResourceUsage* global_resource_usage = response->mutable_global_be_resource_usage();
+        global_resource_usage->set_mem_limit(mem_limit);
+        global_resource_usage->set_mem_usage(mem_usage);
+
+        Status st = Status::OK();
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {

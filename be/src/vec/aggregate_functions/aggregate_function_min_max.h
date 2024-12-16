@@ -26,6 +26,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -41,6 +42,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 template <typename T>
@@ -69,6 +71,20 @@ public:
 
     constexpr static bool IsFixedLength = true;
 
+    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+
+    void change_if(const IColumn& column, size_t row_num, bool less) {
+        has_value = true;
+        value = less ? std::min(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
+                                value)
+                     : std::max(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
+                                value);
+    }
+
     void insert_result_into(IColumn& to) const {
         if (has()) {
             assert_cast<ColumnVector<T>&>(to).get_data().push_back(value);
@@ -90,7 +106,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
+    void read(BufferReadable& buf, Arena*) {
         read_binary(has_value, buf);
         if (has()) {
             read_binary(value, buf);
@@ -99,7 +115,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnVector<T>&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     /// Assuming to.has()
@@ -108,64 +125,54 @@ public:
         value = to.value;
     }
 
-    bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] < value) {
-            change(column, row_num, arena);
+    bool change_if_less(const IColumn& column, size_t row_num, Arena*) {
+        if (!has() || assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] < value) {
+            change(column, row_num, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_less(const Self& to, Arena* arena) {
+    bool change_if_less(const Self& to, Arena*) {
         if (to.has() && (!has() || to.value < value)) {
-            change(to, arena);
+            change(to, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] > value) {
-            change(column, row_num, arena);
+    bool change_if_greater(const IColumn& column, size_t row_num, Arena*) {
+        if (!has() || assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] > value) {
+            change(column, row_num, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_greater(const Self& to, Arena* arena) {
+    bool change_if_greater(const Self& to, Arena*) {
         if (to.has() && (!has() || to.value > value)) {
-            change(to, arena);
+            change(to, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
-            change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+        if (UNLIKELY(!has())) {
+            change(column, row_num, nullptr);
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
-            change(to, arena);
-            return true;
-        } else {
-            return false;
+    void change_first_time(const Self& to, Arena*) {
+        if (UNLIKELY(!has() && to.has())) {
+            change(to, nullptr);
         }
-    }
-
-    bool is_equal_to(const Self& to) const { return has() && to.value == value; }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() && assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] == value;
     }
 };
 
@@ -185,6 +192,20 @@ public:
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
+
+    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+
+    void change_if(const IColumn& column, size_t row_num, bool less) {
+        has_value = true;
+        value = less ? std::min(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
+                                value)
+                     : std::max(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(
+                                        column)
+                                        .get_data()[row_num],
+                                value);
+    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -207,7 +228,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
+    void read(BufferReadable& buf, Arena*) {
         read_binary(has_value, buf);
         if (has()) {
             read_binary(value, buf);
@@ -216,7 +237,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     /// Assuming to.has()
@@ -225,64 +247,54 @@ public:
         value = to.value;
     }
 
-    bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] < value) {
-            change(column, row_num, arena);
+    bool change_if_less(const IColumn& column, size_t row_num, Arena*) {
+        if (!has() || assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] < value) {
+            change(column, row_num, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_less(const Self& to, Arena* arena) {
+    bool change_if_less(const Self& to, Arena*) {
         if (to.has() && (!has() || to.value < value)) {
-            change(to, arena);
+            change(to, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() || assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] > value) {
-            change(column, row_num, arena);
+    bool change_if_greater(const IColumn& column, size_t row_num, Arena*) {
+        if (!has() || assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num] > value) {
+            change(column, row_num, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_greater(const Self& to, Arena* arena) {
+    bool change_if_greater(const Self& to, Arena*) {
         if (to.has() && (!has() || to.value > value)) {
-            change(to, arena);
+            change(to, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
-            change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+        if (UNLIKELY(!has())) {
+            change(column, row_num, nullptr);
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
-            change(to, arena);
-            return true;
-        } else {
-            return false;
+    void change_first_time(const Self& to, Arena*) {
+        if (UNLIKELY(!has() && to.has())) {
+            change(to, nullptr);
         }
-    }
-
-    bool is_equal_to(const Self& to) const { return has() && to.value == value; }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() && assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] == value;
     }
 };
 
@@ -292,7 +304,8 @@ public:
 struct SingleValueDataString {
 private:
     using Self = SingleValueDataString;
-
+    // This function uses int32 for storage, which triggers a 64-bit to 32-bit conversion warning.
+    // However, considering compatibility with future upgrades, no changes will be made here.
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
     std::unique_ptr<char[]> large_data;
@@ -339,7 +352,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
+    void read(BufferReadable& buf, Arena*) {
         Int32 rhs_size;
         read_binary(rhs_size, buf);
 
@@ -354,7 +367,7 @@ public:
                 }
             } else {
                 if (capacity < rhs_size) {
-                    capacity = round_up_to_power_of_two_or_zero(rhs_size);
+                    capacity = (Int32)round_up_to_power_of_two_or_zero(rhs_size);
                     large_data.reset(new char[capacity]);
                 }
 
@@ -370,9 +383,8 @@ public:
     StringRef get_string_ref() const { return StringRef(get_data(), size); }
 
     /// Assuming to.has()
-    void change_impl(StringRef value, Arena* arena) {
-        Int32 value_size = value.size;
-
+    void change_impl(StringRef value, Arena*) {
+        Int32 value_size = cast_set<Int32>(value.size);
         if (value_size <= MAX_SMALL_STRING_SIZE) {
             /// Don't free large_data here.
             size = value_size;
@@ -383,7 +395,7 @@ public:
         } else {
             if (capacity < value_size) {
                 /// Don't free large_data here.
-                capacity = round_up_to_power_of_two_or_zero(value_size);
+                capacity = (Int32)round_up_to_power_of_two_or_zero(value_size);
                 large_data.reset(new char[capacity]);
             }
 
@@ -392,84 +404,92 @@ public:
         }
     }
 
-    void change(const IColumn& column, size_t row_num, Arena* arena) {
-        change_impl(assert_cast<const ColumnString&>(column).get_data_at(row_num), arena);
+    void change(const IColumn& column, size_t row_num, Arena*) {
+        change_impl(
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                        row_num),
+                nullptr);
     }
 
-    void change(const Self& to, Arena* arena) { change_impl(to.get_string_ref(), arena); }
+    void change(const Self& to, Arena*) { change_impl(to.get_string_ref(), nullptr); }
 
-    bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
+    bool change_if_less(const IColumn& column, size_t row_num, Arena*) {
         if (!has() ||
-            assert_cast<const ColumnString&>(column).get_data_at(row_num) < get_string_ref()) {
-            change(column, row_num, arena);
+            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num) < get_string_ref()) {
+            change(column, row_num, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
+    bool change_if_greater(const IColumn& column, size_t row_num, Arena*) {
         if (!has() ||
-            assert_cast<const ColumnString&>(column).get_data_at(row_num) > get_string_ref()) {
-            change(column, row_num, arena);
+            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num) > get_string_ref()) {
+            change(column, row_num, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_less(const Self& to, Arena* arena) {
+    bool change_if_less(const Self& to, Arena*) {
         if (to.has() && (!has() || to.get_string_ref() < get_string_ref())) {
-            change(to, arena);
+            change(to, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_if_greater(const Self& to, Arena* arena) {
+    bool change_if_greater(const Self& to, Arena*) {
         if (to.has() && (!has() || to.get_string_ref() > get_string_ref())) {
-            change(to, arena);
+            change(to, nullptr);
             return true;
         } else {
             return false;
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
-            change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+        if (UNLIKELY(!has())) {
+            change(column, row_num, nullptr);
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
-            change(to, arena);
-            return true;
-        } else {
-            return false;
+    void change_first_time(const Self& to, Arena*) {
+        if (UNLIKELY(!has() && to.has())) {
+            change(to, nullptr);
         }
     }
-
-    bool is_equal_to(const Self& to) const {
-        return has() && to.get_string_ref() == get_string_ref();
-    }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const { return false; }
 };
 
 template <typename Data>
 struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = false;
 
-    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_if_greater(column, row_num, arena);
+    AggregateFunctionMaxData() { reset(); }
+
+    void change_if_better(const IColumn& column, size_t row_num, Arena*) {
+        if constexpr (Data::IsFixedLength) {
+            this->change_if(column, row_num, false);
+        } else {
+            this->change_if_greater(column, row_num, nullptr);
+        }
     }
-    void change_if_better(const Self& to, Arena* arena) { this->change_if_greater(to, arena); }
+
+    void change_if_better(const Self& to, Arena*) { this->change_if_greater(to, nullptr); }
+
+    void reset() {
+        if constexpr (Data::IsFixedLength) {
+            this->set_to_min_max(false);
+        }
+        Data::reset();
+    }
 
     static const char* name() { return "max"; }
 };
@@ -478,11 +498,25 @@ template <typename Data>
 struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = false;
 
-    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_if_less(column, row_num, arena);
+    AggregateFunctionMinData() { reset(); }
+
+    void change_if_better(const IColumn& column, size_t row_num, Arena*) {
+        if constexpr (Data::IsFixedLength) {
+            this->change_if(column, row_num, true);
+        } else {
+            this->change_if_less(column, row_num, nullptr);
+        }
     }
-    void change_if_better(const Self& to, Arena* arena) { this->change_if_less(to, arena); }
+    void change_if_better(const Self& to, Arena*) { this->change_if_less(to, nullptr); }
+
+    void reset() {
+        if constexpr (Data::IsFixedLength) {
+            this->set_to_min_max(true);
+        }
+        Data::reset();
+    }
 
     static const char* name() { return "min"; }
 };
@@ -491,11 +525,12 @@ template <typename Data>
 struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = true;
 
-    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_first_time(column, row_num, arena);
+    void change_if_better(const IColumn& column, size_t row_num, Arena*) {
+        this->change_first_time(column, row_num, nullptr);
     }
-    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, arena); }
+    void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
 
     static const char* name() { return "any"; }
 };
@@ -514,10 +549,10 @@ public:
         if (StringRef(Data::name()) == StringRef("min") ||
             StringRef(Data::name()) == StringRef("max")) {
             if (!type->is_comparable()) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of aggregate function {} because the values "
-                        "of that data type are not comparable",
-                        type->get_name(), get_name());
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Illegal type {} of argument of aggregate function {} "
+                                       "because the values of that data type are not comparable",
+                                       type->get_name(), get_name());
             }
         }
     }
@@ -527,15 +562,25 @@ public:
     DataTypePtr get_return_type() const override { return type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
-        this->data(place).change_if_better(*columns[0], row_num, arena);
+             Arena*) const override {
+        this->data(place).change_if_better(*columns[0], row_num, nullptr);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena*) const override {
+        if constexpr (Data::IS_ANY) {
+            DCHECK_GT(batch_size, 0);
+            this->data(place).change_if_better(*columns[0], 0, nullptr);
+        } else {
+            Base::add_batch_single_place(batch_size, place, columns, nullptr);
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
-        this->data(place).change_if_better(this->data(rhs), arena);
+               Arena*) const override {
+        this->data(place).change_if_better(this->data(rhs), nullptr);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -543,15 +588,15 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
-        this->data(place).read(buf, arena);
+                     Arena*) const override {
+        this->data(place).read(buf, nullptr);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
                                  size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
             const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
@@ -561,7 +606,7 @@ public:
                 data[i] = column_data[i];
             }
         } else {
-            Base::deserialize_from_column(places, column, arena, num_rows);
+            Base::deserialize_from_column(places, column, nullptr, num_rows);
         }
     }
 
@@ -580,63 +625,63 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena* arena) const override {
+                                           const size_t num_rows, Arena*) const override {
         if constexpr (Data::IsFixedLength) {
             auto& dst_column = assert_cast<ColumnFixedLengthObject&>(*dst);
             dst_column.resize(num_rows);
             auto* dst_data = reinterpret_cast<Data*>(dst_column.get_data().data());
             for (size_t i = 0; i != num_rows; ++i) {
-                dst_data[i].change(*columns[0], i, arena);
+                dst_data[i].change(*columns[0], i, nullptr);
             }
         } else {
-            Base::streaming_agg_serialize_to_column(columns, dst, num_rows, arena);
+            Base::streaming_agg_serialize_to_column(columns, dst, num_rows, nullptr);
         }
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena* arena) const override {
+                                           Arena*) const override {
         if constexpr (Data::IsFixedLength) {
             const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
             const size_t num_rows = column.size();
             for (size_t i = 0; i != num_rows; ++i) {
-                this->data(place).change_if_better(column_data[i], arena);
+                this->data(place).change_if_better(column_data[i], nullptr);
             }
         } else {
-            Base::deserialize_and_merge_from_column(place, column, arena);
+            Base::deserialize_and_merge_from_column(place, column, nullptr);
         }
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena* arena) const override {
+                                                 Arena*) const override {
         if constexpr (Data::IsFixedLength) {
             DCHECK(end <= column.size() && begin <= end) << ", begin:" << begin << ", end:" << end
                                                          << ", column.size():" << column.size();
             auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* data = reinterpret_cast<const Data*>(col.get_data().data());
             for (size_t i = begin; i <= end; ++i) {
-                this->data(place).change_if_better(data[i], arena);
+                this->data(place).change_if_better(data[i], nullptr);
             }
         } else {
-            Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
+            Base::deserialize_and_merge_from_column_range(place, column, begin, end, nullptr);
         }
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        this->merge_vec(places, offset, rhs, nullptr, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
-                                            Arena* arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
+                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        this->merge_vec_selected(places, offset, rhs, nullptr, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
@@ -671,5 +716,8 @@ public:
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
-                                                            const bool result_is_nullable);
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr = {});
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

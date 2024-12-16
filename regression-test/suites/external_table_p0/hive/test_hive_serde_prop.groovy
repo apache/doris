@@ -17,11 +17,17 @@
 
 suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "test_hive_serde_prop"
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        setHivePrefix(hivePrefix)
+        String catalog_name = "test_${hivePrefix}_serde_prop"
         String ex_db_name = "`stats_test`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String hms_port = context.config.otherConfigs.get("hms_port")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -32,6 +38,23 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
             );"""
 
 		qt_1 """select * from ${catalog_name}.${ex_db_name}.employee_gz order by name;"""
+
+
+        qt_2 """select * from ${catalog_name}.regression.serde_test1 order by id;"""
+        qt_3 """select * from ${catalog_name}.regression.serde_test2 order by id;"""
+        qt_4 """select * from ${catalog_name}.regression.serde_test3 order by id;"""
+        qt_5 """select * from ${catalog_name}.regression.serde_test4 order by id;"""
+        qt_6 """select * from ${catalog_name}.regression.serde_test5 order by id;"""
+        qt_7 """select * from ${catalog_name}.regression.serde_test6 order by id;"""
+        qt_8 """select * from ${catalog_name}.regression.serde_test7 order by id;"""
+
+        hive_docker """truncate table regression.serde_test8;"""
+        sql """insert into ${catalog_name}.regression.serde_test8 select * from ${catalog_name}.regression.serde_test7;"""
+        qt_9 """select * from ${catalog_name}.regression.serde_test8 order by id;"""
+
+        qt_test_open_csv_default_prop """select * from ${catalog_name}.regression.test_open_csv_default_prop order by id;"""
+        qt_test_open_csv_standard_prop """select * from ${catalog_name}.regression.test_open_csv_standard_prop order by id;"""
+        qt_test_open_csv_custom_prop """select * from ${catalog_name}.regression.test_open_csv_custom_prop order by id;"""
     }
 }
 

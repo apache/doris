@@ -32,6 +32,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -70,8 +71,8 @@ public class LoadingTaskPlanner {
     private final long timeoutS;    // timeout of load job, in second
     private final int loadParallelism;
     private final int sendBatchParallelism;
-    private final boolean useNewLoadScanNode;
     private final boolean singleTabletLoadPerSink;
+    private final boolean enableMemtableOnSinkNode;
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
@@ -87,8 +88,8 @@ public class LoadingTaskPlanner {
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
             boolean strictMode, boolean isPartialUpdate, String timezone, long timeoutS, int loadParallelism,
-            int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo,
-            boolean singleTabletLoadPerSink) {
+            int sendBatchParallelism, UserIdentity userInfo,
+            boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -101,15 +102,16 @@ public class LoadingTaskPlanner {
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
-        this.useNewLoadScanNode = useNewLoadScanNode;
-        this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.userInfo = userInfo;
+        this.singleTabletLoadPerSink = singleTabletLoadPerSink;
+        this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
         if (Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
+                .checkDbPriv(userInfo, InternalCatalog.INTERNAL_CATALOG_NAME,
+                        Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
-            this.analyzer.setUDFAllowed(false);
+            this.analyzer.setUDFAllowed(Config.enable_udf_in_load);
         }
     }
 
@@ -121,6 +123,9 @@ public class LoadingTaskPlanner {
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         if (isPartialUpdate && !table.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
+        }
+        if (isPartialUpdate && table.isUniqKeyMergeOnWriteWithClusterKeys()) {
+            throw new UserException("Only unique key merge on write without cluster keys support partial update");
         }
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
@@ -204,8 +209,10 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
+        final boolean enableSingleReplicaLoad = this.enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
-                Config.enable_single_replica_load);
+                enableSingleReplicaLoad);
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeout() : timeoutS;
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode,
                 txnTimeout);

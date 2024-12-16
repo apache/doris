@@ -23,7 +23,7 @@ suite("test_return_binary_bitmap") {
     CREATE TABLE `${tableName}` (
         `dt` int(11) NULL,
         `page` varchar(10) NULL,
-        `user_id` bitmap BITMAP_UNION NULL
+        `user_id` bitmap BITMAP_UNION 
         ) ENGINE=OLAP
         AGGREGATE KEY(`dt`, `page`)
         COMMENT 'OLAP'

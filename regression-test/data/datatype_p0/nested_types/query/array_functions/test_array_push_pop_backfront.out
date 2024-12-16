@@ -12,7 +12,7 @@ array_pushback-pushfrony
 [null, 1]
 
 -- !old_sql --
-[0.5, 0.7, 0.1]
+[0.5, 0.7, 1.0]
 
 -- !old_sql --
 [1, -1]
@@ -36,7 +36,7 @@ array_pushback-pushfrony
 [1, null]
 
 -- !old_sql --
-[0.1, 0.5, 0.7]
+[1.0, 0.5, 0.7]
 
 -- !old_sql --
 [-1, 1]
@@ -48,7 +48,7 @@ array_pushback-pushfrony
 [1]
 
 -- !old_sql --
-[1]
+[-1]
 
 -- !old_sql --
 array_popback-popfront

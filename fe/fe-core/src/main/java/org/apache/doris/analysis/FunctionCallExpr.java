@@ -37,10 +37,13 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
@@ -54,12 +57,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
@@ -70,7 +73,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -87,8 +89,6 @@ public class FunctionCallExpr extends Expr {
     public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER)
             .add("multi_search_all_positions").add("multi_match_any").build();
-
-    private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
     static {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
@@ -114,28 +114,34 @@ public class FunctionCallExpr extends Expr {
                 return returnType;
             }
         };
+
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
             } else if (children.size() == 2) {
-                Preconditions.checkArgument(children.get(1) instanceof IntLiteral
-                        || (children.get(1) instanceof CastExpr
-                                && children.get(1).getChild(0) instanceof IntLiteral),
-                        "2nd argument of function round/floor/ceil/truncate must be literal");
-                if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
-                    children.get(1).getChild(0).setType(children.get(1).getType());
-                    children.set(1, children.get(1).getChild(0));
+                Expr scaleExpr = children.get(1);
+                if (scaleExpr instanceof IntLiteral
+                        || (scaleExpr instanceof CastExpr && scaleExpr.getChild(0) instanceof IntLiteral)) {
+                    if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
+                        children.get(1).getChild(0).setType(children.get(1).getType());
+                        children.set(1, children.get(1).getChild(0));
+                    } else {
+                        children.get(1).setType(Type.INT);
+                    }
+                    int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
+                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                            Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
                 } else {
-                    children.get(1).setType(Type.INT);
+                    // Scale argument is a Column, always use same scale with input decimal
+                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                            ((ScalarType) children.get(0).getType()).decimalScale());
                 }
-                int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
             } else {
                 return returnType;
             }
         };
+
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDateTimeV2OrDecimalV3Rule
                 = (children, returnType) -> {
                     Preconditions.checkArgument(children != null && children.size() > 0);
@@ -250,8 +256,9 @@ public class FunctionCallExpr extends Expr {
 
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
 
+    @SerializedName("fnn")
     private FunctionName fnName;
-    // private BuiltinAggregateFunction.Operator aggOp;
+    @SerializedName("fnp")
     private FunctionParams fnParams;
 
     private FunctionParams aggFnParams;
@@ -259,8 +266,10 @@ public class FunctionCallExpr extends Expr {
     private List<OrderByElement> orderByElements = Lists.newArrayList();
 
     // check analytic function
+    @SerializedName("iafc")
     private boolean isAnalyticFnCall = false;
     // check table function
+    @SerializedName("itfc")
     private boolean isTableFnCall = false;
 
     // Indicates whether this is a merge aggregation function that should use the
@@ -312,7 +321,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     // only used restore from readFields.
-    private FunctionCallExpr() {
+    protected FunctionCallExpr() {
         super();
     }
 
@@ -423,7 +432,7 @@ public class FunctionCallExpr extends Expr {
 
     protected FunctionCallExpr(FunctionCallExpr other) {
         super(other);
-        fnName = other.fnName;
+        fnName = other.fnName != null ? other.fnName.clone() : null;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
         // aggOp = other.aggOp;
@@ -554,12 +563,17 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         FunctionCallExpr o = (FunctionCallExpr) obj;
-        if (orderByElements.size() != o.orderByElements.size()) {
+        if (orderByElements == null ^ o.orderByElements == null) {
             return false;
         }
-        for (int i = 0; i < orderByElements.size(); i++) {
-            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+        if (orderByElements != null) {
+            if (orderByElements.size() != o.orderByElements.size()) {
                 return false;
+            }
+            for (int i = 0; i < orderByElements.size(); i++) {
+                if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+                    return false;
+                }
             }
         }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
@@ -633,12 +647,9 @@ public class FunctionCallExpr extends Expr {
                     && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                             || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                             || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
-                            || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
-                            || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
-                            || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
-                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))) {
+                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 sb.append("\'***\'");
+                continue;
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
                 sb.append("ORDER BY ");
             }
@@ -674,6 +685,17 @@ public class FunctionCallExpr extends Expr {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(" ");
             sb.append(children.get(1).toSql());
+        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
+            sb.append("key ");
+            for (int i = 0; i < children.size(); i++) {
+                String str = ((StringLiteral) children.get(i)).getValue();
+                if (str.isEmpty()) {
+                    continue;
+                }
+                sb.append(str);
+                sb.append(".");
+            }
+            sb.deleteCharAt(sb.length() - 1);
         } else {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(paramsToSql());
@@ -711,22 +733,13 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
-                || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
-                || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
-                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
             len = len - 1;
         }
         for (int i = 0; i < len; ++i) {
             if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                     || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
-                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))) {
+                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt"))) {
                 result.add("\'***\'");
             } else {
                 result.add(children.get(i).toDigest());
@@ -777,11 +790,6 @@ public class FunctionCallExpr extends Expr {
     public boolean isAggregateFunction() {
         Preconditions.checkState(fn != null);
         return fn instanceof AggregateFunction && !isAnalyticFnCall;
-    }
-
-    public boolean isBuiltin() {
-        Preconditions.checkState(fn != null);
-        return fn instanceof BuiltinAggregateFunction && !isAnalyticFnCall;
     }
 
     /**
@@ -1134,13 +1142,8 @@ public class FunctionCallExpr extends Expr {
         if ((fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
-                || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
-                || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
-                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))
+                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
                 && (children.size() == 2 || children.size() == 3)) {
-            String blockEncryptionMode = "";
             Set<String> aesModes = new HashSet<>(Arrays.asList(
                     "AES_128_ECB",
                     "AES_192_ECB",
@@ -1174,43 +1177,20 @@ public class FunctionCallExpr extends Expr {
                     "SM4_128_OFB",
                     "SM4_128_CTR"));
 
+            String blockEncryptionMode = "";
             if (ConnectContext.get() != null) {
                 blockEncryptionMode = ConnectContext.get().getSessionVariable().getBlockEncryptionMode();
                 if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                        || fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")
-                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
+                        || fnName.getFunction().equalsIgnoreCase("aes_encrypt")) {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "AES_128_ECB";
                     }
                     if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
                     }
-                    if (children.size() == 2) {
-                        boolean isECB = blockEncryptionMode.equalsIgnoreCase("AES_128_ECB")
-                                || blockEncryptionMode.equalsIgnoreCase("AES_192_ECB")
-                                || blockEncryptionMode.equalsIgnoreCase("AES_256_ECB");
-                        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")) {
-                            if (!isECB) {
-                                throw new AnalysisException(
-                                        "Incorrect parameter count in the call to native function 'aes_decrypt'");
-                            }
-                        } else if (fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
-                            if (!isECB) {
-                                throw new AnalysisException(
-                                        "Incorrect parameter count in the call to native function 'aes_encrypt'");
-                            }
-                        } else {
-                            // if there are only 2 params, we need set encryption mode to AES_128_ECB
-                            // this keeps the behavior consistent with old doris ver.
-                            blockEncryptionMode = "AES_128_ECB";
-                        }
-                    }
                 }
                 if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")
-                        || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
-                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
+                        || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "SM4_128_ECB";
                     }
@@ -1218,36 +1198,12 @@ public class FunctionCallExpr extends Expr {
                         throw new AnalysisException(
                                 "session variable block_encryption_mode is invalid with sm4");
                     }
-                    if (children.size() == 2) {
-                        if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")) {
-                            throw new AnalysisException(
-                                    "Incorrect parameter count in the call to native function 'sm4_decrypt'");
-                        } else if (fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
-                            throw new AnalysisException(
-                                    "Incorrect parameter count in the call to native function 'sm4_encrypt'");
-                        } else {
-                            // if there are only 2 params, we need add an empty string as the third param
-                            // and set encryption mode to SM4_128_ECB
-                            // this keeps the behavior consistent with old doris ver.
-                            children.add(new StringLiteral(""));
-                            blockEncryptionMode = "SM4_128_ECB";
-                        }
-                    }
                 }
+            } else {
+                throw new AnalysisException("cannot get session variable `block_encryption_mode`, "
+                        + "please explicitly specify by using 4-args function");
             }
-            if (!blockEncryptionMode.equals(children.get(children.size() - 1).toString())) {
-                children.add(new StringLiteral(blockEncryptionMode));
-            }
-
-            if (fnName.getFunction().equalsIgnoreCase("aes_decrypt_v2")) {
-                fnName = FunctionName.createBuiltinName("aes_decrypt");
-            } else if (fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")) {
-                fnName = FunctionName.createBuiltinName("aes_encrypt");
-            } else if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")) {
-                fnName = FunctionName.createBuiltinName("sm4_decrypt");
-            } else if (fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2")) {
-                fnName = FunctionName.createBuiltinName("sm4_encrypt");
-            }
+            children.add(new StringLiteral(blockEncryptionMode));
         }
     }
 
@@ -1584,6 +1540,14 @@ public class FunctionCallExpr extends Expr {
                         argTypes[i] = assignmentCompatibleType;
                     }
                 }
+            } else if (assignmentCompatibleType.isDateV2OrDateTimeV2()) {
+                for (int i = 0; i < childTypes.length; i++) {
+                    if (assignmentCompatibleType.isDateV2OrDateTimeV2()
+                            && !childTypes[i].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, i);
+                        argTypes[i] = assignmentCompatibleType;
+                    }
+                }
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
@@ -1629,6 +1593,22 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("date_add")
+                || fnName.getFunction().equalsIgnoreCase("days_add")
+                || fnName.getFunction().equalsIgnoreCase("adddate")
+                || fnName.getFunction().equalsIgnoreCase("date_sub")
+                || fnName.getFunction().equalsIgnoreCase("days_sub")
+                || fnName.getFunction().equalsIgnoreCase("subdate")) {
+            Type[] childTypes = collectChildReturnTypes();
+            argTypes[0] = childTypes[0];
+            argTypes[1] = childTypes[1];
+            if (childTypes[1] == Type.TINYINT || childTypes[1] == Type.SMALLINT) {
+                // be only support second param as int type
+                uncheckedCastChild(Type.INT, 1);
+                argTypes[1] = Type.INT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -1644,13 +1624,23 @@ public class FunctionCallExpr extends Expr {
                     fn = getTableFunction(fnName.getFunction(), matchFuncChildTypes,
                             Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                     if (fn == null) {
-                        throw new AnalysisException(getFunctionNotFoundError(argTypes));
+                        throw new AnalysisException(getFunctionNotFoundError(argTypes)  + " in table function");
                     }
                     // set param child types
                     fn.setReturnType(((ArrayType) childTypes[0]).getItemType());
                 } else {
                     fn = getTableFunction(fnName.getFunction(), childTypes,
                             Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                }
+                // find user defined functions
+                if (fn == null) {
+                    fn = findUdf(fnName, analyzer);
+                    if (fn != null) {
+                        FunctionUtil.checkEnableJavaUdf();
+                        if (!fn.isUDTFunction()) {
+                            throw new AnalysisException(getFunctionNotFoundError(argTypes)  + " in table function");
+                        }
+                    }
                 }
                 if (fn == null) {
                     throw new AnalysisException(getFunctionNotFoundError(argTypes));
@@ -1792,7 +1782,7 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
-        if (fn.getFunctionName().getFunction().equals("timediff")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             ScalarType left = (ScalarType) argTypes[0];
             ScalarType right = (ScalarType) argTypes[1];
@@ -1803,17 +1793,17 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_microsecond")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_microsecond")) {
             Type ret = ScalarType.createDatetimeV2Type(6);
             fn.setReturnType(ret);
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_millisecond")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_millisecond")) {
             Type ret = ScalarType.createDatetimeV2Type(3);
             fn.setReturnType(ret);
         }
 
-        if (fn.getFunctionName().getFunction().equals("from_second")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("from_second")) {
             Type ret = ScalarType.createDatetimeV2Type(0);
             fn.setReturnType(ret);
         }
@@ -1840,7 +1830,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("struct_element")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("struct_element")) {
             if (children.size() < 2) {
                 throw new AnalysisException(fnName.getFunction() + " needs two parameters: " + this.toSql());
             }
@@ -1865,7 +1855,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("sha2")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("sha2")) {
             if ((children.size() != 2) || (getChild(1).isConstant() == false)
                     || !(getChild(1) instanceof IntLiteral)) {
                 throw new AnalysisException(
@@ -1933,7 +1923,8 @@ public class FunctionCallExpr extends Expr {
 
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
-                        || fnName.getFunction().equalsIgnoreCase("hist"))
+                        || fnName.getFunction().equalsIgnoreCase("hist")
+                        || fnName.getFunction().equalsIgnoreCase("linear_histogram"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
@@ -2023,7 +2014,7 @@ public class FunctionCallExpr extends Expr {
          * SELECT str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
          * Return type is DATETIME
          */
-        if (fn.getFunctionName().getFunction().equals("str_to_date")) {
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("str_to_date")) {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
@@ -2062,7 +2053,7 @@ public class FunctionCallExpr extends Expr {
 
         // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
         // but type is varchar(*), we change it to varchar(N);
-        if (fn.getFunctionName().getFunction().equals("substr")
+        if (fn.getFunctionName().getFunction().equalsIgnoreCase("substr")
                 && children.size() == 3
                 && children.get(1) instanceof IntLiteral
                 && children.get(2) instanceof IntLiteral) {
@@ -2344,14 +2335,6 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        fnName.write(out);
-        fnParams.write(out);
-        out.writeBoolean(isAnalyticFnCall);
-        out.writeBoolean(isMergeAggFn);
-    }
-
     public void readFields(DataInput in) throws IOException {
         fnName = FunctionName.read(in);
         fnParams = FunctionParams.read(in);
@@ -2362,20 +2345,21 @@ public class FunctionCallExpr extends Expr {
         isMergeAggFn = in.readBoolean();
     }
 
+    @Override
+    protected void normalize(TExprNode msg, Normalizer normalizer) {
+        String functionName = fnName.getFunction().toUpperCase();
+        if (FunctionSet.nonDeterministicFunctions.contains(functionName)
+                || "NOW".equals(functionName)
+                || (FunctionSet.nonDeterministicTimeFunctions.contains(functionName) && children.isEmpty())) {
+            throw new IllegalStateException("Can not normalize non deterministic functions");
+        }
+        super.normalize(msg, normalizer);
+    }
+
     public static FunctionCallExpr read(DataInput in) throws IOException {
         FunctionCallExpr func = new FunctionCallExpr();
         func.readFields(in);
         return func;
-    }
-
-    // Used for store load
-    public boolean supportSerializable() {
-        for (Expr child : children) {
-            if (!child.supportSerializable()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override
@@ -2413,7 +2397,6 @@ public class FunctionCallExpr extends Expr {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
-        result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
 
@@ -2474,11 +2457,15 @@ public class FunctionCallExpr extends Expr {
         }
 
         Function fn = null;
-        String dbName = fnName.analyzeDb(analyzer);
+        String dbName = null;
+        // when enable_udf_in_load == true, and db is null, maybe it's load, should find global function
+        if (!(Config.enable_udf_in_load && fnName.getDb() == null)) {
+            dbName = fnName.analyzeDb(analyzer);
+        }
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
             if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    dbName, PrivPredicate.SELECT)) {
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.

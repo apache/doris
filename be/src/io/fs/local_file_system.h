@@ -32,8 +32,9 @@ namespace doris::io {
 
 class LocalFileSystem final : public FileSystem {
 public:
-    static std::shared_ptr<LocalFileSystem> create(Path path, std::string id = "");
     ~LocalFileSystem() override;
+
+    static Status convert_to_abs_path(const Path& path, Path& abs_path);
 
     /// hard link dest file to src file
     Status link_file(const Path& src, const Path& dest);
@@ -101,9 +102,17 @@ protected:
 private:
     // a wrapper for glob(), return file list in "res"
     Status _glob(const std::string& pattern, std::vector<std::string>* res);
-    LocalFileSystem(Path&& root_path, std::string&& id = "");
+    LocalFileSystem();
+
+    // `LocalFileSystem` always use absolute path as arguments
+    // FIXME(plat1ko): Eliminate this method
+    Status absolute_path(const Path& path, Path& abs_path) const override {
+        return convert_to_abs_path(path, abs_path);
+    }
+
+    friend const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 };
 
-PURE const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
+const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 
 } // namespace doris::io

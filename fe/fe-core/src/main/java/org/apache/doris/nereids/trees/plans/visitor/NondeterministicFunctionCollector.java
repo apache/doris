@@ -17,31 +17,34 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Collect the nondeterministic expr in plan, these expressions will be put into context
  */
 public class NondeterministicFunctionCollector
-        extends DefaultPlanVisitor<Void, List<TreeNode<Expression>>> {
+        extends DefaultPlanVisitor<Void, List<Expression>> {
 
-    public static final NondeterministicFunctionCollector INSTANCE
-            = new NondeterministicFunctionCollector();
+    public static final NondeterministicFunctionCollector INSTANCE = new NondeterministicFunctionCollector();
 
     @Override
-    public Void visit(Plan plan, List<TreeNode<Expression>> collectedExpressions) {
+    public Void visit(Plan plan, List<Expression> collectedExpressions) {
         List<? extends Expression> expressions = plan.getExpressions();
         if (expressions.isEmpty()) {
             return super.visit(plan, collectedExpressions);
         }
-        expressions.forEach(expression -> {
-            collectedExpressions.addAll(expression.collect(Nondeterministic.class::isInstance));
-        });
+        for (Expression expression : expressions) {
+            Set<Expression> nondeterministicFunctions =
+                    expression.collect(expr -> !((ExpressionTrait) expr).isDeterministic()
+                            && expr instanceof FunctionTrait);
+            collectedExpressions.addAll(nondeterministicFunctions);
+        }
         return super.visit(plan, collectedExpressions);
     }
 }

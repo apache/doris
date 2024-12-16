@@ -23,7 +23,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.cloud.load.CloudCopyJob;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -36,12 +36,14 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -49,12 +51,14 @@ import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -81,36 +85,50 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
+public abstract class LoadJob extends AbstractTxnStateChangeCallback
+                implements LoadTaskCallback, Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(LoadJob.class);
 
-    protected static final String DPP_NORMAL_ALL = "dpp.norm.ALL";
-    protected static final String DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
+    public static final String DPP_NORMAL_ALL = "dpp.norm.ALL";
+    public static final String DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
     public static final String UNSELECTED_ROWS = "unselected.rows";
 
+    @SerializedName("id")
     protected long id;
     // input params
+    @SerializedName("did")
     protected long dbId;
+    @SerializedName("lb")
     protected String label;
+    @SerializedName("st")
     protected JobState state = JobState.PENDING;
+    @SerializedName("jt")
     protected EtlJobType jobType;
     // the auth info could be null when load job is created before commit named 'Persist auth info in load job'
+    @SerializedName("ai")
     protected AuthorizationInfo authorizationInfo;
 
+    @SerializedName("ct")
     protected long createTimestamp = System.currentTimeMillis();
+    @SerializedName("lst")
     protected long loadStartTimestamp = -1;
+    @SerializedName("ft")
     protected long finishTimestamp = -1;
 
+    @SerializedName("txid")
     protected long transactionId;
+    @SerializedName("fm")
     protected FailMsg failMsg;
     protected Map<Long, LoadTask> idToTasks = Maps.newConcurrentMap();
     protected Set<Long> finishedTaskIds = Sets.newHashSet();
+    @SerializedName("lsts")
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
     // 99: all of tasks have been finished
     // 100: txn status is visible and load has been finished
+    @SerializedName("pgs")
     protected int progress;
 
     // non-persistence
@@ -126,6 +144,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected LoadStatistic loadStatistic = new LoadStatistic();
 
     // This map is used to save job property.
+    @SerializedName("jp")
     private Map<String, Object> jobProperties = Maps.newHashMap();
 
     // only for persistence param. see readFields() for usage
@@ -133,8 +152,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
+    @SerializedName("ui")
     protected UserIdentity userInfo = UserIdentity.UNKNOWN;
 
+    @SerializedName("cmt")
     protected String comment = "";
 
     protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;
@@ -248,7 +269,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      *
      * @return
      */
-    abstract Set<String> getTableNames() throws MetaNotFoundException;
+    public abstract Set<String> getTableNames() throws MetaNotFoundException;
 
     // return true if the corresponding transaction is done(COMMITTED, FINISHED, CANCELLED, RETRY)
     public boolean isTxnDone() {
@@ -306,6 +327,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             case HADOOP:
                 timeout = Config.hadoop_load_default_timeout_second;
                 break;
+            case COPY:
             case BROKER:
                 timeout = Config.broker_load_default_timeout_second;
                 break;
@@ -496,7 +518,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    private void checkAuth(String command) throws DdlException {
+    public void checkAuth(String command) throws DdlException {
         if (authorizationInfo == null) {
             // use the old method to check priv
             checkAuthWithoutAuthInfo(command);
@@ -523,15 +545,17 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Set<String> tableNames = getTableNames();
             if (tableNames.isEmpty()) {
                 // forward compatibility
-                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                        PrivPredicate.LOAD)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                                PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             Privilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                            tblName, PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                                    tblName, PrivPredicate.LOAD)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                 command,
                                 ConnectContext.get().getQualifiedUser(),
@@ -542,6 +566,55 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
+    }
+
+    protected void unprotectedExecuteRetry(FailMsg failMsg) {
+        LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id).add("transaction_id", transactionId)
+                .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg()).build());
+
+        // get load ids of all loading tasks, we will cancel their coordinator process later
+        List<TUniqueId> loadIds = Lists.newArrayList();
+        for (LoadTask loadTask : idToTasks.values()) {
+            if (loadTask instanceof LoadLoadingTask) {
+                loadIds.add(((LoadLoadingTask) loadTask).getLoadId());
+            }
+        }
+
+        // set failMsg and state
+        this.failMsg = failMsg;
+        if (failMsg.getCancelType() == CancelType.TXN_UNKNOWN) {
+            // for bug fix, see LoadManager's fixLoadJobMetaBugs() method
+            finishTimestamp = createTimestamp;
+        } else {
+            finishTimestamp = System.currentTimeMillis();
+        }
+
+        // remove callback before abortTransaction(), so that the afterAborted() callback will not be called again
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+        // abort txn by label, because transactionId here maybe -1
+        try {
+            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
+                    .add("label", label)
+                    .add("msg", "begin to abort txn")
+                    .build());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, label, failMsg.getMsg());
+        } catch (UserException e) {
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                    .add("label", label)
+                    .add("error_msg", "failed to abort txn when job is cancelled. " + e.getMessage())
+                    .build());
+        }
+
+        // cancel all running coordinators, so that the scheduler's worker thread will be released
+        for (TUniqueId loadId : loadIds) {
+            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
+            if (coordinator != null) {
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, failMsg.getMsg()));
+            }
+        }
+
+        // change state
+        state = JobState.RETRY;
     }
 
     /**
@@ -600,7 +673,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, failMsg.getMsg()));
             }
         }
 
@@ -647,86 +720,106 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         failMsg = loadJobFinalOperation.getFailMsg();
     }
 
-    public List<Comparable> getShowInfo() throws DdlException {
+    public List<TUniqueId> getLoadTaskIds() {
         readLock();
         try {
-            // check auth
-            checkAuth("SHOW LOAD");
-            List<Comparable> jobInfo = Lists.newArrayList();
-            // jobId
-            jobInfo.add(id);
-            // label
-            jobInfo.add(label);
-            // state
-            jobInfo.add(state.name());
-
-            // progress
-            // check null
-            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(id));
-            switch (state) {
-                case PENDING:
-                    jobInfo.add("0%");
-                    break;
-                case CANCELLED:
-                    jobInfo.add(progress);
-                    break;
-                case ETL:
-                    jobInfo.add(progress);
-                    break;
-                default:
-                    jobInfo.add(progress);
-                    break;
+            List<TUniqueId> res = Lists.newArrayList();
+            for (LoadTask task : idToTasks.values()) {
+                if (task instanceof LoadLoadingTask) {
+                    LoadLoadingTask loadLoadingTask = (LoadLoadingTask) task;
+                    res.add(loadLoadingTask.getLoadId());
+                }
             }
-
-            // type
-            jobInfo.add(jobType);
-
-            // etl info
-            if (loadingStatus.getCounters().size() == 0) {
-                jobInfo.add(FeConstants.null_string);
-            } else {
-                jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadingStatus.getCounters()));
-            }
-
-            // task info
-            jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
-                    + "; max_filter_ratio:" + getMaxFilterRatio() + "; priority:" + getPriority());
-            // error msg
-            if (failMsg == null) {
-                jobInfo.add(FeConstants.null_string);
-            } else {
-                jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
-            }
-
-            // create time
-            jobInfo.add(TimeUtils.longToTimeString(createTimestamp));
-            // etl start time
-            jobInfo.add(TimeUtils.longToTimeString(getEtlStartTimestamp()));
-            // etl end time
-            jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
-            // load start time
-            jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
-            // load end time
-            jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
-            // tracking url
-            jobInfo.add(loadingStatus.getTrackingUrl());
-            jobInfo.add(loadStatistic.toJson());
-            // transaction id
-            jobInfo.add(transactionId);
-            // error tablets
-            jobInfo.add(errorTabletsToJson());
-            // user, some load job may not have user info
-            if (userInfo == null || userInfo.getQualifiedUser() == null) {
-                jobInfo.add(FeConstants.null_string);
-            } else {
-                jobInfo.add(userInfo.getQualifiedUser());
-            }
-            // comment
-            jobInfo.add(comment);
-            return jobInfo;
+            return res;
         } finally {
             readUnlock();
         }
+    }
+
+    public List<Comparable> getShowInfo() throws DdlException {
+        readLock();
+        try {
+            return getShowInfoUnderLock();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    protected List<Comparable> getShowInfoUnderLock() throws DdlException {
+        // check auth
+        List<Comparable> jobInfo = Lists.newArrayList();
+        // jobId
+        jobInfo.add(id);
+        // label
+        jobInfo.add(label);
+        // state
+        jobInfo.add(state.name());
+
+        // progress
+        // check null
+        String progress = Env.getCurrentProgressManager()
+                .getProgressInfo(String.valueOf(id), state == JobState.FINISHED);
+        switch (state) {
+            case PENDING:
+                jobInfo.add("0%");
+                break;
+            case CANCELLED:
+                jobInfo.add(progress);
+                break;
+            case ETL:
+                jobInfo.add(progress);
+                break;
+            default:
+                jobInfo.add(progress);
+                break;
+        }
+
+        // type
+        jobInfo.add(jobType);
+
+        // etl info
+        if (loadingStatus.getCounters().size() == 0) {
+            jobInfo.add(FeConstants.null_string);
+        } else {
+            jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadingStatus.getCounters()));
+        }
+
+        // task info
+        jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
+                + "; max_filter_ratio:" + getMaxFilterRatio());
+        // error msg
+        if (failMsg == null) {
+            jobInfo.add(FeConstants.null_string);
+        } else {
+            jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
+        }
+
+        // create time
+        jobInfo.add(TimeUtils.longToTimeString(createTimestamp));
+        // etl start time
+        jobInfo.add(TimeUtils.longToTimeString(getEtlStartTimestamp()));
+        // etl end time
+        jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
+        // load start time
+        jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
+        // load end time
+        jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
+        // tracking url
+        jobInfo.add(loadingStatus.getTrackingUrl());
+        jobInfo.add(loadStatistic.toJson());
+        // transaction id
+        jobInfo.add(transactionId);
+        // error tablets
+        jobInfo.add(errorTabletsToJson());
+        // user
+        if (userInfo == null || userInfo.getQualifiedUser() == null) {
+            jobInfo.add(FeConstants.null_string);
+        } else {
+            jobInfo.add(userInfo.getQualifiedUser());
+        }
+        // comment
+        jobInfo.add(comment);
+        return jobInfo;
     }
 
     public String errorTabletsToJson() {
@@ -758,6 +851,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public static LoadJob read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), LoadJob.class);
+        }
+
         LoadJob job = null;
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
@@ -769,7 +866,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } else if (type == EtlJobType.MINI) {
             job = new MiniLoadJob();
         } else if (type == EtlJobType.COPY) {
-            job = new CloudCopyJob();
+            job = new CopyJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
@@ -941,47 +1038,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // Add the type of load secondly
-        Text.writeString(out, jobType.name());
-
-        out.writeLong(id);
-        out.writeLong(dbId);
-        Text.writeString(out, label);
-        Text.writeString(out, state.name());
-        out.writeLong(createTimestamp);
-        out.writeLong(loadStartTimestamp);
-        out.writeLong(finishTimestamp);
-        if (failMsg == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            failMsg.write(out);
-        }
-        out.writeInt(progress);
-        loadingStatus.write(out);
-        out.writeLong(transactionId);
-        if (authorizationInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            authorizationInfo.write(out);
-        }
-
-        out.writeInt(this.jobProperties.size());
-        for (Map.Entry<String, Object> entry : jobProperties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, String.valueOf(entry.getValue()));
-        }
-        if (userInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            userInfo.write(out);
-        }
-        Text.writeString(out, comment);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    protected void readFields(DataInput in) throws IOException {
 
         if (!isJobTypeRead) {
             jobType = EtlJobType.valueOf(Text.readString(in));
@@ -1033,6 +1093,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             comment = Text.readString(in);
         } else {
             comment = "";
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        Map<String, String> tmpProperties = Maps.newHashMap();
+        for (Map.Entry<String, Object> entry : jobProperties.entrySet()) {
+            tmpProperties.put(entry.getKey(), String.valueOf(entry.getValue()));
+        }
+        jobProperties = Maps.newHashMap();
+        // init jobProperties
+        try {
+            setJobProperties(tmpProperties);
+        } catch (Exception e) {
+            // should not happen
+            throw new IOException("failed to replay job property", e);
         }
     }
 
@@ -1100,7 +1176,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
     }
 
-    protected void setTimeout(long timeout) {
+    public void setTimeout(long timeout) {
         jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
     }
 
@@ -1129,11 +1205,19 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public int getLoadParallelism() {
-        return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
+        if (jobProperties.get(LoadStmt.LOAD_PARALLELISM).getClass() == Integer.class) {
+            return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
+        } else {
+            return ((Long) jobProperties.get(LoadStmt.LOAD_PARALLELISM)).intValue();
+        }
     }
 
     public int getSendBatchParallelism() {
-        return (int) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM);
+        if (jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM).getClass() == Integer.class) {
+            return (int) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM);
+        } else {
+            return ((Long) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM)).intValue();
+        }
     }
 
     public LoadTask.Priority getPriority() {
@@ -1142,10 +1226,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public boolean isSingleTabletLoadPerSink() {
         return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
-    }
-
-    public boolean useNewLoadScanNode() {
-        return (boolean) jobProperties.getOrDefault(LoadStmt.USE_NEW_LOAD_SCAN_NODE, false);
     }
 
     // Return true if this job is finished for a long time
@@ -1158,6 +1238,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             expireTime = Config.streaming_label_keep_max_second;
         }
 
+        LOG.info("state {}, expireTime {}, currentTimeMs {}, finishTimestamp {}",
+                state, expireTime, currentTimeMs, getFinishTimestamp());
         return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
     }
 

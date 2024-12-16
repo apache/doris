@@ -17,14 +17,24 @@
 #
 
 ---
-name: BE Code Formatter
+name: Code Formatter
 
-on: [push, pull_request_target]
-
+on:
+  pull_request:
+  pull_request_target:
+  workflow_dispatch:
+  issue_comment:
+    types: [ created ]
 jobs:
   clang-format:
     name: "Clang Formatter"
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request') || (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.body == 'run buildall' &&
+       github.actor == 'doris-robot' &&
+       github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         if: ${{ github.event_name != 'pull_request_target' }}
@@ -52,9 +62,11 @@ jobs:
         id: filter
         with:
           filters: |
-            be_changes:
+            changes:
               - 'be/src/**'
               - 'be/test/**'
+              - 'cloud/src/**'
+              - 'cloud/test/**'
 
       - name: Checkout clang-format-lint-action
         run: |
@@ -62,18 +74,23 @@ jobs:
           git clone https://github.com/DoozyX/clang-format-lint-action .github/actions/clang-format-lint-action
 
           pushd .github/actions/clang-format-lint-action &>/dev/null
-          git checkout 6adbe14579e5b8e19eb3e31e5ff2479f3bd302c7
+          git checkout c71d0bf4e21876ebec3e5647491186f8797fde31 # v0.18.2
           popd &>/dev/null
 
-      - name: "Format it!"
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
-        uses: ./.github/actions/clang-format-lint-action
-        id: be_clang_format
+      - name: Install Python dependencies
+        uses: actions/setup-python@v5
         with:
-          source: "be/src be/test"
+          python-version: '3.10'  # Adjust if needed
+
+      - name: "Format it!"
+        if: ${{ steps.filter.outputs.changes == 'true' }}
+        uses: ./.github/actions/clang-format-lint-action
+        id: clang_format
+        with:
+          source: "be/src be/test cloud/src cloud/test"
           clangFormatVersion: 16
           inplace: False
 
       - name: Ignore it!
-        if: ${{ steps.filter.outputs.be_changes == 'false' }}
+        if: ${{ steps.filter.outputs.changes == 'false' }}
         run: echo 'No need to check.'

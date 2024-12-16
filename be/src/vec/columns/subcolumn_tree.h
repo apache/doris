@@ -21,8 +21,10 @@
 #pragma once
 #include <memory>
 
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "vec/columns/column.h"
-#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
@@ -47,7 +49,6 @@ public:
         Kind kind = TUPLE;
         const Node* parent = nullptr;
 
-        Arena strings_pool;
         std::unordered_map<StringRef, std::shared_ptr<Node>, StringRefHash> children;
 
         NodeData data;
@@ -71,9 +72,14 @@ public:
             kind = Kind::SCALAR;
         }
 
-        void add_child(std::string_view key, std::shared_ptr<Node> next_node) {
+        void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& strings_pool) {
             next_node->parent = this;
-            StringRef key_ref {strings_pool.insert(key.data(), key.length()), key.length()};
+            StringRef key_ref;
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->subcolumns_tree_tracker());
+                key_ref = {strings_pool.insert(key.data(), key.length()), key.length()};
+            }
             children[key_ref] = std::move(next_node);
         }
 
@@ -131,8 +137,14 @@ public:
     using NodeCreator = std::function<NodePtr(NodeKind, bool)>;
 
     // create root as SCALAR node
+    void create_root(NodeData&& leaf_data) {
+        root = std::make_shared<Node>(Node::SCALAR, std::move(leaf_data));
+        leaves.push_back(root);
+    }
+
+    // create root as SCALAR node
     void create_root(const NodeData& leaf_data) {
-        root = std::make_shared<Node>(Node::SCALAR, leaf_data);
+        root = std::make_shared<Node>(Node::SCALAR, std::move(leaf_data));
         leaves.push_back(root);
     }
 
@@ -156,14 +168,10 @@ public:
             if (it != current_node->children.end()) {
                 current_node = it->second.get();
                 node_creator(current_node->kind, true);
-
-                if (current_node->is_nested() != parts[i].is_nested) {
-                    return false;
-                }
             } else {
                 auto next_kind = parts[i].is_nested ? Node::NESTED : Node::TUPLE;
                 auto next_node = node_creator(next_kind, false);
-                current_node->add_child(String(parts[i].key), next_node);
+                current_node->add_child(String(parts[i].key), next_node, *strings_pool);
                 current_node = next_node.get();
             }
         }
@@ -179,7 +187,7 @@ public:
         }
 
         auto next_node = node_creator(Node::SCALAR, false);
-        current_node->add_child(String(parts.back().key), next_node);
+        current_node->add_child(String(parts.back().key), next_node, *strings_pool);
         leaves.push_back(std::move(next_node));
 
         return true;
@@ -188,24 +196,15 @@ public:
     /// Find node that matches the path the best.
     const Node* find_best_match(const PathInData& path) const { return find_impl(path, false); }
 
-    /// Find node that matches the path exactly.
-    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
-
-    /// Find leaf by path.
-    const Node* find_leaf(const PathInData& path) const {
-        const auto* candidate = find_exact(path);
-        if (!candidate || !candidate->is_scalar()) {
-            return nullptr;
-        }
-        return candidate;
-    }
-
     using NodePredicate = std::function<bool(const Node&)>;
 
     /// Finds leaf that satisfies the predicate.
     const Node* find_leaf(const NodePredicate& predicate) {
         return find_leaf(root.get(), predicate);
     }
+
+    /// Find node that matches the path exactly.
+    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
 
     static const Node* find_leaf(const Node* node, const NodePredicate& predicate) {
         if (!node) {
@@ -223,6 +222,50 @@ public:
             }
         }
         return nullptr;
+    }
+
+    /// Find leaf by path.
+    const Node* find_leaf(const PathInData& path) const {
+        const auto* candidate = find_exact(path);
+        if (!candidate || !candidate->is_scalar()) {
+            return nullptr;
+        }
+        return candidate;
+    }
+
+    const Node* get_leaf_of_the_same_nested(const PathInData& path,
+                                            const NodePredicate& pred) const {
+        if (!path.has_nested_part()) {
+            return nullptr;
+        }
+
+        const auto* current_node = find_leaf(path);
+        const Node* leaf = nullptr;
+
+        while (current_node) {
+            /// Try to find the first Nested up to the current node.
+            const auto* node_nested = find_parent(current_node, [](const auto& candidate) -> bool {
+                return candidate.is_nested();
+            });
+
+            if (!node_nested) {
+                break;
+            }
+
+            /// Find the leaf with subcolumn that contains values
+            /// for the last rows.
+            /// If there are no leaves, skip current node and find
+            /// the next node up to the current.
+            leaf = SubcolumnsTree<NodeData>::find_leaf(node_nested, pred);
+
+            if (leaf) {
+                break;
+            }
+
+            current_node = node_nested->parent;
+        }
+
+        return leaf;
     }
 
     /// Find first parent node that satisfies the predicate.
@@ -264,6 +307,17 @@ public:
     const_iterator begin() const { return leaves.begin(); }
     const_iterator end() const { return leaves.end(); }
 
+    ~SubcolumnsTree() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
+        strings_pool.reset();
+    }
+
+    SubcolumnsTree() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
+        SCOPED_SKIP_MEMORY_CHECK();
+        strings_pool = std::make_shared<Arena>();
+    }
+
 private:
     const Node* find_impl(const PathInData& path, bool find_exact) const {
         if (!root) {
@@ -284,7 +338,7 @@ private:
 
         return current_node;
     }
-
+    std::shared_ptr<Arena> strings_pool;
     NodePtr root;
     Nodes leaves;
 };

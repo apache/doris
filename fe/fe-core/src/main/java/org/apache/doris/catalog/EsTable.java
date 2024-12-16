@@ -24,10 +24,12 @@ import org.apache.doris.datasource.es.EsMetaStateTracker;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsTablePartitions;
 import org.apache.doris.datasource.es.EsUtil;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -36,9 +38,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -50,8 +51,11 @@ import java.util.Set;
  **/
 @Getter
 @Setter
-public class EsTable extends Table {
-    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Collections.singletonList("text"));
+public class EsTable extends Table implements GsonPostProcessable {
+    // reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/doc-values.html
+    // https://www.elastic.co/guide/en/elasticsearch/reference/current/text.html
+    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS =
+            new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
 
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
     // Solr doc_values vs stored_fields performance-smackdown indicate:
@@ -65,6 +69,7 @@ public class EsTable extends Table {
     // Here we have a slightly conservative value of 20, but at the same time
     // we also provide configurable parameters for expert-using
     // @see `MAX_DOCVALUE_FIELDS`
+    @Getter
     private static final int DEFAULT_MAX_DOCVALUE_FIELDS = 20;
     private String hosts;
     private String[] seeds;
@@ -77,6 +82,7 @@ public class EsTable extends Table {
     private String mappingType = null;
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
+    @SerializedName("pi")
     private PartitionInfo partitionInfo;
     private EsTablePartitions esTablePartitions;
 
@@ -101,6 +107,7 @@ public class EsTable extends Table {
     private boolean includeHiddenIndex = Boolean.parseBoolean(EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE);
 
     // tableContext is used for being convenient to persist some configuration parameters uniformly
+    @SerializedName("tc")
     private Map<String, String> tableContext = new HashMap<>();
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
@@ -111,6 +118,9 @@ public class EsTable extends Table {
 
     // Periodically pull es metadata
     private EsMetaStateTracker esMetaStateTracker;
+
+    // column name -> elasticsearch field data type
+    private Map<String, String> column2typeMap = new HashMap<>();
 
     public EsTable() {
         super(TableType.ELASTICSEARCH);
@@ -261,18 +271,7 @@ public class EsTable extends Table {
         return md5;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(tableContext.size());
-        for (Map.Entry<String, String> entry : tableContext.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-        Text.writeString(out, partitionInfo.getType().name());
-        partitionInfo.write(out);
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -319,6 +318,37 @@ public class EsTable extends Table {
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
+    public void gsonPostProcess() throws IOException {
+        hosts = tableContext.get("hosts");
+        seeds = hosts.split(",");
+        userName = tableContext.get("userName");
+        passwd = tableContext.get("passwd");
+        indexName = tableContext.get("indexName");
+        mappingType = tableContext.get("mappingType");
+
+        enableDocValueScan = Boolean.parseBoolean(
+                tableContext.getOrDefault("enableDocValueScan", EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
+        enableKeywordSniff = Boolean.parseBoolean(
+                tableContext.getOrDefault("enableKeywordSniff", EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
+        if (tableContext.containsKey("maxDocValueFields")) {
+            try {
+                maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
+            } catch (Exception e) {
+                maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
+            }
+        }
+        nodesDiscovery = Boolean.parseBoolean(
+                tableContext.getOrDefault(EsResource.NODES_DISCOVERY, EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
+        httpSslEnabled = Boolean.parseBoolean(
+                tableContext.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
+        likePushDown = Boolean.parseBoolean(
+                tableContext.getOrDefault(EsResource.LIKE_PUSH_DOWN, EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
+        includeHiddenIndex = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
+                EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
+
+        client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
+    }
+
     /**
      * Sync es index meta from remote ES Cluster.
      */
@@ -339,6 +369,6 @@ public class EsTable extends Table {
     }
 
     public List<Column> genColumnsFromEs() {
-        return EsUtil.genColumnsFromEs(client, indexName, mappingType, false);
+        return EsUtil.genColumnsFromEs(client, indexName, mappingType, false, column2typeMap);
     }
 }

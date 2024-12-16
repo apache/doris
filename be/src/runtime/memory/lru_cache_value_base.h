@@ -25,27 +25,30 @@ namespace doris {
 // Base of the lru cache value.
 class LRUCacheValueBase {
 public:
-    LRUCacheValueBase() = delete;
-    LRUCacheValueBase(CachePolicy::CacheType type) {
-        _mem_tracker = CacheManager::instance()->get_cache(type)->mem_tracker();
-    }
-    LRUCacheValueBase(const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : _mem_tracker(mem_tracker) {}
-
     virtual ~LRUCacheValueBase() {
         if (_tracking_bytes > 0) {
-            // value not alloc use Allocator
-            _mem_tracker->cache_consume(-_tracking_bytes);
+            _mem_tracker->release(_tracking_bytes);
+            _value_mem_tracker->release(_value_tracking_bytes);
         }
     }
 
-    void set_tracking_bytes(size_t tracking_bytes) { this->_tracking_bytes = tracking_bytes; }
-
-    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
+    void set_tracking_bytes(size_t tracking_bytes,
+                            const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                            size_t value_tracking_bytes,
+                            const std::shared_ptr<MemTracker>& value_mem_tracker) {
+        this->_tracking_bytes = tracking_bytes;
+        this->_mem_tracker = mem_tracker;
+        this->_value_tracking_bytes = value_tracking_bytes;
+        this->_value_mem_tracker = value_mem_tracker;
+        _mem_tracker->consume(_tracking_bytes);
+        _value_mem_tracker->consume(_value_tracking_bytes);
+    }
 
 protected:
     size_t _tracking_bytes = 0;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker = nullptr;
+    size_t _value_tracking_bytes = 0;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTracker> _value_mem_tracker;
 };
 
 } // namespace doris

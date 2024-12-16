@@ -19,10 +19,15 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.Set;
 
@@ -52,7 +57,14 @@ public class UserAuthentication {
             return;
         }
         String ctlName = catalog.getName();
-        connectContext.getEnv().getAccessManager().checkColumnsPriv(
-                connectContext.getCurrentUserIdentity(), ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
+        AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
+        if (CollectionUtils.isEmpty(columns)) {
+            if (!accessManager.checkTblPriv(connectContext, ctlName, dbName, tableName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName);
+            }
+        } else {
+            accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, columns, PrivPredicate.SELECT);
+        }
     }
 }

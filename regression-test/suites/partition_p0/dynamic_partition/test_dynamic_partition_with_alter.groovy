@@ -35,7 +35,7 @@ suite("test_dynamic_partition_with_alter") {
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
 
-    result = sql "show partitions from ${tbl}"
+    def result = sql "show partitions from ${tbl}"
     assertEquals(7, result.size())
 
     try {
@@ -47,6 +47,11 @@ suite("test_dynamic_partition_with_alter") {
         test {
             sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483647')"
             exception "Too many dynamic partitions"
+        }
+
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.time_uint' = 'day')"
+            exception "Invalid dynamic partition properties: dynamic_partition.time_uint"
         }
     } catch (Exception e) {
         sql "drop table if exists ${tbl}"

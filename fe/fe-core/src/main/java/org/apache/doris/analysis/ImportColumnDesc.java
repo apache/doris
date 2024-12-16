@@ -21,9 +21,12 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 public class ImportColumnDesc {
+    @SerializedName("cn")
     private String columnName;
+    @SerializedName("expr")
     private Expr expr;
 
     public ImportColumnDesc(ImportColumnDesc other) {

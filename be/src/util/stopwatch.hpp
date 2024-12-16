@@ -38,6 +38,8 @@ public:
         _running = false;
     }
 
+    timespec start_time() const { return _start; }
+
     void start() {
         if (!_running) {
             clock_gettime(Clock, &_start);
@@ -73,6 +75,14 @@ public:
         clock_gettime(Clock, &end);
         return (end.tv_sec - _start.tv_sec) * 1000L * 1000L * 1000L +
                (end.tv_nsec - _start.tv_nsec);
+    }
+
+    // Returns time in nanosecond.
+    int64_t elapsed_time_seconds(timespec end) const {
+        if (!_running) {
+            return _total_time / 1000L / 1000L / 1000L;
+        }
+        return end.tv_sec - _start.tv_sec;
     }
 
 private:

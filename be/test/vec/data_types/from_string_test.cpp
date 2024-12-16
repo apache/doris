@@ -103,7 +103,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                          "12345678901234567.012345677", "12345678901234567.012345677",
                          "999999999999999999.999999999"},
                         {"12345678901234567.012345678", "123456789012345678.012345670",
-                         "12345678901234567.012345678", "", ""}),
+                         "12345678901234567.012345678", "12345678901234567.012345678", ""}),
                 // decimal32 ==>  decimal32(9,2)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                   // (7,2)         (6,3)         (7,3)           (8,1)
@@ -158,7 +158,11 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             DataTypePtr data_type_ptr;
             int precision = 0;
             int scale = 0;
-            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+                precision = 27;
+                scale = 9;
+            } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
                 precision = 9;

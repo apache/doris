@@ -37,10 +37,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
@@ -58,7 +60,8 @@ import java.util.List;
 
 public class IndexChangeJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(IndexChangeJob.class);
-
+    static final int MAX_FAILED_NUM = 10;
+    static final int MIN_FAILED_NUM = 3;
 
     public enum JobState {
         // CHECKSTYLE OFF
@@ -106,6 +109,8 @@ public class IndexChangeJob implements Writable {
     private long originIndexId;
     @SerializedName(value = "invertedIndexBatchTask")
     AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
+    @SerializedName(value = "timeoutMs")
+    protected long timeoutMs = -1;
 
     public IndexChangeJob() {
         this.jobId = -1;
@@ -117,7 +122,7 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.WAITING_TXN;
     }
 
-    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName) throws Exception {
+    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName, long timeoutMs) throws Exception {
         this.jobId = jobId;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -126,6 +131,7 @@ public class IndexChangeJob implements Writable {
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.WAITING_TXN;
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+        this.timeoutMs = timeoutMs;
     }
 
     public long getJobId() {
@@ -206,6 +212,10 @@ public class IndexChangeJob implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    public boolean isTimeout() {
+        return System.currentTimeMillis() - createTimeMs > timeoutMs;
+    }
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
@@ -217,6 +227,10 @@ public class IndexChangeJob implements Writable {
      *      db lock
      */
     public synchronized void run() {
+        if (isTimeout()) {
+            cancelImpl("Timeout");
+            return;
+        }
         try {
             switch (jobState) {
                 case WAITING_TXN:
@@ -235,6 +249,31 @@ public class IndexChangeJob implements Writable {
 
     public final synchronized boolean cancel(String errMsg) {
         return cancelImpl(errMsg);
+    }
+
+    /**
+     * should be called before executing the job.
+     * return false if table is not stable.
+     */
+    protected boolean checkTableStable(OlapTable tbl) throws AlterCancelException {
+        tbl.writeLockOrAlterCancelException();
+        try {
+            boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
+                    Env.getCurrentEnv().getTabletScheduler());
+
+            if (!isStable) {
+                errMsg = "table is unstable";
+                LOG.warn("wait table {} to be stable before doing index change job", tableId);
+                return false;
+            } else {
+                // table is stable
+                LOG.info("table {} is stable, start index change job {}", tableId, jobId);
+                errMsg = "";
+                return true;
+            }
+        } finally {
+            tbl.writeUnlock();
+        }
     }
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
@@ -265,6 +304,10 @@ public class IndexChangeJob implements Writable {
             throw new AlterCancelException(e.getMessage());
         }
 
+        if (!checkTableStable(olapTable)) {
+            return;
+        }
+
         olapTable.readLock();
         try {
             List<Column> originSchemaColumns = olapTable.getSchemaByIndexId(originIndexId, true);
@@ -280,13 +323,14 @@ public class IndexChangeJob implements Writable {
                 long originTabletId = originTablet.getId();
                 List<Replica> originReplicas = originTablet.getReplicas();
                 for (Replica originReplica : originReplicas) {
-                    if (originReplica.getBackendId() < 0) {
-                        LOG.warn("replica:{}, backendId: {}", originReplica, originReplica.getBackendId());
+                    if (originReplica.getBackendIdWithoutException() < 0) {
+                        LOG.warn("replica:{}, backendId: {}", originReplica,
+                                originReplica.getBackendIdWithoutException());
                         throw new AlterCancelException("originReplica:" + originReplica.getId()
                                 + " backendId < 0");
                     }
                     AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
-                            originReplica.getBackendId(), db.getId(), olapTable.getId(),
+                            originReplica.getBackendIdWithoutException(), db.getId(), olapTable.getId(),
                             partitionId, originIndexId, originTabletId,
                             originSchemaHash, olapTable.getIndexes(),
                             alterInvertedIndexes, originSchemaColumns,
@@ -297,27 +341,58 @@ public class IndexChangeJob implements Writable {
 
             LOG.info("invertedIndexBatchTask:{}", invertedIndexBatchTask);
             AgentTaskQueue.addBatchTask(invertedIndexBatchTask);
-            AgentTaskExecutor.submit(invertedIndexBatchTask);
+            if (!FeConstants.runningUnitTest) {
+                AgentTaskExecutor.submit(invertedIndexBatchTask);
+            }
         } finally {
             olapTable.readUnlock();
         }
         this.jobState = JobState.RUNNING;
+        // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer inverted index job {} state to {}", jobId, this.jobState);
     }
 
     protected void runRunningJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
+        // must check if db or table still exist first.
+        // or if table is dropped, the tasks will never be finished,
+        // and the job will be in RUNNING state forever.
+        Database db = Env.getCurrentInternalCatalog()
+                .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        try {
+            db.getTableOrMetaException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
+        }
 
         if (!invertedIndexBatchTask.isFinished()) {
             LOG.info("inverted index tasks not finished. job: {}, partitionId: {}", jobId, partitionId);
-            // TODO: task failed limit
+            List<AgentTask> tasks = invertedIndexBatchTask.getUnfinishedTasks(2000);
+            for (AgentTask task : tasks) {
+                if (task.getFailedTimes() >= MIN_FAILED_NUM) {
+                    LOG.warn("alter inverted index task failed: " + task.getErrorMsg());
+                    // If error is obtaining lock failed.
+                    // we should do more tries.
+                    if (task.getErrorCode().equals(TStatusCode.OBTAIN_LOCK_FAILED)) {
+                        if (task.getFailedTimes() < MAX_FAILED_NUM) {
+                            continue;
+                        }
+                        throw new AlterCancelException("inverted index tasks failed times reach threshold "
+                            + MAX_FAILED_NUM + ", error: " + task.getErrorMsg());
+                    }
+                    throw new AlterCancelException("inverted index tasks failed times reach threshold "
+                        + MIN_FAILED_NUM + ", error: " + task.getErrorMsg());
+                }
+            }
             return;
         }
 
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        }
         LOG.info("inverted index job finished: {}", jobId);
     }
 
@@ -335,7 +410,9 @@ public class IndexChangeJob implements Writable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        }
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
         return true;
     }
@@ -391,6 +468,10 @@ public class IndexChangeJob implements Writable {
         this.errMsg = replayedJob.errMsg;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 
     public static IndexChangeJob read(DataInput in) throws IOException {

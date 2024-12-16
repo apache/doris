@@ -24,8 +24,8 @@ suite ("where_invalid") {
             k2 int not null,
             k3 bigint null,
             k4 bigint sum null,
-            k5 bitmap bitmap_union null,
-            k6 hll hll_union null
+            k5 bitmap bitmap_union ,
+            k6 hll hll_union 
         )
         aggregate key (k1,k2,k3)
         distributed BY hash(k1) buckets 3

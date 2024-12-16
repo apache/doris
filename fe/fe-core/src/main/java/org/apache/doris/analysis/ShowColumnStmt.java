@@ -18,16 +18,21 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 // SHOW COLUMNS
-public class ShowColumnStmt extends ShowStmt {
+public class ShowColumnStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Field", ScalarType.createVarchar(20)))
             .addColumn(new Column("Type", ScalarType.createVarchar(20)))
@@ -102,6 +107,12 @@ public class ShowColumnStmt extends ShowStmt {
             metaData = META_DATA_VERBOSE;
         } else {
             metaData = META_DATA;
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.SHOW.getPrivs().toString(), tableName);
         }
     }
 

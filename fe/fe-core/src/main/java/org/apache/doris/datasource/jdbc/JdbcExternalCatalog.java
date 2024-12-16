@@ -17,11 +17,14 @@
 
 package org.apache.doris.datasource.jdbc;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -70,11 +73,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private transient JdbcClient jdbcClient;
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment, boolean isReplay)
+            String comment)
             throws DdlException {
         super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
-        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props, isReplay));
-        testJdbcConnection(isReplay);
+        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 
     @Override
@@ -85,10 +87,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
-
-        Map<String, String> propertiesWithoutCheckSum = Maps.newHashMap(catalogProperty.getProperties());
-        propertiesWithoutCheckSum.remove(JdbcResource.CHECK_SUM);
-        JdbcResource.validateProperties(propertiesWithoutCheckSum);
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
         JdbcResource.checkBooleanProperty(JdbcResource.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
@@ -102,11 +100,31 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void setDefaultPropsIfMissing(boolean isReplay) {
+        super.setDefaultPropsIfMissing(isReplay);
+        // Modify lower_case_table_names to lower_case_meta_names if it exists
+        if (catalogProperty.getProperties().containsKey("lower_case_table_names") && isReplay) {
+            String lowerCaseTableNamesValue = catalogProperty.getProperties().get("lower_case_table_names");
+            catalogProperty.addProperty("lower_case_meta_names", lowerCaseTableNamesValue);
+            catalogProperty.deleteProperty("lower_case_table_names");
+            LOG.info("Modify lower_case_table_names to lower_case_meta_names, value: {}", lowerCaseTableNamesValue);
+        } else if (catalogProperty.getProperties().containsKey("lower_case_table_names") && !isReplay) {
+            throw new IllegalArgumentException("Jdbc catalog property lower_case_table_names is not supported,"
+                    + " please use lower_case_meta_names instead.");
+        }
+    }
+
+    @Override
     public void onRefresh(boolean invalidCache) {
         super.onRefresh(invalidCache);
         if (jdbcClient != null) {
             jdbcClient.closeClient();
         }
+    }
+
+    @Override
+    public void onRefreshCache(boolean invalidCache) {
+        onRefresh(invalidCache);
     }
 
     @Override
@@ -117,24 +135,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    protected Map<String, String> processCompatibleProperties(Map<String, String> props, boolean isReplay)
+    protected Map<String, String> processCompatibleProperties(Map<String, String> props)
             throws DdlException {
         Map<String, String> properties = Maps.newHashMap();
         for (Map.Entry<String, String> kv : props.entrySet()) {
             properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
         }
-
-        // Modify lower_case_table_names to lower_case_meta_names if it exists
-        if (properties.containsKey("lower_case_table_names") && isReplay) {
-            String lowerCaseTableNamesValue = properties.get("lower_case_table_names");
-            properties.put("lower_case_meta_names", lowerCaseTableNamesValue);
-            properties.remove("lower_case_table_names");
-            LOG.info("Modify lower_case_table_names to lower_case_meta_names, value: {}", lowerCaseTableNamesValue);
-        } else if (properties.containsKey("lower_case_table_names") && !isReplay) {
-            throw new DdlException("Jdbc catalog property lower_case_table_names is not supported,"
-                    + " please use lower_case_meta_names instead");
-        }
-
         String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
         if (!Strings.isNullOrEmpty(jdbcUrl)) {
             jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
@@ -212,7 +218,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public boolean isTestConnection() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.TEST_CONNECTION, "false"));
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.TEST_CONNECTION, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.TEST_CONNECTION)));
     }
 
     @Override
@@ -245,14 +252,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        JdbcExternalDatabase db = (JdbcExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (db != null && db.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            db.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return jdbcClient.getTablesNameList(dbName);
-        }
+        return jdbcClient.getTablesNameList(dbName);
     }
 
     @Override
@@ -262,10 +262,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
-        if (isReplay) {
-            return;
-        }
+    public void checkWhenCreating() throws DdlException {
+        super.checkWhenCreating();
         Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(JdbcResource.DRIVER_URL)) {
             String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
@@ -282,6 +280,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 catalogProperty.addProperty(JdbcResource.CHECK_SUM, computedChecksum);
             }
         }
+        testJdbcConnection();
     }
 
     /**
@@ -294,14 +293,47 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcClient.executeStmt(stmt);
     }
 
-    private void testJdbcConnection(boolean isReplay) throws DdlException {
-        if (!isReplay) {
-            if (isTestConnection()) {
-                try {
-                    initLocalObjectsImpl();
-                    testFeToJdbcConnection();
-                    testBeToJdbcConnection();
-                } finally {
+    /**
+     * Get columns from query
+     *
+     * @param query, the query string
+     * @return the columns
+     */
+    public List<Column> getColumnsFromQuery(String query) {
+        makeSureInitialized();
+        return jdbcClient.getColumnsFromQuery(query);
+    }
+
+    public void configureJdbcTable(JdbcTable jdbcTable, String tableName) {
+        jdbcTable.setCatalogId(this.getId());
+        jdbcTable.setExternalTableName(tableName);
+        jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
+        jdbcTable.setJdbcUrl(this.getJdbcUrl());
+        jdbcTable.setJdbcUser(this.getJdbcUser());
+        jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
+        jdbcTable.setDriverClass(this.getDriverClass());
+        jdbcTable.setDriverUrl(this.getDriverUrl());
+        jdbcTable.setCheckSum(this.getCheckSum());
+        jdbcTable.setResourceName(this.getResource());
+        jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
+        jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
+        jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
+        jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
+        jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+    }
+
+    private void testJdbcConnection() throws DdlException {
+        if (FeConstants.runningUnitTest) {
+            // skip test connection in unit test
+            return;
+        }
+        if (isTestConnection()) {
+            try {
+                initLocalObjectsImpl();
+                testFeToJdbcConnection();
+                testBeToJdbcConnection();
+            } finally {
+                if (jdbcClient != null) {
                     jdbcClient.closeClient();
                     jdbcClient = null;
                 }
@@ -321,10 +353,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     private void testBeToJdbcConnection() throws DdlException {
         Backend aliveBe = null;
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                aliveBe = be;
+        try {
+            for (Backend be : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
+                if (be.isAlive()) {
+                    aliveBe = be;
+                }
             }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
         }
         if (aliveBe == null) {
             throw new DdlException("Test BE Connection to JDBC Failed: No Alive backends");
@@ -352,19 +388,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private JdbcTable getTestConnectionJdbcTable() throws DdlException {
         JdbcTable jdbcTable = new JdbcTable(0, "test_jdbc_connection", Lists.newArrayList(),
                 TableType.JDBC_EXTERNAL_TABLE);
-        jdbcTable.setCatalogId(this.getId());
-        jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
-        jdbcTable.setJdbcUrl(this.getJdbcUrl());
-        jdbcTable.setJdbcUser(this.getJdbcUser());
-        jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
-        jdbcTable.setDriverClass(this.getDriverClass());
-        jdbcTable.setDriverUrl(this.getDriverUrl());
+        this.configureJdbcTable(jdbcTable, "test_jdbc_connection");
+
+        // Special checksum computation
         jdbcTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
-        jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
-        jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
-        jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
-        jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
-        jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+
         return jdbcTable;
     }
 }

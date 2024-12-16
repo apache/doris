@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -36,17 +38,16 @@ import java.util.List;
  * NOTICE: it's related with `SimplifyRange`.
  * They are same processes, so must change synchronously.
  */
-public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
-
-    public static InPredicateToEqualToRule INSTANCE = new InPredicateToEqualToRule();
+public class InPredicateToEqualToRule implements ExpressionPatternRuleFactory {
+    public static final InPredicateToEqualToRule INSTANCE = new InPredicateToEqualToRule();
 
     @Override
-    public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
-        Expression left = inPredicate.getCompareExpr();
-        List<Expression> right = inPredicate.getOptions();
-        if (right.size() != 1) {
-            return new InPredicate(left.accept(this, context), right);
-        }
-        return new EqualTo(left.accept(this, context), right.get(0).accept(this, context));
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(InPredicate.class)
+                    .when(in -> in.getOptions().size() == 1)
+                    .then(in -> new EqualTo(in.getCompareExpr(), in.getOptions().get(0))
+                )
+        );
     }
 }

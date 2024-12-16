@@ -31,6 +31,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 
 template <typename T>
@@ -76,18 +77,20 @@ struct AggregateFunctionProductData<Decimal128V2> {
 
     void reset(Decimal128V2 value) { product = std::move(value); }
 };
+template <typename T>
+concept DecimalTypeConcept = std::is_same_v<T, Decimal128V3> || std::is_same_v<T, Decimal256>;
 
-template <>
-struct AggregateFunctionProductData<Decimal128V3> {
-    Decimal128V3 product {};
+template <DecimalTypeConcept T>
+struct AggregateFunctionProductData<T> {
+    T product {};
 
     template <typename NestedType>
-    void add(Decimal<NestedType> value, Decimal128V3 multiplier) {
+    void add(Decimal<NestedType> value, T multiplier) {
         product *= value;
         product /= multiplier;
     }
 
-    void merge(const AggregateFunctionProductData& other, Decimal128V3 multiplier) {
+    void merge(const AggregateFunctionProductData& other, T multiplier) {
         product *= other.product;
         product /= multiplier;
     }
@@ -96,9 +99,9 @@ struct AggregateFunctionProductData<Decimal128V3> {
 
     void read(BufferReadable& buffer) { read_binary(product, buffer); }
 
-    Decimal128V2 get() const { return product; }
+    T get() const { return product; }
 
-    void reset(Decimal128V2 value) { product = value; }
+    void reset(T value) { product = std::move(value); }
 };
 
 template <typename T, typename TResult, typename Data>
@@ -133,7 +136,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(TResult(column.get_data()[row_num]), multiplier);
     }
 
@@ -171,3 +175,5 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

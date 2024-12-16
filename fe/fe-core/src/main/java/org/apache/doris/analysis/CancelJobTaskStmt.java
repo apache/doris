@@ -25,7 +25,7 @@ import org.apache.doris.common.UserException;
 
 import lombok.Getter;
 
-public class CancelJobTaskStmt extends DdlStmt {
+public class CancelJobTaskStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private String jobName;
@@ -68,5 +68,10 @@ public class CancelJobTaskStmt extends DdlStmt {
             throw new AnalysisException("task id  value must is large int");
         }
         this.taskId = ((IntLiteral) compoundPredicate.getChildren().get(1).getChild(1)).getLongValue();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
     }
 }

@@ -23,6 +23,7 @@
 #include <mutex>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/compaction.h"
@@ -35,6 +36,8 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 using namespace ErrorCode;
 
 BaseCompaction::BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)
@@ -80,7 +83,7 @@ Status BaseCompaction::execute_compact() {
 
     tablet()->set_last_base_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
+    DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_total_size);
 
     return Status::OK();
 }
@@ -151,6 +154,16 @@ Status BaseCompaction::pick_rowsets_to_compact() {
                 "situation, no need to do base compaction.");
     }
 
+    int score = 0;
+    int rowset_cnt = 0;
+    while (rowset_cnt < _input_rowsets.size()) {
+        score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
+        if (score > config::base_compaction_max_compaction_score) {
+            break;
+        }
+    }
+    _input_rowsets.resize(rowset_cnt);
+
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_min_rowset_num) {
         VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
@@ -174,7 +187,8 @@ Status BaseCompaction::pick_rowsets_to_compact() {
         // set to 1 to void divide by zero
         base_size = 1;
     }
-    double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
+    double cumulative_base_ratio =
+            cast_set<double>(cumulative_total_size) / cast_set<double>(base_size);
 
     if (cumulative_base_ratio > min_data_ratio) {
         VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()

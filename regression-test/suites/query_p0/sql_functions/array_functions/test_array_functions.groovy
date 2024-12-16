@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_array_functions") {
-    sql "SET enable_nereids_planner=false"
     def tableName = "tbl_test_array_functions"
     // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""
@@ -73,20 +72,20 @@ suite("test_array_functions") {
     qt_select_array_reverse_sort1 "SELECT k1, array_reverse_sort(k2), array_reverse_sort(k3), array_reverse_sort(k4) FROM ${tableName} ORDER BY k1"
     qt_select_array_reverse_sort2 "SELECT k1, array_reverse_sort(k8), array_reverse_sort(k10) FROM ${tableName} ORDER BY k1"
     qt_select_array_reverse_sort3 "SELECT k1, array_reverse_sort(k12) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_union(k2, k4) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_union(k8, k9) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_union(k10, k11) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_union(k12, k13) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_union(k2, k4)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_union(k8, k9)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_union(k10, k11)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_union(k12, k13)) FROM ${tableName} ORDER BY k1"
     // multi-params array_union
-    qt_select "SELECT k1, array_union(k2, k4, k14) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_except(k2, k4) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_except(k8, k9) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_except(k10, k11) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_except(k12, k13) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_intersect(k2, k4) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_intersect(k8, k9) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_intersect(k10, k11) FROM ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_intersect(k12, k13) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_union(k2, k4, k14)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_except(k2, k4)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_except(k8, k9)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_except(k10, k11)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_except(k12, k13)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_intersect(k2, k4)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_intersect(k8, k9)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_intersect(k10, k11)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(array_intersect(k12, k13)) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_slice(k2, 2) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_slice(k2, 1, 2) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_slice(k8, 1, 2) FROM ${tableName} ORDER BY k1"
@@ -273,8 +272,11 @@ suite("test_array_functions") {
     sql """ insert into ${tableName3} values (10006,'bbbbb',[60002,60002,60003,null,60005]) """
     
     qt_select_union "select class_id, student_ids, array_union(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
+    qt_select_union_left_const "select class_id, student_ids, array_union([1,2,3], student_ids,[1,2,3]) from ${tableName3} order by class_id;"
     qt_select_except "select class_id, student_ids, array_except(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
+    qt_select_except_left_const "select class_id, student_ids, array_except([1,2,3], student_ids) from ${tableName3} order by class_id;"
     qt_select_intersect "select class_id, student_ids, array_intersect(student_ids,[1,2,3,null]) from ${tableName3} order by class_id;"
+    qt_select_intersect_left_const "select class_id, student_ids, array_intersect([1,2,3,null], student_ids) from ${tableName3} order by class_id;"
 
     def tableName4 = "tbl_test_array_datetimev2_functions"
 
@@ -419,4 +421,26 @@ suite("test_array_functions") {
     qt_const_select "select sequence(cast('2022-35-38 12:00:10' as datetimev2(0)), cast('2022-05-18 22:00:30' as datetimev2(0))); "
     qt_const_select "select sequence(1, 10, 0); "
     qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 0 day); "
+    // test large size of array
+    test {
+        sql """ select sequence(cast('2022-05-01 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 10000000000 week); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }        
+    }
+    test {
+        sql """ select sequence(1, 10000000000); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql """ select sequence(1, 10000000000, 2); """
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 }

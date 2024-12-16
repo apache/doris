@@ -20,10 +20,8 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
@@ -60,8 +58,6 @@ protected:
     std::future<Status> _spill_merge_future;
     bool _current_partition_eos = true;
     bool _is_merging = false;
-    std::mutex _merge_spill_lock;
-    std::condition_variable _merge_spill_cv;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _get_results_timer = nullptr;
@@ -86,7 +82,6 @@ public:
     ~PartitionedAggSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 
@@ -96,9 +91,10 @@ public:
 
     bool is_source() const override { return true; }
 
+    bool is_serial_operator() const override;
+
 private:
     friend class PartitionedAggLocalState;
-    Status _initiate_merge_spill_partition_agg_data(RuntimeState* state);
 
     std::unique_ptr<AggSourceOperatorX> _agg_source_operator;
 };

@@ -24,7 +24,7 @@ testing big_shift_left
 -9223372036854775808
 
 -- !3 --
-1
+0
 
 -- !select --
 254
@@ -39,7 +39,7 @@ testing big_shift_left
 -9223372036854775808	0
 
 -- !select --
-127	-9223372036854775808
+127	0
 
 -- !select --
 -128	0
@@ -64,7 +64,7 @@ testing big_shift_right
 0
 
 -- !select --
-9223372036854775807
+0
 
 -- !select --
 2
@@ -73,7 +73,7 @@ testing big_shift_right
 1
 
 -- !select --
--9223372036854775808
+0
 
 -- !select --
 0

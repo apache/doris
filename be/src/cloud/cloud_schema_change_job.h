@@ -37,7 +37,8 @@ public:
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
 private:
-    Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+    Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                       cloud::TabletJobInfoPB& job);
 
     Status _process_delete_bitmap(int64_t alter_version, int64_t start_calc_delete_bitmap_version,
                                   int64_t initiator);
