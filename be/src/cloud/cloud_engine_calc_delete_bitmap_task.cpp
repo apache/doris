@@ -299,6 +299,18 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         }
         update_delete_bitmap_time_us = MonotonicMicros() - t3;
     }
+    LOG_INFO("before _handle_rowset.inject_err, txn_id={}, tablet_id={}", _transaction_id,
+             _tablet_id);
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask._handle_rowset.inject_err", {
+        auto injected_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (injected_tablet_id == _tablet_id) {
+            // inject DELETE_BITMAP_LOCK_ERROR to that FE will retry
+            status = Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                    "injected DELETE_BITMAP_LOCK_ERROR to tablet={}", _tablet_id);
+        }
+    });
+    LOG_INFO("before _handle_rowset.inject_err, txn_id={}, tablet_id={}", _transaction_id,
+             _tablet_id);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to calculate delete bitmap. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet_id << ", " << txn_str << ", status=" << status;
