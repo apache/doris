@@ -110,7 +110,7 @@ suite("test_first_value_window_legacy_planner") {
             (24,"02-24-10-21",1); """
 
     qt_select_default2 """
-        select *
+        select /*+ SET_VAR(enable_nereids_planner=true) */ *
             ,first_value(state) over(partition by `myday` order by `time_col`) v1
             ,first_value(state, 0) over(partition by `myday` order by `time_col`) v2
             ,first_value(state, 1) over(partition by `myday` order by `time_col`) v3
@@ -152,7 +152,7 @@ suite("test_first_value_window_legacy_planner") {
             (12,24,"02-24-10-21",null); """
 
     qt_select_default3 """
-        select *
+        select /*+ SET_VAR(enable_nereids_planner=true) */ *
             ,first_value(`state`) over(partition by `myday` order by `time_col` rows between 1 preceding and 1 following) v1
             ,first_value(`state`, 0) over(partition by `myday` order by `time_col` rows between 1 preceding and 1 following) v2
             ,first_value(`state`, 1) over(partition by `myday` order by `time_col` rows between 1 preceding and 1 following) v3
