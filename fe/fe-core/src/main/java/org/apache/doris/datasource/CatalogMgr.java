@@ -314,22 +314,28 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    /**
-     * Modify the catalog comment to a new one and write the meta log.
-     */
-    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
+    public void alterCatalogComment(String catalogName, String comment) throws UserException {
         writeLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+                throw new DdlException("No catalog found with name: " + catalogName);
             }
-            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            CatalogLog log = new CatalogLog();
+            log.setCatalogId(catalog.getId());
+            log.setComment(comment);
             replayAlterCatalogComment(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_COMMENT, log);
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Modify the catalog comment to a new one and write the meta log.
+     */
+    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
+        alterCatalogComment(stmt.getCatalogName(), stmt.getComment());
     }
 
     /**
