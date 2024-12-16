@@ -280,7 +280,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         if (max_run_time_watch.elapsed_time() > config::doris_scanner_max_run_time_ms * 1e6) {
             break;
         }
-        BlockUPtr free_block = ctx->get_free_block(first_read);
+        BlockUPtr free_block = ctx->get_free_block(true);
         if (free_block == nullptr) {
             break;
         }
