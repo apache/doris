@@ -1387,7 +1387,8 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
             const PathInData column_path(src_sparse_path);
             if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
                 // Deserialize binary value into subcolumn from src serialized sparse column data.
-                const auto& data = ColumnObject::deserialize_from_sparse_column(src_sparse_column_values, i);
+                const auto& data =
+                        ColumnObject::deserialize_from_sparse_column(src_sparse_column_values, i);
                 subcolumn->insert(data.first, data.second);
             } else {
                 // Before inserting this path into sparse column check if we need to
@@ -1957,8 +1958,8 @@ Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWri
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
-            const auto& data = ColumnObject::deserialize_from_sparse_column(sparse_data_values,
-                                                         index_in_sparse_data_values++);
+            const auto& data = ColumnObject::deserialize_from_sparse_column(
+                    sparse_data_values, index_in_sparse_data_values++);
             tmp_subcolumn.insert(data.first, data.second);
             tmp_subcolumn.serialize_text_json(0, output);
         }
@@ -2553,7 +2554,8 @@ void ColumnObject::fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, String
             // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
             // ReadBufferFromMemory buf(value_data.data, value_data.size);
             // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
-            const auto& data = ColumnObject::deserialize_from_sparse_column(&sparse_data_values, lower_bound_path_index);
+            const auto& data = ColumnObject::deserialize_from_sparse_column(&sparse_data_values,
+                                                                            lower_bound_path_index);
             subcolumn.insert(data.first, data.second);
         } else {
             subcolumn.insert_default();

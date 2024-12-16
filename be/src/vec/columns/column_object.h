@@ -596,7 +596,7 @@ public:
 
     // Deserialize the i-th row of the column from the sparse column.
     static std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
-                                                               size_t row);
+                                                                      size_t row);
 
 private:
     // May throw execption
