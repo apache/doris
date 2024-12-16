@@ -38,7 +38,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
         (4, "doris4", 4000, 423, 4),
         (3, "doris3", 3000, 323, 3);"""
 
-    t1 = Thread.startDaemon {
+    def t1 = Thread.startDaemon {
         streamLoad {
             table "${tableName}"
 
@@ -52,7 +52,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
         }
     }
 
-    t2 = Thread.startDaemon {
+    def t2 = Thread.startDaemon {
         streamLoad {
             table "${tableName}"
 
@@ -66,7 +66,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
         }
     }
 
-    t3 = Thread.startDaemon {
+    def t3 = Thread.startDaemon {
         streamLoad {
             table "${tableName}"
 

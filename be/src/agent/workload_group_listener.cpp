@@ -17,6 +17,7 @@
 
 #include "agent/workload_group_listener.h"
 
+#include "runtime/exec_env.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"

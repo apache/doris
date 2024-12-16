@@ -41,7 +41,7 @@ suite("test_group_commit_interval_ms_property") {
 
 
     try {
-        test_table = table
+        def test_table = table
         sql """ drop table if exists ${test_table} force; """
         sql """
             CREATE table ${test_table} (

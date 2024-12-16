@@ -38,6 +38,7 @@ namespace io {
 struct FileCacheStatistics {
     int64_t num_local_io_total = 0;
     int64_t num_remote_io_total = 0;
+    int64_t num_inverted_index_remote_io_total = 0;
     int64_t local_io_timer = 0;
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
@@ -60,6 +61,7 @@ struct IOContext {
     int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
+    bool is_inverted_index = false;
 };
 
 } // namespace io
