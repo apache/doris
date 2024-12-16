@@ -149,7 +149,8 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
     }
 
     if (unexpected_size) {
-        DCHECK(false);
+        DCHECK(false) << "unexpected tablet stats_kvs, it should be 1 or 2 or 5 or 7, size="
+                      << stats_kvs.size() << " suffix=" << ss.str();
         LOG_EVERY_N(WARNING, 100)
                 << "unexpected tablet stats_kvs, it should be 1 or 2 or 5 or 7, size="
                 << stats_kvs.size() << " suffix=" << ss.str();
