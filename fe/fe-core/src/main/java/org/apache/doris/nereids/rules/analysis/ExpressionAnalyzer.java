@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -531,10 +533,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
+    // Register prepared statement placeholder id to related slot in comparison predicate.
+    // Used to replace expression in ShortCircuit plan
+    private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
+                    ExpressionRewriteContext context, Expression left, Expression right) {
+        if (ConnectContext.get() != null
+                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            // Used to replace expression in ShortCircuit plan
+            if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
+            } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
+            }
+        }
+    }
+
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
+        // Used to replace expression in ShortCircuit plan
+        registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
