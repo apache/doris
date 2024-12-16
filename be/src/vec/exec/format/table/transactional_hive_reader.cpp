@@ -17,11 +17,12 @@
 
 #include "transactional_hive_reader.h"
 
+#include <re2/re2.h>
+
 #include "runtime/runtime_state.h"
 #include "transactional_hive_common.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/orc/vorc_reader.h"
-#include <re2/re2.h>
 
 namespace doris {
 
@@ -109,7 +110,6 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
     int64_t num_delete_files = 0;
     std::filesystem::path file_path(data_file_path);
 
-
     //See https://github.com/apache/hive/commit/ffee30e6267e85f00a22767262192abb9681cfb7#diff-5fe26c36b4e029dcd344fc5d484e7347R165
     // bucket_xxx_attemptId => bucket_xxx
     // bucket_xxx           => bucket_xxx
@@ -125,14 +125,13 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         return str;
     };
 
-
     SCOPED_TIMER(_transactional_orc_profile.delete_files_read_time);
     for (auto& delete_delta : range.table_format_params.transactional_hive_params.delete_deltas) {
         const std::string file_name = file_path.filename().string();
 
         //need opt.
         std::vector<std::string> delete_delta_file_names;
-        for (const auto& x : delete_delta.file_names){
+        for (const auto& x : delete_delta.file_names) {
             delete_delta_file_names.emplace_back(remove_bucket_attemptId(x));
         }
         auto iter = std::find(delete_delta_file_names.begin(), delete_delta_file_names.end(),
@@ -140,8 +139,9 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         if (iter == delete_delta_file_names.end()) {
             continue;
         }
-        auto delete_file = fmt::format("{}/{}", delete_delta.directory_location,
-                                       delete_delta.file_names[iter-delete_delta_file_names.begin()]);
+        auto delete_file =
+                fmt::format("{}/{}", delete_delta.directory_location,
+                            delete_delta.file_names[iter - delete_delta_file_names.begin()]);
 
         TFileRangeDesc delete_range;
         // must use __set() method to make sure __isset is true
