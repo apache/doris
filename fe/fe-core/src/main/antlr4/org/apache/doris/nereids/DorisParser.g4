@@ -211,8 +211,6 @@ supportedAlterStatement
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
-    | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               
-        properties=propertyClause?                                                          #alterSqlBlockRule
     | ALTER ROLE role=identifier commentSpec                                                #alterRole
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
