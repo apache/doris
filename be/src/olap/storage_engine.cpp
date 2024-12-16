@@ -409,6 +409,16 @@ Status StorageEngine::_check_file_descriptor_number() {
                      << ", use default configuration instead.";
         return Status::OK();
     }
+    if (getenv("SKIP_CHECK_ULIMIT") == nullptr) {
+        LOG(INFO) << "will check 'ulimit' value.";
+    } else if (std::string(getenv("SKIP_CHECK_ULIMIT")) == "true") {
+        LOG(INFO) << "the 'ulimit' value check is skipped"
+                  << ", the SKIP_CHECK_ULIMIT env value is " << getenv("SKIP_CHECK_ULIMIT");
+        return Status::OK();
+    } else {
+        LOG(INFO) << "the SKIP_CHECK_ULIMIT env value is " << getenv("SKIP_CHECK_ULIMIT")
+                  << ", will check ulimit value.";
+    }
     if (l.rlim_cur < config::min_file_descriptor_number) {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
