@@ -473,14 +473,14 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (CollectionUtils.isEmpty(tasks)) {
             return;
         }
-        List<T> runningTasks = tasks.stream().filter(task -> task.getStatus().equals(TaskStatus.RUNNING)
+        List<T> unfinishedTasksQueue = tasks.stream().filter(task -> task.getStatus().equals(TaskStatus.RUNNING)
                         || task.getStatus().equals(TaskStatus.PENDING))
                 .collect(Collectors.toList());
-        if (CollectionUtils.isEmpty(runningTasks)) {
+        if (CollectionUtils.isEmpty(unfinishedTasksQueue)) {
             return;
         }
 
-        runningTasks.forEach(task -> {
+        unfinishedTasksQueue.forEach(task -> {
             try {
                 task.onFail("Task has been marked as failed because the Master node restarted"
                         + " or switched during failover. Previous Master node's state could not be recovered.");
