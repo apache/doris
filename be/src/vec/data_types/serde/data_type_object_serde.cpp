@@ -58,15 +58,15 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
                 root->get_finalized_column(), row_buffer, row_idx, col_const, options));
     } else {
         // Serialize hierarchy types to json format
-        rapidjson::StringBuffer buffer;
+        std::string buffer;
         bool is_null = false;
-        if (!variant.serialize_one_row_to_json_format(row_idx, &buffer, &is_null)) {
+        if (!variant.serialize_one_row_to_string(row_idx, &buffer)) {
             return Status::InternalError("Invalid json format");
         }
         if (is_null) {
             row_buffer.push_null();
         } else {
-            row_buffer.push_string(buffer.GetString(), buffer.GetLength());
+            row_buffer.push_string(buffer.data(), buffer.size());
         }
     }
     return Status::OK();

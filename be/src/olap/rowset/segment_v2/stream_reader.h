@@ -19,9 +19,14 @@
 
 #include <memory>
 
-#include "olap/rowset/segment_v2/column_reader.h"
+// #include "olap/rowset/segment_v2/column_reader.h"
+#include "vec/columns/column.h"
+#include "vec/columns/subcolumn_tree.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::segment_v2 {
+class ColumnIterator;
+class ColumnReader;
 
 // This file Defined ColumnIterator and ColumnReader for reading variant subcolumns. The types from read schema and from storage are
 // different, so we need to wrap the ColumnIterator from execution phase and storage column reading phase.And we also

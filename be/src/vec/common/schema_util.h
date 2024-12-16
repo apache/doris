@@ -49,6 +49,7 @@ struct ColumnWithTypeAndName;
 } // namespace vectorized
 } // namespace doris
 
+const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 namespace doris::vectorized::schema_util {
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);

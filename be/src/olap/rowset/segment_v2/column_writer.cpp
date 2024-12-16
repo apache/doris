@@ -1168,7 +1168,11 @@ VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
                                          const TabletColumn* column, std::unique_ptr<Field> field)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
     _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
-};
+}
+
+Status VariantColumnWriter::init() {
+    return _impl->init();
+}
 
 Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     _next_rowid += num_rows;

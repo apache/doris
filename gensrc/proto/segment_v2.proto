@@ -161,7 +161,7 @@ message ColumnPathInfo {
 
 message VariantStatisticsPB {
     // in the order of subcolumns in variant
-    repeated uint32 subcolumn_non_null_size = 1;
+    map<string, uint32> subcolumn_non_null_size = 1;
     map<string, uint32> sparse_column_non_null_size = 2;
 } 
 

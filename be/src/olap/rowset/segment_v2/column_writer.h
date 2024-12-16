@@ -73,6 +73,8 @@ struct ColumnWriterOptions {
     io::FileWriter* file_writer = nullptr;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
     RowsetWriterContext* rowset_ctx = nullptr;
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -480,7 +482,7 @@ public:
 
     ~VariantColumnWriter() override = default;
 
-    Status init() override { return Status::OK(); }
+    Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 

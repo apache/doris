@@ -16,9 +16,14 @@
 // under the License.
 #include "olap/rowset/segment_v2/variant_column_writer_impl.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include "common/status.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/segment_loader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
@@ -31,11 +36,90 @@ namespace doris::segment_v2 {
 VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts,
                                                  const TabletColumn* column) {
     _opts = opts;
-    _column = vectorized::ColumnObject::create(true, false);
-    if (column->is_nullable()) {
+    _tablet_column = column;
+}
+
+Status VariantColumnWriterImpl::init() {
+    // caculate stats info
+    std::set<std::string> dynamic_paths;
+    RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(dynamic_paths));
+    if (dynamic_paths.empty()) {
+        _column = vectorized::ColumnObject::create(true, false);
+    } else {
+        vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+        for (const auto& path : dynamic_paths) {
+            dynamic_subcolumns.add(vectorized::PathInData(path),
+                                   vectorized::ColumnObject::Subcolumn {0, true});
+        }
+        _column = vectorized::ColumnObject::create(std::move(dynamic_subcolumns), true);
+    }
+    if (_tablet_column->is_nullable()) {
         _null_column = vectorized::ColumnUInt8::create(0);
     }
-    _tablet_column = column;
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::string>& paths) {
+    std::unordered_map<std::string, size_t> path_to_total_number_of_non_null_values;
+
+    // Merge and collect all stats info from all input rowsets/segments
+    for (RowsetReaderSharedPtr reader : _opts.input_rs_readers) {
+        SegmentCacheHandle segment_cache;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                std::static_pointer_cast<BetaRowset>(reader->rowset()), &segment_cache));
+        for (const auto& segment : segment_cache.get_segments()) {
+            const auto* column_meta_pb = segment->get_column_meta(_tablet_column->unique_id());
+            if (!column_meta_pb) {
+                continue;
+            }
+            if (!column_meta_pb->has_variant_statistics()) {
+                continue;
+            }
+            const VariantStatisticsPB& source_statistics = column_meta_pb->variant_statistics();
+            for (const auto& [path, size] : source_statistics.subcolumn_non_null_size()) {
+                auto it = path_to_total_number_of_non_null_values.find(path);
+                if (it == path_to_total_number_of_non_null_values.end()) {
+                    it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
+                }
+                it->second += size;
+            }
+            for (const auto& [path, size] : source_statistics.sparse_column_non_null_size()) {
+                auto it = path_to_total_number_of_non_null_values.find(path);
+                if (it == path_to_total_number_of_non_null_values.end()) {
+                    it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
+                }
+                it->second += size;
+            }
+        }
+    }
+    // Check if the number of all dynamic paths exceeds the limit.
+    if (path_to_total_number_of_non_null_values.size() > vectorized::ColumnObject::MAX_SUBCOLUMNS) {
+        // Sort paths by total number of non null values.
+        std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
+        paths_with_sizes.reserve(path_to_total_number_of_non_null_values.size());
+        for (const auto& [path, size] : path_to_total_number_of_non_null_values) {
+            paths_with_sizes.emplace_back(size, path);
+        }
+        std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
+
+        // Fill dynamic_paths with first max_dynamic_paths paths in sorted list.
+        for (const auto& [size, path] : paths_with_sizes) {
+            if (paths.size() < vectorized::ColumnObject::MAX_SUBCOLUMNS) {
+                paths.emplace(path);
+            }
+            // // todo : Add all remaining paths into shared data statistics until we reach its max size;
+            // else if (new_statistics.sparse_data_paths_statistics.size() < Statistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            //     new_statistics.sparse_data_paths_statistics.emplace(path, size);
+            // }
+        }
+    } else {
+        // Use all dynamic paths from all source columns.
+        for (const auto& [path, _] : path_to_total_number_of_non_null_values) {
+            paths.emplace(path);
+        }
+    }
+
+    return Status::OK();
 }
 
 Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnObject* ptr,
@@ -92,7 +176,6 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
                                                     .parent_unique_id = _tablet_column->unique_id(),
                                                     .path_info = full_path});
     };
-    _statistics._subcolumns_non_null_size.reserve(ptr->get_subcolumns().size());
     // convert sub column data from engine format to storage layer format
     for (const auto& entry :
          vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
@@ -121,7 +204,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         _subcolumn_opts[current_column_id - 1].meta->set_num_rows(num_rows);
 
         // get stastics
-        _statistics._subcolumns_non_null_size.push_back(entry->data.get_non_null_value_size());
+        _statistics._subcolumns_non_null_size.emplace(entry->path.get_path(),
+                                                      entry->data.get_non_null_value_size());
     }
     return Status::OK();
 }
@@ -163,7 +247,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
             it != _statistics._sparse_column_non_null_size.end()) {
             ++it->second;
         } else if (_statistics._sparse_column_non_null_size.size() <
-                   VariantStatistics::MAX_SHARED_DATA_STATISTICS_SIZE) {
+                   VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
             _statistics._sparse_column_non_null_size.emplace(path, 1);
         }
     }
@@ -173,7 +257,22 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 }
 
 void VariantStatistics::to_pb(VariantStatisticsPB* stats) const {
-    // TODO
+    for (const auto& [path, value] : _sparse_column_non_null_size) {
+        stats->mutable_subcolumn_non_null_size()->emplace(path.to_string(), value);
+    }
+    for (const auto& [path, value] : _sparse_column_non_null_size) {
+        stats->mutable_sparse_column_non_null_size()->emplace(path.to_string(), value);
+    }
+}
+
+void VariantStatistics::from_pb(const VariantStatisticsPB& stats) {
+    // make sure the ref of path, todo not use ref
+    for (const auto& [path, value] : stats.subcolumn_non_null_size()) {
+        _subcolumns_non_null_size[StringRef(path.data(), path.size())] = value;
+    }
+    for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
+        _sparse_column_non_null_size[StringRef(path.data(), path.size())] = value;
+    }
 }
 
 Status VariantColumnWriterImpl::finalize() {

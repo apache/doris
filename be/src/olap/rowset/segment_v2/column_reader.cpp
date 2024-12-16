@@ -44,6 +44,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -52,6 +53,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/variant_column_writer_impl.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h" // for TypeInfo
@@ -218,6 +220,146 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
 
     return Status::InternalError("Not supported type: {}, serialized type: {}",
                                  agg_state_type->get_name(), int(type));
+}
+
+const SubcolumnColumnReaders::Node* VariantColumnReader::get_reader_by_path(
+        const vectorized::PathInData& relative_path) const {
+    return _subcolumn_readers->find_leaf(relative_path);
+}
+
+Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
+                                         const TabletColumn& target_col) {
+    // root column use unique id, leaf column use parent_unique_id
+    auto relative_path = target_col.path_info_ptr()->copy_pop_front();
+    const auto* root = _subcolumn_readers->get_root();
+    const auto* node =
+            target_col.has_path_info() ? _subcolumn_readers->find_exact(relative_path) : nullptr;
+
+    if (node != nullptr) {
+        if (node->is_leaf_node()) {
+            // Node contains column without any child sub columns and no corresponding sparse columns
+            // Direct read extracted columns
+            const auto* node = _subcolumn_readers->find_leaf(relative_path);
+            RETURN_IF_ERROR(node->data.reader->new_iterator(iterator));
+        } else {
+            // Node contains column with children columns or has correspoding sparse columns
+            // Create reader with hirachical data.
+            std::unique_ptr<ColumnIterator> sparse_iter;
+            if (!_sparse_column_set_in_stats.empty()) {
+                // Sparse column exists or reached sparse size limit, read sparse column
+                ColumnIterator* iter;
+                RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter));
+                sparse_iter.reset(iter);
+            }
+            // If read the full path of variant read in MERGE_ROOT, otherwise READ_DIRECT
+            HierarchicalDataReader::ReadType read_type =
+                    (relative_path == root->path) ? HierarchicalDataReader::ReadType::MERGE_ROOT
+                                                  : HierarchicalDataReader::ReadType::READ_DIRECT;
+            RETURN_IF_ERROR(HierarchicalDataReader::create(iterator, relative_path, node, root,
+                                                           read_type, std::move(sparse_iter)));
+        }
+    } else {
+        if (_sparse_column_set_in_stats.contains(StringRef {relative_path.get_path()}) ||
+            _sparse_column_set_in_stats.size() >
+                    VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            // Sparse column exists or reached sparse size limit, read sparse column
+            ColumnIterator* inner_iter;
+            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
+            *iterator = new SparseColumnExtractReader(relative_path.get_path(),
+                                                      std::unique_ptr<ColumnIterator>(inner_iter));
+        } else {
+            // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
+            std::unique_ptr<ColumnIterator> iter;
+            RETURN_IF_ERROR(Segment::new_default_iterator(target_col, &iter));
+            *iterator = iter.release();
+        }
+    }
+    return Status::OK();
+}
+
+Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
+                                 uint32_t column_id, uint64_t num_rows,
+                                 io::FileReaderSPtr file_reader) {
+    // init sub columns
+    _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
+    std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
+            column_path_to_footer_ordinal;
+    for (uint32_t ordinal = 0; ordinal < footer.columns().size(); ++ordinal) {
+        const auto& column_pb = footer.columns(ordinal);
+        // column path for accessing subcolumns of variant
+        if (column_pb.has_column_path_info()) {
+            vectorized::PathInData path;
+            path.from_protobuf(column_pb.column_path_info());
+            column_path_to_footer_ordinal.emplace(path, ordinal);
+        }
+    }
+
+    const ColumnMetaPB& self_column_pb = footer.columns(column_id);
+    for (const ColumnMetaPB& column_pb : footer.columns()) {
+        if (column_pb.unique_id() != self_column_pb.unique_id()) {
+            continue;
+        }
+        DCHECK(column_pb.has_column_path_info());
+        std::unique_ptr<ColumnReader> reader;
+        RETURN_IF_ERROR(
+                ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader, &reader));
+        vectorized::PathInData path;
+        path.from_protobuf(column_pb.column_path_info());
+        // init sparse column
+        if (path.get_path() == SPARSE_COLUMN_PATH) {
+            RETURN_IF_ERROR(ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader,
+                                                 &_sparse_column_reader));
+            continue;
+        }
+        // init subcolumns
+        auto relative_path = path.copy_pop_front();
+        if (_subcolumn_readers->get_root() == nullptr) {
+            _subcolumn_readers->create_root(SubcolumnReader {nullptr, nullptr});
+        }
+        if (relative_path.empty()) {
+            // root column
+            _subcolumn_readers->get_mutable_root()->modify_to_scalar(SubcolumnReader {
+                    std::move(reader),
+                    vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+        } else {
+            // check the root is already a leaf node
+            _subcolumn_readers->add(
+                    relative_path,
+                    SubcolumnReader {
+                            std::move(reader),
+                            vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+        }
+    }
+
+    // init sparse column set in stats
+    if (self_column_pb.has_variant_statistics()) {
+        const auto& variant_stats = self_column_pb.variant_statistics();
+        for (const auto& [path, _] : variant_stats.sparse_column_non_null_size()) {
+            _sparse_column_set_in_stats.emplace(path.data(), path.size());
+        }
+    }
+    return Status::OK();
+}
+
+Status ColumnReader::create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
+                                    uint32_t column_id, uint64_t num_rows,
+                                    const io::FileReaderSPtr& file_reader,
+                                    std::unique_ptr<ColumnReader>* reader) {
+    std::unique_ptr<VariantColumnReader> reader_local(new VariantColumnReader());
+    RETURN_IF_ERROR(reader_local->init(opts, footer, column_id, num_rows, file_reader));
+    *reader = std::move(reader_local);
+    return Status::OK();
+}
+
+Status ColumnReader::create(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
+                            uint32_t column_id, uint64_t num_rows,
+                            const io::FileReaderSPtr& file_reader,
+                            std::unique_ptr<ColumnReader>* reader) {
+    if ((FieldType)footer.columns(column_id).type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        return ColumnReader::create(opts, footer.columns(column_id), num_rows, file_reader, reader);
+    }
+    // create variant column reader with extracted columns info in footer
+    return create_variant(opts, footer, column_id, num_rows, file_reader, reader);
 }
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -704,6 +846,10 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
         return Status::NotFound("Failed to seek to ordinal {}, ", ordinal);
     }
     return Status::OK();
+}
+
+Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn& col) {
+    return new_iterator(iterator);
 }
 
 Status ColumnReader::new_iterator(ColumnIterator** iterator) {
