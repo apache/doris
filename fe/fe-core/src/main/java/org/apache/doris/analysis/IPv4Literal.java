@@ -112,7 +112,7 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     protected String toSqlImpl() {
-        return getStringValue();
+        return "\"" + getStringValue() + "\"";
     }
 
     @Override
