@@ -39,6 +39,8 @@ public interface WorkloadCondition {
             return WorkloadConditionBeScanBytes.createWorkloadCondition(cm.op, cm.value);
         } else if (WorkloadMetricType.QUERY_BE_MEMORY_BYTES.equals(cm.metricName)) {
             return WorkloadConditionQueryBeMemory.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadConditionCpuUsage.CPU_METRIC_SET.contains(cm.metricName)) {
+            return WorkloadConditionCpuUsage.createWorkloadCondition(cm.metricName, cm.op, cm.value);
         }
         throw new UserException("invalid metric name:" + cm.metricName);
     }

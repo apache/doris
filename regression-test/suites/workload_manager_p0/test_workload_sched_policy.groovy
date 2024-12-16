@@ -236,6 +236,32 @@ suite("test_workload_sched_policy") {
     sql "drop user test_alter_policy_user"
     sql "drop workload policy test_alter_policy"
 
+    // test cpu
+    sql "drop workload policy if exists cpu_usage_policy;"
+    test {
+        sql "create workload policy cpu_usage_policy conditions(last_10s_cpu_usage_percent > 'abc') actions(cancel_query);"
+        exception "cpu usage value is not a valid number"
+    }
+
+    test {
+        sql "create workload policy cpu_usage_policy conditions(last_10s_cpu_usage_percent > 11.123) actions(cancel_query);"
+        exception "cpu usage value cannot exceed two decimal places at most"
+    }
+
+    test {
+        sql "create workload policy cpu_usage_policy conditions(last_10s_cpu_usage_percent > 101) actions(cancel_query);"
+        exception "cpu usage value should between 0 and 100"
+    }
+
+    test {
+        sql "create workload policy cpu_usage_policy conditions(last_10s_cpu_usage_percent > '-1') actions(cancel_query);"
+        exception "cpu usage value should between 0 and 100"
+    }
+
+    sql "create workload policy cpu_usage_limit_policy conditions(last_10s_cpu_usage_percent > 5) actions(cancel_query) properties('enabled'='false');"
+    qt_select_cpu_policy "select name,condition,action,priority,enabled,version,workload_group from information_schema.workload_policy where name='cpu_usage_limit_policy'"
+    sql "drop workload policy cpu_usage_limit_policy;"
+
     // daemon thread alter test
     def thread1 = new Thread({
         def startTime = System.currentTimeMillis()
