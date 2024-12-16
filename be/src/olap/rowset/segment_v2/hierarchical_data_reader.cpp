@@ -206,7 +206,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
                  ""},
                 expected_type, &cast_column));
         variant.get_root()->insert_range_from(*cast_column, 0, nrows);
-        variant.set_num_rows(variant.get_root()->size());
+        // variant.set_num_rows(variant.get_root()->size());
     }
     if (dst->is_nullable()) {
         // fill nullmap

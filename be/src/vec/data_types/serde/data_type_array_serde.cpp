@@ -434,5 +434,23 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
+
+void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                  ColumnString* dst_column, int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(TypeIndex::Array);
+    dst_column->insert_data(reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+
+    const auto& array_col = assert_cast<const ColumnArray&>(src_column);
+    const IColumn& nested_column = array_col.get_data();
+    const auto& offsets = array_col.get_offsets();
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+    size_t size = end - start;
+    dst_column->insert_data(reinterpret_cast<const char*>(&size), sizeof(size_t));
+    for (size_t offset = start; offset != end; ++offset) {
+        nested_serde->write_one_cell_to_binary(nested_column, dst_column, offset);
+    }
+}
+
 } // namespace vectorized
 } // namespace doris

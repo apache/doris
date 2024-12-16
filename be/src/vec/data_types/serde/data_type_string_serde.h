@@ -366,6 +366,18 @@ public:
         return Status::OK();
     }
 
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst_column,
+                                  int64_t row_num) const override {
+        const uint8_t type = static_cast<uint8_t>(TypeIndex::String);
+        const auto& col = assert_cast<const ColumnType&>(src_column);
+        const auto& data_ref = col.get_data_at(row_num);
+        const size_t size = data_ref.size;
+
+        dst_column->insert_data(reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+        dst_column->insert_data(reinterpret_cast<const char*>(&size), sizeof(size_t));
+        dst_column->insert_data(data_ref.data, size);
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

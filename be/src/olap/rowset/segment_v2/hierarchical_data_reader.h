@@ -240,10 +240,10 @@ private:
                 src_null_map.clear();
                 assert_cast<ColumnObject&>(
                         assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
-                        .clear_subcolumns_data();
+                        .clear_column_data();
             } else {
                 ColumnObject& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
-                root_column.clear_subcolumns_data();
+                root_column.clear_column_data();
             }
         } else {
             if (dst->is_nullable()) {
