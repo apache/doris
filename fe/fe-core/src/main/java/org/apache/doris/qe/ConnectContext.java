@@ -131,6 +131,7 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
+    protected volatile boolean readyFinalizeArrowFlightSqlRequest = false;
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
@@ -731,6 +732,14 @@ public class ConnectContext {
         return peerIdentity;
     }
 
+    public void setReadyFinalizeArrowFlightSqlRequest() {
+        this.readyFinalizeArrowFlightSqlRequest = true;
+    }
+
+    public boolean getReadyFinalizeArrowFlightSqlRequest() {
+        return readyFinalizeArrowFlightSqlRequest;
+    }
+
     public FlightSqlChannel getFlightSqlChannel() {
         throw new RuntimeException("getFlightSqlChannel not in flight sql connection");
     }
@@ -818,8 +827,20 @@ public class ConnectContext {
         this.returnResultFromRemoteExecutor.add(executor);
     }
 
+    /**
+     * The event that occurs later between FlightSqlConnectProcessorClose and ExecStatusDone will execute finalize.
+     * Usually, `select` queries will execute FlightSqlConnectProcessorClose first, and then execute ExecStatusDone
+     * after data generation is completed.
+     * `insert into values` query will wait for ExecStatusDone in LoadProcessor during `executor.execute()`, and then
+     * execute FlightSqlConnectProcessorClose.
+     */
     public void finalizeArrowFlightSqlRequest() {
-        setThreadLocalInfo();
+        boolean setThreadLocal = false;
+        if (get() == null) {
+            setThreadLocalInfo();
+            setThreadLocal = true;
+        }
+
         if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
                 && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
                 || executor.getParsedStmt() instanceof LogicalPlanAdapter
@@ -839,7 +860,9 @@ public class ConnectContext {
         // and the query returning results from FE and `insert into` will call unregisterQuery after execute.
         executor.finalizeQuery();
 
-        remove();
+        if (setThreadLocal) {
+            remove();
+        }
         setCommand(MysqlCommand.COM_SLEEP);
         clear();
     }

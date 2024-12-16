@@ -270,8 +270,12 @@ public final class QeProcessorImpl implements QeProcessor {
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
             return result;
         }
-        if (params.isDone() && info.getConnectContext().getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            info.getConnectContext().finalizeArrowFlightSqlRequest();
+        ConnectContext ctx = info.getConnectContext();
+        if (ctx.getConnectType() == ConnectType.ARROW_FLIGHT_SQL && params.isDone()) {
+            if (ctx.getReadyFinalizeArrowFlightSqlRequest()) {
+                ctx.finalizeArrowFlightSqlRequest();
+            }
+            ctx.setReadyFinalizeArrowFlightSqlRequest();
         }
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
