@@ -193,10 +193,10 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
     @Override
     public void close() throws Exception {
-        if (ctx.getReadyFinalizeArrowFlightSqlRequest()) {
+        if (ctx.getIsExecStatusDone()) {
             ctx.finalizeArrowFlightSqlRequest();
         }
-        ctx.setReadyFinalizeArrowFlightSqlRequest();
+        ctx.setIsFlightSqlConnectProcessorClose();
         ConnectContext.remove();
     }
 }

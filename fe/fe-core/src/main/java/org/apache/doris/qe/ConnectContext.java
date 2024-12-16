@@ -74,6 +74,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -131,7 +132,9 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
-    protected volatile boolean readyFinalizeArrowFlightSqlRequest = false;
+    protected volatile boolean isFlightSqlConnectProcessorClose = false;
+    protected volatile boolean isExecStatusDone = false;
+    protected volatile boolean finalizeArrowFlightSqlRequestFinished = false;
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
@@ -732,12 +735,24 @@ public class ConnectContext {
         return peerIdentity;
     }
 
-    public void setReadyFinalizeArrowFlightSqlRequest() {
-        this.readyFinalizeArrowFlightSqlRequest = true;
+    public void setIsFlightSqlConnectProcessorClose() {
+        this.isFlightSqlConnectProcessorClose = true;
     }
 
-    public boolean getReadyFinalizeArrowFlightSqlRequest() {
-        return readyFinalizeArrowFlightSqlRequest;
+    public boolean getIsFlightSqlConnectProcessorClose() {
+        return isFlightSqlConnectProcessorClose;
+    }
+
+    public void setIsExecStatusDone() {
+        this.isExecStatusDone = true;
+    }
+
+    public boolean getIsExecStatusDone() {
+        return isExecStatusDone;
+    }
+
+    public boolean getFinalizeArrowFlightSqlRequestFinished() {
+        return finalizeArrowFlightSqlRequestFinished;
     }
 
     public FlightSqlChannel getFlightSqlChannel() {
@@ -835,6 +850,8 @@ public class ConnectContext {
      * execute FlightSqlConnectProcessorClose.
      */
     public void finalizeArrowFlightSqlRequest() {
+        Preconditions.checkState(!finalizeArrowFlightSqlRequestFinished);
+        finalizeArrowFlightSqlRequestFinished = true;
         boolean setThreadLocal = false;
         if (get() == null) {
             setThreadLocalInfo();
