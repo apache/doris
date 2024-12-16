@@ -1663,7 +1663,8 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
         ASSERT_EQ(config::recycle_interval_seconds, 3601);
     }
     {
-        config::g_conf_path = "./doris_cloud.conf";
+        auto original_conf_path = config::custom_conf_path;
+        config::custom_conf_path = "./doris_cloud.conf";
         auto [status_code, content] = ctx.query<std::string>(
                 "update_config",
                 "configs=recycle_interval_seconds=3659,retention_seconds=259219&persist=true");
@@ -1671,7 +1672,7 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
         ASSERT_EQ(config::recycle_interval_seconds, 3659);
         ASSERT_EQ(config::retention_seconds, 259219);
         config::Properties props;
-        ASSERT_TRUE(props.load(config::g_conf_path.data(), true));
+        ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
         {
             bool new_val_set = false;
             int64_t recycle_interval_s = 0;
@@ -1688,7 +1689,8 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
             ASSERT_TRUE(new_val_set);
             ASSERT_EQ(retention_s, 259219);
         }
-        std::filesystem::remove(config::g_conf_path);
+        std::filesystem::remove(config::custom_conf_path);
+        config::custom_conf_path = original_conf_path;
     }
 }
 

@@ -468,7 +468,7 @@ static HttpResponse process_update_config(MetaServiceImpl* service, brpc::Contro
         }
         trim(conf_pair[0]);
         trim(conf_pair[1]);
-        if (!config::set_config(conf_pair[0], conf_pair[1], persist)) {
+        if (!config::set_config(conf_pair[0], conf_pair[1], persist, config::custom_conf_path)) {
             return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
                                    fmt::format("set {}={} failed", conf_pair[0], conf_pair[1]));
         }

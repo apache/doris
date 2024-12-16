@@ -32,8 +32,6 @@
 
 namespace doris::cloud::config {
 
-std::string g_conf_path {};
-
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
@@ -412,7 +410,8 @@ bool do_set_config(const Register::Field& feild, const std::string& value, bool 
     return false;
 }
 
-bool set_config(const std::string& field, const std::string& value, bool need_persist) {
+bool set_config(const std::string& field, const std::string& value, bool need_persist,
+                const std::string& custom_conf_path) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
         return false;
@@ -420,18 +419,26 @@ bool set_config(const std::string& field, const std::string& value, bool need_pe
     if (!it->second.valmutable) {
         return false;
     }
+
     Properties props;
-    if (!do_set_config(it->second, value, need_persist, props)) {
-        std::cerr << "not supported to modify: " << field << "=" << value << std::endl;
-        return false;
-    }
+    auto set_conf_func = [&]() {
+        if (!do_set_config(it->second, value, need_persist, props)) {
+            std::cerr << "not supported to modify: " << field << "=" << value << std::endl;
+            return false;
+        }
+        return true;
+    };
 
     if (need_persist) {
         // lock to make sure only one thread can modify the be_custom.conf
         std::lock_guard<std::mutex> l(conf_persist_lock);
-        return props.dump(config::g_conf_path.data());
+        if (!set_conf_func()) {
+            return false;
+        }
+        return props.dump(custom_conf_path);
     }
-    return true;
+
+    return set_conf_func();
 }
 
 } // namespace doris::cloud::config
