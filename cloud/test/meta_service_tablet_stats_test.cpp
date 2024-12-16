@@ -38,40 +38,33 @@ TEST(MetaServiceTabletStatsTest, test_get_detached_tablet_stats) {
 
     // key->TabletStatsPB
     TabletStatsPB tablet_stat;
-    std::string tablet_stat_key;
     std::string tablet_stat_value;
-    stats_tablet_key(tablet_key_info, &tablet_stat_key);
+    auto tablet_stat_key = stats_tablet_key(tablet_key_info);
     tablet_stat.SerializeToString(&tablet_stat_value);
     stats_kvs.emplace_back(tablet_stat_key, tablet_stat_value);
 
     // key->data_size
-    std::string tablet_stat_data_size_key;
-    stats_tablet_data_size_key(tablet_key_info, &tablet_stat_data_size_key);
+    auto tablet_stat_data_size_key = stats_tablet_data_size_key(tablet_key_info);
     stats_kvs.emplace_back(tablet_stat_data_size_key, size_value(100));
 
     // key->num_rows
-    std::string tablet_stat_num_rows_key;
-    stats_tablet_num_rows_key(tablet_key_info, &tablet_stat_num_rows_key);
+    auto tablet_stat_num_rows_key = stats_tablet_num_rows_key(tablet_key_info);
     stats_kvs.emplace_back(tablet_stat_num_rows_key, size_value(10));
 
     // key->num_rowsets
-    std::string tablet_stat_num_rowsets_key;
-    stats_tablet_num_rowsets_key(tablet_key_info, &tablet_stat_num_rowsets_key);
+    auto tablet_stat_num_rowsets_key = stats_tablet_num_rowsets_key(tablet_key_info);
     stats_kvs.emplace_back(tablet_stat_num_rowsets_key, size_value(1));
 
     // key->num_segs
-    std::string tablet_stat_num_segs_key;
-    stats_tablet_num_segs_key(tablet_key_info, &tablet_stat_num_segs_key);
+    auto tablet_stat_num_segs_key = stats_tablet_num_segs_key(tablet_key_info);
     stats_kvs.emplace_back(tablet_stat_num_segs_key, size_value(1));
 
     // key->index_size
-    std::string tablet_stat_index_size_key;
-    stats_tablet_index_size_key(tablet_key_info, &tablet_stat_index_size_key);
+    auto tablet_stat_index_size_key = stats_tablet_index_size_key(tablet_key_info);
     stats_kvs.emplace_back(tablet_stat_index_size_key, size_value(50));
 
     // key->segment_size
-    std::string tablet_stat_segment_size_key;
-    stats_tablet_segment_size_key(tablet_key_info, &tablet_stat_segment_size_key);
+    auto tablet_stat_segment_size_key = stats_tablet_segment_size_key(tablet_key_info);
     stats_kvs.emplace_back(tablet_stat_segment_size_key, size_value(50));
 
     TabletStats res1;
