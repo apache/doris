@@ -21,9 +21,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -47,32 +45,35 @@ public class PushTopnToAgg extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         topN.child().accept(this, ctx);
-        if (ConnectContext.get().getSessionVariable().topnOptLimitThreshold <= topN.getLimit() + topN.getOffset()) {
+        if (ConnectContext.get().getSessionVariable().topnOptLimitThreshold <= topN.getLimit() + topN.getOffset()
+                && !ConnectContext.get().getSessionVariable().pushTopnToAgg) {
             return topN;
         }
-        Plan topnChild = topN.child();
-        if (topnChild instanceof PhysicalHashAggregate) {
-            PhysicalHashAggregate<? extends Plan> upperAgg = (PhysicalHashAggregate<? extends Plan>) topnChild;
-            // TODO detect distinct
-            if (isGroupKeyIdenticalToOrderKey(topN, upperAgg)
-                    && LimitAggToTopNAgg.isSortableAggregate(upperAgg)) {
-                if (upperAgg.getAggPhase().isGlobal() && upperAgg.getAggMode() == AggMode.BUFFER_TO_RESULT) {
-                    if (upperAgg.child() instanceof PhysicalDistribute
-                            && upperAgg.child().child(0) instanceof PhysicalHashAggregate) {
-                        upperAgg.setTopnPushInfo(new TopnPushInfo(
-                                topN.getOrderKeys(),
-                                topN.getLimit() + topN.getOffset()));
-                        PhysicalHashAggregate<? extends Plan> bottomAgg =
-                                (PhysicalHashAggregate<? extends Plan>) upperAgg.child().child(0);
+        Plan topNChild = topN.child();
+        if (topNChild instanceof PhysicalHashAggregate) {
+            PhysicalHashAggregate<? extends Plan> upperAgg = (PhysicalHashAggregate<? extends Plan>) topNChild;
+            if (isGroupKeyIdenticalToOrderKey(topN, upperAgg)) {
+                upperAgg.setTopnPushInfo(new TopnPushInfo(
+                        topN.getOrderKeys(),
+                        topN.getLimit() + topN.getOffset()));
+                if (upperAgg.child() instanceof PhysicalDistribute
+                        && upperAgg.child().child(0) instanceof PhysicalHashAggregate) {
+                    PhysicalHashAggregate<? extends Plan> bottomAgg =
+                            (PhysicalHashAggregate<? extends Plan>) upperAgg.child().child(0);
+                    if (isGroupKeyIdenticalToOrderKey(topN, bottomAgg)) {
                         bottomAgg.setTopnPushInfo(new TopnPushInfo(
                                 topN.getOrderKeys(),
                                 topN.getLimit() + topN.getOffset()));
                     }
-                } else if (upperAgg.getAggPhase().isLocal() && upperAgg.getAggMode() == AggMode.INPUT_TO_RESULT) {
-                    // one phase agg
-                    upperAgg.setTopnPushInfo(new TopnPushInfo(
-                            topN.getOrderKeys(),
-                            topN.getLimit() + topN.getOffset()));
+                } else if (upperAgg.child() instanceof PhysicalHashAggregate) {
+                    // multi-distinct plan
+                    PhysicalHashAggregate<? extends Plan> bottomAgg =
+                            (PhysicalHashAggregate<? extends Plan>) upperAgg.child();
+                    if (isGroupKeyIdenticalToOrderKey(topN, bottomAgg)) {
+                        bottomAgg.setTopnPushInfo(new TopnPushInfo(
+                                topN.getOrderKeys(),
+                                topN.getLimit() + topN.getOffset()));
+                    }
                 }
             }
         }
@@ -93,5 +94,4 @@ public class PushTopnToAgg extends PlanPostProcessor {
         }
         return true;
     }
-
 }
