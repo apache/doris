@@ -85,13 +85,18 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         ctx->number_unselected_rows = state->num_rows_load_unselected();
         ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
+        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
         if (!ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
             // NOTE: Do not modify the error message here, for historical reasons,
             // some users may rely on this error message.
-            *status = Status::DataQualityError("too many filtered rows");
+            if (ctx->need_commit_self) {
+                *status =
+                        Status::DataQualityError("too many filtered rows, url: " + ctx->error_url);
+            } else {
+                *status = Status::DataQualityError("too many filtered rows");
+            }
         }
-        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
 
         if (status->ok()) {
             DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);

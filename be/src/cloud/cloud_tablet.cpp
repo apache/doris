@@ -50,6 +50,7 @@
 #include "vec/common/schema_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
@@ -219,6 +220,7 @@ Status CloudTablet::sync_if_not_running() {
 }
 
 TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
+    std::shared_lock rlock(_meta_lock);
     return _merged_tablet_schema;
 }
 
@@ -380,7 +382,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
 }
 
-int CloudTablet::delete_expired_stale_rowsets() {
+uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
@@ -397,8 +399,8 @@ int CloudTablet::delete_expired_stale_rowsets() {
         }
 
         for (int64_t path_id : path_ids) {
-            int start_version = -1;
-            int end_version = -1;
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             // delete stale versions in version graph
             auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
             for (auto& v_ts : version_path->timestamped_versions()) {
@@ -539,7 +541,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
 
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
-                writer->set_segment_start_id(rowset.num_segments());
+                writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
                 return writer;
             });
 }
@@ -617,7 +619,8 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
         }
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
+                        versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
     }
@@ -630,7 +633,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     for (auto& rowset : stale_rowsets) {
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(),
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
                         stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
     }
@@ -690,7 +693,8 @@ CalcDeleteBitmapExecutor* CloudTablet::calc_delete_bitmap_executor() {
 
 Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                        DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                       const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                       const RowsetIdUnorderedSet& cur_rowset_ids,
+                                       int64_t lock_id) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
@@ -714,8 +718,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         }
     }
 
+    auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
-            *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
+            *this, ms_lock_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -773,7 +778,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
-    if (config::enable_rowid_conversion_correctness_check) {
+    if (config::enable_rowid_conversion_correctness_check &&
+        tablet_schema()->cluster_key_uids().empty()) {
         location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
         LOG(INFO) << "Location Map inited succ for tablet:" << tablet_id();
     }
@@ -922,4 +928,5 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     // but it may be used in the future.
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

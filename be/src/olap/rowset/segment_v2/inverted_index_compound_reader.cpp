@@ -96,12 +96,19 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     if (start + len > _length) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
-    base->setIoContext(_io_ctx);
+
+    if (_io_ctx) {
+        base->setIoContext(_io_ctx);
+    }
+
     base->setIndexFile(_is_index_file);
     base->seek(fileOffset + start);
     bool read_from_buffer = true;
     base->readBytes(b, len, read_from_buffer);
-    base->setIoContext(nullptr);
+
+    if (_io_ctx) {
+        base->setIoContext(nullptr);
+    }
 }
 
 CSIndexInput::~CSIndexInput() = default;

@@ -37,6 +37,8 @@ suite ("diffrent_serialize") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,3,null,'c';"
 
+    sql """alter table d_table modify column k4 set stats ('row_count'='7');"""
+
     createMV("create materialized view mv1_1 as select k1,bitmap_intersect(to_bitmap(k2)) from d_table group by k1;")
     createMV("create materialized view mv1 as select k1,bitmap_agg(k2) from d_table group by k1;")
     createMV("create materialized view mv1_2 as select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;")

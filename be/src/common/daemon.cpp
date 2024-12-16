@@ -437,6 +437,8 @@ void Daemon::calculate_metrics_thread() {
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);
+
+                DorisMetrics::instance()->system_metrics()->update_be_avail_cpu_num();
             }
             update_rowsets_and_segments_num_metrics();
         }
@@ -500,15 +502,18 @@ void Daemon::cache_adjust_capacity_thread() {
 void Daemon::cache_prune_stale_thread() {
     int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        if (interval <= 0) {
-            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
-                         << "], force set to 3600 ";
-            interval = 3600;
+        if (config::cache_periodic_prune_stale_sweep_sec <= 0) {
+            LOG(WARNING) << "config of cache clean interval is: [" << interval
+                         << "], it means the cache prune stale thread is disabled, will wait 3s "
+                            "and check again.";
+            interval = 3;
+            continue;
         }
         if (config::disable_memory_gc) {
             continue;
         }
         CacheManager::instance()->for_each_cache_prune_stale();
+        interval = config::cache_periodic_prune_stale_sweep_sec;
     }
 }
 
@@ -516,6 +521,13 @@ void Daemon::be_proc_monitor_thread() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::be_proc_monitor_interval_ms))) {
         LOG(INFO) << "log be thread num, " << BeProcMonitor::get_be_thread_info();
+    }
+}
+
+void Daemon::calculate_workload_group_metrics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::workload_group_metrics_interval_ms))) {
+        ExecEnv::GetInstance()->workload_group_mgr()->refresh_workload_group_metrics();
     }
 }
 
@@ -566,6 +578,12 @@ void Daemon::start() {
                 "Daemon", "be_proc_monitor_thread", [this]() { this->be_proc_monitor_thread(); },
                 &_threads.emplace_back());
     }
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "workload_group_metrics",
+            [this]() { this->calculate_workload_group_metrics_thread(); },
+            &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

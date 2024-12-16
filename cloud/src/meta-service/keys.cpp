@@ -382,6 +382,14 @@ void stats_tablet_num_segs_key(const StatsTabletKeyInfo& in, std::string* out) {
     stats_tablet_key(in, out);
     encode_bytes(STATS_KEY_SUFFIX_NUM_SEGS, out);
 }
+void stats_tablet_index_size_key(const StatsTabletKeyInfo& in, std::string* out) {
+    stats_tablet_key(in, out);
+    encode_bytes(STATS_KEY_SUFFIX_INDEX_SIZE, out);
+}
+void stats_tablet_segment_size_key(const StatsTabletKeyInfo& in, std::string* out) {
+    stats_tablet_key(in, out);
+    encode_bytes(STATS_KEY_SUFFIX_SEGMENT_SIZE, out);
+}
 
 //==============================================================================
 // Job keys

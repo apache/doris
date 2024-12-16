@@ -24,7 +24,9 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_vector.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -45,12 +47,19 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
 
     // extract array offsets and nested column
     data.offsets_ptr = &data.array_col->get_offsets();
-    data.nested_col = &data.array_col->get_data();
+    data.nested_col = data.array_col->get_data_ptr();
     // extract nested column is nullable
     if (data.nested_col->is_nullable()) {
         const auto& nested_null_col = reinterpret_cast<const ColumnNullable&>(*data.nested_col);
         data.nested_nullmap_data = nested_null_col.get_null_map_data().data();
-        data.nested_col = nested_null_col.get_nested_column_ptr().get();
+        data.nested_col = nested_null_col.get_nested_column_ptr();
+    }
+    if (data.output_as_variant &&
+        !WhichDataType(remove_nullable(data.nested_type)).is_variant_type()) {
+        // set variant root column/type to from column/type
+        auto variant = ColumnObject::create(true /*always nullable*/);
+        variant->create_root(data.nested_type, make_nullable(data.nested_col)->assume_mutable());
+        data.nested_col = variant->get_ptr();
     }
     return true;
 }
@@ -78,12 +87,12 @@ MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
 }
 
 void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
-                 const ColumnInt64& offset_column, const ColumnInt64* length_column) {
+                 const IColumn& offset_column, const IColumn* length_column) {
     size_t cur = 0;
     for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
         size_t off = (*src.offsets_ptr)[row - 1];
         size_t len = (*src.offsets_ptr)[row] - off;
-        Int64 start = offset_column.get_element(row);
+        Int64 start = offset_column.get_int(row);
         if (len == 0 || start == 0) {
             dst.offsets_ptr->push_back(cur);
             continue;
@@ -98,7 +107,7 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
         }
         Int64 end;
         if (length_column) {
-            Int64 size = length_column->get_element(row);
+            Int64 size = length_column->get_int(row);
             end = std::max((Int64)off, std::min((Int64)(off + len), start + size));
         } else {
             end = off + len;

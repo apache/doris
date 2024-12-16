@@ -47,6 +47,7 @@ suite ("unique_mv") {
     mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
 
     sql """set enable_stats=true;"""
+    sql """alter table c5816_t modify column org_id set stats ('row_count'='1');"""
     mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
 
 }

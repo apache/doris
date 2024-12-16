@@ -31,6 +31,7 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -58,7 +59,7 @@ import java.util.concurrent.TimeoutException;
  */
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
-    private TNetworkAddress publicAccessAddr = new TNetworkAddress();
+    private Schema arrowSchema;
 
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
@@ -67,8 +68,8 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         context.setReturnResultFromLocal(true);
     }
 
-    public TNetworkAddress getPublicAccessAddr() {
-        return publicAccessAddr;
+    public Schema getArrowSchema() {
+        return arrowSchema;
     }
 
     public void prepare(MysqlCommand command) {
@@ -107,80 +108,87 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     //     handleFieldList(tableName);
     // }
 
-    public Schema fetchArrowFlightSchema(int timeoutMs) {
-        TNetworkAddress address = ctx.getResultInternalServiceAddr();
-        TUniqueId tid;
-        if (ctx.getSessionVariable().enableParallelResultSink()) {
-            tid = ctx.queryId();
-        } else {
-            // only one instance
-            tid = ctx.getFinstId();
+    public void fetchArrowFlightSchema(int timeoutMs) {
+        if (ctx.getFlightSqlEndpointsLocations().isEmpty()) {
+            throw new RuntimeException("fetch arrow flight schema failed, no FlightSqlEndpointsLocations.");
         }
-        ArrayList<Expr> resultOutputExprs = ctx.getResultOutputExprs();
-        Types.PUniqueId queryId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
-        try {
-            InternalService.PFetchArrowFlightSchemaRequest request =
-                    InternalService.PFetchArrowFlightSchemaRequest.newBuilder()
-                            .setFinstId(queryId)
-                            .build();
+        for (FlightSqlEndpointsLocation endpointLoc : ctx.getFlightSqlEndpointsLocations()) {
+            TNetworkAddress address = endpointLoc.getResultInternalServiceAddr();
+            TUniqueId tid = endpointLoc.getFinstId();
+            ArrayList<Expr> resultOutputExprs = endpointLoc.getResultOutputExprs();
+            Types.PUniqueId queryId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
+            try {
+                InternalService.PFetchArrowFlightSchemaRequest request
+                        = InternalService.PFetchArrowFlightSchemaRequest.newBuilder().setFinstId(queryId).build();
 
-            Future<InternalService.PFetchArrowFlightSchemaResult> future
-                    = BackendServiceProxy.getInstance().fetchArrowFlightSchema(address, request);
-            InternalService.PFetchArrowFlightSchemaResult pResult;
-            pResult = future.get(timeoutMs, TimeUnit.MILLISECONDS);
-            if (pResult == null) {
-                throw new RuntimeException(String.format("fetch arrow flight schema timeout, queryId: %s",
-                        DebugUtil.printId(tid)));
-            }
-            Status resultStatus = new Status(pResult.getStatus());
-            if (resultStatus.getErrorCode() != TStatusCode.OK) {
-                throw new RuntimeException(String.format("fetch arrow flight schema failed, queryId: %s, errmsg: %s",
-                        DebugUtil.printId(tid), resultStatus));
-            }
-            if (pResult.hasBeArrowFlightIp()) {
-                publicAccessAddr.setHostname(pResult.getBeArrowFlightIp().toStringUtf8());
-            }
-            if (pResult.hasBeArrowFlightPort()) {
-                publicAccessAddr.setPort(pResult.getBeArrowFlightPort());
-            }
-            if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
-                RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
-                ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
-                        new ByteArrayInputStream(pResult.getSchema().toByteArray()),
-                        rootAllocator
-                );
-                try {
-                    VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
-                    List<FieldVector> fieldVectors = root.getFieldVectors();
-                    if (fieldVectors.size() != resultOutputExprs.size()) {
-                        throw new RuntimeException(String.format(
-                                "Schema size %s' is not equal to arrow field size %s, queryId: %s.",
-                                fieldVectors.size(), resultOutputExprs.size(), DebugUtil.printId(tid)));
-                    }
-                    return root.getSchema();
-                } catch (Exception e) {
-                    throw new RuntimeException("Read Arrow Flight Schema failed.", e);
+                Future<InternalService.PFetchArrowFlightSchemaResult> future = BackendServiceProxy.getInstance()
+                        .fetchArrowFlightSchema(address, request);
+                InternalService.PFetchArrowFlightSchemaResult pResult;
+                pResult = future.get(timeoutMs, TimeUnit.MILLISECONDS);
+                if (pResult == null) {
+                    throw new RuntimeException(
+                            String.format("fetch arrow flight schema timeout, queryId: %s", DebugUtil.printId(tid)));
                 }
-            } else {
-                throw new RuntimeException(String.format("get empty arrow flight schema, queryId: %s",
-                        DebugUtil.printId(tid)));
+                Status resultStatus = new Status(pResult.getStatus());
+                if (resultStatus.getErrorCode() != TStatusCode.OK) {
+                    throw new RuntimeException(
+                            String.format("fetch arrow flight schema failed, queryId: %s, errmsg: %s",
+                                    DebugUtil.printId(tid), resultStatus));
+                }
+
+                TNetworkAddress resultPublicAccessAddr = new TNetworkAddress();
+                if (pResult.hasBeArrowFlightIp()) {
+                    resultPublicAccessAddr.setHostname(pResult.getBeArrowFlightIp().toStringUtf8());
+                }
+                if (pResult.hasBeArrowFlightPort()) {
+                    resultPublicAccessAddr.setPort(pResult.getBeArrowFlightPort());
+                }
+                endpointLoc.setResultPublicAccessAddr(resultPublicAccessAddr);
+                if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
+                    RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
+                    ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
+                            new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator);
+                    try {
+                        Schema schema;
+                        VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
+                        List<FieldVector> fieldVectors = root.getFieldVectors();
+                        if (fieldVectors.size() != resultOutputExprs.size()) {
+                            throw new RuntimeException(
+                                    String.format("Schema size %s' is not equal to arrow field size %s, queryId: %s.",
+                                            fieldVectors.size(), resultOutputExprs.size(), DebugUtil.printId(tid)));
+                        }
+                        schema = root.getSchema();
+                        if (arrowSchema == null) {
+                            arrowSchema = schema;
+                        } else if (!arrowSchema.equals(schema)) {
+                            throw new RuntimeException(String.format(
+                                    "The schema returned by results BE is different, first schema: %s, "
+                                            + "new schema: %s, queryId: %s，backend: %s", arrowSchema, schema,
+                                    DebugUtil.printId(tid), address));
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException("Read Arrow Flight Schema failed.", e);
+                    }
+                } else {
+                    throw new RuntimeException(
+                            String.format("get empty arrow flight schema, queryId: %s", DebugUtil.printId(tid)));
+                }
+            } catch (RpcException e) {
+                throw new RuntimeException(
+                        String.format("arrow flight schema fetch catch rpc exception, queryId: %s，backend: %s",
+                                DebugUtil.printId(tid), address), e);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(
+                        String.format("arrow flight schema future get interrupted exception, queryId: %s，backend: %s",
+                                DebugUtil.printId(tid), address), e);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(
+                        String.format("arrow flight schema future get execution exception, queryId: %s，backend: %s",
+                                DebugUtil.printId(tid), address), e);
+            } catch (TimeoutException e) {
+                throw new RuntimeException(String.format("arrow flight schema fetch timeout, queryId: %s，backend: %s",
+                        DebugUtil.printId(tid), address), e);
             }
-        } catch (RpcException e) {
-            throw new RuntimeException(String.format(
-                    "arrow flight schema fetch catch rpc exception, queryId: %s，backend: %s",
-                    DebugUtil.printId(tid), address), e);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(String.format(
-                    "arrow flight schema future get interrupted exception, queryId: %s，backend: %s",
-                    DebugUtil.printId(tid), address), e);
-        } catch (ExecutionException e) {
-            throw new RuntimeException(String.format(
-                    "arrow flight schema future get execution exception, queryId: %s，backend: %s",
-                    DebugUtil.printId(tid), address), e);
-        } catch (TimeoutException e) {
-            throw new RuntimeException(String.format(
-                    "arrow flight schema fetch timeout, queryId: %s，backend: %s",
-                    DebugUtil.printId(tid), address), e);
         }
     }
 
@@ -188,11 +196,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.clear();
-        // TODO support query profile
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             asynExecutor.finalizeQuery();
         }
         returnResultFromRemoteExecutor.clear();
+        executor.finalizeQuery();
         ConnectContext.remove();
     }
 }

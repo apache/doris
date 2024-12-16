@@ -52,6 +52,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename Impl>
 class FunctionArrayRange : public IFunction {
@@ -174,7 +175,7 @@ private:
                          PaddedPODArray<SourceDataType>& nested_column,
                          PaddedPODArray<UInt8>& dest_nested_null_map,
                          ColumnArray::Offsets64& dest_offsets) {
-        int rows = start.size();
+        size_t rows = start.size();
         for (auto row = 0; row < rows; ++row) {
             auto idx = start[row];
             auto end_row = end[row];
@@ -193,7 +194,7 @@ private:
                         return Status::InvalidArgument("Array size exceeds the limit {}",
                                                        max_array_size_as_field);
                     }
-                    int offset = dest_offsets.back();
+                    size_t offset = dest_offsets.back();
                     while (idx < end[row]) {
                         nested_column.push_back(idx);
                         dest_nested_null_map.push_back(0);
@@ -213,7 +214,7 @@ private:
                     dest_offsets.push_back(dest_offsets.back());
                     continue;
                 } else {
-                    int offset = dest_offsets.back();
+                    size_t offset = dest_offsets.back();
                     using UNIT = std::conditional_t<std::is_same_v<TimeUnitOrVoid, void>,
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;

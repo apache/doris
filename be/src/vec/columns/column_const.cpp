@@ -35,6 +35,7 @@
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_) {
     /// Squash Const of Const.
@@ -66,11 +67,9 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_emp
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    return data->replicate(Offsets(1, s));
-}
-
-ColumnPtr ColumnConst::remove_low_cardinality() const {
-    return ColumnConst::create(data->convert_to_full_column_if_low_cardinality(), s);
+    // Assuming the number of replicate rows will not exceed Offset(UInt32),
+    // currently Column::replicate only supports Uint32 Offsets
+    return data->replicate(Offsets(1, cast_set<Offset>(s)));
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
@@ -108,39 +107,6 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     return ColumnConst::create(data, limit);
-}
-
-void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
-                                         uint32_t rows, uint32_t offset,
-                                         const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(rows == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
-        }
-    }
-}
-
-void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto real_data = data->get_data_at(0);
-    auto real_size = size();
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
-        }
-    }
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,

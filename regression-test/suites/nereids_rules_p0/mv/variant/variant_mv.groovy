@@ -87,6 +87,9 @@ suite("variant_mv") {
     sql """analyze table github_events1 with sync;"""
     sql """analyze table github_events2 with sync;"""
 
+    sql """alter table github_events1 modify column created_at set stats ('row_count'='3');"""
+    sql """alter table github_events2 modify column created_at set stats ('row_count'='3');"""
+
     // variant appear in where both slot and in expression
     def mv1_0 = """
     SELECT

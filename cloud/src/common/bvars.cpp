@@ -102,6 +102,8 @@ bvar::LatencyRecorder g_bvar_txn_kv_get_read_version("txn_kv", "get_read_version
 bvar::LatencyRecorder g_bvar_txn_kv_get_committed_version("txn_kv", "get_committed_version");
 bvar::LatencyRecorder g_bvar_txn_kv_batch_get("txn_kv", "batch_get");
 
+bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized("txn_kv", "get_count_normalized");
+
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute(
         "txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
@@ -196,3 +198,10 @@ BvarStatusWithTag<long> g_bvar_checker_instance_volume("checker", "instance_volu
 BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
 BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed("checker",
                                                                  "num_inverted_check_failed");
+
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker",
+                                                                         "leaked_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps(
+        "checker", "abnormal_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned(
+        "checker", "delete_bitmap_keys_scanned");

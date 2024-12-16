@@ -216,7 +216,7 @@ public class NereidsPlanner extends Planner {
             plan = preprocess(plan);
 
             initCascadesContext(plan, requireProperties);
-
+            statementContext.loadSnapshots(cascadesContext.getOrExtractTables(plan));
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
@@ -361,8 +361,8 @@ public class NereidsPlanner extends Planner {
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
         cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
-        if (statementContext.getConnectContext().getTables() != null) {
-            cascadesContext.setTables(statementContext.getConnectContext().getTables());
+        if (statementContext.getTables() != null) {
+            cascadesContext.setTables(statementContext.getTables());
         }
     }
 
@@ -720,11 +720,6 @@ public class NereidsPlanner extends Planner {
             }
         }
         return plan;
-    }
-
-    @Override
-    public boolean isBlockQuery() {
-        return true;
     }
 
     @Override

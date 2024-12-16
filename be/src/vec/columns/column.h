@@ -100,10 +100,6 @@ public:
   */
     virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
-    /// If column isn't ColumnLowCardinality, return itself.
-    /// If column is ColumnLowCardinality, transforms is to full column.
-    virtual Ptr convert_to_full_column_if_low_cardinality() const { return get_ptr(); }
-
     /// If column isn't ColumnDictionary, return itself.
     /// If column is ColumnDictionary, transforms is to predicate column.
     virtual MutablePtr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
@@ -130,7 +126,7 @@ public:
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}
 
-    /// Some columns may require finalization before using of other operations.
+    // Only used in ColumnObject to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary
@@ -212,6 +208,8 @@ public:
     }
 
     /// Appends one element from other column with the same type multiple times.
+    /// we should make sure position is less than src's size and length is less than src's size,
+    /// and position + length is less than src's size
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);
@@ -221,10 +219,11 @@ public:
     // insert the data of target columns into self column according to positions
     // positions[i] means index of srcs whitch need to insert_from
     // the virtual function overhead of multiple calls to insert_from can be reduced to once
-    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                  std::vector<size_t> positions);
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
+    /// Also here should make sure indices_end is bigger than indices_begin
     /// indices_begin + indices_end represent the row indices of column src
     virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                      const uint32_t* indices_end) = 0;
@@ -247,12 +246,6 @@ public:
                                        uint32_t dict_num = 0) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_dict_data is not supported for " + get_name());
-    }
-
-    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                         uint32_t* start_offset_array, size_t num) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method insert_many_binary_data is not supported for " + get_name());
     }
 
     /// Insert binary data into column from a continuous buffer, the implementation maybe copy all binary data
@@ -470,7 +463,7 @@ public:
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
-      * reverse - reverse ordering (ascending).
+      * reverse - true: descending order, false: ascending order.
       * limit - if isn't 0, then only first limit elements of the result column could be sorted.
       * nan_direction_hint - see above.
       */
@@ -485,13 +478,6 @@ public:
       * It is necessary in ARRAY JOIN operation.
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
-
-    /// Appends one field multiple times. Can be optimized in inherited classes.
-    virtual void insert_many(const Field& field, size_t length) {
-        for (size_t i = 0; i < length; ++i) {
-            insert(field);
-        }
-    }
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
@@ -521,6 +507,7 @@ public:
 
     /// Resize memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
+    /// Note. resize means not only change column self but also sub-columns if have.
     virtual void resize(size_t /*n*/) {}
 
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
@@ -575,10 +562,6 @@ public:
     /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
     virtual bool is_concrete_nullable() const { return false; }
 
-    virtual bool is_bitmap() const { return false; }
-
-    virtual bool is_hll() const { return false; }
-
     // true if column has null element
     virtual bool has_null() const { return false; }
 
@@ -607,30 +590,15 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
-    virtual bool is_fixed_and_contiguous() const { return false; }
-
-    /// If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
     }
 
-    /// If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    virtual size_t size_of_value_if_fixed() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Values of column {} are not fixed size.", get_name());
-        return 0;
-    }
-
     /// Returns ratio of values in column, that are equal to default value of column.
     /// Checks only @sample_ratio ratio of rows.
     virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const { return 0.0; }
-
-    /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
-    /// Implies is_fixed_and_contiguous.
-    virtual bool is_numeric() const { return false; }
 
     // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
     virtual bool is_variable_length() const { return false; }
@@ -638,8 +606,6 @@ public:
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_string64() const { return false; }
-
-    virtual bool is_column_decimal() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
 
@@ -678,8 +644,7 @@ public:
       */
     String dump_structure() const;
 
-    // only used in agg value replace
-    // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
     // replace data to default value if null, used to avoid null data output decimal check failure
@@ -712,6 +677,9 @@ protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
                                       size_t end) const;
+    template <typename Derived>
+    void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                       const std::vector<size_t>& positions);
 };
 
 using ColumnPtr = IColumn::Ptr;

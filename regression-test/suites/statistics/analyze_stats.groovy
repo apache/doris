@@ -357,7 +357,7 @@ suite("test_analyze") {
         ANALYZE TABLE analyze_partitioned_tbl_test WITH SYNC
     """
 
-    part_tbl_analyze_result = sql """
+    def part_tbl_analyze_result = sql """
         SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
     """
 
@@ -1006,7 +1006,7 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
 
     //  0:column_name | 1:index_name | 2:count | 3:ndv  | 4:num_null | 5:data_size | 6:avg_size_byte | 7:min  | 8:max  | 9:method | 10:type | 11:trigger | 12:query_times | 13:updated_time
-    id_col_stats = sql """
+    def id_col_stats = sql """
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
 
@@ -1230,7 +1230,7 @@ PARTITION `p599` VALUES IN (599)
 
     def check_column = { r, expected ->
         expected_result = convert_col_list_str_to_java_collection(expected)
-        actual_result = convert_col_list_str_to_java_collection(r[0][4])
+        def actual_result = convert_col_list_str_to_java_collection(r[0][4])
         System.out.println(expected_result)
         System.out.println(actual_result)
         return expected_result.containsAll(actual_result) && actual_result.containsAll(expected_result)
@@ -2903,7 +2903,38 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("521779.0", alter_result[0][5])
     assertEquals("7.142863009760572", alter_result[0][6])
 
-
     sql """DROP DATABASE IF EXISTS trigger"""
+
+    // Test show last analyze table version
+    sql """create database if not exists test_version"""
+    sql """use test_version"""
+    sql """drop table if exists region"""
+    sql """
+        CREATE TABLE region  (
+            r_regionkey      int NOT NULL,
+            r_name       VARCHAR(25) NOT NULL,
+            r_comment    VARCHAR(152)
+        )ENGINE=OLAP
+        DUPLICATE KEY(`r_regionkey`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1" 
+        );
+    """
+    sql """analyze table region with sync"""
+    def versionResult = sql """show column stats region"""
+    assertEquals(versionResult[0][16], "1")
+    assertEquals(versionResult[1][16], "1")
+    assertEquals(versionResult[2][16], "1")
+
+    sql """insert into region values (1, "1", "1")"""
+    sql """analyze table region with sync"""
+    versionResult = sql """show column stats region"""
+    assertEquals(versionResult[0][16], "2")
+    assertEquals(versionResult[1][16], "2")
+    assertEquals(versionResult[2][16], "2")
+
+    sql """drop database if exists test_version"""
 }
 

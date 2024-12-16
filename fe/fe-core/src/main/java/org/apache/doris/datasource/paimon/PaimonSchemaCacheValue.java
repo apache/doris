@@ -20,20 +20,18 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.SchemaCacheValue;
 
-import org.apache.paimon.table.Table;
-
 import java.util.List;
 
 public class PaimonSchemaCacheValue extends SchemaCacheValue {
 
-    private Table paimonTable;
+    private List<Column> partitionColumns;
 
-    public PaimonSchemaCacheValue(List<Column> schema, Table paimonTable) {
+    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
         super(schema);
-        this.paimonTable = paimonTable;
+        this.partitionColumns = partitionColumns;
     }
 
-    public Table getPaimonTable() {
-        return paimonTable;
+    public List<Column> getPartitionColumns() {
+        return partitionColumns;
     }
 }

@@ -379,9 +379,8 @@ public class StatisticsRepository {
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
                     null, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
-            long timestamp = System.currentTimeMillis();
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                    .setTblUpdateTime(timestamp)
+                    .setTblUpdateTime(objects.table.getUpdateTime())
                     .setColName("")
                     .setRowCount((long) Double.parseDouble(rowCount))
                     .setJobColumns(Sets.newHashSet())

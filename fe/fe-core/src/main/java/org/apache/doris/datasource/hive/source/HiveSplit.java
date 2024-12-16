@@ -54,9 +54,13 @@ public class HiveSplit extends FileSplit {
 
         @Override
         public Split create(LocationPath path, long start, long length, long fileLength,
+                long fileSplitSize,
                 long modificationTime, String[] hosts,
                 List<String> partitionValues) {
-            return new HiveSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues, acidInfo);
+            HiveSplit split =  new HiveSplit(path, start, length, fileLength, modificationTime,
+                    hosts, partitionValues, acidInfo);
+            split.setTargetSplitSize(fileSplitSize);
+            return split;
         }
     }
 }

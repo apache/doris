@@ -32,6 +32,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
 
@@ -171,18 +172,12 @@ public class MTMVPartitionUtil {
     }
 
     public static List<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
-        mtmv.readLock();
-        try {
-            List<Long> res = Lists.newArrayList();
-            for (String partitionName : partitions) {
-                Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
-                res.add(partition.getId());
-            }
-            return res;
-        } finally {
-            mtmv.readUnlock();
+        List<Long> res = Lists.newArrayList();
+        for (String partitionName : partitions) {
+            Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
+            res.add(partition.getId());
         }
-
+        return res;
     }
 
     /**
@@ -329,7 +324,7 @@ public class MTMVPartitionUtil {
         }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
-                    .getPartitionSnapshot(relatedPartitionName, context);
+                    .getPartitionSnapshot(relatedPartitionName, context, MvccUtil.getSnapshotFromContext(relatedTable));
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
@@ -446,7 +441,8 @@ public class MTMVPartitionUtil {
         if (!baseTable.needAutoRefresh()) {
             return true;
         }
-        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context);
+        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context,
+                MvccUtil.getSnapshotFromContext(baseTable));
         return mtmv.getRefreshSnapshot()
                 .equalsWithBaseTable(mtmvPartitionName, new BaseTableInfo(baseTable), baseTableCurrentSnapshot);
     }
@@ -481,10 +477,9 @@ public class MTMVPartitionUtil {
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             for (String relatedPartitionName : relatedPartitionNames) {
-                MTMVSnapshotIf partitionSnapshot = relatedTable
-                        .getPartitionSnapshot(relatedPartitionName, context);
-                refreshPartitionSnapshot.getPartitions()
-                        .put(relatedPartitionName, partitionSnapshot);
+                MTMVSnapshotIf partitionSnapshot = relatedTable.getPartitionSnapshot(relatedPartitionName, context,
+                        MvccUtil.getSnapshotFromContext(relatedTable));
+                refreshPartitionSnapshot.getPartitions().put(relatedPartitionName, partitionSnapshot);
             }
         }
         for (BaseTableInfo baseTableInfo : baseTables) {
@@ -497,13 +492,13 @@ public class MTMVPartitionUtil {
                 continue;
             }
             refreshPartitionSnapshot.addTableSnapshot(baseTableInfo,
-                    ((MTMVRelatedTableIf) table).getTableSnapshot(context));
+                    ((MTMVRelatedTableIf) table).getTableSnapshot(context, MvccUtil.getSnapshotFromContext(table)));
         }
         return refreshPartitionSnapshot;
     }
 
     public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns();
+        List<Column> partitionColumns = relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable));
         for (Column column : partitionColumns) {
             if (column.getName().equals(col)) {
                 return column.getType();

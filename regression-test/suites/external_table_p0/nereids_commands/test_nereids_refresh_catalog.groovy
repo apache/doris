@@ -28,6 +28,8 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         String ex_tb0 = "ex_tb0";
         String new_mysql_db = "new_mysql_db";
+        String new_mysql_table1 = "new_mysql_table1";
+        String new_mysql_table2 = "new_mysql_table2";
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -43,27 +45,41 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        sql """switch ${catalog_name}"""
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db}");"""
+        sql """switch ${catalog_name}"""
 
-        qt_sql """show databases;"""
+        qt_database """show databases;"""
         sql """ use ${ex_db_name}"""
 
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
         // create database in mysql
         sql """CALL EXECUTE_STMT("${catalog_name}", "create database  ${new_mysql_db} ;");"""
-        qt_sql """show databases;"""
+        qt_preceding_create_external_database """show databases;"""
         checkNereidsExecute("refresh catalog ${catalog_name} ;")
-        qt_sql """show databases;"""
+        qt_subsequent_create_external_database """show databases;"""
 
         checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
+        sql """use ${new_mysql_db}"""
+        qt_sql_show_tables """show tables;"""
+
+        // create table in mysql external database
+        sql """CALL EXECUTE_STMT("${catalog_name}", "create table ${new_mysql_db}.${new_mysql_table1} (id int, name varchar(20));");"""
+
+        qt_preceding_refresh_database """show tables;"""
+        checkNereidsExecute("refresh database ${new_mysql_db} ;")
+        qt_subsequent_refresh_database """show tables;"""
+
+        sql """CALL EXECUTE_STMT("${catalog_name}", "create table ${new_mysql_db}.${new_mysql_table2} (id int, name varchar(20));");"""
+        qt_preceding_refresh_database """show tables;"""
+        checkNereidsExecute("refresh database ${catalog_name}.${new_mysql_db} ;")
+        qt_subsequent_refresh_database """show tables;"""
 
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db} ;");"""
-        qt_sql """show databases;"""
+        qt_preceding_drop_external_database """show databases;"""
 
         checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
-        qt_sql """show databases;"""
+        qt_subsequent_drop_external_database """show databases;"""
 
         sql """ drop catalog if exists ${catalog_name} ;"""
     }

@@ -50,6 +50,7 @@ public:
             return Status::InternalError("Lambda Function {} is not implemented.",
                                          _fn.name.function_name);
         }
+        RETURN_IF_ERROR(_lambda_function->prepare(state));
         _prepare_finished = true;
         return Status::OK();
     }

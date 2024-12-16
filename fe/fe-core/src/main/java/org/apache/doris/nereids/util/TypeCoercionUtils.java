@@ -21,6 +21,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -32,7 +33,6 @@ import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -117,6 +117,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1192,28 +1193,6 @@ public class TypeCoercionUtils {
                 .orElseThrow(() -> new AnalysisException("Cannot find common type for case when " + caseWhen));
     }
 
-    /**
-     * process compound predicate type coercion.
-     */
-    public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
-        // check
-        compoundPredicate.checkLegalityBeforeTypeCoercion();
-        ImmutableList.Builder<Expression> newChildren
-                = ImmutableList.builderWithExpectedSize(compoundPredicate.arity());
-        boolean changed = false;
-        for (Expression child : compoundPredicate.children()) {
-            Expression newChild;
-            if (child.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
-            } else {
-                newChild = castIfNotSameType(child, BooleanType.INSTANCE);
-            }
-            changed |= child != newChild;
-            newChildren.add(newChild);
-        }
-        return changed ? compoundPredicate.withChildren(newChildren.build()) : compoundPredicate;
-    }
-
     private static boolean canCompareDate(DataType t1, DataType t2) {
         DataType dateType = t1;
         DataType anotherType = t2;
@@ -1794,6 +1773,48 @@ public class TypeCoercionUtils {
         // multiply do not need to cast children to same type
         return binaryArithmetic.withChildren(castIfNotSameType(left, dt1),
                 castIfNotSameType(right, dt2));
+    }
+
+    /**
+     * get min and max value of a data type
+     *
+     * @param dataType specific data type
+     * @return min and max values pair
+     */
+    public static Optional<Pair<BigDecimal, BigDecimal>> getDataTypeMinMaxValue(DataType dataType) {
+        if (dataType.isTinyIntType()) {
+            return Optional.of(Pair.of(new BigDecimal(Byte.MIN_VALUE), new BigDecimal(Byte.MAX_VALUE)));
+        } else if (dataType.isSmallIntType()) {
+            return Optional.of(Pair.of(new BigDecimal(Short.MIN_VALUE), new BigDecimal(Short.MAX_VALUE)));
+        } else if (dataType.isIntegerType()) {
+            return Optional.of(Pair.of(new BigDecimal(Integer.MIN_VALUE), new BigDecimal(Integer.MAX_VALUE)));
+        } else if (dataType.isBigIntType()) {
+            return Optional.of(Pair.of(new BigDecimal(Long.MIN_VALUE), new BigDecimal(Long.MAX_VALUE)));
+        } else if (dataType.isLargeIntType()) {
+            return Optional.of(Pair.of(new BigDecimal(LargeIntType.MIN_VALUE), new BigDecimal(LargeIntType.MAX_VALUE)));
+        } else if (dataType.isFloatType()) {
+            return Optional.of(Pair.of(BigDecimal.valueOf(-Float.MAX_VALUE), new BigDecimal(Float.MAX_VALUE)));
+        } else if (dataType.isDoubleType()) {
+            return Optional.of(Pair.of(BigDecimal.valueOf(-Double.MAX_VALUE), new BigDecimal(Double.MAX_VALUE)));
+        } else if (dataType.isDecimalV3Type()) {
+            DecimalV3Type type = (DecimalV3Type) dataType;
+            int precision = type.getPrecision();
+            int scale = type.getScale();
+            if (scale >= 0) {
+                StringBuilder sb = new StringBuilder();
+                sb.append(StringUtils.repeat('9', precision - scale));
+                if (sb.length() == 0) {
+                    sb.append('0');
+                }
+                if (scale > 0) {
+                    sb.append('.');
+                    sb.append(StringUtils.repeat('9', scale));
+                }
+                return Optional.of(Pair.of(new BigDecimal("-" + sb.toString()), new BigDecimal(sb.toString())));
+            }
+        }
+
+        return Optional.empty();
     }
 
     private static boolean supportCompare(DataType dataType) {

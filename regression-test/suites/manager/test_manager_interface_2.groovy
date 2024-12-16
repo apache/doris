@@ -44,7 +44,7 @@ suite('test_manager_interface_2',"p0") {
         );"""
 
     
-        result =sql  """ show data """ 
+        def result =sql  """ show data """ 
         for(int i = 0 ; i < result.size();i++) {
             assert(result[i][0].toLowerCase() != "null") //TableName 
             assert(result[i][1].toLowerCase() != "null") //Size 
@@ -183,7 +183,7 @@ suite('test_manager_interface_2',"p0") {
     
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
 
-        result = sql """SHOW BACKENDS;"""
+        def result = sql """SHOW BACKENDS;"""
         logger.info("result = ${result}" )
         def x = 0 
         for(int i  =0 ;i<result.size();i++) {
@@ -292,6 +292,7 @@ suite('test_manager_interface_2',"p0") {
         }
 
         sql """ALTER SYSTEM ADD BROKER test_manager_broker "${address}:${notExistPort}";"""
+        checkNereidsExecute("show broker")
         result = sql """ show broker """ 
         x =  0
         logger.info("result = ${result}" )

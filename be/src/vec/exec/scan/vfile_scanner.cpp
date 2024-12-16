@@ -23,18 +23,15 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
-#include <ostream>
 #include <tuple>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/object_pool.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -47,7 +44,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -754,17 +750,16 @@ Status VFileScanner::_get_next_reader() {
 
         // create reader for specific format
         Status init_status;
-        TFileFormatType::type format_type = _params->format_type;
+        // for compatibility, if format_type is not set in range, use the format type of params
+        TFileFormatType::type format_type =
+                range.__isset.format_type ? range.format_type : _params->format_type;
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
+        // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
-            if (range.table_format_params.table_format_type == "hudi" &&
-                range.table_format_params.hudi_params.delta_logs.empty()) {
-                // fall back to native reader if there is no log file
-                format_type = TFileFormatType::FORMAT_PARQUET;
-            } else if (range.table_format_params.table_format_type == "paimon" &&
-                       !range.table_format_params.paimon_params.__isset.paimon_split) {
+            if (range.table_format_params.table_format_type == "paimon" &&
+                !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
                 auto format = range.table_format_params.paimon_params.file_format;
                 if (format == "orc") {
@@ -793,8 +788,8 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                _cur_reader =
-                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                             range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
@@ -827,6 +822,9 @@ Status VFileScanner::_get_next_reader() {
                     _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
+            // ATTN: the push down agg type may be set back to NONE,
+            // see IcebergTableReader::init_row_filters for example.
+            parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
             {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
@@ -892,6 +890,7 @@ Status VFileScanner::_get_next_reader() {
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
                     unsupported_pushdown_types);
+            orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -965,8 +964,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
-            init_status =
-                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            init_status = ((NewJsonReader*)(_cur_reader.get()))
+                                  ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {

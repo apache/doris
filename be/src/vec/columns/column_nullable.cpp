@@ -29,6 +29,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : NullMapProvider(std::move(null_map_)), nested_column(std::move(nested_column_)) {
@@ -62,7 +63,7 @@ void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-        for (int i = start; i < end; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::xxHash64NullWithSeed(hash);
             }
@@ -78,7 +79,7 @@ void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& h
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-        for (int i = start; i < end; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::zlib_crc_hash_null(hash);
             }
@@ -185,16 +186,21 @@ void ColumnNullable::insert_data(const char* pos, size_t length) {
 }
 
 void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
+    auto not_null_count = 0;
     for (size_t i = 0; i != num; ++i) {
         if (strings[i].data == nullptr) {
-            nested_column->insert_default();
+            _push_false_to_nullmap(not_null_count);
+            not_null_count = 0;
             get_null_map_data().push_back(1);
             _has_null = true;
         } else {
-            nested_column->insert_data(strings[i].data, strings[i].size);
-            _push_false_to_nullmap(1);
+            not_null_count++;
         }
     }
+    if (not_null_count) {
+        _push_false_to_nullmap(not_null_count);
+    }
+    nested_column->insert_many_strings(strings, num);
 }
 
 void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_t length) {

@@ -51,6 +51,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
@@ -63,11 +64,6 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 
-#define FINALLY_CLOSE_OUTPUT(x)       \
-    try {                             \
-        if (x != nullptr) x->close(); \
-    } catch (...) {                   \
-    }
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MERGE_FACTOR = 100000000;
@@ -135,13 +131,6 @@ public:
             LOG(WARNING) << "Inverted index writer init error occurred: " << e.what();
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "Inverted index writer init error occurred");
-        }
-    }
-
-    void close() {
-        if (_index_writer) {
-            _index_writer->close();
-            _index_writer.reset();
         }
     }
 
@@ -223,6 +212,28 @@ public:
         (*field)->setOmitTermFreqAndPositions(
                 !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_v3", {
+            if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "debug point: InvertedIndexColumnWriterImpl::create_field_v3 error");
+            }
+        })
+        if (_index_file_writer->get_storage_format() >= InvertedIndexStorageFormatPB::V3) {
+            (*field)->setIndexVersion(IndexVersion::kV3);
+            // Only effective in v3
+            std::string dict_compression =
+                    get_parser_dict_compression_from_properties(_index_meta->properties());
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_dic_compression", {
+                if (dict_compression != INVERTED_INDEX_PARSER_TRUE) {
+                    return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: "
+                            "InvertedIndexColumnWriterImpl::create_field_dic_compression error");
+                }
+            })
+            if (dict_compression == INVERTED_INDEX_PARSER_TRUE) {
+                (*field)->updateFlag(FlagBits::DICT_COMPRESS);
+            }
+        }
         return Status::OK();
     }
 
@@ -618,7 +629,6 @@ public:
             buf.resize(size);
             _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
             null_bitmap_out->writeBytes(buf.data(), size);
-            null_bitmap_out->close();
         }
     }
 
@@ -628,6 +638,7 @@ public:
             std::unique_ptr<lucene::store::IndexOutput> data_out = nullptr;
             std::unique_ptr<lucene::store::IndexOutput> index_out = nullptr;
             std::unique_ptr<lucene::store::IndexOutput> meta_out = nullptr;
+            ErrorContext error_context;
             try {
                 // write bkd file
                 if constexpr (field_is_numeric_type(field_type)) {
@@ -656,16 +667,11 @@ public:
                                 << "Inverted index writer create output error occurred: nullptr";
                         _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                     }
-                    meta_out->close();
-                    data_out->close();
-                    index_out->close();
-                    _dir->close();
                 } else if constexpr (field_is_slice_type(field_type)) {
                     null_bitmap_out = std::unique_ptr<
                             lucene::store::IndexOutput>(_dir->createOutput(
                             InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
-                    close();
                     DBUG_EXECUTE_IF(
                             "InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close", {
                                 _CLTHROWA(CL_ERR_IO,
@@ -673,19 +679,24 @@ public:
                             });
                 }
             } catch (CLuceneError& e) {
-                FINALLY_CLOSE_OUTPUT(null_bitmap_out)
-                FINALLY_CLOSE_OUTPUT(meta_out)
-                FINALLY_CLOSE_OUTPUT(data_out)
-                FINALLY_CLOSE_OUTPUT(index_out)
-                if constexpr (field_is_numeric_type(field_type)) {
-                    FINALLY_CLOSE_OUTPUT(_dir)
-                } else if constexpr (field_is_slice_type(field_type)) {
-                    FINALLY_CLOSE_OUTPUT(_index_writer);
-                }
-                LOG(WARNING) << "Inverted index writer finish error occurred: " << e.what();
-                return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "Inverted index writer finish error occurred:{}", e.what());
+                error_context.eptr = std::current_exception();
+                error_context.err_msg.append("Inverted index writer finish error occurred: ");
+                error_context.err_msg.append(e.what());
+                LOG(ERROR) << error_context.err_msg;
             }
+            FINALLY({
+                FINALLY_CLOSE(null_bitmap_out);
+                FINALLY_CLOSE(meta_out);
+                FINALLY_CLOSE(data_out);
+                FINALLY_CLOSE(index_out);
+                if constexpr (field_is_numeric_type(field_type)) {
+                    FINALLY_CLOSE(_dir);
+                } else if constexpr (field_is_slice_type(field_type)) {
+                    FINALLY_CLOSE(_index_writer);
+                    // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
+                    _index_writer.reset();
+                }
+            })
 
             return Status::OK();
         }
