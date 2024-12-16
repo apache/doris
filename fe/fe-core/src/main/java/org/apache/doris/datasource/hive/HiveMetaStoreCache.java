@@ -65,15 +65,10 @@ import com.google.common.collect.RangeMap;
 import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.NonNull;
-import lombok.ToString;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.utils.FileUtils;
@@ -741,120 +736,6 @@ public class HiveMetaStoreCache {
     @VisibleForTesting
     public LoadingCache<PartitionCacheKey, HivePartition> getPartitionCache() {
         return partitionCache;
-    }
-
-
-    @Getter
-    @ToString
-    @EqualsAndHashCode
-    public static class ParsedBase {
-        private final long writeId;
-        private final long visibilityId;
-
-        public ParsedBase(long writeId, long visibilityId) {
-            this.writeId = writeId;
-            this.visibilityId = visibilityId;
-        }
-    }
-
-    static ParsedBase parseBase(String name) {
-        name = name.substring("base_".length());
-        int index = name.indexOf("_v");
-        if (index == -1) {
-            return new ParsedBase(Long.parseLong(name), 0);
-        }
-        return new ParsedBase(
-                Long.parseLong(name.substring(0, index)),
-                Long.parseLong(name.substring(index + 2)));
-    }
-
-    @Getter
-    @ToString
-    @EqualsAndHashCode
-    public static class ParsedDelta implements Comparable<ParsedDelta> {
-        private final long min;
-        private final long max;
-        private final String path;
-        private final int statementId;
-        private final boolean deleteDelta;
-        private final long visibilityId;
-
-        public ParsedDelta(long min, long max, @NonNull String path, int statementId,
-                boolean deleteDelta, long visibilityId) {
-            this.min = min;
-            this.max = max;
-            this.path = path;
-            this.statementId = statementId;
-            this.deleteDelta = deleteDelta;
-            this.visibilityId = visibilityId;
-        }
-
-        @Override
-        public int compareTo(ParsedDelta other) {
-            return Long.compare(min, other.min) != 0 ? Long.compare(min, other.min) :
-                    Long.compare(other.max, max) != 0 ? Long.compare(other.max, max) :
-                            Integer.compare(statementId, other.statementId) != 0
-                                    ? Integer.compare(statementId, other.statementId) :
-                                    path.compareTo(other.path);
-        }
-    }
-
-    private static boolean isValidBase(ParsedBase base, ValidWriteIdList writeIdList) {
-        if (base.writeId == Long.MIN_VALUE) {
-            return true;
-        }
-
-        // hive 4 : just check "_v" suffix
-        // before hive 4 : check _metadata_acid in baseDir
-        if ((base.visibilityId > 0)) {
-            // || isCompacted(fileSystem, baseDir) need check
-            return writeIdList.isValidBase(base.writeId);
-        }
-
-        return writeIdList.isWriteIdValid(base.writeId);
-    }
-
-    static ParsedDelta parseDelta(String fileName, String deltaPrefix, String path) {
-        /*
-        format1:
-            delta_min_max_statementId_visibilityId
-            delete_delta_min_max_statementId_visibilityId
-
-            _visibilityId maybe not exists.
-            detail: https://issues.apache.org/jira/browse/HIVE-20823
-
-        format2:
-            delta_min_max_visibilityId
-            delete_delta_min_visibilityId
-
-            when minor compaction runs, we collapse per statement delta files inside a single
-            transaction so we no longer need a statementId in the file name
-         */
-        // String fileName = fileName.substring(name.lastIndexOf('/') + 1);
-        // checkArgument(fileName.startsWith(deltaPrefix), "File does not start with '%s': %s", deltaPrefix, path);
-
-        long visibilityId = 0;
-        int visibilityIdx = fileName.indexOf("_v");
-        if (visibilityIdx != -1) {
-            visibilityId = Long.parseLong(fileName.substring(visibilityIdx + 2));
-            fileName = fileName.substring(0, visibilityIdx);
-        }
-
-        boolean deleteDelta = deltaPrefix.equals("delete_delta_");
-
-        String rest = fileName.substring(deltaPrefix.length());
-        int split = rest.indexOf('_');
-        int split2 = rest.indexOf('_', split + 1);
-        long min = Long.parseLong(rest.substring(0, split));
-
-        if (split2 == -1) {
-            long max = Long.parseLong(rest.substring(split + 1));
-            return new ParsedDelta(min, max, fileName, -1, deleteDelta, visibilityId);
-        }
-
-        long max = Long.parseLong(rest.substring(split + 1, split2));
-        int statementId = Integer.parseInt(rest.substring(split2 + 1));
-        return new ParsedDelta(min, max, path, statementId, deleteDelta, visibilityId);
     }
 
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, Map<String, String> txnValidIds,
