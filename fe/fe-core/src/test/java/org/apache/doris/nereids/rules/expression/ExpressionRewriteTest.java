@@ -25,7 +25,7 @@ import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
-import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -247,7 +247,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyDecimalV3Comparison() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(SimplifyDecimalV3Comparison.INSTANCE)
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
         ));
 
         // do rewrite

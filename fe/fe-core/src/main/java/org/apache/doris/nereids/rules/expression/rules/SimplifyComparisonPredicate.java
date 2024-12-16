@@ -229,6 +229,32 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
                 DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+
+                /**
+                 * if we have a column with decimalv3 type and set enable_decimal_conversion = false.
+                 * we have a column named col1 with type decimalv3(15, 2)
+                 * and we have a comparison like col1 > 0.5 + 0.1
+                 * then the result type of 0.5 + 0.1 is decimalv2(27, 9)
+                 * and the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
+                 * this rule simplify it from cast(col1 as decimalv3(27, 9)) > 0.6 to col1 > 0.6
+                 */
+                BigDecimal trailingZerosValue = literal.getValue().stripTrailingZeros();
+                int literalScale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
+                int literalPrecision = org.apache.doris.analysis.DecimalLiteral
+                        .getBigDecimalPrecision( trailingZerosValue);
+                if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
+                    try {
+                        trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
+                        Expression newLiteral = new DecimalV3Literal(
+                                DecimalV3Type.createDecimalV3TypeLooseCheck(
+                                        leftType.getPrecision(), leftType.getScale()),
+                                trailingZerosValue);
+                        return comparisonPredicate.withChildren(left, newLiteral);
+                    } catch (ArithmeticException e) {
+                        // set scale exception
+                    }
+                }
+
                 DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
                 if (leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
