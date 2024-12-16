@@ -193,8 +193,17 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
     if (is_receiver_eof()) {
         return _receiver_status;
     }
-
     auto receiver_status = _recvr_status();
+    // _local_recvr depdend on pipeline::ExchangeLocalState* _parent to do some memory counter settings
+    // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
+    // Lock the fragment context to ensure the runtime state and other objects are not deconstructed
+    auto ctx_lock = _local_recvr->task_exec_ctx();
+    if (receiver_status.ok() && ctx_lock == nullptr) {
+        // Do not return internal error, because when query finished, the downstream node
+        // may finish before upstream node. And the object maybe deconstructed. If return error
+        // then the upstream node may report error status to FE, the query is failed.
+        receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+    }
     if (receiver_status.ok()) {
         COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
         COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
