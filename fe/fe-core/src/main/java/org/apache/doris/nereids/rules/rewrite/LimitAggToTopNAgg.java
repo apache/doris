@@ -21,7 +21,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -32,7 +35,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,7 +73,6 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= limit.getLimit() + limit.getOffset())
-                        .when(limit -> limit.child().isAllSlots())
                         .when(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child().child();
                             return !agg.getGroupByExpressions().isEmpty();
@@ -109,18 +113,49 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= topn.getLimit() + topn.getOffset())
-                        .when(topn -> topn.child().isAllSlots())
                         .when(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child().child();
                             return !agg.getGroupByExpressions().isEmpty();
                         })
                         .then(topn -> {
+                            LogicalTopN originTopn = topn;
                             LogicalProject<? extends Plan> project = topn.child();
                             LogicalAggregate<? extends Plan> agg = (LogicalAggregate) project.child();
+                            if (!project.isAllSlots()) {
+                                /*
+                                    topn(orderKey=[a])
+                                        +-->project(b as a)
+                                           +--> agg(groupKey[b]
+                                     =>
+                                     topn(orderKey=[b])
+                                        +-->project(b as a)
+                                           +-->agg(groupKey[b])
+                                     and then exchange topn and project
+                                 */
+                                Map<SlotReference, SlotReference> keyAsKey = new HashMap<>();
+                                for (NamedExpression e : project.getProjects()) {
+                                    if (e instanceof Alias && e.child(0) instanceof SlotReference) {
+                                        keyAsKey.put((SlotReference) e.toSlot(), (SlotReference) e.child(0));
+                                    }
+                                }
+                                List<OrderKey> projectOrderKeys = Lists.newArrayList();
+                                boolean hasNew = false;
+                                for (OrderKey orderKey : topn.getOrderKeys()) {
+                                    if (keyAsKey.containsKey(orderKey.getExpr())) {
+                                        projectOrderKeys.add(orderKey.withExpression(keyAsKey.get(orderKey.getExpr())));
+                                        hasNew = true;
+                                    } else {
+                                        projectOrderKeys.add(orderKey);
+                                    }
+                                }
+                                if (hasNew) {
+                                    topn = (LogicalTopN) topn.withOrderKeys(projectOrderKeys);
+                                }
+                            }
                             Pair<List<OrderKey>, List<Expression>> pair =
                                     supplementOrderKeyByGroupKeyIfCompatible(topn, agg);
                             if (pair == null) {
-                                return topn;
+                                return originTopn;
                             } else {
                                 agg = agg.withGroupBy(pair.second);
                                 topn = (LogicalTopN) topn.withChildren(agg);
@@ -138,6 +173,14 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * compatible: if order key is subset of group by keys
+     * example:
+     * 1. orderKey[a, b], groupKeys[b, a, c]
+     *    compatible, return Pair(orderKey[a, b, c], groupKey[a, b, c])
+     * 2. orderKey[a, b+1], groupKeys[a, b]
+     *    not compatible, return null
+     */
     private Pair<List<OrderKey>, List<Expression>> supplementOrderKeyByGroupKeyIfCompatible(
             LogicalTopN<? extends Plan> topn, LogicalAggregate<? extends Plan> agg) {
         Set<Expression> groupKeySet = Sets.newHashSet(agg.getGroupByExpressions());
