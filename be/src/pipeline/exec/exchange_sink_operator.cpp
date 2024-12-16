@@ -112,6 +112,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         }
     }
     only_local_exchange = local_size == channels.size();
+    _rpc_channels_num = channels.size() - local_size;
 
     if (!only_local_exchange) {
         _sink_buffer = p.get_sink_buffer(state->fragment_instance_id().lo);
@@ -206,17 +207,12 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
     }
-    size_t local_size = 0;
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->open(state));
         if (channels[i]->is_local()) {
-            local_size++;
             _last_local_channel_idx = i;
         }
     }
-    only_local_exchange = local_size == channels.size();
-
-    _rpc_channels_num = channels.size() - local_size;
 
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
