@@ -565,14 +565,16 @@ Status BetaRowset::add_to_binlog() {
     std::vector<string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
-            LOG(WARNING) << "will delete linked success files due to error " << status.to_string_no_stack();
+            LOG(WARNING) << "will delete linked success files due to error "
+                         << status.to_string_no_stack();
             std::vector<io::Path> paths;
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete linked success file " << file << " due to error";
             }
             static_cast<void>(fs->batch_delete(paths));
-            LOG(WARNING) << "done delete linked success files due to error " << status.to_string_no_stack();
+            LOG(WARNING) << "done delete linked success files due to error "
+                         << status.to_string_no_stack();
         }
     }};
 
