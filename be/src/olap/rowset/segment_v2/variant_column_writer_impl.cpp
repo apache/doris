@@ -16,7 +16,10 @@
 // under the License.
 #include "olap/rowset/segment_v2/variant_column_writer_impl.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include "common/status.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_writer.h"
@@ -48,7 +51,7 @@ Status VariantColumnWriterImpl::init() {
             dynamic_subcolumns.add(vectorized::PathInData(path),
                                    vectorized::ColumnObject::Subcolumn {0, true});
         }
-        _column = vectorized::ColumnObject::create(dynamic_subcolumns, true);
+        _column = vectorized::ColumnObject::create(std::move(dynamic_subcolumns), true);
     }
     if (_tablet_column->is_nullable()) {
         _null_column = vectorized::ColumnUInt8::create(0);
@@ -57,30 +60,35 @@ Status VariantColumnWriterImpl::init() {
 }
 
 Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::string>& paths) {
-    std::unordered_map<StringRef, size_t> path_to_total_number_of_non_null_values;
+    std::unordered_map<std::string, size_t> path_to_total_number_of_non_null_values;
 
-    // Merge and collect all stats info from all input rowsets
+    // Merge and collect all stats info from all input rowsets/segments
     for (RowsetReaderSharedPtr reader : _opts.input_rs_readers) {
         SegmentCacheHandle segment_cache;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                 std::static_pointer_cast<BetaRowset>(reader->rowset()), &segment_cache));
         for (const auto& segment : segment_cache.get_segments()) {
-            const auto* source_statistics = segment->get_variant_stats(_tablet_column->unique_id());
-            if (source_statistics) {
-                for (const auto& [path, size] : source_statistics->_subcolumns_non_null_size) {
-                    auto it = path_to_total_number_of_non_null_values.find(path);
-                    if (it == path_to_total_number_of_non_null_values.end()) {
-                        it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
-                    }
-                    it->second += size;
+            const auto* column_meta_pb = segment->get_column_meta(_tablet_column->unique_id());
+            if (!column_meta_pb) {
+                continue;
+            }
+            if (!column_meta_pb->has_variant_statistics()) {
+                continue;
+            }
+            const VariantStatisticsPB& source_statistics = column_meta_pb->variant_statistics();
+            for (const auto& [path, size] : source_statistics.subcolumn_non_null_size()) {
+                auto it = path_to_total_number_of_non_null_values.find(path);
+                if (it == path_to_total_number_of_non_null_values.end()) {
+                    it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
                 }
-                for (const auto& [path, size] : source_statistics->_sparse_column_non_null_size) {
-                    auto it = path_to_total_number_of_non_null_values.find(path);
-                    if (it == path_to_total_number_of_non_null_values.end()) {
-                        it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
-                    }
-                    it->second += size;
+                it->second += size;
+            }
+            for (const auto& [path, size] : source_statistics.sparse_column_non_null_size()) {
+                auto it = path_to_total_number_of_non_null_values.find(path);
+                if (it == path_to_total_number_of_non_null_values.end()) {
+                    it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
                 }
+                it->second += size;
             }
         }
     }
@@ -100,8 +108,8 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
                 paths.emplace(path);
             }
             // // todo : Add all remaining paths into shared data statistics until we reach its max size;
-            // else if (new_statistics.shared_data_paths_statistics.size() < Statistics::MAX_SHARED_DATA_STATISTICS_SIZE) {
-            //     new_statistics.shared_data_paths_statistics.emplace(path, size);
+            // else if (new_statistics.sparse_data_paths_statistics.size() < Statistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            //     new_statistics.sparse_data_paths_statistics.emplace(path, size);
             // }
         }
     } else {
@@ -239,7 +247,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
             it != _statistics._sparse_column_non_null_size.end()) {
             ++it->second;
         } else if (_statistics._sparse_column_non_null_size.size() <
-                   VariantStatistics::MAX_SHARED_DATA_STATISTICS_SIZE) {
+                   VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
             _statistics._sparse_column_non_null_size.emplace(path, 1);
         }
     }

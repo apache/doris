@@ -37,14 +37,12 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
-#include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
-#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/json/path_in_data.h"
@@ -68,7 +66,6 @@ class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
-class VariantStatistics;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -108,11 +105,9 @@ public:
                                std::unique_ptr<ColumnIterator>* iter,
                                const StorageReadOptions* opt);
 
-    Status new_column_iterator_with_path(const TabletColumn& tablet_column,
-                                         std::unique_ptr<ColumnIterator>* iter,
-                                         const StorageReadOptions* opt);
-
-    Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
+    // Status new_column_iterator_with_path(const TabletColumn& tablet_column,
+    //                                      std::unique_ptr<ColumnIterator>* iter,
+    //                                      const StorageReadOptions* opt);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                      std::unique_ptr<BitmapIndexIterator>* iter);
@@ -121,7 +116,8 @@ public:
                                        const TabletIndex* index_meta,
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iter);
-
+    static Status new_default_iterator(const TabletColumn& tablet_column,
+                                       std::unique_ptr<ColumnIterator>* iter);
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();
@@ -212,7 +208,7 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
-    const VariantStatistics* get_variant_stats(int32_t unique_id) const;
+    const ColumnMetaPB* get_column_meta(int32_t unique_id) const;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -229,20 +225,12 @@ private:
     Status _load_pk_bloom_filter();
     ColumnReader* _get_column_reader(const TabletColumn& col);
 
-    // Get Iterator which will read variant root column and extract with paths and types info
-    Status _new_iterator_with_variant_root(const TabletColumn& tablet_column,
-                                           std::unique_ptr<ColumnIterator>* iter,
-                                           const SubcolumnColumnReaders::Node* root,
-                                           vectorized::DataTypePtr target_type_hint);
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
     Status _open_inverted_index();
 
     Status _create_column_readers_once();
-
-    // get variant stats info from footer pb
-    void _open_variant_stats();
 
 private:
     friend class SegmentIterator;
@@ -275,15 +263,6 @@ private:
     // map column unique id ---> it's inner data type
     std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
 
-    // Each node in the tree represents the sub column reader and type
-    // for variants.
-    // map column unique id --> it's sub column readers
-    std::map<int32_t, SubcolumnColumnReaders> _sub_column_tree;
-
-    // each sprase column's path and types info
-    // map column unique id --> it's sparse sub column readers
-    std::map<int32_t, SubcolumnColumnReaders> _sparse_column_tree;
-
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
@@ -309,9 +288,8 @@ private:
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
     OlapReaderStatistics* _pk_index_load_stats = nullptr;
-
-    // todo: consider mem tracker
-    std::map<int32_t, std::unique_ptr<VariantStatistics>> _variant_stats;
+    // unique_id -> idx in footer.columns()
+    std::unordered_map<int32_t, uint32_t> _column_id_to_footer_ordinal;
 };
 
 } // namespace segment_v2

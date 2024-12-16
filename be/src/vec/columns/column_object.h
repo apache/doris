@@ -98,7 +98,7 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
-    const size_t MAX_SUBCOLUMNS = 3;
+    const static size_t MAX_SUBCOLUMNS;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -128,6 +128,8 @@ public:
 
         size_t get_non_null_value_size() const;
 
+        size_t serialize_text_json(size_t n, BufferWritable& output) const;
+
         const DataTypeSerDeSPtr& get_least_common_type_serde() const {
             return least_common_type.get_serde();
         }
@@ -135,6 +137,8 @@ public:
         size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
         void get(size_t n, Field& res) const;
+
+        bool is_null_at(size_t n) const;
 
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
@@ -233,6 +237,7 @@ public:
         /// and it's the supertype for all type of column from 0 to i-1.
         std::vector<WrappedPtr> data;
         std::vector<DataTypePtr> data_types;
+        std::vector<DataTypeSerDeSPtr> data_serdes;
         /// Until we insert any non-default field we don't know further
         /// least common type and we count number of defaults in prefix,
         /// which will be converted to the default type of final common type.
@@ -267,6 +272,8 @@ public:
 
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
 
+    explicit ColumnObject(MutableColumnPtr&& sparse_column);
+
     explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
     // create without root, num_rows = size
@@ -291,7 +298,7 @@ public:
     Status serialize_one_row_to_string(int64_t row, BufferWritable& output) const;
 
     // serialize one row to json format
-    Status serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
+    Status serialize_one_row_to_json_format(int64_t row, BufferWritable& output,
                                             bool* is_null) const;
 
     // Fill the `serialized_sparse_column`
@@ -359,11 +366,19 @@ public:
 
     Subcolumns& get_subcolumns() { return subcolumns; }
 
-    ColumnPtr get_sparse_column() {
+    ColumnPtr get_sparse_column() const {
         return serialized_sparse_column->convert_to_full_column_if_const();
     }
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
+    static MutableColumnPtr create_sparse_column_fn() {
+        return vectorized::ColumnMap::create(vectorized::ColumnString::create(),
+                                             vectorized::ColumnString::create(),
+                                             vectorized::ColumnArray::ColumnOffsets::create());
+    }
+
+    void set_sparse_column(ColumnPtr column) { serialized_sparse_column = column; }
+
     Status finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
@@ -570,10 +585,18 @@ public:
         const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
         return {&key, &value};
     }
+    // Insert all the data from sparse data with specified path to sub column.
+    static void fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, StringRef path,
+                                                 const ColumnPtr& sparse_data_column, size_t start,
+                                                 size_t end);
+
+    static size_t find_path_lower_bound_in_sparse_data(StringRef path,
+                                                       const ColumnString& sparse_data_paths,
+                                                       size_t start, size_t end);
 
     // Deserialize the i-th row of the column from the sparse column.
-    std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
-                                                               size_t row) const;
+    static std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
+                                                               size_t row);
 
 private:
     // May throw execption

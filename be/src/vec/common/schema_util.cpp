@@ -608,7 +608,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 
 TabletColumn create_sparse_column(int32_t parent_unique_id) {
     TColumn tcolumn;
-    tcolumn.column_name = ".sparse";
+    tcolumn.column_name = SPARSE_COLUMN_PATH;
     tcolumn.col_unique_id = parent_unique_id;
     tcolumn.column_type = TColumnType {};
     tcolumn.column_type.type = TPrimitiveType::MAP;
@@ -618,7 +618,9 @@ TabletColumn create_sparse_column(int32_t parent_unique_id) {
     tcolumn.column_type.type = TPrimitiveType::STRING;
     tcolumn.children_column.push_back(child_tcolumn);
     tcolumn.children_column.push_back(child_tcolumn);
-    return TabletColumn {tcolumn};
+    auto res = TabletColumn {tcolumn};
+    res.set_path_info(PathInData {SPARSE_COLUMN_PATH});
+    return res;
 }
 
 } // namespace doris::vectorized::schema_util

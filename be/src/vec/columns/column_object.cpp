@@ -356,6 +356,7 @@ ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, b
         : least_common_type(type), is_nullable(is_nullable_), is_root(is_root_) {
     data.push_back(std::move(data_));
     data_types.push_back(type);
+    data_serdes.push_back(type->get_serde());
 }
 
 ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
@@ -398,6 +399,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
     data.push_back(type->create_column());
     least_common_type = LeastCommonType {type};
     data_types.push_back(type);
+    data_serdes.push_back(type->get_serde());
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
@@ -800,6 +802,9 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     }
 }
 
+ColumnObject::ColumnObject(MutableColumnPtr&& sparse_column)
+        : is_nullable(true), serialized_sparse_column(std::move(sparse_column)) {}
+
 ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
         : is_nullable(is_nullable_) {
     add_sub_column({}, std::move(column), type);
@@ -957,6 +962,27 @@ void ColumnObject::insert_default() {
     ++num_rows;
 }
 
+bool ColumnObject::Subcolumn::is_null_at(size_t n) const {
+    if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+        return true;
+    }
+    size_t ind = n;
+    if (ind < num_of_defaults_in_prefix) {
+        return true;
+    }
+
+    ind -= num_of_defaults_in_prefix;
+    for (const auto& part : data) {
+        if (ind < part->size()) {
+            return assert_cast<const ColumnNullable&>(*part).is_null_at(ind);
+        }
+        ind -= part->size();
+    }
+
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
+                           n);
+}
+
 void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
     if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
         res = Null();
@@ -1023,8 +1049,9 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
                 is_null = false;
                 // insert key
                 key->insert_data(path.data(), path.size());
+                const auto& part_type_serde = data_serdes[i];
                 // insert value
-                data_types[i]->get_serde()->write_one_cell_to_binary(*part, value, row);
+                part_type_serde->write_one_cell_to_binary(*part, value, row);
             }
             return;
         }
@@ -1088,7 +1115,7 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         const size_t size = *reinterpret_cast<const size_t*>(data);
         data += sizeof(size_t);
         res = Array(size);
-        vectorized::Array& array = res.get<Array>();
+        auto& array = res.get<Array>();
         info_res.num_dimensions++;
         for (size_t i = 0; i < size; ++i) {
             const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
@@ -1097,7 +1124,7 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
                 continue;
             }
             Field nested_field;
-            const TypeIndex nested_type =
+            const auto nested_type =
                     assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
             data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
             array.emplace_back(std::move(nested_field));
@@ -1113,7 +1140,7 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
 }
 
 std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const ColumnString* value,
-                                                                         size_t row) const {
+                                                                         size_t row) {
     const auto& data_ref = value->get_data_at(row);
     const char* data = data_ref.data;
     DCHECK(data_ref.size > 0);
@@ -1132,7 +1159,7 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
     }
 
     DCHECK(data_ref.size > 1);
-    const TypeIndex type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    const auto type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
     info_res.scalar_type_id = type;
     Field res;
     const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
@@ -1171,7 +1198,7 @@ void ColumnObject::get(size_t n, Field& res) const {
     // Iterator over [path, binary value]
     for (size_t i = offset; i != end; ++i) {
         const StringRef path_data = path->get_data_at(i);
-        const auto& data = deserialize_from_sparse_column(value, i);
+        const auto& data = ColumnObject::deserialize_from_sparse_column(value, i);
         object.try_emplace(std::string(path_data.data, path_data.size), data.first);
     }
 
@@ -1360,7 +1387,7 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
             const PathInData column_path(src_sparse_path);
             if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
                 // Deserialize binary value into subcolumn from src serialized sparse column data.
-                const auto& data = src.deserialize_from_sparse_column(src_sparse_column_values, i);
+                const auto& data = ColumnObject::deserialize_from_sparse_column(src_sparse_column_values, i);
                 subcolumn->insert(data.first, data.second);
             } else {
                 // Before inserting this path into sparse column check if we need to
@@ -1386,7 +1413,7 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
             }
         }
 
-        // Insert remaining dynamic paths from src_dynamic_paths_for_shared_data.
+        // Insert remaining dynamic paths from src_dynamic_paths_for_sparse_data.
         while (sorted_src_subcolumn_for_sparse_column_idx <
                sorted_src_subcolumn_for_sparse_column_size) {
             auto& [src_path, src_subcolumn] = sorted_src_subcolumn_for_sparse_column
@@ -1450,6 +1477,37 @@ const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key
         return nullptr;
     }
     return &node->data;
+}
+
+size_t ColumnObject::Subcolumn::serialize_text_json(size_t n, BufferWritable& output) const {
+    if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
+                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
+        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
+    }
+
+    size_t ind = n;
+    if (ind < num_of_defaults_in_prefix) {
+        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
+                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
+        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
+    }
+
+    ind -= num_of_defaults_in_prefix;
+    DataTypeSerDe::FormatOptions opt;
+    for (size_t i = 0; i < data.size(); ++i) {
+        const auto& part = data[i];
+        const auto& part_type_serde = data_serdes[i];
+
+        if (ind < part->size()) {
+            return part_type_serde->serialize_one_cell_to_json(*part, ind, output, opt);
+        }
+
+        ind -= part->size();
+    }
+
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                           "Index ({}) for serializing JSON is out of range", n);
 }
 
 const ColumnObject::Subcolumn* ColumnObject::get_subcolumn_with_cache(const PathInData& key,
@@ -1717,89 +1775,203 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
 }
 
 Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    rapidjson::StringBuffer buf;
-    if (is_scalar_variant()) {
+    // if (!is_finalized()) {
+    //     const_cast<ColumnObject*>(this)->finalize();
+    // }
+    if (is_scalar_variant() && is_finalized()) {
         auto type = get_root_type();
         *output = type->to_string(*get_root(), row);
         return Status::OK();
     }
-    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, &buf, nullptr));
-    // TODO avoid copy
-    *output = std::string(buf.GetString(), buf.GetSize());
+    // TODO preallocate memory
+    auto tmp_col = ColumnString::create();
+    VectorBufferWriter write_buffer(*tmp_col.get());
+    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, write_buffer, nullptr));
+    write_buffer.commit();
+    auto str_ref = tmp_col->get_data_at(0);
+    *output = std::string(str_ref.data, str_ref.size);
     return Status::OK();
 }
 
 Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    if (is_scalar_variant()) {
+    // if (!is_finalized()) {
+    //     const_cast<ColumnObject*>(this)->finalize();
+    // }
+    if (is_scalar_variant() && is_finalized()) {
         auto type = get_root_type();
         type->to_string(*get_root(), row, output);
         return Status::OK();
     }
-    rapidjson::StringBuffer buf;
-    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, &buf, nullptr));
-    output.write(buf.GetString(), buf.GetLength());
+    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, output, nullptr));
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
-                                                      bool* is_null) const {
-    CHECK(is_finalized());
-    if (subcolumns.empty()) {
-        if (is_null != nullptr) {
-            *is_null = true;
-        } else {
-            rapidjson::Value root(rapidjson::kNullType);
-            rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
-            if (!root.Accept(writer)) {
-                return Status::InternalError("Failed to serialize json value");
+/// Struct that represents elements of the JSON path.
+/// "a.b.c" -> ["a", "b", "c"]
+struct PathElements {
+    explicit PathElements(const String& path) {
+        const char* start = path.data();
+        const char* end = start + path.size();
+        const char* pos = start;
+        const char* last_dot_pos = pos - 1;
+        for (pos = start; pos != end; ++pos) {
+            if (*pos == '.') {
+                elements.emplace_back(last_dot_pos + 1, size_t(pos - last_dot_pos - 1));
+                last_dot_pos = pos;
             }
         }
-        return Status::OK();
+
+        elements.emplace_back(last_dot_pos + 1, size_t(pos - last_dot_pos - 1));
     }
-    CHECK(size() > row);
-    rapidjson::StringBuffer buffer;
-    rapidjson::Value root(rapidjson::kNullType);
-    if (doc_structure == nullptr) {
-        doc_structure = std::make_shared<rapidjson::Document>();
-        rapidjson::Document::AllocatorType& allocator = doc_structure->GetAllocator();
-        get_json_by_column_tree(*doc_structure, allocator, subcolumns.get_root());
+
+    size_t size() const { return elements.size(); }
+
+    std::vector<std::string_view> elements;
+};
+
+/// Struct that represents a prefix of a JSON path. Used during output of the JSON object.
+struct Prefix {
+    /// Shrink current prefix to the common prefix of current prefix and specified path.
+    /// For example, if current prefix is a.b.c.d and path is a.b.e, then shrink the prefix to a.b.
+    void shrink_to_common_prefix(const PathElements& path_elements) {
+        /// Don't include last element in path_elements in the prefix.
+        size_t i = 0;
+        while (i != elements.size() && i != (path_elements.elements.size() - 1) &&
+               elements[i].first == path_elements.elements[i])
+            ++i;
+        elements.resize(i);
     }
-    if (!doc_structure->IsNull()) {
-        root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
+
+    /// Check is_first flag in current object.
+    bool is_first_in_current_object() const {
+        if (elements.empty()) return root_is_first_flag;
+        return elements.back().second;
     }
-    Arena mem_pool;
+
+    /// Set flag is_first = false in current object.
+    void set_not_first_in_current_object() {
+        if (elements.empty())
+            root_is_first_flag = false;
+        else
+            elements.back().second = false;
+    }
+
+    size_t size() const { return elements.size(); }
+
+    /// Elements of the prefix: (path element, is_first flag in this prefix).
+    /// is_first flag indicates if we already serialized some key in the object with such prefix.
+    std::vector<std::pair<std::string_view, bool>> elements;
+    bool root_is_first_flag = true;
+};
+
+Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
+                                                      bool* is_null) const {
+    const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+    const auto& sparse_data_offsets = column_map.get_offsets();
+    const auto [sparse_data_paths, sparse_data_values] = get_sparse_data_paths_and_values();
+    size_t sparse_data_offset = sparse_data_offsets[static_cast<ssize_t>(row_num) - 1];
+    size_t sparse_data_end = sparse_data_offsets[static_cast<ssize_t>(row_num)];
+
+    // We need to convert the set of paths in this row to a JSON object.
+    // To do it, we first collect all the paths from current row, then we sort them
+    // and construct the resulting JSON object by iterating over sorted list of paths.
+    // For example:
+    // b.c, a.b, a.a, b.e, g, h.u.t -> a.a, a.b, b.c, b.e, g, h.u.t -> {"a" : {"a" : ..., "b" : ...}, "b" : {"c" : ..., "e" : ...}, "g" : ..., "h" : {"u" : {"t" : ...}}}.
+    std::vector<String> sorted_paths;
+    std::map<std::string, Subcolumn> subcolumn_path_map;
+    sorted_paths.reserve(get_subcolumns().size() + (sparse_data_end - sparse_data_offset));
+    for (const auto& subcolumn : get_subcolumns()) {
+        /// We consider null value and absence of the path in a row as equivalent cases, because we cannot actually distinguish them.
+        /// So, we don't output null values at all.
+        if (!subcolumn->data.is_null_at(row_num)) {
+            sorted_paths.emplace_back(subcolumn->path.get_path());
+        }
+        subcolumn_path_map.emplace(subcolumn->path.get_path(), subcolumn->data);
+    }
+    for (size_t i = sparse_data_offset; i != sparse_data_end; ++i) {
+        auto path = sparse_data_paths->get_data_at(i).to_string();
+        sorted_paths.emplace_back(path);
+    }
+
+    std::sort(sorted_paths.begin(), sorted_paths.end());
+
+    writeChar('{', output);
+    size_t index_in_sparse_data_values = sparse_data_offset;
+    // current_prefix represents the path of the object we are currently serializing keys in.
+    Prefix current_prefix;
+    for (const auto& path : sorted_paths) {
+        PathElements path_elements(path);
+        // Change prefix to common prefix between current prefix and current path.
+        // If prefix changed (it can only decrease), close all finished objects.
+        // For example:
+        // Current prefix: a.b.c.d
+        // Current path: a.b.e.f
+        // It means now we have : {..., "a" : {"b" : {"c" : {"d" : ...
+        // Common prefix will be a.b, so it means we should close objects a.b.c.d and a.b.c: {..., "a" : {"b" : {"c" : {"d" : ...}}
+        // and continue serializing keys in object a.b
+        size_t prev_prefix_size = current_prefix.size();
+        current_prefix.shrink_to_common_prefix(path_elements);
+        size_t prefix_size = current_prefix.size();
+        if (prefix_size != prev_prefix_size) {
+            size_t objects_to_close = prev_prefix_size - prefix_size;
+            for (size_t i = 0; i != objects_to_close; ++i) {
+                writeChar('}', output);
+            }
+        }
+
+        // Now we are inside object that has common prefix with current path.
+        // We should go inside all objects in current path.
+        // From the example above we should open object a.b.e:
+        //  {..., "a" : {"b" : {"c" : {"d" : ...}}, "e" : {
+        if (prefix_size + 1 < path_elements.size()) {
+            for (size_t i = prefix_size; i != path_elements.size() - 1; ++i) {
+                /// Write comma before the key if it's not the first key in this prefix.
+                if (!current_prefix.is_first_in_current_object()) {
+                    writeChar(',', output);
+                } else {
+                    current_prefix.set_not_first_in_current_object();
+                }
+
+                writeJSONString(path_elements.elements[i], output);
+                writeCString(":{", output);
+
+                // Update current prefix.
+                current_prefix.elements.emplace_back(path_elements.elements[i], true);
+            }
+        }
+
+        // Write comma before the key if it's not the first key in this prefix.
+        if (!current_prefix.is_first_in_current_object()) {
+            writeChar(',', output);
+        } else {
+            current_prefix.set_not_first_in_current_object();
+        }
+
+        writeJSONString(path_elements.elements.back(), output);
+        writeCString(":", output);
+
+        // Serialize value of current path.
+        if (auto subcolumn_it = subcolumn_path_map.find(path);
+            subcolumn_it != subcolumn_path_map.end()) {
+            subcolumn_it->second.serialize_text_json(row_num, output);
+        } else {
+            // To serialize value stored in shared data we should first deserialize it from binary format.
+            Subcolumn tmp_subcolumn(0, true);
+            const auto& data = ColumnObject::deserialize_from_sparse_column(sparse_data_values,
+                                                         index_in_sparse_data_values++);
+            tmp_subcolumn.insert(data.first, data.second);
+            tmp_subcolumn.serialize_text_json(0, output);
+        }
+    }
+
+    // Close all remaining open objects.
+    for (size_t i = 0; i != current_prefix.elements.size(); ++i) {
+        writeChar('}', output);
+    }
+    writeChar('}', output);
 #ifndef NDEBUG
-    VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
+    // check if it is a valid json
 #endif
-    for (const auto& subcolumn : subcolumns) {
-        RETURN_IF_ERROR(find_and_set_leave_value(
-                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
-                subcolumn->data.get_least_common_type_serde(),
-                subcolumn->data.get_least_common_type(),
-                subcolumn->data.least_common_type.get_base_type_id(), root,
-                doc_structure->GetAllocator(), mem_pool, row));
-        if (subcolumn->path.empty() && !root.IsObject()) {
-            // root was modified, only handle root node
-            break;
-        }
-    }
-    compact_null_values(root, doc_structure->GetAllocator());
-    if (root.IsNull() && is_null != nullptr) {
-        // Fast path
-        *is_null = true;
-    } else {
-        output->Clear();
-        rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
-        if (!root.Accept(writer)) {
-            return Status::InternalError("Failed to serialize json value");
-        }
-    }
     return Status::OK();
 }
 
@@ -2126,6 +2298,8 @@ const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataT
         std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeObject>())));
 
+const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
+
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
 }
@@ -2310,6 +2484,81 @@ bool ColumnObject::try_insert_default_from_nested(const Subcolumns::NodePtr& ent
             FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
     entry->data.insert(std::move(default_field));
     return true;
+}
+
+size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
+                                                          const ColumnString& sparse_data_paths,
+                                                          size_t start, size_t end) {
+    // Simple random access iterator over values in ColumnString in specified range.
+    class Iterator {
+    public:
+        using difference_type = size_t;
+        using value_type = StringRef;
+        using iterator_category = std::random_access_iterator_tag;
+        using pointer = StringRef*;
+        using reference = StringRef&;
+
+        Iterator() = delete;
+        Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
+        Iterator(const Iterator& rhs) = default;
+        Iterator& operator=(const Iterator& rhs) = default;
+        inline Iterator& operator+=(difference_type rhs) {
+            index += rhs;
+            return *this;
+        }
+        inline StringRef operator*() const { return data->get_data_at(index); }
+
+        inline Iterator& operator++() {
+            ++index;
+            return *this;
+        }
+        inline Iterator& operator--() {
+            --index;
+            return *this;
+        }
+        inline difference_type operator-(const Iterator& rhs) const { return index - rhs.index; }
+
+        const ColumnString* data;
+        size_t index;
+    };
+
+    Iterator start_it(&sparse_data_paths, start);
+    Iterator end_it(&sparse_data_paths, end);
+    auto it = std::lower_bound(start_it, end_it, path);
+    return it.index;
+}
+
+void ColumnObject::fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, StringRef path,
+                                                    const ColumnPtr& sparse_data_column,
+                                                    size_t start, size_t end) {
+    const auto& sparse_data_map = assert_cast<const ColumnMap&>(*sparse_data_column);
+    const auto& sparse_data_offsets = sparse_data_map.get_offsets();
+    size_t first_offset = sparse_data_offsets[static_cast<ssize_t>(start) - 1];
+    size_t last_offset = sparse_data_offsets[static_cast<ssize_t>(end) - 1];
+    // Check if we have at least one row with data.
+    if (first_offset == last_offset) {
+        subcolumn.insert_many_defaults(end - start);
+        return;
+    }
+
+    const auto& sparse_data_paths = assert_cast<const ColumnString&>(sparse_data_map.get_keys());
+    const auto& sparse_data_values = assert_cast<const ColumnString&>(sparse_data_map.get_values());
+    for (size_t i = start; i != end; ++i) {
+        size_t paths_start = sparse_data_offsets[static_cast<ssize_t>(i) - 1];
+        size_t paths_end = sparse_data_offsets[static_cast<ssize_t>(i)];
+        auto lower_bound_path_index = ColumnObject::find_path_lower_bound_in_sparse_data(
+                path, sparse_data_paths, paths_start, paths_end);
+        if (lower_bound_path_index != paths_end &&
+            sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
+            // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
+            // ReadBufferFromMemory buf(value_data.data, value_data.size);
+            // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
+            const auto& data = ColumnObject::deserialize_from_sparse_column(&sparse_data_values, lower_bound_path_index);
+            subcolumn.insert(data.first, data.second);
+        } else {
+            subcolumn.insert_default();
+        }
+    }
 }
 
 } // namespace doris::vectorized
