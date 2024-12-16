@@ -39,6 +39,7 @@ import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
@@ -173,6 +174,12 @@ public class MTMVTask extends AbstractTask {
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
             beforeMTMVRefresh();
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
+                MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
+                if (!relatedTable.isValidRelatedTable()) {
+                    throw new JobException("MTMV " + mtmv.getName() + "'s related table " + relatedTable.getName()
+                        + " is not a valid related table anymore, stop refreshing."
+                        + " e.g. Table has multiple partition columns or including not supported transform functions.");
+                }
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }
             MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
