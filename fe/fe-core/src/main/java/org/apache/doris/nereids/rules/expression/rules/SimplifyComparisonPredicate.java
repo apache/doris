@@ -230,18 +230,17 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             if (left.getDataType().isDecimalV3Type()) {
                 DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
 
-                /**
-                 * if we have a column with decimalv3 type and set enable_decimal_conversion = false.
-                 * we have a column named col1 with type decimalv3(15, 2)
-                 * and we have a comparison like col1 > 0.5 + 0.1
-                 * then the result type of 0.5 + 0.1 is decimalv2(27, 9)
-                 * and the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
-                 * this rule simplify it from cast(col1 as decimalv3(27, 9)) > 0.6 to col1 > 0.6
-                 */
                 BigDecimal trailingZerosValue = literal.getValue().stripTrailingZeros();
                 int literalScale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
                 int literalPrecision = org.apache.doris.analysis.DecimalLiteral
-                        .getBigDecimalPrecision( trailingZerosValue);
+                        .getBigDecimalPrecision(trailingZerosValue);
+
+                // if we have a column with decimalv3 type and set enable_decimal_conversion = false.
+                // we have a column named col1 with type decimalv3(15, 2)
+                // and we have a comparison like col1 > 0.5 + 0.1
+                // then the result type of 0.5 + 0.1 is decimalv2(27, 9)
+                // and the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
+                // then simplify it from cast(col1 as decimalv3(27, 9)) > 0.6 to col1 > 0.6
                 if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
                     try {
                         trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
