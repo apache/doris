@@ -67,6 +67,11 @@ public class StatisticsAutoCollectorTest {
                 count[0]++;
                 return Pair.of(null, JobPriority.LOW);
             }
+
+            @Mock
+            protected void processOneJob(TableIf table, JobPriority priority) {
+                return;
+            }
         };
         count[0] = 0;
         count[1] = 0;

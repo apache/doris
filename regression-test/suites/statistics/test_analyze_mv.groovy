@@ -717,14 +717,6 @@ suite("test_analyze_mv") {
         empty_test = sql """show auto analyze mvTestDup"""
         assertEquals(0, empty_test.size())
         empty_test = sql """show column stats mvTestDup"""
-        for (int i = 0; i < 100; i++) {
-            empty_test = sql """show column stats mvTestDup"""
-            if (empty_test.size() != 0) {
-                logger.info("async delete is not finished yet.")
-                Thread.sleep(1000)
-            }
-            break
-        }
         assertEquals(0, empty_test.size())
         // ** End of embedded test
 
