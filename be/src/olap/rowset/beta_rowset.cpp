@@ -557,10 +557,6 @@ Status BetaRowset::add_to_binlog() {
     }
 
     const auto& fs = io::global_local_filesystem();
-
-    // all segments are in the same directory, so cache binlog_dir without multi times check
-    std::string binlog_dir;
-
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
@@ -569,28 +565,32 @@ Status BetaRowset::add_to_binlog() {
     std::vector<string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
-            LOG(WARNING) << "will delete linked success files due to error " << status;
+            LOG(WARNING) << "will delete linked success files due to error " << status.to_string_no_stack();
             std::vector<io::Path> paths;
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete linked success file " << file << " due to error";
             }
             static_cast<void>(fs->batch_delete(paths));
-            LOG(WARNING) << "done delete linked success files due to error " << status;
+            LOG(WARNING) << "done delete linked success files due to error " << status.to_string_no_stack();
         }
     }};
 
+    // all segments are in the same directory, so cache binlog_dir without multi times check
+    std::string binlog_dir;
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = local_segment_path(_tablet_path, rowset_id().to_string(), i);
 
         if (binlog_dir.empty()) {
             binlog_dir = std::filesystem::path(seg_file).parent_path().append("_binlog").string();
 
+            // Delete all existing files in binlog dir, to keep binlog dir clean.
             bool exists = true;
             RETURN_IF_ERROR(fs->exists(binlog_dir, &exists));
-            if (!exists) {
-                RETURN_IF_ERROR(fs->create_directory(binlog_dir));
+            if (exists) {
+                RETURN_IF_ERROR(fs->delete_directory(binlog_dir));
             }
+            RETURN_IF_ERROR(fs->create_directory(binlog_dir));
         }
 
         auto binlog_file =
@@ -614,7 +614,12 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (!fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
@@ -625,7 +630,12 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (!fs->link_file(index_file, binlog_index_file).ok()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         }
