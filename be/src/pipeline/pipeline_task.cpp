@@ -327,6 +327,11 @@ Status PipelineTask::execute(bool* eos) {
 
 Status PipelineTask::close(Status exec_status, bool close_sink) {
     int64_t close_ns = 0;
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, close_ns);
+        }
+    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
@@ -344,13 +349,6 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
         _fresh_profile_counter();
         COUNTER_SET(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
-    }
-    if (close_sink && _opened) {
-        _fresh_profile_counter();
-    }
-
-    if (_task_queue) {
-        _task_queue->update_statistics(this, close_ns);
     }
     return s;
 }

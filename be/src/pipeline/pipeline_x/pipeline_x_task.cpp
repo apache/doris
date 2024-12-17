@@ -430,16 +430,10 @@ void PipelineXTask::finalize() {
 
 Status PipelineXTask::close(Status exec_status, bool close_sink) {
     int64_t close_ns = 0;
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, close_ns);
-        }
-    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
         if (close_sink) {
-            _task_profile->add_info_string("WakeUpEarly", wake_up_early() ? "true" : "false");
             s = _sink->close(_state, exec_status);
         }
         for (auto& op : _operators) {
@@ -450,9 +444,16 @@ Status PipelineXTask::close(Status exec_status, bool close_sink) {
         }
     }
     if (_opened) {
-        _fresh_profile_counter();
-        COUNTER_SET(_close_timer, close_ns);
+        COUNTER_UPDATE(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
+    }
+    if (close_sink && _opened) {
+        _task_profile->add_info_string("WakeUpEarly", wake_up_early() ? "true" : "false");
+        _fresh_profile_counter();
+    }
+
+    if (_task_queue) {
+        _task_queue->update_statistics(this, close_ns);
     }
     return s;
 }
