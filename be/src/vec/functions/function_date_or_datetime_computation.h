@@ -1050,6 +1050,22 @@ struct Sec {
     static constexpr auto name = "from_second";
     static constexpr Int64 ratio = 1;
 };
+struct NextDayImpl {
+    static constexpr auto name = "next_day";
+    static constexpr int64_t day_seconds = 86400;
+    template <typename DateType>
+    static void calculate(const DateType& date, DateType& result) {
+        result = date + day_seconds;
+    }
+};
+struct PreviousDayImpl {
+    static constexpr auto name = "previous_day";
+    static constexpr int64_t day_seconds = 86400;
+    template <typename DateType>
+    static void calculate(const DateType& date, DateType& result) {
+        result = date - day_seconds;
+    }
+};
 template <typename Impl>
 struct TimestampToDateTime : IFunction {
     using ReturnType = DataTypeDateTimeV2;
@@ -1090,6 +1106,7 @@ struct TimestampToDateTime : IFunction {
 
             if (dt.is_valid_date()) [[likely]] {
                 dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
+                Impl::calculate(dt, dt);
             } else {
                 null_map[i] = true;
             }
