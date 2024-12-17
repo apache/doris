@@ -453,7 +453,7 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::DOUBLE, orc::PredicateDataType::FLOAT},
         {orc::TypeKind::STRING, orc::PredicateDataType::STRING},
         {orc::TypeKind::BINARY, orc::PredicateDataType::STRING},
-        {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
+        // {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::VARCHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::DATE, orc::PredicateDataType::DATE},
         {orc::TypeKind::DECIMAL, orc::PredicateDataType::DECIMAL},
@@ -483,8 +483,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
             [[fallthrough]];
         case orc::TypeKind::BINARY:
             [[fallthrough]];
-        case orc::TypeKind::CHAR:
-            [[fallthrough]];
+        // case orc::TypeKind::CHAR:
+        //     [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             StringRef* string_value = (StringRef*)value;
             return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
