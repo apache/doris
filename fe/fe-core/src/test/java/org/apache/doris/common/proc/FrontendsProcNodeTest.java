@@ -17,10 +17,10 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.common.util.FormatIpUtil;
+
 import org.junit.Assert;
 import org.junit.Test;
-
-import java.lang.reflect.Method;
 
 public class FrontendsProcNodeTest {
 
@@ -34,16 +34,12 @@ public class FrontendsProcNodeTest {
         String inputIPv4 = "192.168.1.1";
         String expectedIPv4 = "192.168.1.1";  // No change for IPv4
 
-        // Use reflection to get the formatIp method
-        Method formatIpMethod = FrontendsProcNode.class.getDeclaredMethod("formatIp", String.class);
-        formatIpMethod.setAccessible(true); // Make the method accessible
-
         // Test IPv6
-        String actualIPv6 = (String) formatIpMethod.invoke(null, inputIPv6);
+        String actualIPv6 = FormatIpUtil.formatIp(inputIPv6);
         Assert.assertEquals(expectedIPv6, actualIPv6);
 
         // Test IPv4
-        String actualIPv4 = (String) formatIpMethod.invoke(null, inputIPv4);
+        String actualIPv4 = FormatIpUtil.formatIp(inputIPv4);
         Assert.assertEquals(expectedIPv4, actualIPv4);
     }
 }
