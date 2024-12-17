@@ -78,6 +78,27 @@ suite("test_mask_function") {
     """
 
     test {
+        sql """
+            select mask('abcd', name) from table_mask_test order by id;
+        """
+        exception "Argument at index 1 for function mask must be constant"
+    }
+
+    test {
+        sql """
+            select mask('abcd', '>', name) from table_mask_test order by id;
+        """
+        exception "Argument at index 2 for function mask must be constant"
+    }
+
+    test {
+        sql """
+            select mask('abcd', '>', '<', `name`) from table_mask_test order by id;
+        """
+        exception "Argument at index 3 for function mask must be constant"
+    }
+
+    test {
         sql """ select mask_last_n("12345", -100); """
         exception "function mask_last_n only accept non-negative input for 2nd argument but got -100"
     }
