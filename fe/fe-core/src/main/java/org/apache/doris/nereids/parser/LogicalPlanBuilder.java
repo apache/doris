@@ -208,6 +208,7 @@ import org.apache.doris.nereids.DorisParser.RefreshDatabaseContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
 import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
+import org.apache.doris.nereids.DorisParser.RefreshTableContext;
 import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
@@ -669,6 +670,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -4460,6 +4462,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
         }
         throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
+    }
+
+    @Override
+    public Object visitRefreshTable(RefreshTableContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.name);
+        int size = parts.size();
+        if (size == 0) {
+            throw new ParseException("table name can't be empty");
+        } else if (size <= 3) {
+            return new RefreshTableCommand(new TableNameInfo(parts));
+        }
+        throw new ParseException("Only one or two dot can be in the name: " + String.join(".", parts));
     }
 
     @Override

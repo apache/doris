@@ -456,6 +456,7 @@ channelDescription
 supportedRefreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
+    | REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     ;
 
 supportedCleanStatement
@@ -463,8 +464,7 @@ supportedCleanStatement
     ;
 
 unsupportedRefreshStatement
-    : REFRESH TABLE name=multipartIdentifier                                        #refreshTable
-    | REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
+    : REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
 unsupportedCleanStatement
