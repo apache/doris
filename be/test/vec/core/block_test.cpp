@@ -3552,51 +3552,189 @@ TEST(BlockTest, ClearColumnData) {
 }
 
 TEST(BlockTest, IndexByName) {
-    vectorized::Block block;
-    auto col = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
-
-    // Add columns with duplicate names
-    block.insert({col->get_ptr(), type, "col1"});
-    block.insert({col->get_ptr(), type, "col2"});
-    block.insert({col->get_ptr(), type, "col1"}); // Duplicate name
-
-    // Test get_position_by_name returns first occurrence
-    EXPECT_EQ(0, block.get_position_by_name("col1"));
-    EXPECT_EQ(1, block.get_position_by_name("col2"));
-
-    // Initialize index
-    block.initialize_index_by_name();
-
-    // Test get_position_by_name returns last occurrence
-    EXPECT_EQ(2, block.get_position_by_name("col1"));
-    EXPECT_EQ(1, block.get_position_by_name("col2"));
-
-    // Test has with duplicate names
-    EXPECT_TRUE(block.has("col1"));
-    EXPECT_TRUE(block.has("col2"));
-    EXPECT_FALSE(block.has("col3"));
-
-    // Test get_by_name with duplicate names
-    EXPECT_EQ(0, block.get_by_name("col1").column->size());
-    EXPECT_THROW(block.get_by_name("col3"), Exception);
-
-    // Test try_get_by_name with duplicate names
-    EXPECT_NE(nullptr, block.try_get_by_name("col1"));
-    EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
-
-    // Test after modifying block structure
-    block.erase(2);                   // Remove last "col1"
-    block.initialize_index_by_name(); // Re-initialize index
-
-    // Now the first "col1" should be found
-    EXPECT_EQ(0, block.get_position_by_name("col1"));
-
     // Test with empty block
-    block.clear();
-    block.initialize_index_by_name();
-    EXPECT_FALSE(block.has("col1"));
-    EXPECT_THROW(block.get_position_by_name("col1"), Exception);
+    {
+        vectorized::Block block;
+        block.initialize_index_by_name();
+        
+        // Test basic name operations
+        EXPECT_FALSE(block.has("col1"));
+        EXPECT_THROW(block.get_position_by_name("col1"), Exception);
+        EXPECT_THROW(block.get_by_name("col1"), Exception);
+        EXPECT_EQ(nullptr, block.try_get_by_name("col1"));
+    }
+
+    // Test with regular columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Add columns with regular values
+        {
+            auto col1 = vectorized::ColumnVector<Int32>::create();
+            col1->insert_value(1);
+            block.insert({std::move(col1), type, "col1"});
+
+            auto col2 = vectorized::ColumnVector<Int32>::create();
+            col2->insert_value(2);
+            block.insert({std::move(col2), type, "col2"});
+
+            auto col3 = vectorized::ColumnVector<Int32>::create();
+            col3->insert_value(3);
+            block.insert({std::move(col3), type, "col1"}); // Duplicate name
+        }
+
+        // Test before index initialization
+        EXPECT_EQ(0, block.get_position_by_name("col1")); // Returns first occurrence
+        EXPECT_EQ(1, block.get_position_by_name("col2"));
+
+        // Test after index initialization
+        block.initialize_index_by_name();
+        EXPECT_EQ(2, block.get_position_by_name("col1")); // Returns last occurrence
+        EXPECT_EQ(1, block.get_position_by_name("col2"));
+
+        // Test has() function
+        EXPECT_TRUE(block.has("col1"));
+        EXPECT_TRUE(block.has("col2"));
+        EXPECT_FALSE(block.has("col3"));
+
+        // Test get_by_name
+        const auto& col1 = block.get_by_name("col1");
+        EXPECT_EQ(1, col1.column->size());
+        EXPECT_THROW(block.get_by_name("col3"), Exception);
+
+        // Test try_get_by_name
+        EXPECT_NE(nullptr, block.try_get_by_name("col1"));
+        EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
+
+        // Test after structure modification
+        block.erase(2); // Remove last "col1"
+        block.initialize_index_by_name();
+        EXPECT_EQ(0, block.get_position_by_name("col1")); // Now first "col1" is found
+    }
+
+    // Test with const columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Add columns with const values
+        {
+            auto base_col1 = vectorized::ColumnVector<Int32>::create();
+            base_col1->insert_value(42);
+            auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 5);
+            block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+            auto base_col2 = vectorized::ColumnVector<Int32>::create();
+            base_col2->insert_value(24);
+            auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+            block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+            auto base_col3 = vectorized::ColumnVector<Int32>::create();
+            base_col3->insert_value(33);
+            auto const_col3 = vectorized::ColumnConst::create(base_col3->get_ptr(), 5);
+            block.insert({const_col3->get_ptr(), type, "const_col1"}); // Duplicate name
+        }
+
+        // Test before index initialization
+        EXPECT_EQ(0, block.get_position_by_name("const_col1")); // Returns first occurrence
+        EXPECT_EQ(1, block.get_position_by_name("const_col2"));
+
+        // Test after index initialization
+        block.initialize_index_by_name();
+        EXPECT_EQ(2, block.get_position_by_name("const_col1")); // Returns last occurrence
+        EXPECT_EQ(1, block.get_position_by_name("const_col2"));
+
+        // Test has() function
+        EXPECT_TRUE(block.has("const_col1"));
+        EXPECT_TRUE(block.has("const_col2"));
+        EXPECT_FALSE(block.has("const_col3"));
+
+        // Test get_by_name
+        const auto& col1 = block.get_by_name("const_col1");
+        EXPECT_EQ(5, col1.column->size());
+        EXPECT_THROW(block.get_by_name("const_col3"), Exception);
+
+        // Test try_get_by_name
+        EXPECT_NE(nullptr, block.try_get_by_name("const_col1"));
+        EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
+
+        // Test after structure modification
+        block.erase(2); // Remove last "const_col1"
+        block.initialize_index_by_name();
+        EXPECT_EQ(0, block.get_position_by_name("const_col1")); // Now first "const_col1" is found
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+        // Add columns with nullable values
+        {
+            auto col1 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col1->get_nested_column_ptr().get());
+            auto* null_map1 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col1->get_null_map_column_ptr().get());
+            nested1->insert_value(1);
+            null_map1->insert_value(0);
+            block.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
+
+            auto col2 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto* nested2 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col2->get_nested_column_ptr().get());
+            auto* null_map2 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col2->get_null_map_column_ptr().get());
+            nested2->insert_value(2);
+            null_map2->insert_value(1);
+            block.insert({col2->get_ptr(), nullable_type, "nullable_col2"});
+
+            auto col3 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto* nested3 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col3->get_nested_column_ptr().get());
+            auto* null_map3 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col3->get_null_map_column_ptr().get());
+            nested3->insert_value(3);
+            null_map3->insert_value(0);
+            block.insert({col3->get_ptr(), nullable_type, "nullable_col1"}); // Duplicate name
+        }
+
+        // Test before index initialization
+        EXPECT_EQ(0, block.get_position_by_name("nullable_col1")); // Returns first occurrence
+        EXPECT_EQ(1, block.get_position_by_name("nullable_col2"));
+
+        // Test after index initialization
+        block.initialize_index_by_name();
+        EXPECT_EQ(2, block.get_position_by_name("nullable_col1")); // Returns last occurrence
+        EXPECT_EQ(1, block.get_position_by_name("nullable_col2"));
+
+        // Test has() function
+        EXPECT_TRUE(block.has("nullable_col1"));
+        EXPECT_TRUE(block.has("nullable_col2"));
+        EXPECT_FALSE(block.has("nullable_col3"));
+
+        // Test get_by_name
+        const auto& col1 = block.get_by_name("nullable_col1");
+        EXPECT_EQ(1, col1.column->size());
+        EXPECT_THROW(block.get_by_name("nullable_col3"), Exception);
+
+        // Test try_get_by_name
+        EXPECT_NE(nullptr, block.try_get_by_name("nullable_col1"));
+        EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
+
+        // Test after structure modification
+        block.erase(2); // Remove last "nullable_col1"
+        block.initialize_index_by_name();
+        EXPECT_EQ(0, block.get_position_by_name("nullable_col1")); // Now first "nullable_col1" is found
+    }
 }
 
 TEST(BlockTest, ReplaceIfOverflow) {
