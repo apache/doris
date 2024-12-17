@@ -54,6 +54,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int LOAD_INITIATOR_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
@@ -504,6 +505,19 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
 Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_writer(
         const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
         int64_t txn_expiration) {
+    if (rowset.rowset_meta_state() != RowsetStatePB::BEGIN_PARTIAL_UPDATE &&
+        rowset.rowset_meta_state() != RowsetStatePB::COMMITTED) [[unlikely]] {
+        auto msg = fmt::format(
+                "wrong rowset state when create_transient_rowset_writer, rowset state should be "
+                "BEGIN_PARTIAL_UPDATE or COMMITTED, but found {}, rowset_id={}, tablet_id={}",
+                RowsetStatePB_Name(rowset.rowset_meta_state()), rowset.rowset_id().to_string(),
+                tablet_id());
+        // see `CloudRowsetWriter::build` for detail.
+        // if this is in a retry task, the rowset state may have been changed to RowsetStatePB::COMMITTED
+        // in `RowsetMeta::merge_rowset_meta()` in previous trials.
+        LOG(WARNING) << msg;
+        DCHECK(false) << msg;
+    }
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
@@ -712,8 +726,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     }
 
     auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
-            *this, ms_lock_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
+                                                            new_delete_bitmap.get()));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
