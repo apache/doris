@@ -2781,6 +2781,12 @@ public class Config extends ConfigBase {
     public static long auto_analyze_interval_seconds = 86400;
 
 
+    // A internal config to control whether to enable the checkpoint.
+    //
+    // ATTN: it only used in test environment.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_checkpoint = true;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
