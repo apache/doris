@@ -329,18 +329,33 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 #ifndef THREAD_SANITIZER
 TEST_F(ThreadPoolTest, TestDeadlocks) {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+#ifdef NDEBUG
+    const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
+#elif defined(__APPLE__)
+    const char* death_msg = "pthread_start";
+#elif defined(__clang__) && defined(USE_LIBCPP)
+    const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
+#else
+    const char* death_msg =
+            "_ZNSt5_BindIFMN5doris10ThreadPoolEFvvEPS1_EE6__callIvJEJLm0EEEET_OSt5tupleIJDpT0_"
+            "EESt12_Index_tupleIJXspT1_EEE";
+#endif
+    EXPECT_DEATH(
+            {
+                EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
+                EXPECT_TRUE(
+                        _pool->submit_func(std::bind((&ThreadPool::shutdown), _pool.get())).ok());
+                _pool->wait();
+            },
+            death_msg);
 
-    EXPECT_ANY_THROW({
-        EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
-        EXPECT_TRUE(_pool->submit_func(std::bind((&ThreadPool::shutdown), _pool.get())).ok());
-        _pool->wait();
-    });
-
-    EXPECT_ANY_THROW({
-        EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
-        EXPECT_TRUE(_pool->submit_func(std::bind(&ThreadPool::wait, _pool.get())).ok());
-        _pool->wait();
-    });
+    EXPECT_DEATH(
+            {
+                EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
+                EXPECT_TRUE(_pool->submit_func(std::bind(&ThreadPool::wait, _pool.get())).ok());
+                _pool->wait();
+            },
+            death_msg);
 }
 #endif
 
