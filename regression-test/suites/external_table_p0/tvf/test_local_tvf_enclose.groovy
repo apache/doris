@@ -26,7 +26,7 @@ suite("test_local_tvf_enclose", "p0,tvf") {
 
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/${filename}"
 
-    def outFilePath="/enclose_csv"
+    def outFilePath="/"
 
     for (List<Object> backend : backends) {
          def be_host = backend[1]
@@ -39,7 +39,7 @@ suite("test_local_tvf_enclose", "p0,tvf") {
 
     qt_enclose_1 """
                     select * from local(
-                        "file_path" = "${outFilePath}/${filename}",
+                        "file_path" = "${filename}",
                         "backend_id" = "${be_id}",
                         "format" = "csv_with_names",
                         "column_separator" = ", ",
@@ -48,7 +48,7 @@ suite("test_local_tvf_enclose", "p0,tvf") {
 
     qt_enclose_2 """
                     select * from local(
-                        "file_path" = "${outFilePath}/${filename}",
+                        "file_path" = "${filename}",
                         "backend_id" = "${be_id}",
                         "format" = "csv_with_names",
                         "column_separator" = ", ",
@@ -60,7 +60,7 @@ suite("test_local_tvf_enclose", "p0,tvf") {
     test {
         sql """
                 select * from local(
-                        "file_path" = "${outFilePath}/${filename}",
+                        "file_path" = "${filename}",
                         "backend_id" = "${be_id}",
                         "format" = "csv_with_names",
                         "column_separator" = ", ",
