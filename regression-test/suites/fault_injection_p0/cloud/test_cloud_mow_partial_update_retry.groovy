@@ -20,6 +20,9 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
         return
     }
 
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
+
     def customFeConfig = [
         delete_bitmap_lock_expiration_seconds : 10,
         calculate_delete_bitmap_task_timeout_seconds : 15,
@@ -45,12 +48,9 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
         sql "insert into ${table1} values(2,2,2,2);"
         sql "insert into ${table1} values(3,3,3,2);"
         sql "sync;"
-        // order_qt_sql "select * from ${table1};"
+        qt_sql "select * from ${table1} order by k1;"
 
         try {
-            GetDebugPoint().clearDebugPointsForAllFEs()
-            GetDebugPoint().clearDebugPointsForAllBEs()
-
             // block the first load
             GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token1"])
             GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block", [wait_token: "token1"])
@@ -62,7 +62,7 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
                 sql "insert into ${table1}(k1,c1) values(1,999),(2,666);"
             }
 
-            // wait util the first load's delete bitmap update lock expired
+            // wait util the first partial update load's delete bitmap update lock expired
             // to ensure that the second load can take the delete bitmap update lock
             // Config.delete_bitmap_lock_expiration_seconds = 10s
             Thread.sleep(11 * 1000)
@@ -75,11 +75,11 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${table1}(k1,c2) values(1,888),(2,777);"
 
-            // order_qt_sql "select * from ${table1};"
+            qt_sql "select * from ${table1} order by k1;"
 
 
             // keep waiting util the delete bitmap calculation timeout(Config.calculate_delete_bitmap_task_timeout_seconds = 15s)
-            // and the coordinator BE will retry to commit the first load's txn
+            // and the first load will retry the calculation of delete bitmap
             Thread.sleep(15 * 1000)
 
             // let the first partial update load finish
@@ -88,7 +88,7 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
 
             Thread.sleep(1000)
 
-            // order_qt_sql "select * from ${table1};"
+            qt_sql "select * from ${table1} order by k1;"
             
         } catch(Exception e) {
             logger.info(e.getMessage())
@@ -96,7 +96,5 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()
         }
-
-        sql "DROP TABLE IF EXISTS ${table1};"
     }
 }
