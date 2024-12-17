@@ -441,6 +441,8 @@ public:
 
     ColumnPtr permute(const Permutation&, size_t) const override;
 
+    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
+
     bool is_variable_length() const override { return true; }
 
     template <typename Func>
@@ -468,10 +470,6 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
-
-    ColumnPtr replicate(const Offsets& offsets) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "replicate" + get_name());
-    }
 
     Int64 get_int(size_t /*n*/) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_int" + get_name());

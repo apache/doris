@@ -823,9 +823,6 @@ ColumnObject::ColumnObject(size_t num_rows) : is_nullable(true) {
 }
 
 void ColumnObject::check_consistency() const {
-    if (subcolumns.empty() && serialized_sparse_column->empty()) {
-        return;
-    }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -1043,15 +1040,22 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
         if (row < part->size()) {
+            // no need null in sparse column
             if (assert_cast<const ColumnNullable&>(*part).is_null_at(row)) {
                 is_null = true;
             } else {
                 is_null = false;
                 // insert key
                 key->insert_data(path.data(), path.size());
-                const auto& part_type_serde = data_serdes[i];
+
+                // every subcolumn is always Nullable
+                auto nullable_serde =
+                        std::static_pointer_cast<DataTypeNullableSerDe>(data_types[i]->get_serde());
+                auto& nullable_col = assert_cast<const ColumnNullable&>(*part);
+
                 // insert value
-                part_type_serde->write_one_cell_to_binary(*part, value, row);
+                nullable_serde->get_nested_serde()->write_one_cell_to_binary(
+                        nullable_col.get_nested_column(), value, row);
             }
             return;
         }
@@ -1118,11 +1122,6 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         auto& array = res.get<Array>();
         info_res.num_dimensions++;
         for (size_t i = 0; i < size; ++i) {
-            const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
-            if (is_null) {
-                array.emplace_back(Null());
-                continue;
-            }
             Field nested_field;
             const auto nested_type =
                     assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
@@ -1143,14 +1142,16 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
                                                                          size_t row) {
     const auto& data_ref = value->get_data_at(row);
     const char* data = data_ref.data;
-    DCHECK(data_ref.size > 0);
-
+    DCHECK(data_ref.size > 1);
+    const TypeIndex type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    Field res;
     FieldInfo info_res = {
-            .scalar_type_id = TypeIndex::Nothing,
+            .scalar_type_id = type,
             .have_nulls = false,
             .need_convert = false,
             .num_dimensions = 1,
     };
+<<<<<<< HEAD
     // 0 is null
     const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
     if (is_null) {
@@ -1162,6 +1163,8 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
     const auto type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
     info_res.scalar_type_id = type;
     Field res;
+=======
+>>>>>>> cc4a80b086 ([fix] (variant) remove nullable type in sparse column and implement replicate)
     const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
     DCHECK_EQ(end - data_ref.data, data_ref.size);
     return {std::move(res), std::move(info_res)};
@@ -2177,7 +2180,6 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
     return column;
 }
 
-// ----
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
@@ -2194,8 +2196,17 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
                                    entry->data.get_least_common_type());
     }
-    // filter
+
     return new_column;
+}
+
+ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
+    column_match_offsets_size(num_rows, offsets.size());
+    if (empty()) {
+        auto res = ColumnObject::create(true, false);
+        return res;
+    }
+    return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
 size_t ColumnObject::filter(const Filter& filter) {

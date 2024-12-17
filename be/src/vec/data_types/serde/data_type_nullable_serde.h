@@ -102,6 +102,8 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst_column,
                                   int64_t row_num) const override;
 
+    DataTypeSerDeSPtr get_nested_serde() { return nested_serde; }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
