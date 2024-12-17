@@ -2165,10 +2165,6 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 
 ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
     // column_match_offsets_size(num_rows, offsets.size());
-    if (empty()) {
-        auto res = ColumnObject::create(true, false);
-        return res;
-    }
     return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
