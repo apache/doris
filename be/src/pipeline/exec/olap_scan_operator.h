@@ -183,6 +183,20 @@ private:
 
     RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
+    // timer about tablet reader
+    RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_delete_condition_param_timer = nullptr;
+
+    // timer about block reader
+    RuntimeProfile::Counter* _block_reader_vcollect_iter_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_reader_rs_readers_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_reader_build_heap_init_timer = nullptr;
+
     std::mutex _profile_mtx;
 };
 

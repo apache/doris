@@ -149,6 +149,26 @@ Status OlapScanLocalState::_init_profile() {
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
     _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
     _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
+
+    _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
+    _tablet_reader_capture_rs_readers_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
+    _tablet_reader_init_return_columns_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitReturnColumnsTimer");
+    _tablet_reader_init_keys_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitKeysParamTimer");
+    _tablet_reader_init_orderby_keys_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitOrderbyKeysParamTimer");
+    _tablet_reader_init_conditions_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitConditionsParamTimer");
+    _tablet_reader_init_delete_condition_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitDeleteConditionParamTimer");
+    _block_reader_vcollect_iter_init_timer =
+            ADD_TIMER(_scanner_profile, "BlockReaderVcollectIterInitTimer");
+    _block_reader_rs_readers_init_timer =
+            ADD_TIMER(_scanner_profile, "BlockReaderRsReadersInitTimer");
+    _block_reader_build_heap_init_timer =
+            ADD_TIMER(_scanner_profile, "BlockReaderBuildHeapInitTimer");
     return Status::OK();
 }
 
