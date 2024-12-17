@@ -683,7 +683,7 @@ Status PipelineXFragmentContext::_build_pipeline_x_tasks(
 
         auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
-            RETURN_IF_ERROR(
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
                     task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));
             return Status::OK();
         };
