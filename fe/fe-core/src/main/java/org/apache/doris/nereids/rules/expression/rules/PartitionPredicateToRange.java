@@ -69,19 +69,26 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
 
     @Override
     public RangeSet<MultiColumnBound> visitAnd(And and, Void context) {
-        RangeSet<MultiColumnBound> leftRanges = and.left().accept(this, context);
-        if (leftRanges == null) {
-            return null;
-        }
-        RangeSet<MultiColumnBound> rightRanges = and.right().accept(this, context);
-        if (rightRanges == null) {
-            return null;
-        }
-
+        boolean first = true;
         RangeSet<MultiColumnBound> intersects = TreeRangeSet.create();
-        intersects.addAll(leftRanges);
-        for (Range<MultiColumnBound> rightRange : rightRanges.asRanges()) {
-            intersects = intersects.subRangeSet(rightRange);
+        for (Expression child : and.children()) {
+            RangeSet<MultiColumnBound> childRanges = child.accept(this, context);
+            if (childRanges == null) {
+                return null;
+            }
+
+            if (first) {
+                first = false;
+                intersects = childRanges;
+                continue;
+            }
+
+            for (Range<MultiColumnBound> childRange : childRanges.asRanges()) {
+                intersects = intersects.subRangeSet(childRange);
+                if (intersects.isEmpty()) {
+                    break;
+                }
+            }
             if (intersects.isEmpty()) {
                 break;
             }
@@ -91,18 +98,14 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
 
     @Override
     public RangeSet<MultiColumnBound> visitOr(Or or, Void context) {
-        RangeSet<MultiColumnBound> leftRanges = or.left().accept(this, context);
-        if (leftRanges == null) {
-            return null;
-        }
-        RangeSet<MultiColumnBound> rightRanges = or.right().accept(this, context);
-        if (rightRanges == null) {
-            return null;
-        }
-
         RangeSet<MultiColumnBound> intersects = TreeRangeSet.create();
-        intersects.addAll(leftRanges);
-        intersects.addAll(rightRanges);
+        for (Expression child : or.children()) {
+            RangeSet<MultiColumnBound> childRanges = child.accept(this, context);
+            if (childRanges == null) {
+                return null;
+            }
+            intersects.addAll(childRanges);
+        }
         return intersects;
     }
 
