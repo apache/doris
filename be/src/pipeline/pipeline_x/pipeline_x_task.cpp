@@ -346,6 +346,10 @@ Status PipelineXTask::execute(bool* eos) {
             }
         }
 
+        if (*eos) {
+            RETURN_IF_ERROR(close(Status::OK(), false));
+        }
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             status = _sink->sink(_state, block, *eos);
@@ -356,7 +360,7 @@ Status PipelineXTask::execute(bool* eos) {
             }
 
             if (*eos) { // just return, the scheduler will do finish work
-                RETURN_IF_ERROR(close(status, false));
+                _eos = true;
                 break;
             }
         }
