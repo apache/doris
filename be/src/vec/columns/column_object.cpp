@@ -632,6 +632,7 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     }
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->set_num_rows(serialized_sparse_column->size());
     check_consistency();
     return res;
 }
@@ -823,9 +824,6 @@ ColumnObject::ColumnObject(size_t num_rows) : is_nullable(true) {
 }
 
 void ColumnObject::check_consistency() const {
-    if (subcolumns.empty() && serialized_sparse_column->empty()) {
-        return;
-    }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -851,14 +849,8 @@ MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
     if (new_size == 0) {
         return ColumnObject::create(is_nullable);
     }
-    // If subcolumns are empty, then res will be empty but new_size > 0
-    if (subcolumns.empty()) {
-        auto res = ColumnObject::create(new_size);
-        return res;
-    }
-    auto res = apply_for_columns(
+    return apply_for_columns(
             [&](const ColumnPtr column) { return column->clone_resized(new_size); });
-    return res;
 }
 
 size_t ColumnObject::byte_size() const {
@@ -919,38 +911,38 @@ void ColumnObject::try_insert(const Field& field) {
             root = get_subcolumn({});
         }
         root->insert(field);
-        ++num_rows;
-        return;
-    }
-    const auto& object = field.get<const VariantMap&>();
-    size_t old_size = size();
-    for (const auto& [key_str, value] : object) {
-        PathInData key;
-        if (!key_str.empty()) {
-            key = PathInData(key_str);
+    } else {
+        const auto& object = field.get<const VariantMap&>();
+        size_t old_size = size();
+        for (const auto& [key_str, value] : object) {
+            PathInData key;
+            if (!key_str.empty()) {
+                key = PathInData(key_str);
+            }
+            if (!has_subcolumn(key)) {
+                bool succ = add_sub_column(key, old_size);
+                if (!succ) {
+                    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                           "Failed to add sub column {}", key.get_path());
+                }
+            }
+            auto* subcolumn = get_subcolumn(key);
+            if (!subcolumn) {
+                doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                 fmt::format("Failed to find sub column {}", key.get_path()));
+            }
+            subcolumn->insert(value);
         }
-        if (!has_subcolumn(key)) {
-            bool succ = add_sub_column(key, old_size);
-            if (!succ) {
-                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                       "Failed to add sub column {}", key.get_path());
+        for (auto& entry : subcolumns) {
+            if (old_size == entry->data.size()) {
+                bool inserted = try_insert_default_from_nested(entry);
+                if (!inserted) {
+                    entry->data.insert_default();
+                }
             }
         }
-        auto* subcolumn = get_subcolumn(key);
-        if (!subcolumn) {
-            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                             fmt::format("Failed to find sub column {}", key.get_path()));
-        }
-        subcolumn->insert(value);
     }
-    for (auto& entry : subcolumns) {
-        if (old_size == entry->data.size()) {
-            bool inserted = try_insert_default_from_nested(entry);
-            if (!inserted) {
-                entry->data.insert_default();
-            }
-        }
-    }
+    serialized_sparse_column->insert_default();
     ++num_rows;
 }
 
@@ -1043,15 +1035,22 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
         if (row < part->size()) {
+            // no need null in sparse column
             if (assert_cast<const ColumnNullable&>(*part).is_null_at(row)) {
                 is_null = true;
             } else {
                 is_null = false;
                 // insert key
                 key->insert_data(path.data(), path.size());
-                const auto& part_type_serde = data_serdes[i];
+
+                // every subcolumn is always Nullable
+                auto nullable_serde =
+                        std::static_pointer_cast<DataTypeNullableSerDe>(data_types[i]->get_serde());
+                auto& nullable_col = assert_cast<const ColumnNullable&>(*part);
+
                 // insert value
-                part_type_serde->write_one_cell_to_binary(*part, value, row);
+                nullable_serde->get_nested_serde()->write_one_cell_to_binary(
+                        nullable_col.get_nested_column(), value, row);
             }
             return;
         }
@@ -1118,11 +1117,6 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         auto& array = res.get<Array>();
         info_res.num_dimensions++;
         for (size_t i = 0; i < size; ++i) {
-            const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
-            if (is_null) {
-                array.emplace_back(Null());
-                continue;
-            }
             Field nested_field;
             const auto nested_type =
                     assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
@@ -1143,25 +1137,15 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
                                                                          size_t row) {
     const auto& data_ref = value->get_data_at(row);
     const char* data = data_ref.data;
-    DCHECK(data_ref.size > 0);
-
+    DCHECK(data_ref.size > 1);
+    const TypeIndex type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    Field res;
     FieldInfo info_res = {
-            .scalar_type_id = TypeIndex::Nothing,
+            .scalar_type_id = type,
             .have_nulls = false,
             .need_convert = false,
             .num_dimensions = 1,
     };
-    // 0 is null
-    const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
-    if (is_null) {
-        DCHECK(data_ref.size == 1);
-        return {Null(), info_res};
-    }
-
-    DCHECK(data_ref.size > 1);
-    const auto type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
-    info_res.scalar_type_id = type;
-    Field res;
     const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
     DCHECK_EQ(end - data_ref.data, data_ref.size);
     return {std::move(res), std::move(info_res)};
@@ -1446,20 +1430,6 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
-    if (subcolumns.empty()) {
-        if (limit == 0) {
-            limit = num_rows;
-        } else {
-            limit = std::min(num_rows, limit);
-        }
-
-        if (perm.size() < limit) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Size of permutation is less than required.");
-        }
-        auto res = ColumnObject::create(limit);
-        return res;
-    }
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
 }
 
@@ -2177,7 +2147,6 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
     return column;
 }
 
-// ----
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
@@ -2194,8 +2163,13 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
                                    entry->data.get_least_common_type());
     }
-    // filter
+
     return new_column;
+}
+
+ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
+    column_match_offsets_size(num_rows, offsets.size());
+    return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
 size_t ColumnObject::filter(const Filter& filter) {
