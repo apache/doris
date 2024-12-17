@@ -254,6 +254,8 @@ private:
         RowRefComparator(const BaseTablet& tablet) : _num_columns(tablet.num_key_columns()) {}
 
         int compare(const RowRef& lhs, const RowRef& rhs) const {
+            // Notice: does not compare sequence column for mow table
+            // read from rowsets with delete bitmap, so there should be no duplicated keys
             return lhs.block->compare_at(lhs.position, rhs.position, _num_columns, *rhs.block, -1);
         }
 
