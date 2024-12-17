@@ -272,7 +272,7 @@ suite("test_add_sub_diff_ceil_floor") {
     }
     explain  {
         sql "select * from test_add_sub_diff_ceil_floor_t where years_diff('2021-01-01',month_ceil(hours_sub(dt, 1))) <=2"
-        contains("partitions=3/5 (p3,p4,p5)")
+        contains("partitions=4/5 (p1,p3,p4,p5)")
     }
     // mixed with non-function predicates
     explain {
@@ -293,4 +293,21 @@ suite("test_add_sub_diff_ceil_floor") {
         sql """select * from test_add_sub_diff_ceil_floor_t where hours_add(dt, years_diff(dt,'2018-01-01')) <'2018-01-01' """
         contains("partitions=5/5 (p1,p2,p3,p4,p5)")
     }
+
+    // max
+    sql "drop table if exists max_t"
+    sql """create table max_t (a int, dt datetime, d date, c varchar(100)) duplicate key(a)
+    partition by range(dt) (
+            partition p1 values less than ("2017-01-01"),
+            partition p2 values less than ("2018-01-01"),
+            partition p3 values less than ("2019-01-01"),
+            partition p4 values less than ("2020-01-01"),
+            partition p5 values less than ("2021-01-01"),
+            partition p6 values less than MAX
+    ) distributed by hash(a) properties("replication_num"="1");"""
+    sql """INSERT INTO max_t SELECT number,
+    date_add('2016-01-01 00:00:00', interval number month),
+    cast(date_add('2022-01-01 00:00:00', interval number month) as date), cast(number as varchar(65533)) FROM numbers('number'='100');"""
+    sql "INSERT INTO max_t  values(3,null,null,null);"
+
 }

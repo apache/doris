@@ -118,8 +118,7 @@ public class MonthCeil extends ScalarFunction
             case 3:
                 return new MonthCeil(literal, child(1), child(2));
             default:
-                // should not reach
-                return null;
+                throw new IllegalStateException("The function " + getName() + " has invalid child number.");
         }
     }
 }
