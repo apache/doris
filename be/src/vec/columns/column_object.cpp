@@ -2058,9 +2058,12 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         if (entry->data.is_root) {
             continue;
         }
+        if (mode != FinalizeMode::WRITE_MODE) {
+            new_subcolumns.add(entry->path, entry->data);
+        }
     }
 
-    // merge and encode sparse column
+    // caculate stats & merge and encode sparse column
     if (mode == FinalizeMode::WRITE_MODE) {
         // pick sparse columns
         std::set<std::string_view> selected_path;
@@ -2108,6 +2111,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
                 remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
             }
         }
+        serialized_sparse_column->clear();
         RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
     }
 
@@ -2168,7 +2172,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 }
 
 ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
-    column_match_offsets_size(num_rows, offsets.size());
+    // column_match_offsets_size(num_rows, offsets.size());
     return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 

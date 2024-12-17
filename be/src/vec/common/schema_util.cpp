@@ -606,20 +606,18 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
-TabletColumn create_sparse_column(int32_t parent_unique_id) {
-    TColumn tcolumn;
-    tcolumn.column_name = SPARSE_COLUMN_PATH;
-    tcolumn.col_unique_id = parent_unique_id;
-    tcolumn.column_type = TColumnType {};
-    tcolumn.column_type.type = TPrimitiveType::MAP;
-
-    TColumn child_tcolumn;
-    tcolumn.column_type = TColumnType {};
-    tcolumn.column_type.type = TPrimitiveType::STRING;
-    tcolumn.children_column.push_back(child_tcolumn);
-    tcolumn.children_column.push_back(child_tcolumn);
-    auto res = TabletColumn {tcolumn};
+TabletColumn create_sparse_column(const TabletColumn& variant) {
+    TabletColumn res;
+    res.set_name(SPARSE_COLUMN_PATH);
+    res.set_unique_id(variant.unique_id());
+    res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {SPARSE_COLUMN_PATH});
+
+    TabletColumn child_tcolumn;
+    child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    res.add_sub_column(child_tcolumn);
+    res.add_sub_column(child_tcolumn);
     return res;
 }
 
