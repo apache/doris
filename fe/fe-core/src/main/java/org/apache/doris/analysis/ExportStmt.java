@@ -47,6 +47,7 @@ import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -145,6 +146,11 @@ public class ExportStmt extends StatementBase {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        if (!Config.enable_outfile_to_local && Objects.requireNonNull(path)
+                .startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
+            throw new AnalysisException("`enable_outfile_to_local` = false, exporting file to local fs is disabled.");
+        }
 
         tableRef = analyzer.resolveTableRef(tableRef);
         Preconditions.checkNotNull(tableRef);
