@@ -1933,6 +1933,7 @@ private:
             // set variant root column/type to from column/type
             auto variant = ColumnObject::create(true /*always nullable*/);
             variant->create_root(from_type, col_from->assume_mutable());
+            variant->get_sparse_column()->assume_mutable()->insert_many_defaults(input_rows_count);
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
         }

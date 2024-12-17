@@ -128,6 +128,6 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
                            int32_t new_col_idx, int32_t old_col_idx);
 
 // create ColumnMap<String, String>
-TabletColumn create_sparse_column(int32_t parent_unique_id);
+TabletColumn create_sparse_column(const TabletColumn& variant);
 
 } // namespace  doris::vectorized::schema_util

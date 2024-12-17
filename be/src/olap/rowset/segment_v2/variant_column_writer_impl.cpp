@@ -214,8 +214,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
         vectorized::ColumnObject* ptr, vectorized::OlapBlockDataConvertor* converter,
         size_t num_rows, int& column_id) {
     // create sparse column writer
-    TabletColumn sparse_column =
-            vectorized::schema_util::create_sparse_column(_tablet_column->unique_id());
+    TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
     ColumnWriterOptions sparse_writer_opts;
     sparse_writer_opts.meta = _opts.footer->add_columns();
 
