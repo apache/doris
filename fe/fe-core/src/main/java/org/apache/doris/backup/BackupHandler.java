@@ -427,14 +427,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
             OlapTable olapTbl = (OlapTable) tbl;
             tbl.readLock();
             try {
-                if (olapTbl.existTempPartitions()) {
+                if (!Config.ignore_backup_tmp_partitions && olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                             "Do not support backup table " + olapTbl.getName() + " with temp partitions");
                 }
 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
-                    if (partitionNames.isTemp()) {
+                    if (!Config.ignore_backup_tmp_partitions && partitionNames.isTemp()) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                 "Do not support backup temp partitions in table " + tblRef.getName());
                     }
