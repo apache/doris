@@ -337,7 +337,7 @@ public:
                                           Arena& mem_pool, int64_t row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
-    virtual void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst_column,
+    virtual void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst,
                                           int64_t row_num) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
     }

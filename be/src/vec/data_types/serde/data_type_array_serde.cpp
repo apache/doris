@@ -438,7 +438,11 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
 void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                   ColumnString* dst_column, int64_t row_num) const {
     const uint8_t type = static_cast<uint8_t>(TypeIndex::Array);
-    dst_column->insert_data(reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    ColumnString::Chars& chars = dst_column->get_chars();
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t);
+    chars.resize(new_size);
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
 
     const auto& array_col = assert_cast<const ColumnArray&>(src_column);
     const IColumn& nested_column = array_col.get_data();
@@ -446,10 +450,12 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
     size_t start = offsets[row_num - 1];
     size_t end = offsets[row_num];
     size_t size = end - start;
-    dst_column->insert_data(reinterpret_cast<const char*>(&size), sizeof(size_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&size),
+           sizeof(size_t));
     for (size_t offset = start; offset != end; ++offset) {
         nested_serde->write_one_cell_to_binary(nested_column, dst_column, offset);
     }
+    dst_column->get_offsets().push_back(chars.size());
 }
 
 } // namespace vectorized
