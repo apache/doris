@@ -71,10 +71,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
 --------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
-------PhysicalProject
---------PhysicalTopN[MERGE_SORT]
-----------PhysicalDistribute[DistributionSpecGather]
-------------PhysicalTopN[LOCAL_SORT]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -60,7 +61,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= limit.getLimit() + limit.getOffset())
                         .when(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
-                            return !agg.getGroupByExpressions().isEmpty();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
                         })
                         .then(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
@@ -75,7 +76,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= limit.getLimit() + limit.getOffset())
                         .when(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child().child();
-                            return !agg.getGroupByExpressions().isEmpty();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
                         })
                         .then(limit -> {
                             LogicalProject<? extends Plan> project = limit.child();
@@ -94,7 +95,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= topn.getLimit() + topn.getOffset())
                         .when(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child();
-                            return !agg.getGroupByExpressions().isEmpty();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
                         })
                         .then(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child();
@@ -115,7 +116,7 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= topn.getLimit() + topn.getOffset())
                         .when(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child().child();
-                            return !agg.getGroupByExpressions().isEmpty();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
                         })
                         .then(topn -> {
                             LogicalTopN originTopn = topn;
@@ -154,17 +155,36 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                             }
                             Pair<List<OrderKey>, List<Expression>> pair =
                                     supplementOrderKeyByGroupKeyIfCompatible(topn, agg);
+                            Plan result;
                             if (pair == null) {
-                                return originTopn;
+                                result = originTopn;
                             } else {
                                 agg = agg.withGroupBy(pair.second);
-                                topn = (LogicalTopN) topn.withChildren(agg);
                                 topn = (LogicalTopN) topn.withOrderKeys(pair.first);
-                                project = (LogicalProject<? extends Plan>) project.withChildren(topn);
-                                return project;
+                                if (isOrderKeysInProject(topn, project)) {
+                                    project = (LogicalProject<? extends Plan>) project.withChildren(agg);
+                                    topn = (LogicalTopN<LogicalProject<LogicalAggregate<Plan>>>)
+                                            topn.withChildren(project);
+                                    result = topn;
+                                } else {
+                                    topn = (LogicalTopN) topn.withChildren(agg);
+                                    project = (LogicalProject<? extends Plan>) project.withChildren(topn);
+                                    result = project;
+                                }
                             }
+                            return result;
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG)
         );
+    }
+
+    private boolean isOrderKeysInProject(LogicalTopN<? extends Plan> topn, LogicalProject project) {
+        Set<Slot> projectSlots = project.getOutputSet();
+        for (OrderKey orderKey : topn.getOrderKeys()) {
+            if (!projectSlots.contains(orderKey.getExpr())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private List<OrderKey> generateOrderKeyByGroupKey(LogicalAggregate<? extends Plan> agg) {
