@@ -3738,41 +3738,152 @@ TEST(BlockTest, IndexByName) {
 }
 
 TEST(BlockTest, ColumnTransformations) {
-    vectorized::Block block;
-    auto type = std::make_shared<vectorized::DataTypeInt32>();
-
-    // Insert columns with unique data
+    // Test with empty block
     {
-        auto col1 = vectorized::ColumnVector<Int32>::create();
-        col1->insert_value(1);
-        block.insert({std::move(col1), type, "col1"});
-    }
-    {
-        auto col2 = vectorized::ColumnVector<Int32>::create();
-        col2->insert_value(2);
-        block.insert({std::move(col2), type, "col2"});
+        vectorized::Block block;
+        std::vector<int> positions = {};
+        block.shuffle_columns(positions);
+        EXPECT_EQ(0, block.columns());
     }
 
-    // Verify initial order
-    EXPECT_EQ("col1", block.get_by_position(0).name);
-    EXPECT_EQ("col2", block.get_by_position(1).name);
+    // Test with regular columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-    // Test shuffle_columns
-    std::vector<int> positions = {1, 0}; // change the order of columns
-    block.shuffle_columns(positions);
+        // Insert columns with regular values
+        {
+            auto col1 = vectorized::ColumnVector<Int32>::create();
+            col1->insert_value(1);
+            block.insert({std::move(col1), type, "col1"});
 
-    // Verify shuffled order
-    EXPECT_EQ("col2", block.get_by_position(0).name); // col2 is now in the first position
-    EXPECT_EQ("col1", block.get_by_position(1).name); // col1 is now in the second position
+            auto col2 = vectorized::ColumnVector<Int32>::create();
+            col2->insert_value(2);
+            block.insert({std::move(col2), type, "col2"});
+        }
 
-    // Verify column data is also correctly shuffled
-    const auto* col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            block.get_by_position(1).column.get()); // col1 is now in position 1
-    const auto* col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            block.get_by_position(0).column.get()); // col2 is now in position 0
+        // Verify initial order
+        EXPECT_EQ("col1", block.get_by_position(0).name);
+        EXPECT_EQ("col2", block.get_by_position(1).name);
 
-    EXPECT_EQ(1, col1->get_data()[0]); // the value of col1 should be 1
-    EXPECT_EQ(2, col2->get_data()[0]); // the value of col2 should be 2
+        // Test shuffle_columns
+        std::vector<int> positions = {1, 0}; // change the order of columns
+        block.shuffle_columns(positions);
+
+        // Verify shuffled order
+        EXPECT_EQ("col2", block.get_by_position(0).name);
+        EXPECT_EQ("col1", block.get_by_position(1).name);
+
+        // Verify column data is correctly shuffled
+        const auto* col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                block.get_by_position(1).column.get());
+        const auto* col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                block.get_by_position(0).column.get());
+
+        EXPECT_EQ(1, col1->get_data()[0]);
+        EXPECT_EQ(2, col2->get_data()[0]);
+    }
+
+    // Test with const columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Insert columns with const values
+        {
+            auto base_col1 = vectorized::ColumnVector<Int32>::create();
+            base_col1->insert_value(42);
+            auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 5);
+            block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+            auto base_col2 = vectorized::ColumnVector<Int32>::create();
+            base_col2->insert_value(24);
+            auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+            block.insert({const_col2->get_ptr(), type, "const_col2"});
+        }
+
+        // Verify initial order
+        EXPECT_EQ("const_col1", block.get_by_position(0).name);
+        EXPECT_EQ("const_col2", block.get_by_position(1).name);
+
+        // Test shuffle_columns
+        std::vector<int> positions = {1, 0};
+        block.shuffle_columns(positions);
+
+        // Verify shuffled order
+        EXPECT_EQ("const_col2", block.get_by_position(0).name);
+        EXPECT_EQ("const_col1", block.get_by_position(1).name);
+
+        // Verify const values are preserved
+        const auto* col1 = assert_cast<const vectorized::ColumnConst*>(
+                block.get_by_position(1).column.get());
+        const auto* col2 = assert_cast<const vectorized::ColumnConst*>(
+                block.get_by_position(0).column.get());
+
+        EXPECT_EQ(42, col1->get_int(0));
+        EXPECT_EQ(24, col2->get_int(0));
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+        // Insert columns with nullable values
+        {
+            auto col1 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col1->get_nested_column_ptr().get());
+            auto* null_map1 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col1->get_null_map_column_ptr().get());
+            nested1->insert_value(1);
+            null_map1->insert_value(0);
+            block.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
+
+            auto col2 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto* nested2 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col2->get_nested_column_ptr().get());
+            auto* null_map2 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col2->get_null_map_column_ptr().get());
+            nested2->insert_value(2);
+            null_map2->insert_value(1);
+            block.insert({col2->get_ptr(), nullable_type, "nullable_col2"});
+        }
+
+        // Verify initial order
+        EXPECT_EQ("nullable_col1", block.get_by_position(0).name);
+        EXPECT_EQ("nullable_col2", block.get_by_position(1).name);
+
+        // Test shuffle_columns
+        std::vector<int> positions = {1, 0};
+        block.shuffle_columns(positions);
+
+        // Verify shuffled order
+        EXPECT_EQ("nullable_col2", block.get_by_position(0).name);
+        EXPECT_EQ("nullable_col1", block.get_by_position(1).name);
+
+        // Verify nullable values and null states are preserved
+        const auto* col1 = assert_cast<const vectorized::ColumnNullable*>(
+                block.get_by_position(1).column.get());
+        const auto* col2 = assert_cast<const vectorized::ColumnNullable*>(
+                block.get_by_position(0).column.get());
+
+        EXPECT_FALSE(col1->is_null_at(0));
+        EXPECT_TRUE(col2->is_null_at(0));
+
+        const auto* nested1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                col1->get_nested_column_ptr().get());
+        const auto* nested2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                col2->get_nested_column_ptr().get());
+
+        EXPECT_EQ(1, nested1->get_data()[0]);
+        EXPECT_EQ(2, nested2->get_data()[0]);
+    }
 }
 
 TEST(BlockTest, HashUpdate) {
