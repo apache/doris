@@ -1529,10 +1529,12 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
-    # CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-    #     --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
+    # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
+    # I have repeatedly fixed the compatibility issues between Jvm and Jemalloc, in #33946 #34107 #34578 #34643 #34750 #34886 #35557 #35694 #45210,
+    # but this is all in vain, need to really understand what the problem is between Jvm and Jemalloc.
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --enable-prof --disable-libdl --disable-shared
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
     make -j "${PARALLEL}"
     make install
