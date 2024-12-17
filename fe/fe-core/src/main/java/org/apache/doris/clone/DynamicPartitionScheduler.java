@@ -577,6 +577,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(), errorMsg, olapTable.getId());
                     skipAddPartition = true;
                 }
+                // for auto+dynamic table, only support auto to create.
+                DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty()
+                        .getDynamicPartitionProperty();
+                String createMethod = dynamicPartitionProperty.getCreateMethod();
+                if (createMethod.equalsIgnoreCase(DynamicPartitionProperty.AUTO_METHOD)) {
+                    skipAddPartition = true;
+                }
 
                 // Determine the partition column type
                 // if column type is Date, format partition name as yyyyMMdd
