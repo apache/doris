@@ -632,6 +632,7 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     }
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->set_num_rows(serialized_sparse_column->size());
     check_consistency();
     return res;
 }
@@ -848,14 +849,8 @@ MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
     if (new_size == 0) {
         return ColumnObject::create(is_nullable);
     }
-    // If subcolumns are empty, then res will be empty but new_size > 0
-    if (subcolumns.empty()) {
-        auto res = ColumnObject::create(new_size);
-        return res;
-    }
-    auto res = apply_for_columns(
+    return apply_for_columns(
             [&](const ColumnPtr column) { return column->clone_resized(new_size); });
-    return res;
 }
 
 size_t ColumnObject::byte_size() const {
@@ -916,38 +911,38 @@ void ColumnObject::try_insert(const Field& field) {
             root = get_subcolumn({});
         }
         root->insert(field);
-        ++num_rows;
-        return;
-    }
-    const auto& object = field.get<const VariantMap&>();
-    size_t old_size = size();
-    for (const auto& [key_str, value] : object) {
-        PathInData key;
-        if (!key_str.empty()) {
-            key = PathInData(key_str);
+    } else {
+        const auto& object = field.get<const VariantMap&>();
+        size_t old_size = size();
+        for (const auto& [key_str, value] : object) {
+            PathInData key;
+            if (!key_str.empty()) {
+                key = PathInData(key_str);
+            }
+            if (!has_subcolumn(key)) {
+                bool succ = add_sub_column(key, old_size);
+                if (!succ) {
+                    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                           "Failed to add sub column {}", key.get_path());
+                }
+            }
+            auto* subcolumn = get_subcolumn(key);
+            if (!subcolumn) {
+                doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                 fmt::format("Failed to find sub column {}", key.get_path()));
+            }
+            subcolumn->insert(value);
         }
-        if (!has_subcolumn(key)) {
-            bool succ = add_sub_column(key, old_size);
-            if (!succ) {
-                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                       "Failed to add sub column {}", key.get_path());
+        for (auto& entry : subcolumns) {
+            if (old_size == entry->data.size()) {
+                bool inserted = try_insert_default_from_nested(entry);
+                if (!inserted) {
+                    entry->data.insert_default();
+                }
             }
         }
-        auto* subcolumn = get_subcolumn(key);
-        if (!subcolumn) {
-            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                             fmt::format("Failed to find sub column {}", key.get_path()));
-        }
-        subcolumn->insert(value);
     }
-    for (auto& entry : subcolumns) {
-        if (old_size == entry->data.size()) {
-            bool inserted = try_insert_default_from_nested(entry);
-            if (!inserted) {
-                entry->data.insert_default();
-            }
-        }
-    }
+    serialized_sparse_column->insert_default();
     ++num_rows;
 }
 
@@ -1435,20 +1430,6 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
-    if (subcolumns.empty()) {
-        if (limit == 0) {
-            limit = num_rows;
-        } else {
-            limit = std::min(num_rows, limit);
-        }
-
-        if (perm.size() < limit) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Size of permutation is less than required.");
-        }
-        auto res = ColumnObject::create(limit);
-        return res;
-    }
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
 }
 
@@ -2188,10 +2169,6 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 
 ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
     column_match_offsets_size(num_rows, offsets.size());
-    if (empty()) {
-        auto res = ColumnObject::create(true, false);
-        return res;
-    }
     return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
