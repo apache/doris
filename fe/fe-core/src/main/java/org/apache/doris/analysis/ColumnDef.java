@@ -662,7 +662,7 @@ public class ColumnDef {
         sb.append("`").append(name).append("` ");
         sb.append(typeDef.toSql()).append(" ");
 
-        if (aggregateType != null) {
+        if (aggregateType != null && aggregateType != AggregateType.NONE) {
             sb.append(aggregateType.name()).append(" ");
         }
 
