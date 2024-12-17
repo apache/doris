@@ -46,12 +46,19 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("IA + 2 - ((1 - IB) - (3 + IC))", "IA + IB + IC + 4");
         assertRewriteAfterTypeCoercion("IA * IB + 2 - IC * 2", "(IA * IB) - (IC * 2) + 2");
         assertRewriteAfterTypeCoercion("IA * IB", "IA * IB");
+
         assertRewriteAfterTypeCoercion("IA * IB / 2 * 2", "cast((IA * IB) as DOUBLE) / 1.0");
         assertRewriteAfterTypeCoercion("IA * IB / (2 * 2)", "cast((IA * IB) as DOUBLE) / 4.0");
         assertRewriteAfterTypeCoercion("IA * IB / (2 * 2)", "cast((IA * IB) as DOUBLE) / 4.0");
         assertRewriteAfterTypeCoercion("IA * (IB / 2) * 2)", "cast(IA as DOUBLE) * cast(IB as DOUBLE) / 1.0");
         assertRewriteAfterTypeCoercion("IA * (IB / 2) * (IC + 1))", "cast(IA as DOUBLE) * cast(IB as DOUBLE) * cast((IC + 1) as DOUBLE) / 2.0");
         assertRewriteAfterTypeCoercion("IA * IB / 2 / IC * 2 * ID / 4", "(((cast((IA * IB) as DOUBLE) / cast(IC as DOUBLE)) * cast(ID as DOUBLE)) / 4.0)");
+        assertRewriteAfterTypeCoercion("-1 + (10 - 20)  * (3 - 6) - (100 - 200) * (6 - 3)", "329");
+        assertRewriteAfterTypeCoercion("IA - 10 + (IB * 2 * 3) + 20", "IA + (IB * 6) - (-10)");
+        assertRewriteAfterTypeCoercion("IA / 10 * (IB - 2 + 3) * 20", "((cast(IA as DOUBLE) * cast((IB - (-1)) as DOUBLE)) / 0.5)");
+        assertRewriteAfterTypeCoercion("1 + ((IA * 2 * 3) * 10 / 10)", "((cast(IA as DOUBLE) * 6.0) + 1.0)");
+        assertRewriteAfterTypeCoercion("1 + (IA * 2 * 20 / (IB + 5 + (IC * 10 * 20 / 50 + 5 + 6) + 20) / 20) * (ID * 5 * 6 / (IE + 20 + 30)) + 200",
+                "(((((cast(IA as DOUBLE) / ((cast(IB as DOUBLE) + (cast(IC as DOUBLE) * 4.0)) + 36.0)) * cast(ID as DOUBLE)) / cast((IE + 50) as DOUBLE)) * 60.0) + 201.0)");
     }
 
     @Test
@@ -69,18 +76,24 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("IA - 2 - ((-IB - 1) - (3 + (IC + 4)))", "(((IA + IB) + IC) - ((((2 + 0) - 1) - 3) - 4))");
 
         // multiply and divide
-        assertRewriteAfterTypeCoercion("2 / IA / ((1 / IB) / (3 * IC))", "((((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(IA as DOUBLE)) * cast(IB as DOUBLE)) * cast((IC * 3) as DOUBLE))");
-        assertRewriteAfterTypeCoercion("IA / 2 / ((IB * 1) / (3 / (IC / 4)))", "(((cast(IA as DOUBLE) / cast((IB * 1) as DOUBLE)) / cast(IC as DOUBLE)) / ((cast(2 as DOUBLE) / cast(3 as DOUBLE)) / cast(4 as DOUBLE)))");
-        assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 / (IC * 4)))", "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) / cast((IC * 4) as DOUBLE)) / ((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(3 as DOUBLE)))");
-        assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 * (IC * 4)))", "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) * cast((IC * (3 * 4)) as DOUBLE)) / (cast(2 as DOUBLE) / cast(1 as DOUBLE)))");
+        assertRewriteAfterTypeCoercion("2 / IA / ((1 / IB) / (3 * IC))",
+                "(((((cast(2 as DOUBLE) / cast(1 as DOUBLE)) * cast (3 as DOUBLE)) / cast(IA as DOUBLE)) * cast(IB as DOUBLE)) * cast(IC as DOUBLE))");
+        assertRewriteAfterTypeCoercion("IA / 2 / ((IB * 1) / (3 / (IC / 4)))",
+                "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) / cast(IC as DOUBLE)) / (((cast(2 as DOUBLE) * cast(1 as DOUBLE)) / cast(3 as DOUBLE)) / cast(4 as DOUBLE)))");
+        assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 / (IC * 4)))",
+                "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) / cast(IC as DOUBLE)) / (((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(3 as DOUBLE)) * cast(4 as DOUBLE)))");
+        assertRewriteAfterTypeCoercion("IA / 2 / ((IB / 1) / (3 * (IC * 4)))",
+                "(((cast(IA as DOUBLE) / cast(IB as DOUBLE)) * cast(IC as DOUBLE)) / (((cast(2 as DOUBLE) / cast(1 as DOUBLE)) / cast(3 as DOUBLE)) / cast(4 as DOUBLE)))");
 
         // hybrid
         // root is subtract
-        assertRewriteAfterTypeCoercion("-2 - IA * ((1 - IB) - (3 / IC))", "(cast(-2 as DOUBLE) - (cast(IA as DOUBLE) * (cast((1 - IB) as DOUBLE) - (cast(3 as DOUBLE) / cast(IC as DOUBLE)))))");
-        assertRewriteAfterTypeCoercion("-IA - 2 - ((IB * 1) - (3 * (IC / 4)))", "((cast(((0 - 2) - IA) as DOUBLE) - cast((IB * 1) as DOUBLE)) + (cast(3 as DOUBLE) * (cast(IC as DOUBLE) / cast(4 as DOUBLE))))");
+        assertRewriteAfterTypeCoercion("-2 - IA * ((1 - IB) - (3 / IC))",
+                "(cast(-2 as DOUBLE) - (cast(IA as DOUBLE) * ((cast(1 as DOUBLE) - cast(IB as DOUBLE)) - (cast(3 as DOUBLE) / cast(IC as DOUBLE)))))");
+        assertRewriteAfterTypeCoercion("-IA - 2 - ((IB * 1) - (3 * (IC / 4)))",
+                "((((cast(0 as DOUBLE) - cast(2 as DOUBLE)) - cast(IA as DOUBLE)) - cast((IB * 1) as DOUBLE)) + (cast(IC as DOUBLE) * (cast(3 as DOUBLE) / cast(4 as DOUBLE))))");
         // root is add
         assertRewriteAfterTypeCoercion("-IA * 2 + ((IB - 1) / (3 - (IC + 4)))", "(cast(((0 - IA) * 2) as DOUBLE) + (cast((IB - 1) as DOUBLE) / cast(((3 - 4) - IC) as DOUBLE)))");
-        assertRewriteAfterTypeCoercion("-IA + 2 + ((IB - 1) - (3 * (IC + 4)))", "(((((0 + 2) - 1) - IA) + IB) - (3 * (IC + 4)))");
+        assertRewriteAfterTypeCoercion("-IA + 2 + ((IB - 1) - (3 * (IC + 4)))", "(((((0 + 2) - 1) - IA) + IB) - ((IC + 4) * 3))");
         // root is multiply
         assertRewriteAfterTypeCoercion("-IA / 2 * ((-IB - 1) - (3 + (IC + 4)))", "((cast((0 - IA) as DOUBLE) * cast((((((0 - 1) - 3) - 4) - IB) - IC) as DOUBLE)) / cast(2 as DOUBLE))");
         assertRewriteAfterTypeCoercion("-IA / 2 * ((-IB - 1) * (3 / (IC + 4)))", "(((cast((0 - IA) as DOUBLE) * cast(((0 - 1) - IB) as DOUBLE)) / cast((IC + 4) as DOUBLE)) / (cast(2 as DOUBLE) / cast(3 as DOUBLE)))");
