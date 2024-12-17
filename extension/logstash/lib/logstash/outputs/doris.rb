@@ -159,12 +159,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    private
    def send_events(events)
-      documents = ""
-      event_num = 0
-      events.each do |event|
-         documents << event_body(event) << "\n"
-         event_num += 1
-      end
+      documents = events.map { |event| event_body(event) }.join("\n")
+      event_num = events.size
 
       # @logger.info("get event num: #{event_num}")
       @logger.debug("get documents: #{documents}")
