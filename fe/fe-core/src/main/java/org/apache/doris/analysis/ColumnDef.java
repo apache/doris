@@ -602,7 +602,7 @@ public class ColumnDef {
         if (defaultValue.isSet) {
             sb.append(defaultValue.toSql()).append(" ");
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
 
         return sb.toString();
     }
