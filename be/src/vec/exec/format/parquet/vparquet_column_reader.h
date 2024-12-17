@@ -33,6 +33,7 @@
 #include "parquet_column_convert.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/parquet_column_chunk_file_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_chunk_reader.h"
 
@@ -133,11 +134,12 @@ public:
         __builtin_unreachable();
     }
 
-    static Status create(io::FileReaderSPtr file, FieldSchema* field,
-                         const tparquet::RowGroup& row_group,
-                         const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                         io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr);
+    static Status create(
+            const std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>>& chunk_readers,
+            FieldSchema* field, const tparquet::RowGroup& row_group, int32_t row_group_id,
+            const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz, io::IOContext* io_ctx,
+            std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
+            const tparquet::OffsetIndex* offset_index = nullptr);
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;

@@ -29,7 +29,9 @@
 
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/parquet_column_chunk_file_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/parquet/reference_counted_reader.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
 
@@ -142,11 +144,12 @@ public:
         PositionDeleteContext(const PositionDeleteContext& filter) = default;
     };
 
-    RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
-                   const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                   cctz::time_zone* ctz, io::IOContext* io_ctx,
-                   const PositionDeleteContext& position_delete_ctx,
-                   const LazyReadContext& lazy_read_ctx, RuntimeState* state);
+    RowGroupReader(
+            const std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>>& chunk_readers,
+            const std::vector<std::string>& read_columns, const int32_t row_group_id,
+            const tparquet::RowGroup& row_group, cctz::time_zone* ctz, io::IOContext* io_ctx,
+            const PositionDeleteContext& position_delete_ctx, const LazyReadContext& lazy_read_ctx,
+            RuntimeState* state);
 
     ~RowGroupReader();
     Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
@@ -165,9 +168,9 @@ public:
 
 protected:
     void _collect_profile_before_close() override {
-        if (_file_reader != nullptr) {
-            _file_reader->collect_profile_before_close();
-        }
+        // if (_file_reader != nullptr) {
+        //    _file_reader->collect_profile_before_close();
+        // }
     }
 
 private:
@@ -198,7 +201,8 @@ private:
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
 
-    io::FileReaderSPtr _file_reader;
+    //io::FileReaderSPtr _file_reader;
+    const std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>>& _chunk_readers;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<std::string>& _read_columns;
     const int32_t _row_group_id;

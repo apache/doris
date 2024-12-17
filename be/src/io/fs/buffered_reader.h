@@ -67,13 +67,24 @@ struct PrefetchRange {
         return {start_offset, other.end_offset};
     }
 
-    //Ranges needs to be sorted.
+    bool contains(const PrefetchRange& range) const {
+        return start_offset <= range.start_offset && range.end_offset <= end_offset;
+    }
+
     static std::vector<PrefetchRange> merge_adjacent_seq_ranges(
-            const std::vector<PrefetchRange>& seq_ranges, int64_t max_merge_distance_bytes,
+            const std::vector<PrefetchRange>& input_ranges, int64_t max_merge_distance_bytes,
             int64_t once_max_read_bytes) {
-        if (seq_ranges.empty()) {
+        if (input_ranges.empty()) {
             return {};
         }
+
+        // Sort ranges by start offset
+        std::vector<PrefetchRange> seq_ranges = input_ranges;
+        std::sort(seq_ranges.begin(), seq_ranges.end(),
+                  [](const PrefetchRange& a, const PrefetchRange& b) {
+                      return a.start_offset < b.start_offset;
+                  });
+
         // Merge overlapping ranges
         std::vector<PrefetchRange> result;
         PrefetchRange last = seq_ranges.front();

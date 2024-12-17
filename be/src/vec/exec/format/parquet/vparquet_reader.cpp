@@ -183,6 +183,13 @@ void ParquetReader::_init_profile() {
                 _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.predicate_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
+
+        const char* merge_small_io_profile = "MergedSmallIO";
+        ADD_TIMER_WITH_LEVEL(_profile, merge_small_io_profile, 1);
+        _parquet_profile.merged_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedIO", TUnit::UNIT,
+                                                                  merge_small_io_profile, 1);
+        _parquet_profile.merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "MergedBytes", TUnit::BYTES, merge_small_io_profile, 1);
     }
 }
 
@@ -641,7 +648,7 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    io::FileReaderSPtr group_file_reader;
+    /*io::FileReaderSPtr group_file_reader;
     if (typeid_cast<io::InMemoryFileReader*>(_file_reader.get())) {
         // InMemoryFileReader has the ability to merge small IO
         group_file_reader = _file_reader;
@@ -655,10 +662,10 @@ Status ParquetReader::_next_row_group_reader() {
                                     ? std::make_shared<io::MergeRangeFileReader>(
                                               _profile, _file_reader, io_ranges)
                                     : _file_reader;
-    }
+    }*/
     _current_group_reader.reset(new RowGroupReader(
-            group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
-            _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
+            _parquet_column_chunk_file_readers, _read_columns, row_group_index.row_group_id,
+            row_group, _ctz, _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
                                        _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
@@ -721,6 +728,14 @@ Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
     if (_read_row_groups.empty()) {
         return Status::EndOfFile("No row group to read");
     }
+
+    size_t avg_io_size = 0;
+    const std::multimap<ChunkKey, io::PrefetchRange> io_ranges =
+            _generate_random_access_ranges2(&avg_io_size);
+    auto readers = _plan_read(io_ranges);
+
+    // 保存所有的 readers
+    _parquet_column_chunk_file_readers = std::move(readers);
     return Status::OK();
 }
 
@@ -744,7 +759,11 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                     const tparquet::ColumnChunk& chunk =
                             row_group.columns[field->physical_column_index];
                     auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                    /*int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                                                  ? chunk_meta.dictionary_page_offset
+                                                  : chunk_meta.data_page_offset;*/
+                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset &&
+                                                          chunk_meta.dictionary_page_offset > 0
                                                   ? chunk_meta.dictionary_page_offset
                                                   : chunk_meta.data_page_offset;
                     int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
@@ -761,6 +780,245 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     }
     if (!result.empty()) {
         *avg_io_size = total_io_size / result.size();
+    }
+    return result;
+}
+
+// 递归获取所有叶子节点字段
+void ParquetReader::_get_leaf_fields(const FieldSchema* field,
+                                     std::vector<const FieldSchema*>* leaf_fields) {
+    if (!field) {
+        return;
+    }
+
+    // 如果是复杂类型（STRUCT, MAP, LIST 等），递归处理其子字段
+    if (field->type.type == TYPE_STRUCT) {
+        for (const auto& child : field->children) {
+            _get_leaf_fields(&child, leaf_fields);
+        }
+    } else if (field->type.type == TYPE_MAP) {
+        // MAP 类型有两个子字段：key 和 value
+        _get_leaf_fields(&field->children[0].children[0], leaf_fields); // key
+        _get_leaf_fields(&field->children[0].children[1], leaf_fields); // value
+    } else if (field->type.type == TYPE_ARRAY) {
+        // ARRAY 类型有一个子字段：element
+        _get_leaf_fields(&field->children[0], leaf_fields);
+    } else {
+        // 基本类型，直接添加到结果中
+        leaf_fields->push_back(field);
+    }
+}
+
+std::multimap<ChunkKey, io::PrefetchRange> ParquetReader::_generate_random_access_ranges2(
+        size_t* avg_io_size) {
+    std::multimap<ChunkKey, io::PrefetchRange> result;
+    int64_t last_chunk_end = -1;
+    int64_t total_io_size = 0;
+    for (const auto& row_group_index : _read_row_groups) {
+        const tparquet::RowGroup& row_group = _t_metadata->row_groups[row_group_index.row_group_id];
+
+        // 对每个需要读取的列
+        for (auto& read_col : _read_columns) {
+            const FieldSchema* field = _file_metadata->schema().get_column(read_col);
+            //            if (field->physical_column_index < 0) {
+            //                continue;
+            //            }
+            // 递归处理所有叶子节点
+            std::vector<const FieldSchema*> leaf_fields;
+            _get_leaf_fields(field, &leaf_fields);
+
+            for (const FieldSchema* leaf_field : leaf_fields) {
+                int parquet_col_id = leaf_field->physical_column_index;
+                const tparquet::ColumnChunk& chunk = row_group.columns[parquet_col_id];
+                auto& chunk_meta = chunk.meta_data;
+                int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset &&
+                                                      chunk_meta.dictionary_page_offset > 0
+                                              ? chunk_meta.dictionary_page_offset
+                                              : chunk_meta.data_page_offset;
+                int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
+                DCHECK_GE(chunk_start, last_chunk_end);
+                ChunkKey key(parquet_col_id, row_group_index.row_group_id);
+                io::PrefetchRange range(chunk_start, chunk_end);
+                result.emplace(key, range);
+                total_io_size += chunk_meta.total_compressed_size;
+                last_chunk_end = chunk_end;
+            }
+        }
+    }
+
+    if (!_read_row_groups.empty()) {
+        *avg_io_size = total_io_size / _read_row_groups.size();
+    } else {
+        *avg_io_size = 0;
+    }
+
+    return result;
+}
+
+std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>> ParquetReader::_plan_read(
+        const std::multimap<ChunkKey, io::PrefetchRange>& ranges) {
+    if (ranges.empty()) {
+        return std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>>();
+    }
+
+    // 获取planChunksRead的结果并转换为map
+    auto chunks_result = _plan_chunks_read(ranges);
+
+    // 创建结果map
+    std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>> result;
+
+    // 按key分组处理chunks
+    auto current = chunks_result.begin();
+    while (current != chunks_result.end()) {
+        // 找到当前key的所有chunks
+        auto range_end = chunks_result.upper_bound(current->first);
+        std::vector<std::shared_ptr<ChunkReader>> readers;
+
+        // 收集相同key的所有readers
+        for (auto it = current; it != range_end; ++it) {
+            readers.push_back(it->second);
+        }
+
+        // 为这个key创建新的ParquetColumnChunkFileReader
+        auto chunked_stream = std::make_shared<ParquetColumnChunkFileReader>(std::move(readers),
+                                                                             _chunk_readers_stats);
+        result.emplace(current->first, chunked_stream);
+
+        current = range_end;
+    }
+
+    return result;
+}
+
+std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> ParquetReader::_plan_chunks_read(
+        const std::multimap<ChunkKey, io::PrefetchRange>& ranges) {
+    if (ranges.empty()) {
+        return std::multimap<ChunkKey, std::shared_ptr<ChunkReader>>();
+    }
+
+    // 分割磁盘范围为"大"和"小"两类
+    std::multimap<ChunkKey, io::PrefetchRange> small_ranges;
+    std::multimap<ChunkKey, io::PrefetchRange> large_ranges;
+
+    int64_t max_buffer_size = 8 * 1024 * 1024;
+
+    for (const auto& range : ranges) {
+        if (range.second.end_offset - range.second.start_offset <= max_buffer_size) {
+            small_ranges.emplace(range.first, range.second);
+        } else {
+            auto split_ranges = _split_large_range(range.second);
+            for (const auto& split_range : split_ranges) {
+                large_ranges.emplace(range.first, split_range);
+            }
+        }
+    }
+
+    // 读取范围
+    std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> slices;
+
+    // 读取小范围
+    auto small_readers = _read_small_ranges(small_ranges);
+    slices.insert(small_readers.begin(), small_readers.end());
+
+    // 读取大范围
+    auto large_readers = _read_large_ranges(large_ranges);
+    slices.insert(large_readers.begin(), large_readers.end());
+
+    // 对每个 key 对应的 ChunkReaders 进行排序
+    auto current = slices.begin();
+    while (current != slices.end()) {
+        auto range_end = slices.upper_bound(current->first);
+        std::vector<std::shared_ptr<ChunkReader>> readers;
+
+        // 收集相同 key 的所有 readers
+        for (auto it = current; it != range_end; ++it) {
+            readers.push_back(it->second);
+        }
+
+        // 排序
+        std::sort(readers.begin(), readers.end(),
+                  [](const std::shared_ptr<ChunkReader>& a, const std::shared_ptr<ChunkReader>& b) {
+                      return a->getDiskOffset() < b->getDiskOffset();
+                  });
+
+        // 更新排序后的结果
+        auto reader_it = readers.begin();
+        for (auto it = current; it != range_end; ++it, ++reader_it) {
+            it->second = *reader_it;
+        }
+
+        current = range_end;
+    }
+
+    return slices;
+}
+
+std::vector<io::PrefetchRange> ParquetReader::_split_large_range(const io::PrefetchRange& range) {
+    std::vector<io::PrefetchRange> result;
+
+    int64_t current_offset = range.start_offset;
+    int64_t remaining_size = range.end_offset - range.start_offset;
+    int64_t max_buffer_size = 8 * 1024 * 1024;
+
+    while (remaining_size > 0) {
+        int64_t chunk_size = std::min(remaining_size, max_buffer_size);
+        result.emplace_back(current_offset, current_offset + chunk_size);
+        current_offset += chunk_size;
+        remaining_size -= chunk_size;
+    }
+
+    return result;
+}
+
+std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> ParquetReader::_read_small_ranges(
+        const std::multimap<ChunkKey, io::PrefetchRange>& ranges) {
+    if (ranges.empty()) {
+        return std::multimap<ChunkKey, std::shared_ptr<ChunkReader>>();
+    }
+
+    // 创建结果multimap
+    std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> slices;
+
+    // 收集所有ranges
+    std::vector<io::PrefetchRange> all_ranges;
+    all_ranges.reserve(ranges.size());
+    std::transform(ranges.begin(), ranges.end(), std::back_inserter(all_ranges),
+                   [](const auto& pair) { return pair.second; });
+
+    // 对所有ranges进行合并
+    int64_t max_merge_distance = 1 * 1024 * 1024; // 1MB
+    int64_t max_buffer_size = 8 * 1024 * 1024;    // 8MB
+    auto merged_ranges = io::PrefetchRange::merge_adjacent_seq_ranges(
+            all_ranges, max_merge_distance, max_buffer_size);
+
+    // 为每个合并后的范围创建reader
+    for (const auto& merged_range : merged_ranges) {
+        auto merged_range_reader = std::make_shared<ReferenceCountedReader>(
+                merged_range, _file_reader, _chunk_readers_stats);
+
+        // 检查每个原始的disk range是否包含在合并范围内
+        for (const auto& [key, range] : ranges) {
+            if (range.start_offset >= merged_range.start_offset &&
+                range.end_offset <= merged_range.end_offset) {
+                merged_range_reader->addReference();
+                slices.emplace(key, std::make_shared<ParquetChunkReader>(merged_range_reader, range,
+                                                                         merged_range));
+            }
+        }
+        merged_range_reader->free();
+    }
+
+    return slices;
+}
+
+std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> ParquetReader::_read_large_ranges(
+        const std::multimap<ChunkKey, io::PrefetchRange>& ranges) {
+    std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> result;
+
+    for (const auto& range : ranges) {
+        auto reader = std::make_shared<ReferenceCountedReader>(range.second, _file_reader,
+                                                               _chunk_readers_stats);
+        result.emplace(range.first, reader);
     }
     return result;
 }
@@ -1007,7 +1265,7 @@ Status ParquetReader::_process_bloom_filter(bool* filter_group) {
 }
 
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
-    if (column.__isset.dictionary_page_offset) {
+    if (column.__isset.dictionary_page_offset && column.dictionary_page_offset > 0) {
         DCHECK_LT(column.dictionary_page_offset, column.data_page_offset);
         return column.dictionary_page_offset;
     }
@@ -1055,6 +1313,9 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.decode_dict_time, _column_statistics.decode_dict_time);
     COUNTER_UPDATE(_parquet_profile.decode_level_time, _column_statistics.decode_level_time);
     COUNTER_UPDATE(_parquet_profile.decode_null_map_time, _column_statistics.decode_null_map_time);
+
+    COUNTER_UPDATE(_parquet_profile.merged_io, _chunk_readers_stats.merged_io);
+    COUNTER_UPDATE(_parquet_profile.merged_bytes, _chunk_readers_stats.merged_bytes);
 }
 
 void ParquetReader::_collect_profile_before_close() {

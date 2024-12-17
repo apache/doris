@@ -53,6 +53,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exec/format/parquet/parquet_column_chunk_file_reader.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
@@ -76,13 +77,13 @@ namespace doris::vectorized {
 
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 
-RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
-                               const std::vector<std::string>& read_columns,
-                               const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                               cctz::time_zone* ctz, io::IOContext* io_ctx,
-                               const PositionDeleteContext& position_delete_ctx,
-                               const LazyReadContext& lazy_read_ctx, RuntimeState* state)
-        : _file_reader(file_reader),
+RowGroupReader::RowGroupReader(
+        const std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>>& chunk_readers,
+        const std::vector<std::string>& read_columns, const int32_t row_group_id,
+        const tparquet::RowGroup& row_group, cctz::time_zone* ctz, io::IOContext* io_ctx,
+        const PositionDeleteContext& position_delete_ctx, const LazyReadContext& lazy_read_ctx,
+        RuntimeState* state)
+        : _chunk_readers(chunk_readers),
           _read_columns(read_columns),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
@@ -131,9 +132,9 @@ Status RowGroupReader::init(
         const tparquet::OffsetIndex* offset_index =
                 col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
                                                                       : nullptr;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size, offset_index));
+        RETURN_IF_ERROR(ParquetColumnReader::create(_chunk_readers, field, _row_group_meta,
+                                                    _row_group_id, _read_ranges, _ctz, _io_ctx,
+                                                    reader, max_buf_size, offset_index));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");

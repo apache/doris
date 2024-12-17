@@ -285,4 +285,49 @@ private:
     static const SemanticVersion CDH_5_PARQUET_251_FIXED_END;
 };
 
+class ChunkKey {
+public:
+    ChunkKey(int column, int rowGroup) : _column(column), _rowGroup(rowGroup) {}
+
+    // 实现 hash 函数
+    size_t hash() const {
+        size_t h1 = std::hash<int> {}(_column);
+        size_t h2 = std::hash<int> {}(_rowGroup);
+        return h1 ^ (h2 << 1);
+    }
+
+    // 重载相等运算符
+    bool operator==(const ChunkKey& other) const {
+        return _column == other._column && _rowGroup == other._rowGroup;
+    }
+
+    // 添加小于运算符，用于 multimap 的排序
+    bool operator<(const ChunkKey& other) const {
+        if (_column != other._column) {
+            return _column < other._column;
+        }
+        return _rowGroup < other._rowGroup;
+    }
+
+    // toString 方法
+    std::string toString() const {
+        std::ostringstream oss;
+        oss << "[rowGroup=" << _rowGroup << ", column=" << _column << "]";
+        return oss.str();
+    }
+
+private:
+    int _column;
+    int _rowGroup;
+};
+
 } // namespace doris::vectorized
+
+// 为 ChunkKey 实现 std::hash 特化
+namespace std {
+template <>
+struct hash<doris::vectorized::ChunkKey> { // 修改这里，添加完整的命名空间
+    size_t operator()(const doris::vectorized::ChunkKey& key) const { return key.hash(); }
+};
+
+} // namespace std
