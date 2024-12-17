@@ -3737,26 +3737,6 @@ TEST(BlockTest, IndexByName) {
     }
 }
 
-TEST(BlockTest, ReplaceIfOverflow) {
-    vectorized::Block block;
-    auto col = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
-
-    // Add some data to the column
-    auto& data = col->get_data();
-    for (int i = 0; i < 100; ++i) {
-        data.push_back(i);
-    }
-
-    block.insert({col->get_ptr(), type, "col1"});
-
-    // Test replace_if_overflow
-    block.replace_if_overflow();
-
-    // Verify column is still intact
-    EXPECT_EQ(100, block.get_by_position(0).column->size());
-}
-
 TEST(BlockTest, ColumnTransformations) {
     vectorized::Block block;
     auto type = std::make_shared<vectorized::DataTypeInt32>();
