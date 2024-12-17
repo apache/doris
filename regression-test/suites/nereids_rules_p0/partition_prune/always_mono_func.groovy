@@ -106,7 +106,10 @@ suite("always_mono_func") {
         sql """select * from always_mono_func where date_format(dt, "%Y%m") > "20190101" """
         contains("partitions=2/5 (p4,p5)")
     }
-
+    explain {
+        sql """select * from always_mono_func where date_format(dt, "%Y %m") > "2019 01" """
+        contains("partitions=2/5 (p4,p5)")
+    }
 
     explain {
         sql """ select * from always_mono_func where last_day(dt) > "2019-01-01" """

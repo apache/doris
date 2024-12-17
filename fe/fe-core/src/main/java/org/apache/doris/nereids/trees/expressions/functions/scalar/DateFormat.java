@@ -53,6 +53,10 @@ public class DateFormat extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT)
     );
 
+    private static final Set<String> monoFormat = ImmutableSet.of("yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss",
+            "%Y", "%Y-%m", "%Y-%m-%d", "%Y-%m-%d%H", "%Y-%m-%d%H:%i", "%Y-%m-%d%H:%i:%s", "%Y-%m-%d%H:%i:%S",
+            "%Y-%m-%d%T", "%Y%m%d", "%Y%m");
+
     /**
      * constructor with 2 arguments.
      */
@@ -86,10 +90,7 @@ public class DateFormat extends ScalarFunction
             return false;
         }
         VarcharLiteral varcharLiteral = (VarcharLiteral) format;
-        String str = varcharLiteral.getValue();
-        Set<String> monoFormat = ImmutableSet.of("yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "%Y", "%Y-%m",
-                "%Y-%m-%d", "%Y-%m-%d %H", "%Y-%m-%d %H:%i", "%Y-%m-%d %H:%i:%s", "%Y-%m-%d %H:%i:%S", "%Y-%m-%d %T",
-                "%Y%m%d", "%Y%m");
+        String str = varcharLiteral.getValue().replace(" ", "");
         return monoFormat.contains(str);
     }
 
