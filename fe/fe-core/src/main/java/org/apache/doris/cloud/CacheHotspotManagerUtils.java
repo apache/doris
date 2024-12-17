@@ -70,7 +70,7 @@ public class CacheHotspotManagerUtils {
                 + "    last_access_time DATETIMEV2)\n"
                 + "    UNIQUE KEY(cluster_id, backend_id, table_id, index_id, partition_id, insert_day)\n"
                 + "    PARTITION BY RANGE (insert_day) ()\n"
-                + "    DISTRIBUTED BY HASH (cluster_id)\n"
+                + "    DISTRIBUTED BY HASH (cluster_id) BUCKETS 1\n"
                 + "    PROPERTIES (\n"
                 + "    \"dynamic_partition.enable\" = \"true\",\n"
                 + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"

@@ -3181,11 +3181,11 @@ public class Config extends ConfigBase {
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)
-    public static long fetch_cluster_cache_hotspot_interval_ms = 600000;
+    public static long fetch_cluster_cache_hotspot_interval_ms = 3600000;
     // to control the max num of values inserted into cache hotspot internal table
     // insert into cache table when the size of batch values reaches this limit
     @ConfField(mutable = true)
-    public static long batch_insert_cluster_cache_hotspot_num = 1000;
+    public static long batch_insert_cluster_cache_hotspot_num = 5000;
 
     /**
      * intervals between be status checks for CloudUpgradeMgr
