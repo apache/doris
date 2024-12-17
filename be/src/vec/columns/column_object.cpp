@@ -804,11 +804,14 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
 }
 
 ColumnObject::ColumnObject(MutableColumnPtr&& sparse_column)
-        : is_nullable(true), serialized_sparse_column(std::move(sparse_column)) {}
+        : is_nullable(true),
+          num_rows(sparse_column->size()),
+          serialized_sparse_column(std::move(sparse_column)) {}
 
 ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
-        : is_nullable(is_nullable_) {
+        : is_nullable(is_nullable_), num_rows(0) {
     add_sub_column({}, std::move(column), type);
+    serialized_sparse_column->insert_many_defaults(num_rows);
 }
 
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
@@ -818,8 +821,8 @@ ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
     check_consistency();
 }
 
-ColumnObject::ColumnObject(size_t num_rows) : is_nullable(true) {
-    insert_many_defaults(num_rows);
+ColumnObject::ColumnObject(size_t size) : is_nullable(true), num_rows(0) {
+    insert_many_defaults(size);
     check_consistency();
 }
 

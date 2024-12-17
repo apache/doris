@@ -371,11 +371,19 @@ public:
         const uint8_t type = static_cast<uint8_t>(TypeIndex::String);
         const auto& col = assert_cast<const ColumnType&>(src_column);
         const auto& data_ref = col.get_data_at(row_num);
-        const size_t size = data_ref.size;
+        const size_t data_size = data_ref.size;
 
-        dst_column->insert_data(reinterpret_cast<const char*>(&type), sizeof(uint8_t));
-        dst_column->insert_data(reinterpret_cast<const char*>(&size), sizeof(size_t));
-        dst_column->insert_data(data_ref.data, size);
+        ColumnString::Chars& chars = dst_column->get_chars();
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t) + data_ref.size;
+        chars.resize(new_size);
+
+        memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+        memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
+               sizeof(size_t));
+        memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data,
+               data_size);
+        dst_column->get_offsets().push_back(chars.size());
     }
 
 private:
