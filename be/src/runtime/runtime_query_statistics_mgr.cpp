@@ -413,7 +413,11 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
         // 2.2 send report
         TReportWorkloadRuntimeStatusParams report_runtime_params;
         report_runtime_params.__set_backend_id(be_id);
-        std::map<std::string, TQueryStatistics> temp_map = qs_map;
+        for (const auto& entry : qs_map) {
+            std::string query_id = entry.first;
+            TQueryStatistics temp_qs = entry.second;
+            LOG(INFO) << "zxiong10 " << query_id << " size: " << temp_qs.node_exec_stats_items.size();
+        }
 
         report_runtime_params.__set_query_statistics_map(qs_map);
 

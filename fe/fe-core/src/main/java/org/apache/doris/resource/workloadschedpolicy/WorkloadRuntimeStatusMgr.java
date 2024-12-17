@@ -169,6 +169,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
             beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, (TQueryStatistics) entry.getValue()));
         }
+
     }
 
     void clearReportTimeoutBeStatistics() {
