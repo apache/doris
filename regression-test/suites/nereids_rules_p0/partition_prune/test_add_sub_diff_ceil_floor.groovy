@@ -310,4 +310,35 @@ suite("test_add_sub_diff_ceil_floor") {
     cast(date_add('2022-01-01 00:00:00', interval number month) as date), cast(number as varchar(65533)) FROM numbers('number'='100');"""
     sql "INSERT INTO max_t  values(3,null,null,null);"
 
+    explain {
+        sql "select * from max_t where years_diff('2021-01-01',month_ceil(hours_add(dt, 1),'1990-01-05')) <=2 ;"
+        contains("partitions=5/6 (p2,p3,p4,p5,p6)")
+    }
+    explain {
+        sql "select * from max_t where years_diff('2021-01-01',month_ceil(hours_add(dt, 1),10,'1990-01-05')) <=2 ;"
+        contains("partitions=5/6 (p2,p3,p4,p5,p6)")
+    }
+
+    explain {
+        sql """select * from max_t where years_diff('2021-01-01',month_ceil(hours_add(dt, 1),10,'1990-01-05')) <=2 and dt >'2018-01-01';"""
+        contains("partitions=4/6 (p3,p4,p5,p6)")
+    }
+
+    explain {
+        sql """select * from max_t where months_diff('2021-01-01',month_floor(hours_add(dt, 1),10,'1990-01-05')) <=2;"""
+        contains("partitions=3/6 (p1,p5,p6)")
+    }
+
+    explain {
+        sql """select * from max_t where months_diff('2021-01-01',month_floor(hours_add(dt, 1),12,'1000-01-01')) > 2"""
+        contains("partitions=5/6 (p1,p2,p3,p4,p5)")
+    }
+    explain {
+        sql """select * from max_t where months_diff('2021-01-01',month_floor(hours_add(dt, 1),12,'1000-01-01')) > 2 and month_floor(dt) >'2018-01-01' """
+        contains("partitions=3/6 (p3,p4,p5)")
+    }
+    explain {
+        sql """select * from max_t where hours_sub(hours_add(dt, 1),1) >'2018-01-01' and days_diff(hours_sub(hours_add(dt, 1),1),'2021-01-01') >2"""
+        contains("partitions=1/6 (p6)")
+    }
 }
