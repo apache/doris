@@ -54,7 +54,6 @@ public class DynamicPartitionProperty {
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
     public static final String STORAGE_POLICY = "dynamic_partition.storage_policy";
     public static final String STORAGE_MEDIUM = "dynamic_partition.storage_medium";
-
     public static final String CREATE_METHOD = "dynamic_partition.create_method";
 
     public static final Set<String> DYNAMIC_PARTITION_PROPERTIES = new HashSet<>(
@@ -71,7 +70,6 @@ public class DynamicPartitionProperty {
     public static final String SCHEDULE_METHOD = "SCHEDULE";
 
     private boolean exist;
-
     private boolean enable;
     private String timeUnit;
     private int start;
@@ -263,7 +261,7 @@ public class DynamicPartitionProperty {
             addProperty.accept(STORAGE_MEDIUM, storageMedium);
         }
         if (!Strings.isNullOrEmpty(createMethod)) {
-            addProperty.accept(STORAGE_MEDIUM, createMethod);
+            addProperty.accept(CREATE_METHOD, createMethod);
         }
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             addProperty.accept(START_DAY_OF_WEEK, startOfWeek.dayOfWeek);

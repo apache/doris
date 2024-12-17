@@ -58,7 +58,8 @@ suite("test_auto_dynamic", "nonConcurrent") {
                 "dynamic_partition.time_unit" = "DAY", 
                 "dynamic_partition.end" = "3", 
                 "dynamic_partition.prefix" = "p", 
-                "dynamic_partition.buckets" = "32"
+                "dynamic_partition.buckets" = "32",
+                "dynamic_partition.create_method" = "auto"
             );
         """
         exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
@@ -69,7 +70,8 @@ suite("test_auto_dynamic", "nonConcurrent") {
             "dynamic_partition.time_unit" = "YeAr", 
             "dynamic_partition.end" = "3", 
             "dynamic_partition.prefix" = "p", 
-            "dynamic_partition.buckets" = "32"
+            "dynamic_partition.buckets" = "32",
+            "dynamic_partition.create_method" = "auto"
         );
     """
 
@@ -84,6 +86,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS 2
         properties(
             "dynamic_partition.enable" = "true",
+            "dynamic_partition.create_method" = "AUTO",
             "dynamic_partition.prefix" = "p",
             "dynamic_partition.create_history_partition" = "true",
             "dynamic_partition.start" = "-5",
@@ -92,8 +95,15 @@ suite("test_auto_dynamic", "nonConcurrent") {
             "replication_num" = "1"
         );
     """
+    def show_result = sql "show create table auto_dynamic"
+    def result_str = """\"dynamic_partition.create_method" = "AUTO\""""
+    assertTrue(show_result.contains(result_str))
+    // only auto partition could create.
     def part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 6)
+    assertEquals(part_result.size, 0)
+    sql "insert into auto_dynamic values ('2000-01-01 12:00:00'), ('2000-01-01 13:00:00');"
+    part_result = sql " show partitions from auto_dynamic "
+    assertEquals(part_result.size, 2)
 
     sql " drop table if exists auto_dynamic "
     sql """
@@ -106,6 +116,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS 2
         properties(
             "dynamic_partition.enable" = "true",
+            "dynamic_partition.create_method" = "auto",
             "dynamic_partition.prefix" = "p",
             "dynamic_partition.start" = "-50",
             "dynamic_partition.end" = "0",
@@ -114,7 +125,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         );
     """
     part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 1)
+    assertEquals(part_result.size, 0)
 
     def skip_test = false
     test {
@@ -140,6 +151,96 @@ suite("test_auto_dynamic", "nonConcurrent") {
     assertEquals(part_result.size, 3)
 
     qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
+
+    sql "drop table if exists test_apdy_tbl"
+    sql """
+        CREATE TABLE test_apdy_tbl
+        (
+            k1 DATETIME NOT NULL,
+            col1 int 
+        )
+        partition by range (`k1`) ()
+        DISTRIBUTED BY HASH(k1)
+        PROPERTIES
+        (
+            "replication_num" = "1",
+            "dynamic_partition.time_unit" = "year",
+            "dynamic_partition.start" = "-2",
+            "dynamic_partition.end" = "2",
+            "dynamic_partition.prefix" = "p",
+            "dynamic_partition.create_method" = "SCHEDULE"
+        );
+    """
+    sleep(1000)
+    part_result = sql " show partitions from test_apdy_tbl "
+    log.info("${part_result}".toString())
+    assertEquals(part_result.size, 3)
+    sql "drop table test_apdy_tbl"
+
+    test {
+        sql """
+        CREATE TABLE test_apdy_tbl2
+        (
+            k1 DATETIME NOT NULL,
+            col1 int 
+        )
+        auto partition by range (date_trunc(`k1`, 'year')) ()
+        DISTRIBUTED BY HASH(k1)
+        PROPERTIES
+        (
+            "replication_num" = "1",
+            "dynamic_partition.time_unit" = "year",
+            "dynamic_partition.start" = "-2",
+            "dynamic_partition.end" = "2",
+            "dynamic_partition.prefix" = "p",
+            "dynamic_partition.create_method" = "SCHEDULE"
+        );
+        """
+        exception "When use auto&dynamic partition. the create_method can only be `AUTO`"
+    }
+    test {
+        sql """
+            CREATE TABLE test_apdy_tbl
+            (
+                k1 DATETIME NOT NULL,
+                col1 int 
+            )
+            partition by range (`k1`) ()
+            DISTRIBUTED BY HASH(k1)
+            PROPERTIES
+            (
+                "replication_num" = "1",
+                "dynamic_partition.time_unit" = "year",
+                "dynamic_partition.start" = "-2",
+                "dynamic_partition.end" = "2",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.create_method" = "AUTO"
+            ); 
+        """
+        exception "When only use dynamic partition. the create_method can only be `SCHEDULE`"
+    }
+
+    test {
+        sql """
+            CREATE TABLE test_apdy_tbl
+            (
+                k1 DATETIME NOT NULL,
+                col1 int 
+            )
+            partition by range (`k1`) ()
+            DISTRIBUTED BY HASH(k1)
+            PROPERTIES
+            (
+                "replication_num" = "1",
+                "dynamic_partition.time_unit" = "year",
+                "dynamic_partition.start" = "-2",
+                "dynamic_partition.end" = "2",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.create_method" = "waibibabo"
+            ); 
+        """
+        exception "When only use dynamic partition. the create_method can only be `SCHEDULE`"
+    }
 
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
 }
