@@ -226,6 +226,10 @@ Status PipelineXTask::_open() {
 }
 
 Status PipelineXTask::execute(bool* eos) {
+    if (_eos) {
+        *eos = true;
+        return Status::OK();
+    }
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
@@ -247,28 +251,23 @@ Status PipelineXTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    *eos = _sink->is_finished(_state) || _wake_up_by_downstream || is_final_state(_cur_state);
-    if (*eos) {
-        return Status::OK();
-    }
+
     if (has_dependency()) {
         set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-        return Status::OK();
-    }
-    if (_wake_up_by_downstream) {
-        *eos = true;
         return Status::OK();
     }
     if (_runtime_filter_blocked_dependency() != nullptr) {
         set_state(PipelineTaskState::BLOCKED_FOR_RF);
         return Status::OK();
     }
-    if (_wake_up_by_downstream) {
-        *eos = true;
-        return Status::OK();
-    }
+
     // The status must be runnable
     if (!_opened) {
+        if (_wake_up_early) {
+            *eos = true;
+            _eos = true;
+            return Status::OK();
+        }
         {
             SCOPED_RAW_TIMER(&time_spent);
             RETURN_IF_ERROR(_open());
@@ -277,19 +276,19 @@ Status PipelineXTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
-        if (_wake_up_by_downstream) {
-            *eos = true;
-            return Status::OK();
-        }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
-        if (_wake_up_by_downstream) {
-            *eos = true;
-            return Status::OK();
-        }
     }
+
+    auto set_wake_up_and_dep_ready = [&]() {
+        if (wake_up_early()) {
+            return;
+        }
+        set_wake_up_early();
+        clear_blocking_state();
+    };
 
     Status status = Status::OK();
     set_begin_execute_time();
@@ -298,17 +297,9 @@ Status PipelineXTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
-        if (_wake_up_by_downstream) {
-            *eos = true;
-            return Status::OK();
-        }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
-        }
-        if (_wake_up_by_downstream) {
-            *eos = true;
-            return Status::OK();
         }
 
         /// When a task is cancelled,
@@ -336,10 +327,15 @@ Status PipelineXTask::execute(bool* eos) {
                     Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
             return status;
         });
+
+        if (_sink->is_finished(_state)) {
+            set_wake_up_and_dep_ready();
+        }
+        // `_dry_run` means sink operator need no more data
+        *eos = wake_up_early() || _dry_run;
+
         // Pull block from operator chain
-        if (_dry_run || _sink->is_finished(_state)) {
-            *eos = true;
-        } else {
+        if (!*eos) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
             try {
@@ -350,14 +346,21 @@ Status PipelineXTask::execute(bool* eos) {
             }
         }
 
+        if (*eos) {
+            RETURN_IF_ERROR(close(Status::OK(), false));
+        }
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             status = _sink->sink(_state, block, *eos);
-            if (!status.is<ErrorCode::END_OF_FILE>()) {
-                RETURN_IF_ERROR(status);
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                set_wake_up_and_dep_ready();
+            } else if (!status) {
+                return status;
             }
-            *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
+
             if (*eos) { // just return, the scheduler will do finish work
+                _eos = true;
                 break;
             }
         }
@@ -425,17 +428,14 @@ void PipelineXTask::finalize() {
     _le_state_map.clear();
 }
 
-Status PipelineXTask::close(Status exec_status) {
+Status PipelineXTask::close(Status exec_status, bool close_sink) {
     int64_t close_ns = 0;
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, close_ns);
-        }
-    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
-        s = _sink->close(_state, exec_status);
+        if (close_sink) {
+            s = _sink->close(_state, exec_status);
+        }
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
@@ -444,9 +444,16 @@ Status PipelineXTask::close(Status exec_status) {
         }
     }
     if (_opened) {
-        _fresh_profile_counter();
-        COUNTER_SET(_close_timer, close_ns);
+        COUNTER_UPDATE(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
+    }
+    if (close_sink && _opened) {
+        _task_profile->add_info_string("WakeUpEarly", wake_up_early() ? "true" : "false");
+        _fresh_profile_counter();
+    }
+
+    if (_task_queue) {
+        _task_queue->update_statistics(this, close_ns);
     }
     return s;
 }
@@ -468,13 +475,13 @@ std::string PipelineXTask::debug_string() {
     // If at the same time FE cancel this pipeline task and logging debug_string before _blocked_dep is cleared,
     // it will think _blocked_dep is not nullptr and call _blocked_dep->debug_string().
     auto* cur_blocked_dep = _blocked_dep;
-    fmt::format_to(
-            debug_string_buffer,
-            "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
-            "= {}s], _wake_up_by_downstream = {}, block dependency = {}, is running = "
-            "{}\noperators: ",
-            (void*)this, get_state_name(_cur_state), _dry_run, elapsed, _wake_up_by_downstream,
-            cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL", is_running());
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
+                   "= {}s], _wake_up_early = {}, block dependency = {}, is running = "
+                   "{}\noperators: ",
+                   (void*)this, get_state_name(_cur_state), _dry_run, elapsed, _wake_up_early,
+                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
+                   is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finished ? _operators[i]->debug_string(_state, i)

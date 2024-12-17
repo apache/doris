@@ -104,7 +104,12 @@ void Pipeline::make_all_runnable() {
     if (_sink_x->count_down_destination()) {
         for (auto* task : _tasks) {
             if (task) {
-                task->clear_blocking_state(true);
+                task->set_wake_up_early();
+            }
+        }
+        for (auto* task : _tasks) {
+            if (task) {
+                task->clear_blocking_state();
             }
         }
     }
