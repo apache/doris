@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.MinMaxPriorityQueue;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
@@ -41,6 +40,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.MinMaxPriorityQueue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -367,7 +367,7 @@ public class TabletHealthTest extends TestWithFeService {
     public void testAddTabletNoDeadLock() throws Exception {
         Config.max_scheduling_tablets = 1;
         createTable("CREATE TABLE tbl3 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2"
-            + " PROPERTIES ('replication_num' = '3')");
+                + " PROPERTIES ('replication_num' = '3')");
         DebugPointUtil.addDebugPoint("MockedBackendFactory.handleCloneTablet.failed");
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl3");
         Partition partition = table.getPartitions().iterator().next();
