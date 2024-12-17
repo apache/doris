@@ -549,9 +549,6 @@ Status BetaRowset::add_to_binlog() {
     }
     auto* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
 
-    // all segments are in the same directory, so cache binlog_dir without multi times check
-    std::string binlog_dir;
-
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
@@ -560,28 +557,34 @@ Status BetaRowset::add_to_binlog() {
     std::vector<string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
-            LOG(WARNING) << "will delete linked success files due to error " << status;
+            LOG(WARNING) << "will delete linked success files due to error "
+                         << status.to_string_no_stack();
             std::vector<io::Path> paths;
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete linked success file " << file << " due to error";
             }
             static_cast<void>(local_fs->batch_delete(paths));
-            LOG(WARNING) << "done delete linked success files due to error " << status;
+            LOG(WARNING) << "done delete linked success files due to error "
+                         << status.to_string_no_stack();
         }
     }};
 
+    // all segments are in the same directory, so cache binlog_dir without multi times check
+    std::string binlog_dir;
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = segment_file_path(i);
 
         if (binlog_dir.empty()) {
             binlog_dir = std::filesystem::path(seg_file).parent_path().append("_binlog").string();
 
+            // Delete all existing files in binlog dir, to keep binlog dir clean.
             bool exists = true;
             RETURN_IF_ERROR(local_fs->exists(binlog_dir, &exists));
             if (!exists) {
-                RETURN_IF_ERROR(local_fs->create_directory(binlog_dir));
+                RETURN_IF_ERROR(local_fs->delete_directory(binlog_dir));
             }
+            RETURN_IF_ERROR(local_fs->create_directory(binlog_dir));
         }
 
         auto binlog_file =
