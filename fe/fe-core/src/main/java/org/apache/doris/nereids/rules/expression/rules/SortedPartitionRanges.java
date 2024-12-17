@@ -18,17 +18,21 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.RangeSet;
 
 import java.util.List;
+import java.util.Objects;
 
 /** SortedPartitionRanges */
 public class SortedPartitionRanges<K> {
     public final List<PartitionItemAndRange<K>> sortedPartitions;
 
     public SortedPartitionRanges(List<PartitionItemAndRange<K>> sortedPartitions) {
-        this.sortedPartitions = sortedPartitions;
+        this.sortedPartitions = Utils.fastToImmutableList(
+                Objects.requireNonNull(sortedPartitions, "sortedPartitions bounds can not be null")
+        );
     }
 
     /** PartitionItemAndRange */

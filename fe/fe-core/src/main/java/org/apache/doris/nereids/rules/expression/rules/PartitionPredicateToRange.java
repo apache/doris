@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableRangeSet;
@@ -45,6 +46,7 @@ import com.google.common.collect.TreeRangeSet;
 import org.apache.hadoop.util.Lists;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /** PartitionPredicateToRange */
@@ -54,7 +56,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
 
     /** PartitionPredicateToRange */
     public PartitionPredicateToRange(List<Slot> columns) {
-        this.columns = columns;
+        this.columns = Utils.fastToImmutableList(
+                Objects.requireNonNull(columns, "columns can not be null")
+        );
 
         ImmutableSet.Builder<Integer> slotIds = ImmutableSet.builderWithExpectedSize(columns.size());
         for (Slot column : columns) {

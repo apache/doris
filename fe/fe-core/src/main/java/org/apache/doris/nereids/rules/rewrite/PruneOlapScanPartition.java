@@ -36,7 +36,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -84,15 +83,14 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager = Env.getCurrentEnv()
                     .getSortedPartitionsCacheManager();
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
-            Map<Long, PartitionItem> idToPartitions = ImmutableMap.of();
-            SortedPartitionRanges<Long> sortedPartitionRanges = null;
+            Map<Long, PartitionItem> idToPartitions;
+            Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
             if (manuallySpecifiedPartitions.isEmpty()) {
                 Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt = sortedPartitionsCacheManager.get(table);
                 if (sortedPartitionRangesOpt.isPresent()) {
-                    sortedPartitionRanges = (SortedPartitionRanges<Long>) sortedPartitionRangesOpt.get();
-                } else {
-                    idToPartitions = partitionInfo.getIdToItem(false);
+                    sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
                 }
+                idToPartitions = partitionInfo.getIdToItem(false);
             } else {
                 Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
                 idToPartitions = allPartitions.keySet().stream()

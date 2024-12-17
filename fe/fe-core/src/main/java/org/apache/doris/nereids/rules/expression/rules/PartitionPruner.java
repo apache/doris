@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * PartitionPruner
@@ -118,7 +119,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public static <K> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, idToPartitions, cascadesContext, partitionTableType, null);
+        return prune(partitionSlots, partitionPredicate, idToPartitions,
+                cascadesContext, partitionTableType, Optional.empty());
     }
 
     /**
@@ -126,7 +128,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      */
     public static <K> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
-            PartitionTableType partitionTableType, SortedPartitionRanges<K> sortedPartitionRanges) {
+            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
@@ -143,12 +145,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             return ImmutableList.of();
         }
 
-        if (sortedPartitionRanges != null) {
+        if (sortedPartitionRanges.isPresent()) {
             RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
                     new PartitionPredicateToRange(partitionSlots), null);
             if (predicateRanges != null) {
                 return binarySearchFiltering(
-                        sortedPartitionRanges, partitionSlots, partitionPredicate, cascadesContext,
+                        sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
             }

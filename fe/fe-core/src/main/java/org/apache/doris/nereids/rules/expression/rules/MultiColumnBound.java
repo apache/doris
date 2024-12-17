@@ -17,14 +17,19 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.util.Utils;
+
 import java.util.List;
+import java.util.Objects;
 
 /** MultiColumnBound */
 public class MultiColumnBound implements Comparable<MultiColumnBound> {
     private final List<ColumnBound> columnBounds;
 
     public MultiColumnBound(List<ColumnBound> columnBounds) {
-        this.columnBounds = columnBounds;
+        this.columnBounds = Utils.fastToImmutableList(
+                Objects.requireNonNull(columnBounds, "column bounds can not be null")
+        );
     }
 
     @Override
