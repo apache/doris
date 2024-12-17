@@ -413,6 +413,7 @@ public:
         return false;
     }
     bool has_inverted_index_with_index_id(int64_t index_id) const;
+    bool all_inverted_indexes_are_variant_columns() const;
     // Check whether this column supports inverted index
     // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
     const TabletIndex* inverted_index(const TabletColumn& col) const;
