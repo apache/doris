@@ -139,6 +139,8 @@ public:
 
     bool has_set_value() { return _has_value; }
 
+    bool is_null() { return _data_value.is_null(); }
+
 protected:
     StoreType _data_value;
     bool _has_value = false;

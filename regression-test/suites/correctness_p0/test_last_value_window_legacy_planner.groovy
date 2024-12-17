@@ -108,8 +108,8 @@ suite("test_last_value_window_legacy_planner") {
             (11,24,"02-24-10-22",null),
             (12,24,"02-24-10-23",9),
             (13,24,"02-24-10-24",null); """
-
-    qt_select_null """ select *
+   sql """ set enable_nereids_planner = true; """
+    qt_select_null """ select /*+ SET_VAR(enable_nereids_planner=true) */ *
                 , last_value(state, false) over(partition by myday order by time_col rows between 1 preceding and 1 following) v1
                 , last_value(state, true) over(partition by myday order by time_col rows between 1 preceding and 1 following) v2
             from ${tableNameWithNull} order by id, myday, time_col;
