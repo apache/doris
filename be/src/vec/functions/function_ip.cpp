@@ -17,6 +17,8 @@
 
 #include "vec/functions/function_ip.h"
 
+#include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 void register_function_ip(SimpleFunctionFactory& factory) {
@@ -44,6 +46,8 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsIPString<IPv4>>();
     factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
+
+    factory.register_function<FunctionIsIPAddressInRangeOld>();
 
     /// CIDR part
     factory.register_function<FunctionIPv4CIDRToRange>();

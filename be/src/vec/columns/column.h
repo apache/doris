@@ -22,10 +22,9 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 #include <sys/types.h>
 
-#include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -761,6 +760,7 @@ struct IsMutableColumns<> {
     static const bool value = true;
 };
 
+// prefer assert_cast than check_and_get
 template <typename Type>
 const Type* check_and_get_column(const IColumn& column) {
     return typeid_cast<const Type*>(&column);

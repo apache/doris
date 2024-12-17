@@ -70,6 +70,7 @@ private:
  *    f. shrink some function's nullable mode.
  *    g. do local merge of remote runtime filter
  *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
+ *    i. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments. controlled by individual session variable.
 */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 6;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
