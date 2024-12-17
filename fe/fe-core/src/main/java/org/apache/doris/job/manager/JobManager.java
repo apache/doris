@@ -201,9 +201,13 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
+                    if (jobStatus.equals(a.getJobStatus())) {
+                        throw new JobException("Can't change job status to the same status");
+                    }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
-                    throw new JobException("unregister job error, jobName:" + jobName);
+                    throw new JobException("Alter job status error, jobName is %cds, errorMsg is %s",
+                            jobName, e.getMessage());
                 }
             }
         }
@@ -544,8 +548,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             }
             // check state here
             unfinishedLoadJob =
-                matchLoadJobs.stream().filter(InsertJob::isRunning)
-                    .collect(Collectors.toList());
+                    matchLoadJobs.stream().filter(InsertJob::isRunning)
+                            .collect(Collectors.toList());
             if (unfinishedLoadJob.isEmpty()) {
                 throw new JobException("There is no uncompleted job");
             }
@@ -556,7 +560,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (unfinishedLoadJob.size() > 1 || unfinishedLoadJob.get(0).getTableNames().isEmpty()) {
             if (Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                    PrivPredicate.LOAD)) {
+                            PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(), dbName);
@@ -565,8 +569,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             for (String tableName : unfinishedLoadJob.get(0).getTableNames()) {
                 if (Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                        tableName,
-                        PrivPredicate.LOAD)) {
+                                tableName,
+                                PrivPredicate.LOAD)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
@@ -591,26 +595,26 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 CaseSensibility.LABEL.getCaseSensibility());
         matchLoadJobs.addAll(
                 loadJobs.stream()
-                .filter(job -> !job.isCancelled())
-                .filter(job -> {
-                    if (operator != null) {
-                        // compound
-                        boolean labelFilter =
-                                label.contains("%") ? matcher.match(job.getLabelName())
-                                : job.getLabelName().equalsIgnoreCase(label);
-                        boolean stateFilter = job.getJobStatus().name().equalsIgnoreCase(state);
-                        return operator instanceof And ? labelFilter && stateFilter :
-                            labelFilter || stateFilter;
-                    }
-                    if (StringUtils.isNotEmpty(label)) {
-                        return label.contains("%") ? matcher.match(job.getLabelName())
-                            : job.getLabelName().equalsIgnoreCase(label);
-                    }
-                    if (StringUtils.isNotEmpty(state)) {
-                        return job.getJobStatus().name().equalsIgnoreCase(state);
-                    }
-                    return false;
-                }).collect(Collectors.toList())
+                        .filter(job -> !job.isCancelled())
+                        .filter(job -> {
+                            if (operator != null) {
+                                // compound
+                                boolean labelFilter =
+                                        label.contains("%") ? matcher.match(job.getLabelName())
+                                                : job.getLabelName().equalsIgnoreCase(label);
+                                boolean stateFilter = job.getJobStatus().name().equalsIgnoreCase(state);
+                                return operator instanceof And ? labelFilter && stateFilter :
+                                        labelFilter || stateFilter;
+                            }
+                            if (StringUtils.isNotEmpty(label)) {
+                                return label.contains("%") ? matcher.match(job.getLabelName())
+                                        : job.getLabelName().equalsIgnoreCase(label);
+                            }
+                            if (StringUtils.isNotEmpty(state)) {
+                                return job.getJobStatus().name().equalsIgnoreCase(state);
+                            }
+                            return false;
+                        }).collect(Collectors.toList())
         );
     }
 }

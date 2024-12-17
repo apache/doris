@@ -190,6 +190,11 @@ suite("test_base_insert_job") {
         // check job status and succeed task count is 1
         pressJob.size() == 1 && '1' == onceJob.get(0).get(0)
     })
+    assertThrows(Exception) {
+        sql """
+        RESUME JOB where jobName='press'
+    """
+    }
 
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
