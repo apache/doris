@@ -589,8 +589,6 @@ public:
         return state->minimum_operator_memory_required_bytes();
     }
 
-    [[nodiscard]] virtual bool is_spilled(RuntimeState* state) const { return false; }
-
     [[nodiscard]] bool is_spillable() const { return _spillable; }
 
     template <class TARGET>

@@ -76,7 +76,7 @@ public:
     static inline int64_t sys_mem_available() {
         return MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed) -
                refresh_interval_memory_growth.load(std::memory_order_relaxed) -
-               process_reserved_memory();
+               process_reserved_memory() + MemInfo::allocator_cache_mem();
     }
 
     static inline std::string sys_mem_available_str() {

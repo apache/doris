@@ -91,7 +91,6 @@ public:
 
     Status revoke_memory(RuntimeState* state,
                          const std::shared_ptr<SpillContext>& spill_context) override;
-    bool is_spilled(RuntimeState* state) const override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;

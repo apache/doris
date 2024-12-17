@@ -2245,7 +2245,7 @@ public class SessionVariable implements Serializable, Writable {
     public long dataQueueMaxBlocks = 1;
 
     @VariableMgr.VarAttr(name = REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
-    public int revocableMemoryHighWatermarkPercent = 10;
+    public int revocableMemoryHighWatermarkPercent = -1;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M

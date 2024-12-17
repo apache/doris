@@ -43,7 +43,6 @@
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
-#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"

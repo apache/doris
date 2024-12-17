@@ -22,6 +22,7 @@
 #include "aggregation_sink_operator.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "util/pretty_printer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/spill/spill_stream.h"
@@ -83,8 +84,7 @@ public:
                                                total_rows / size_to_revoke_));
 
         VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
-                   << ", spill_batch_rows: " << spill_batch_rows << ", total rows: " << total_rows
-                   << ", size_to_revoke: " << size_to_revoke;
+                   << ", spill_batch_rows: " << spill_batch_rows << ", total rows: " << total_rows;
         size_t row_count = 0;
 
         std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
@@ -332,8 +332,6 @@ public:
                          const std::shared_ptr<SpillContext>& spill_context) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
-
-    bool is_spilled(RuntimeState* state) const override;
 
 private:
     friend class PartitionedAggSinkLocalState;

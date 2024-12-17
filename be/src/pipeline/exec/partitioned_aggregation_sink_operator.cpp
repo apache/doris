@@ -27,6 +27,7 @@
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -180,7 +181,19 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
         return Status::Error<INTERNAL_ERROR>("fault_inject partitioned_agg_sink sink failed");
     });
     RETURN_IF_ERROR(_agg_sink_operator->sink(runtime_state, in_block, false));
+
+    size_t revocable_size = 0;
+    int64_t query_mem_limit = 0;
     if (eos) {
+        revocable_size = revocable_mem_size(state);
+        query_mem_limit = state->get_query_ctx()->get_mem_limit();
+        LOG(INFO) << fmt::format(
+                "Query: {}, task {}, agg sink {} eos, need spill: {}, query mem limit: {}, "
+                "revocable memory: {}",
+                print_id(state->query_id()), state->task_id(), node_id(),
+                local_state._shared_state->is_spilled, PrettyPrinter::print_bytes(query_mem_limit),
+                PrettyPrinter::print_bytes(revocable_size));
+
         if (local_state._shared_state->is_spilled) {
             if (revocable_mem_size(state) > 0) {
                 RETURN_IF_ERROR(revoke_memory(state, nullptr));
@@ -256,10 +269,12 @@ size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bo
 Status PartitionedAggSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     const auto size_to_revoke = _parent->revocable_mem_size(state);
-    VLOG_DEBUG << "Query " << print_id(state->query_id()) << " agg node "
-               << Base::_parent->node_id()
-               << " revoke_memory, size: " << _parent->revocable_mem_size(state)
-               << ", eos: " << _eos;
+    LOG(INFO) << fmt::format(
+            "Query: {}, task {}, agg sink {} revoke_memory, eos: {}, need spill: {}, revocable "
+            "memory: {}",
+            print_id(state->query_id()), state->task_id(), _parent->node_id(), _eos,
+            _shared_state->is_spilled,
+            PrettyPrinter::print_bytes(_parent->revocable_mem_size(state)));
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
         profile()->add_info_string("Spilled", "true");
@@ -309,9 +324,12 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                         }
                         _shared_state->close();
                     } else {
-                        VLOG_DEBUG << "Query " << print_id(query_id) << " agg node "
-                                   << Base::_parent->node_id() << " revoke_memory finish, size: "
-                                   << _parent->revocable_mem_size(state) << ", eos: " << _eos;
+                        LOG(INFO) << fmt::format(
+                                "Query: {}, task {}, agg sink {} revoke_memory finish, eos: {}, "
+                                "revocable memory: {}",
+                                print_id(state->query_id()), state->task_id(), _parent->node_id(),
+                                _eos,
+                                PrettyPrinter::print_bytes(_parent->revocable_mem_size(state)));
                     }
 
                     if (_eos) {
@@ -339,11 +357,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(
 
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
             std::move(spill_runnable));
-}
-
-bool PartitionedAggSinkOperatorX::is_spilled(RuntimeState* state) const {
-    auto& local_state = get_local_state(state);
-    return local_state._shared_state->is_spilled;
 }
 
 } // namespace doris::pipeline

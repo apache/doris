@@ -1400,8 +1400,6 @@ DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
-DEFINE_mInt32(revocable_memory_bytes_high_watermark, "5");
-
 // clang-format off
 #ifdef BE_TEST
 // test s3

@@ -601,7 +601,7 @@ public:
         if (_query_options.__isset.revocable_memory_high_watermark_percent) {
             return _query_options.revocable_memory_high_watermark_percent;
         }
-        return 10;
+        return -1;
     }
 
     size_t minimum_operator_memory_required_bytes() const {

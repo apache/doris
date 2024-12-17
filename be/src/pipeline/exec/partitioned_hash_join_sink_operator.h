@@ -134,8 +134,6 @@ public:
         return _inner_probe_operator->require_data_distribution();
     }
 
-    bool is_spilled(RuntimeState* state) const override;
-
 private:
     friend class PartitionedHashJoinSinkLocalState;
 

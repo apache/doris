@@ -35,6 +35,7 @@
 #include "runtime/process_profile.h"
 #include "runtime/thread_context.h"
 #include "util/mem_info.h"
+#include "util/pretty_printer.h"
 #include "util/stack_util.h"
 #include "util/uid_util.h"
 
@@ -86,8 +87,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 "Allocator sys memory check failed: Cannot alloc:{}, consuming "
                 "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
                 size, doris::thread_context()->thread_mem_tracker()->label(),
-                doris::thread_context()->thread_mem_tracker()->peak_consumption(),
-                doris::thread_context()->thread_mem_tracker()->consumption(),
+                doris::PrettyPrinter::print_bytes(
+                        doris::thread_context()->thread_mem_tracker()->peak_consumption()),
+                doris::PrettyPrinter::print_bytes(
+                        doris::thread_context()->thread_mem_tracker()->consumption()),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 

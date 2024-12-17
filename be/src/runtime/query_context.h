@@ -213,8 +213,6 @@ public:
 
     ThreadPool* get_memtable_flush_pool();
 
-    int64_t mem_limit() const { return _bytes_limit; }
-
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
@@ -348,7 +346,6 @@ private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
-    int64_t _bytes_limit = 0;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
 

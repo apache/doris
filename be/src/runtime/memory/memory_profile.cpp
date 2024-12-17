@@ -343,10 +343,11 @@ int64_t MemoryProfile::other_current_usage() {
 void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
-        LOG(WARNING) << "Process Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
-        LOG(WARNING) << "\n" << print_memory_overview_profile();
-        LOG(WARNING) << "\n" << print_global_memory_profile();
-        LOG(WARNING) << "\n" << print_top_memory_tasks_profile();
+        LOG(WARNING) << "Process Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str()
+                     << "\n"
+                     << print_memory_overview_profile() << "\n"
+                     << print_global_memory_profile() << "\n"
+                     << print_top_memory_tasks_profile();
     }
 }
 

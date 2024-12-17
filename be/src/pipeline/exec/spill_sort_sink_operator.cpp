@@ -114,6 +114,7 @@ SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id
                                                const TPlanNode& tnode, const DescriptorTbl& descs,
                                                bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id) {
+    _spillable = true;
     _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, tnode, descs,
                                                               require_bucket_distribution);
 }
@@ -297,11 +298,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
         }
     }
     return status;
-}
-
-bool SpillSortSinkOperatorX::is_spilled(RuntimeState* state) const {
-    auto& local_state = get_local_state(state);
-    return local_state._shared_state->is_spilled;
 }
 
 } // namespace doris::pipeline
