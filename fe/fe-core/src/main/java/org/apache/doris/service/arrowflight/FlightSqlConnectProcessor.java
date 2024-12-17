@@ -94,6 +94,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         prepare(command);
 
         ctx.setRunningQuery(query);
+        ctx.resetFinalizeArrowFlightSqlRequestFinished();
         super.handleQuery(query);
     }
 

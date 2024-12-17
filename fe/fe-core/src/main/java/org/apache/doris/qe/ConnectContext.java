@@ -751,6 +751,10 @@ public class ConnectContext {
         return isExecStatusDone;
     }
 
+    public void resetFinalizeArrowFlightSqlRequestFinished() {
+        this.finalizeArrowFlightSqlRequestFinished = false;
+    }
+
     public boolean getFinalizeArrowFlightSqlRequestFinished() {
         return finalizeArrowFlightSqlRequestFinished;
     }
