@@ -299,4 +299,9 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     return status;
 }
 
+bool SpillSortSinkOperatorX::is_spilled(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->is_spilled;
+}
+
 } // namespace doris::pipeline

@@ -1289,16 +1289,20 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 template <typename LocalStateType>
 size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
+    if (!local_state._opened || local_state._closed || !local_state._scanner_ctx) {
+        return config::doris_scanner_row_bytes;
+    }
+
     if (local_state.low_memory_mode()) {
         return local_state._scanner_ctx->low_memory_mode_scan_bytes_per_scanner() *
                local_state._scanner_ctx->low_memory_mode_scanners();
     } else {
-        if (local_state._memory_used_counter->value() > 0) {
+        const auto peak_usage = local_state._memory_used_counter->value();
+        const auto block_usage = local_state._scanner_ctx->block_memory_usage();
+        if (peak_usage > 0) {
             // It is only a safty check, to avoid some counter not right.
-            if (local_state._memory_used_counter->value() >
-                local_state._scanner_ctx->block_memory_usage()) {
-                return local_state._memory_used_counter->value() -
-                       local_state._scanner_ctx->block_memory_usage();
+            if (peak_usage > block_usage) {
+                return peak_usage - block_usage;
             } else {
                 return config::doris_scanner_row_bytes;
             }

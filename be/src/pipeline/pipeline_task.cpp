@@ -26,6 +26,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
@@ -403,6 +404,7 @@ Status PipelineTask::execute(bool* eos) {
                       << " has pending block, size: " << _pending_block->allocated_bytes();
             _block = std::move(_pending_block);
             block = _block.get();
+            *eos = _pending_eos;
         }
         // `_dry_run` means sink operator need no more data
         // `_sink->is_finished(_state)` means sink operator should be finished
@@ -420,7 +422,7 @@ Status PipelineTask::execute(bool* eos) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
 
                 COUNTER_UPDATE(_memory_reserve_times, 1);
-                if (!st.ok()) {
+                if (!st.ok() && !_state->enable_force_spill()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
                     auto debug_msg = fmt::format(
                             "Query: {} , try to reserve: {}, operator name: {}, operator id: {}, "
@@ -455,8 +457,15 @@ Status PipelineTask::execute(bool* eos) {
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
             const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
-            if (_state->enable_reserve_memory()) {
+            auto workload_group = _state->get_query_ctx()->workload_group();
+            if (_state->enable_reserve_memory() && workload_group) {
                 status = thread_context()->try_reserve_memory(sink_reserve_size);
+
+                if (status.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
+                    _sink->revocable_mem_size(_state) >=
+                            vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                    status = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");
+                }
 
                 if (!status.ok()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
@@ -481,7 +490,7 @@ Status PipelineTask::execute(bool* eos) {
                     _state->get_query_ctx()->set_memory_sufficient(false);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                             _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
-                    _eos = *eos;
+                    _pending_eos = *eos;
                     *eos = false;
                     continue;
                 }
@@ -644,7 +653,7 @@ std::string PipelineTask::debug_string() {
 }
 
 size_t PipelineTask::get_revocable_size() const {
-    if (_running || (_eos && !_pending_block)) {
+    if (_finalized || _running || (_eos && !_pending_block)) {
         return 0;
     }
 
@@ -652,6 +661,15 @@ size_t PipelineTask::get_revocable_size() const {
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
+    if (_finalized) {
+        if (spill_context) {
+            spill_context->on_task_finished();
+            VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                       << " finalized";
+        }
+        return Status::OK();
+    }
+
     RETURN_IF_ERROR(_root->revoke_memory(_state, spill_context));
 
     const auto revocable_size = _sink->revocable_mem_size(_state);

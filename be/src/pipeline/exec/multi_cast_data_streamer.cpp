@@ -128,6 +128,8 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
             return Status::OK();
         }
 
+        DCHECK_GT(pos_to_pull->_un_finish_copy, 0);
+        DCHECK_LE(pos_to_pull->_un_finish_copy, _cast_sender_count);
         *block = *pos_to_pull->_block;
 
         multi_cast_block = &(*pos_to_pull);
@@ -156,6 +158,8 @@ Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_id
     multi_cast_block._un_finish_copy--;
     auto copying_count = _copying_count.fetch_sub(1) - 1;
     if (multi_cast_block._un_finish_copy == 0) {
+        DCHECK_EQ(_multi_cast_blocks.front()._un_finish_copy, 0);
+        DCHECK_EQ(&(_multi_cast_blocks.front()), &multi_cast_block);
         _multi_cast_blocks.pop_front();
         _write_dependency->set_ready();
     } else if (copying_count == 0) {
@@ -167,7 +171,7 @@ Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_id
 }
 
 Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* triggered) {
-    if (!state->enable_spill() && !state->enable_force_spill()) {
+    if (!state->enable_spill()) {
         *triggered = false;
         return Status::OK();
     }
@@ -232,6 +236,7 @@ Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
                                                  vectorized::SpillStreamSPtr spill_stream) {
     std::vector<vectorized::Block> blocks;
     for (auto& block : _multi_cast_blocks) {
+        DCHECK_GT(block._block->rows(), 0);
         blocks.emplace_back(std::move(*block._block));
     }
 
@@ -288,6 +293,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
         std::lock_guard l(_mutex);
 
         if (_pending_block) {
+            DCHECK_GT(_pending_block->rows(), 0);
             const auto pending_size = _pending_block->allocated_bytes();
             _cumulative_mem_size += pending_size;
             _multi_cast_blocks.emplace_back(_pending_block.get(), _cast_sender_count, pending_size);
@@ -306,24 +312,33 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
         COUNTER_SET(_peak_mem_usage,
                     std::max(_cumulative_mem_size.load(), _peak_mem_usage->value()));
 
-        if (!eos) {
-            bool spilled = false;
-            RETURN_IF_ERROR(_trigger_spill_if_need(state, &spilled));
-            if (spilled) {
-                _pending_block =
-                        vectorized::Block::create_unique(block->get_columns_with_type_and_name());
-                block->clear();
-                return Status::OK();
+        if (rows > 0) {
+            if (!eos) {
+                bool spilled = false;
+                RETURN_IF_ERROR(_trigger_spill_if_need(state, &spilled));
+                if (spilled) {
+                    _pending_block = vectorized::Block::create_unique(
+                            block->get_columns_with_type_and_name());
+                    block->clear();
+                    return Status::OK();
+                }
             }
-        }
 
-        _multi_cast_blocks.emplace_back(block, _cast_sender_count, block_mem_size);
-        // last elem
-        auto end = std::prev(_multi_cast_blocks.end());
-        for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
-            if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
-                _sender_pos_to_read[i] = end;
-                _set_ready_for_read(i);
+            _multi_cast_blocks.emplace_back(block, _cast_sender_count, block_mem_size);
+
+            // last elem
+            auto end = std::prev(_multi_cast_blocks.end());
+            for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
+                if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
+                    _sender_pos_to_read[i] = end;
+                    _set_ready_for_read(i);
+                }
+            }
+        } else if (eos) {
+            for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
+                if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
+                    _set_ready_for_read(i);
+                }
             }
         }
 

@@ -187,6 +187,9 @@ protected:
     }
 
     virtual void _on_task_started(uint64_t submit_elapsed_time) {
+        VLOG_DEBUG << "Query: " << print_id(_state->query_id())
+                   << " spill task started, pipeline task id: " << _state->task_id()
+                   << ", spill dep: " << (void*)(_spill_dependency.get());
         if (_is_write_task) {
             COUNTER_UPDATE(_spill_write_wait_in_queue_timer, submit_elapsed_time);
             COUNTER_UPDATE(_write_wait_in_queue_task_count, -1);
@@ -269,6 +272,9 @@ protected:
     }
 
     void _on_task_started(uint64_t submit_elapsed_time) override {
+        LOG(INFO) << "SpillRecoverRunnable, Query: " << print_id(_state->query_id())
+                  << " spill task started, pipeline task id: " << _state->task_id()
+                  << ", spill dep: " << (void*)(_spill_dependency.get());
         COUNTER_UPDATE(_spill_read_wait_in_queue_timer, submit_elapsed_time);
         COUNTER_UPDATE(_read_wait_in_queue_task_count, -1);
         COUNTER_UPDATE(_reading_task_count, 1);

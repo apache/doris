@@ -81,7 +81,6 @@ private:
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};

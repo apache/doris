@@ -1841,7 +1841,8 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             size_t revocable_size_ = task->get_revocable_size();
-            if (revocable_size_ > _runtime_state->min_revocable_mem()) {
+            if (revocable_size_ > _runtime_state->min_revocable_mem() ||
+                (revocable_size_ > 0 && _query_ctx->enable_force_spill())) {
                 revocable_tasks.emplace_back(task.get());
             }
         }

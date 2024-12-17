@@ -176,6 +176,10 @@ public:
                        : false;
     }
 
+    bool enable_force_spill() const {
+        return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
+    }
+
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
     // the runtime filter should do the local merge work

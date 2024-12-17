@@ -287,11 +287,6 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
     }
 }
 
-#ifdef BE_TEST
-constexpr int64_t TIMEOUT_IN_QUEUE_LIMIT = 10L;
-#else
-constexpr int64_t TIMEOUT_IN_QUEUE_LIMIT = 1000L * 60;
-#endif
 /**
  * Strategy 1: A revocable query should not have any running task(PipelineTask).
  * strategy 2: If the workload group has any task exceed workload group memlimit, then set all queryctx's memlimit
@@ -425,7 +420,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 } else {
                     // Should not put the query back to task scheduler immediately, because when wg's memory not sufficient,
                     // and then set wg's flag, other query may not free memory very quickly.
-                    if (query_it->elapsed_time() > TIMEOUT_IN_QUEUE_LIMIT) {
+                    if (query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms) {
                         // set wg's memory to insufficent, then add it back to task scheduler to run.
                         LOG(INFO) << "Query: " << print_id(query_ctx->query_id())
                                   << " will be resume.";
@@ -676,7 +671,7 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                           << "), resume it.";
                 query_ctx->set_memory_sufficient(true);
                 return true;
-            } else if (time_in_queue >= TIMEOUT_IN_QUEUE_LIMIT) {
+            } else if (time_in_queue >= config::spill_in_paused_queue_timeout_ms) {
                 // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
                 auto msg1 = fmt::format(
                         "Query {} reserve memory failed, but could not find memory that could "
@@ -707,7 +702,7 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                           << " paused caused by WORKLOAD_GROUP_MEMORY_EXCEEDED, now resume it.";
                 query_ctx->set_memory_sufficient(true);
                 return true;
-            } else if (time_in_queue > TIMEOUT_IN_QUEUE_LIMIT) {
+            } else if (time_in_queue > config::spill_in_paused_queue_timeout_ms) {
                 LOG(INFO) << "Query: " << query_id << ", workload group exceeded, info: "
                           << GlobalMemoryArbitrator::process_memory_used_details_str()
                           << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
@@ -731,7 +726,7 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                           << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
                 query_ctx->set_memory_sufficient(true);
                 return true;
-            } else if (time_in_queue > TIMEOUT_IN_QUEUE_LIMIT) {
+            } else if (time_in_queue > config::spill_in_paused_queue_timeout_ms) {
                 LOG(INFO) << "Query: " << query_id << ", process limit exceeded, info: "
                           << GlobalMemoryArbitrator::process_memory_used_details_str()
                           << ", wg info: " << query_ctx->workload_group()->memory_debug_string();

@@ -68,10 +68,6 @@ protected:
 
     friend class PartitionedHashJoinSinkOperatorX;
 
-    std::mutex _spill_mutex;
-    std::atomic<bool> _spilling_finished {false};
-    std::atomic_int32_t _spilling_task_count {0};
-
     bool _child_eos {false};
 
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
@@ -137,6 +133,8 @@ public:
     bool require_data_distribution() const override {
         return _inner_probe_operator->require_data_distribution();
     }
+
+    bool is_spilled(RuntimeState* state) const override;
 
 private:
     friend class PartitionedHashJoinSinkLocalState;
