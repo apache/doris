@@ -50,4 +50,13 @@ public class BitmapValueUtil {
         byte[] byteArr = bos.toByteArray();
         return DatatypeConverter.printBase64Binary(byteArr);
     }
+
+    public static BitmapValue bitmapFromBase64(String bitmapStr) throws IOException {
+        byte[] bytes = DatatypeConverter.parseBase64Binary(bitmapStr);
+        BitmapValue bitmapValue = new BitmapValue();
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+        bitmapValue.deserialize(in);
+        in.close();
+        return bitmapValue;
+    }
 }
