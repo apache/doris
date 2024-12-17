@@ -1058,7 +1058,8 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     }
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
-    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.segments_overlap =
+            _tablet->tablet_schema()->cluster_key_uids().empty() ? NONOVERLAPPING : OVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
@@ -1433,7 +1434,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
 
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
-    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.segments_overlap =
+            _tablet->tablet_schema()->cluster_key_uids().empty() ? NONOVERLAPPING : OVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
