@@ -112,6 +112,54 @@ suite("create_storage_vault", "nonConcurrent") {
         );
     """
 
+    // test path style
+    sql """
+        CREATE STORAGE VAULT IF NOT EXISTS create_s3_vault1
+        PROPERTIES (
+            "type"="S3",
+            "s3.endpoint"="${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}",
+            "s3.root.path" = "test_create_s3_vault1",
+            "s3.bucket" = "${getS3BucketName()}",
+            "s3.external_endpoint" = "",
+            "use_path_style" = "true",
+            "provider" = "${getS3Provider()}"
+        );
+    """
+
+    // test path style
+    sql """
+        CREATE STORAGE VAULT IF NOT EXISTS create_s3_vault2
+        PROPERTIES (
+            "type"="S3",
+            "s3.endpoint"="${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}",
+            "s3.root.path" = "test_create_s3_vault2",
+            "s3.bucket" = "${getS3BucketName()}",
+            "s3.external_endpoint" = "",
+            "use_path_style" = "false",
+            "provider" = "${getS3Provider()}"
+        );
+    """
+
+    var result = """show storage vault"""
+    assertTrue(result.size() >= 3);
+    for (int i = 0; i < result.size(); ++i) {
+        if (result[i][0].equals("create_s3_vault")) {
+            assertTrue(result[i][2].contains("use_path_style: true"));
+        }
+        if (result[i][0].equals("create_s3_vault1")) {
+            assertTrue(result[i][2].contains("use_path_style: true"));
+        }
+        if (result[i][0].equals("create_s3_vault2")) {
+            assertTrue(result[i][2].contains("use_path_style: false"));
+        }
+    }
+
     expectExceptionLike({
         sql """
             CREATE STORAGE VAULT create_s3_vault
