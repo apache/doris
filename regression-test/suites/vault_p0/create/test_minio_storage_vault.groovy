@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite ("test_minio_storage_vault", "nonConcurrent") {
+suite ("test_minio_storage_vault") {
 
     if (!isCloudMode()) {
         logger.warn("skip this test, because this case only run in cloud mode")
