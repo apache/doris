@@ -99,9 +99,9 @@ Status Channel::open(RuntimeState* state) {
         if (!st.ok()) {
             // If could not find local receiver, then it means the channel is EOF.
             // Maybe downstream task is finished already.
-            if (_receiver_status.ok()) {
-                _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
-            }
+            //if (_receiver_status.ok()) {
+            //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+            //}
             LOG(INFO) << "Query: " << print_id(state->query_id())
                       << " recvr is not found, maybe downstream task is finished. error st is: "
                       << st.to_string();
@@ -204,7 +204,7 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
     // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
     // Lock the fragment context to ensure the runtime state and other objects are not deconstructed
     TaskExecutionContextSPtr ctx_lock = nullptr;
-    if (receiver_status.ok()) {
+    if (receiver_status.ok() && _local_recvr != nullptr) {
         ctx_lock = _local_recvr->task_exec_ctx();
         // Do not return internal error, because when query finished, the downstream node
         // may finish before upstream node. And the object maybe deconstructed. If return error
