@@ -1151,20 +1151,6 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
             .need_convert = false,
             .num_dimensions = 1,
     };
-<<<<<<< HEAD
-    // 0 is null
-    const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
-    if (is_null) {
-        DCHECK(data_ref.size == 1);
-        return {Null(), info_res};
-    }
-
-    DCHECK(data_ref.size > 1);
-    const auto type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
-    info_res.scalar_type_id = type;
-    Field res;
-=======
->>>>>>> cc4a80b086 ([fix] (variant) remove nullable type in sparse column and implement replicate)
     const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
     DCHECK_EQ(end - data_ref.data, data_ref.size);
     return {std::move(res), std::move(info_res)};
