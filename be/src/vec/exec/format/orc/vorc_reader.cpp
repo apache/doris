@@ -595,9 +595,8 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     auto slot_type = slot->type();
     auto primitive_type = slot_type.type;
     auto src_type = OrcReader::convert_to_doris_type(orc_type).type;
-    if (src_type != slot_type.type &&
-        !(is_string_type(src_type) && is_string_type(primitive_type))) {
-        LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << slot_type.type << " to "
+    if (src_type != primitive_type && !is_string_type(src_type) && is_string_type(primitive_type)) {
+        LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << primitive_type << " to "
                      << src_type;
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
