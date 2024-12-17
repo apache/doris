@@ -20,6 +20,10 @@ suite ("test_minio_storage_vault") {
     if (!isCloudMode()) {
         logger.warn("skip this test, because this case only run in cloud mode")
     }
+    if (!enableStoragevault()) {
+        logger.info("skip this test case")
+        return
+    }
     String enabled = context.config.otherConfigs.get("enableExternalMinioTest")
     if (enabled == null && enabled.equalsIgnoreCase("false")) {
         logger.warn("skip this test, because minio service isn't available")
