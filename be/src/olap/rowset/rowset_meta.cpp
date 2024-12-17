@@ -256,10 +256,6 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         set_rowset_state(RowsetStatePB::COMMITTED);
-        LOG_INFO(
-                "[xxx RowsetMeta::merge_rowset_meta] change rowset={} state from "
-                "BEGIN_PARTIAL_UPDATE to COMMITTED",
-                _rowset_id.to_string());
     }
 
     update_metadata_size();

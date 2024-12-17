@@ -1377,10 +1377,6 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     bool is_partial_update =
             txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update();
     if (is_partial_update) {
-        LOG_INFO(
-                "[xxx BaseTablet::update_delete_bitmap] begin create_transient_rowset_writer for "
-                "txn_id={}, tablet_id={}",
-                txn_id, self->tablet_id());
         transient_rs_writer = DORIS_TRY(self->create_transient_rowset_writer(
                 *rowset, txn_info->partial_update_info, txn_expiration));
         // Partial update might generate new segments when there is conflicts while publish, and mark
