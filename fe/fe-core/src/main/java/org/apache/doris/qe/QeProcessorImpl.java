@@ -272,10 +272,10 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         ConnectContext ctx = info.getConnectContext();
         if (ctx.getConnectType() == ConnectType.ARROW_FLIGHT_SQL && params.isDone()) {
-            // // `params.isDone` may be true in multiple reportExecStatus.
-            // if (ctx.getIsFlightSqlConnectProcessorClose() && !ctx.getFinalizeArrowFlightSqlRequestFinished()) {
-            //     ctx.finalizeArrowFlightSqlRequest();
-            // }
+            // `params.isDone` may be true in multiple reportExecStatus.
+            if (ctx.getIsFlightSqlConnectProcessorClose() && !ctx.getFinalizeArrowFlightSqlRequestFinished()) {
+                ctx.finalizeArrowFlightSqlRequest();
+            }
             ctx.setIsExecStatusDone();
         }
         result.setStatus(new TStatus(TStatusCode.OK));
