@@ -126,7 +126,7 @@ public class HudiScanNode extends HiveScanNode {
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
             SessionVariable sessionVariable) {
-        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
+        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv, sessionVariable);
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {
@@ -390,7 +390,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
             return getIncrementalSplits();
         }
@@ -406,7 +406,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    public void startSplit() {
+    public void startSplit(int numBackends) {
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
             return;

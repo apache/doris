@@ -30,8 +30,9 @@ import java.util.List;
 public interface SplitGenerator {
     /**
      * Get all file splits if the producer doesn't support batch mode.
+     * @param numBackends the number of backends, this is useful when determine the number of splits.
      */
-    default List<Split> getSplits() throws UserException {
+    default List<Split> getSplits(int numBackends) throws UserException {
         // todo: remove this interface if batch mode is stable
         throw new NotImplementedException("Not implement");
     }
@@ -51,7 +52,7 @@ public interface SplitGenerator {
         return -1;
     }
 
-    default void startSplit() {
+    default void startSplit(int numBackends) {
     }
 
     /**

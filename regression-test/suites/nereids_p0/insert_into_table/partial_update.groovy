@@ -24,7 +24,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
 
             sql "set enable_nereids_dml=true;"

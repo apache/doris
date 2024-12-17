@@ -43,7 +43,7 @@ suite("test_ddl_catalog_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create catalog if not exists ${catalogName} properties (
                     'type'='hms'
@@ -58,7 +58,7 @@ suite("test_ddl_catalog_auth","p0,auth_call") {
         );"""
     sql """grant Create_priv on ${catalogName}.*.* to ${user}"""
     sql """drop catalog ${catalogName}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """create catalog if not exists ${catalogName} properties (
             'type'='hms'
         );"""
@@ -69,14 +69,14 @@ suite("test_ddl_catalog_auth","p0,auth_call") {
 
     // ddl alter
     // user alter
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """ALTER CATALOG ${catalogName} RENAME ${catalogNameNew};"""
             exception "denied"
         }
     }
     sql """grant ALTER_PRIV on ${catalogName}.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ALTER CATALOG ${catalogName} RENAME ${catalogNameNew};"""
         test {
             sql """show create catalog ${catalogNameNew}"""
@@ -87,21 +87,21 @@ suite("test_ddl_catalog_auth","p0,auth_call") {
     }
     // root alter
     sql """ALTER CATALOG ${catalogNameNew} RENAME ${catalogName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """show create catalog ${catalogName}"""
         def ctl_res = sql """show catalogs;"""
         assertTrue(ctl_res.size() == 2)
     }
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """drop CATALOG ${catalogName};"""
             exception "denied"
         }
     }
     sql """grant DROP_PRIV on ${catalogName}.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """drop CATALOG ${catalogName};"""
         def ctl_res = sql """show catalogs;"""
         assertTrue(ctl_res.size() == 1)

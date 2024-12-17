@@ -138,7 +138,7 @@ public:
         }
     }
 
-    Status set_workload_group(WorkloadGroupPtr& tg);
+    void set_workload_group(WorkloadGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -241,9 +241,9 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
-    void update_wg_cpu_adder(int64_t delta_cpu_time) {
+    void update_cpu_time(int64_t delta_cpu_time) {
         if (_workload_group != nullptr) {
-            _workload_group->update_cpu_adder(delta_cpu_time);
+            _workload_group->update_cpu_time(delta_cpu_time);
         }
     }
 

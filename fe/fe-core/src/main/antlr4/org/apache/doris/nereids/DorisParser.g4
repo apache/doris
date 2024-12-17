@@ -183,9 +183,12 @@ supportedCreateStatement
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
-    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole  
+    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createWorkloadGroup          
+    | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
+        (WITH RESOURCE resourceName=identifier)?
+        (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog           
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
@@ -206,6 +209,7 @@ supportedAlterStatement
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                  #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               #alterSqlBlockRule
+    | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL           #alterCatalogComment
     ;
 
 supportedDropStatement
@@ -230,6 +234,7 @@ supportedShowStatement
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW LAST INSERT                                                              #showLastInsert 
+    | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
@@ -255,7 +260,8 @@ supportedShowStatement
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView  
+    | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
@@ -271,6 +277,7 @@ supportedShowStatement
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
+    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     ;
 
 supportedLoadStatement
@@ -325,9 +332,7 @@ unsupportedShowStatement
     | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
-    | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWaringErrorCount
-    | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWaringErrors
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
@@ -359,7 +364,6 @@ unsupportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
-    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
@@ -491,11 +495,18 @@ unsupportedCancelStatement
 
 supportedAdminStatement
     : ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
+    | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminRebalanceDisk
+    | ADMIN CANCEL REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminCancelRebalanceDisk
     | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
     | ADMIN SHOW REPLICA STATUS FROM baseTableRef (WHERE STATUS EQ|NEQ STRING_LITERAL)?   #adminShowReplicaStatus
     | ADMIN COMPACT TABLE baseTableRef (WHERE TYPE EQ STRING_LITERAL)?              #adminCompactTable
     | ADMIN CHECK tabletList properties=propertyClause?                             #adminCheckTablets
     | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
+    | ADMIN CLEAN TRASH
+        (ON LEFT_PAREN backends+=STRING_LITERAL
+              (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
     ;
 
 supportedRecoverStatement
@@ -513,12 +524,6 @@ unsupportedAdminStatement
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
         (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
-    | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
-        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminRebalanceDisk
-    | ADMIN CANCEL REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
-        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminCancelRebalanceDisk
-    | ADMIN CLEAN TRASH (ON LEFT_PAREN backends+=STRING_LITERAL
-        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminCleanTrash
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
@@ -581,7 +586,6 @@ unsupportedAlterStatement
     | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterCatalogProperties
-    | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL           #alterCatalogComment
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
@@ -743,9 +747,6 @@ analyzeProperties
 unsupportedCreateStatement
     : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
         properties=propertyClause?                                              #createDatabase
-    | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
-        (WITH RESOURCE resourceName=identifier)?
-        (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog
     | CREATE (GLOBAL | SESSION | LOCAL)?
         (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
@@ -929,7 +930,7 @@ identityOrFunction
 dataDesc
     : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
         INTO TABLE targetTableName=identifier
-        (PARTITION partition=identifierList)?
+        (partitionSpec)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
         (FORMAT AS format=identifierOrText)?

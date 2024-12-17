@@ -49,7 +49,7 @@ suite("test_analyze_mv") {
         def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + host + ":" + port
         logger.info("Master url is " + url)
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
             sql """use ${db}"""
             result = sql """show frontends;"""
             logger.info("show frontends result master: " + result)
@@ -714,11 +714,11 @@ suite("test_analyze_mv") {
     empty_test = sql """show column stats mvTestDup"""
     for (int i = 0; i < 100; i++) {
         empty_test = sql """show column stats mvTestDup"""
-        if (empty_test.size() != 0) {
-            logger.info("async delete is not finished yet.")
-            Thread.sleep(1000)
+        if (empty_test.size() == 0) {
+            break
         }
-        break
+        logger.info("async delete stats is not finished yet.")
+        Thread.sleep(2000)
     }
     assertEquals(0, empty_test.size())
     // ** End of embedded test

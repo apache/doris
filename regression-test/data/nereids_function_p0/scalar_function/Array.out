@@ -16896,3 +16896,30 @@ false
 -- !sql_array_match_all_18 --
 true
 
+-- !sql --
+0	0
+
+-- !sql --
+[258]	[]
+
+-- !sql --
+false	false
+
+-- !sql --
+[257, 258]	[258, 1, 2, 3]
+
+-- !sql --
+[1, 258, 257]	[1, 2, 3, 258]
+
+-- !sql --
+[1, 258]	[1, 2, 3]
+
+-- !sql --
+0	0
+
+-- !sql --
+false	false
+
+-- !sql --
+false	false
+

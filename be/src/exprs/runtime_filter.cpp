@@ -498,12 +498,12 @@ public:
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             if (!_context->hybrid_set) {
-                _context->ignored = true;
+                set_ignored();
                 return Status::OK();
             }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                _context->ignored = true;
+                set_ignored();
                 // release in filter
                 _context->hybrid_set.reset();
             }
@@ -1337,7 +1337,7 @@ void IRuntimeFilter::set_synced_size(uint64_t global_size) {
 }
 
 void IRuntimeFilter::set_ignored() {
-    _wrapper->_context->ignored = true;
+    _wrapper->set_ignored();
 }
 
 bool IRuntimeFilter::get_ignored() {

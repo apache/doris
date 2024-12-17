@@ -68,7 +68,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
     }
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create table ${dbName}.${tableName} (
                     id BIGINT,
@@ -98,7 +98,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
         );"""
     sql """grant Create_priv on ${dbName}.${tableName} to ${user}"""
     sql """drop table ${dbName}.${tableName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """create table ${dbName}.${tableName} (
                     id BIGINT,
                     username VARCHAR(20)
@@ -119,7 +119,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
 
     // ddl alter
     // user alter
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """ALTER table ${tableName} RENAME ${tableNameNew};"""
             exception "denied"
@@ -132,7 +132,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
         assertTrue(res.size() == 0)
     }
     sql """grant ALTER_PRIV on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """ALTER table ${tableName} RENAME ${tableNameNew};"""
 
@@ -146,7 +146,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
     // root alter
     sql """use ${dbName}"""
     sql """ALTER table ${tableNameNew} RENAME ${tableName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create table ${tableName}"""
         def db_res = sql """show tables;"""
@@ -154,7 +154,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
     }
 
     // show
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """ALTER TABLE ${tableName} ADD COLUMN new_col INT KEY DEFAULT "0";"""
         def res = sql """SHOW ALTER TABLE COLUMN;"""
@@ -162,20 +162,20 @@ suite("test_ddl_table_auth","p0,auth_call") {
     }
 
     // dml select
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """select id from ${dbName}.${tableName}"""
             exception "denied"
         }
     }
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """select id from ${dbName}.${tableName}"""
     }
     sql """revoke select_priv(id) on ${dbName}.${tableName} from ${user}"""
 
     // ddl create table like
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create table ${cteLikeDstDb}.${cteLikeDstTb} like ${dbName}.${tableName};"""
             exception "denied"
@@ -185,21 +185,21 @@ suite("test_ddl_table_auth","p0,auth_call") {
     sql """create table ${cteLikeDstDb}.${cteLikeDstTb} like ${dbName}.${tableName};"""
     sql """grant Create_priv on ${cteLikeDstDb}.${cteLikeDstTb} to ${user}"""
     sql """drop table ${cteLikeDstDb}.${cteLikeDstTb};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create table ${cteLikeDstDb}.${cteLikeDstTb} like ${dbName}.${tableName};"""
             exception "denied"
         }
     }
     sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """create table ${cteLikeDstDb}.${cteLikeDstTb} like ${dbName}.${tableName};"""
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user}"""
 
     // ddl create table select
     sql """create database ${cteSelectDstDb}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create table ${cteSelectDstDb}.${cteSelectDstTb}(username) PROPERTIES("replication_num" = "1") as select username from ${dbName}.${tableName};"""
             exception "denied"
@@ -208,7 +208,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
     sql """create table ${cteSelectDstDb}.${cteSelectDstTb}(username) PROPERTIES("replication_num" = "1") as select username from ${dbName}.${tableName};"""
     sql """grant Create_priv on ${cteSelectDstDb}.${cteSelectDstTb} to ${user}"""
     sql """drop table ${cteSelectDstDb}.${cteSelectDstTb}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create table ${cteSelectDstDb}.${cteSelectDstTb}(username) PROPERTIES("replication_num" = "1") as select username from ${dbName}.${tableName};"""
             exception "denied"
@@ -217,20 +217,20 @@ suite("test_ddl_table_auth","p0,auth_call") {
     sql """create table ${cteSelectDstDb}.${cteSelectDstTb}(username) PROPERTIES("replication_num" = "1") as select username from ${dbName}.${tableName};"""
     sql """grant LOAD_PRIV on ${cteSelectDstDb}.${cteSelectDstTb} to ${user}"""
     sql """drop table ${cteSelectDstDb}.${cteSelectDstTb}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create table ${cteSelectDstDb}.${cteSelectDstTb}(username) PROPERTIES("replication_num" = "1") as select username from ${dbName}.${tableName};"""
             exception "denied"
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """create table ${cteSelectDstDb}.${cteSelectDstTb}(username) PROPERTIES("replication_num" = "1") as select username from ${dbName}.${tableName};"""
     }
 
     waitingChangeTaskFinished(dbName)
     // ddl truncate
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """use ${dbName}"""
             sql """truncate table ${tableName};"""
@@ -238,13 +238,13 @@ suite("test_ddl_table_auth","p0,auth_call") {
         }
     }
     sql """grant LOAD_PRIV on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """truncate table ${tableName};"""
     }
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """use ${dbName}"""
             sql """drop table ${tableName};"""
@@ -252,7 +252,7 @@ suite("test_ddl_table_auth","p0,auth_call") {
         }
     }
     sql """grant DROP_PRIV on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """drop table ${tableName};"""
         def ctl_res = sql """show tables;"""

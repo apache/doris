@@ -75,7 +75,14 @@ public class JobExecutionConfigurationTest {
         timerDefinition.setInterval(1L);
         Assertions.assertEquals(3, configuration.getTriggerDelayTimes(second * 5 + 10L, second * 3, second * 7).size());
         Assertions.assertEquals(3, configuration.getTriggerDelayTimes(second * 5, second * 5, second * 7).size());
+        timerDefinition.setStartTimeMs(1672531200000L);
+        timerDefinition.setIntervalUnit(IntervalUnit.MINUTE);
+        timerDefinition.setInterval(1L);
+        Assertions.assertArrayEquals(new Long[]{0L}, configuration.getTriggerDelayTimes(1672531800000L, 1672531200000L, 1672531800000L).toArray());
 
+        List<Long> expectDelayTimes = configuration.getTriggerDelayTimes(1672531200000L, 1672531200000L, 1672531850000L);
+
+        Assertions.assertArrayEquals(new Long[]{0L, 60L, 120L, 180L, 240L, 300L, 360L, 420L, 480L, 540L, 600L}, expectDelayTimes.toArray());
     }
 
     @Test

@@ -36,7 +36,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -87,7 +87,13 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergSource source;
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
-    private boolean pushDownCount = false;
+    // If tableLevelPushDownCount is true, means we can do count push down opt at table level.
+    // which means all splits have no position/equality delete files,
+    // so for query like "select count(*) from ice_tbl", we can get count from snapshot row count info directly.
+    // If tableLevelPushDownCount is false, means we can't do count push down opt at table level,
+    // But for part of splits which have no position/equality delete files, we can still do count push down opt.
+    // And for split level count push down opt, the flag is set in each split.
+    private boolean tableLevelPushDownCount = false;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     /**
@@ -96,8 +102,8 @@ public class IcebergScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, needCheckColumnPriv);
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, needCheckColumnPriv, sv);
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
@@ -140,8 +146,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
-        if (pushDownCount) {
-            fileDesc.setRowCount(icebergSplit.getRowCount());
+        if (tableLevelPushDownCount) {
+            fileDesc.setRowCount(icebergSplit.getTableLevelRowCount());
         }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
@@ -177,11 +183,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
-        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
+    public List<Split> getSplits(int numBackends) throws UserException {
+        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(),
+                () -> doGetSplits(numBackends));
     }
 
-    private List<Split> doGetSplits() throws UserException {
+    private List<Split> doGetSplits(int numBackends) throws UserException {
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
@@ -209,9 +216,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
-        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize);
+        long realFileSplitSize = getRealFileSplitSize(0);
+        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), realFileSplitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
-                TableScanUtil.planTasks(fileScanTasks, fileSplitSize, 1, 0)) {
+                TableScanUtil.planTasks(fileScanTasks, realFileSplitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 List<String> partitionValues = new ArrayList<>();
                 if (isPartitionedTable) {
@@ -250,6 +258,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                         source.getCatalog().getProperties(),
                         partitionValues,
                         originalPath);
+                split.setTargetSplitSize(realFileSplitSize);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
@@ -268,11 +277,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             long countFromSnapshot = getCountFromSnapshot();
             if (countFromSnapshot >= 0) {
-                pushDownCount = true;
+                tableLevelPushDownCount = true;
                 List<Split> pushDownCountSplits;
                 if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
-                    int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
+                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
                 } else {
                     pushDownCountSplits = Collections.singletonList(splits.get(0));
                 }
@@ -282,7 +291,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         selectedPartitionNum = partitionPathSet.size();
-        splits.forEach(s -> s.setTargetSplitSize(fileSplitSize));
         return splits;
     }
 
@@ -422,8 +430,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         int size = splits.size();
         long countPerSplit = totalCount / size;
         for (int i = 0; i < size - 1; i++) {
-            ((IcebergSplit) splits.get(i)).setRowCount(countPerSplit);
+            ((IcebergSplit) splits.get(i)).setTableLevelRowCount(countPerSplit);
         }
-        ((IcebergSplit) splits.get(size - 1)).setRowCount(countPerSplit + totalCount % size);
+        ((IcebergSplit) splits.get(size - 1)).setTableLevelRowCount(countPerSplit + totalCount % size);
     }
 }
