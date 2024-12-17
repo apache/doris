@@ -2067,7 +2067,6 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     if (mode == FinalizeMode::WRITE_MODE) {
         // pick sparse columns
         std::set<std::string_view> selected_path;
-        std::vector<std::string_view> remaining_path;
         if (subcolumns.size() > MAX_SUBCOLUMNS) {
             // pick subcolumns sort by size of none null values
             std::unordered_map<std::string_view, size_t> none_null_value_sizes;
@@ -2089,25 +2088,18 @@ Status ColumnObject::finalize(FinalizeMode mode) {
             for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
                 selected_path.insert(sorted_by_size[i].first);
             }
-
-            // 4. put remaining subcolumns to remaining_subcolumns
-            for (const auto& entry : sorted_by_size) {
-                if (selected_path.find(entry.first) == selected_path.end()) {
-                    remaining_path.emplace_back(entry.first);
-                }
+        } else {
+            // all subcolumns should be selected, thus remaining subcolumns should be empty
+            for (auto&& entry : subcolumns) {
+                selected_path.insert(entry->path.get_path());
             }
         }
-        // add selected subcolumns to new_subcolumns
+        std::map<std::string_view, Subcolumn> remaing_subcolumns;
+        // add selected subcolumns to new_subcolumns, otherwise add to remaining_subcolumns
         for (auto&& entry : subcolumns) {
             if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
                 new_subcolumns.add(entry->path, entry->data);
-            }
-        }
-
-        std::map<std::string_view, Subcolumn> remaing_subcolumns;
-        // merge remaining subcolumns to sparse_column
-        for (auto&& entry : subcolumns) {
-            if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
+            } else {
                 remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
             }
         }
