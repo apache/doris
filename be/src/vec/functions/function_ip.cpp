@@ -47,6 +47,8 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
 
+    factory.register_function<FunctionIsIPAddressInRangeOld>();
+
     /// CIDR part
     factory.register_function<FunctionIPv4CIDRToRange>();
     factory.register_function<FunctionIPv6CIDRToRange>();

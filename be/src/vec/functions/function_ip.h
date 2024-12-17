@@ -789,6 +789,81 @@ public:
     }
 };
 
+// old version throw exception when meet null value
+class FunctionIsIPAddressInRangeOld : public IFunction {
+public:
+    static constexpr auto name = "is_ip_address_in_range";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPAddressInRange>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
+        WhichDataType addr_type(addr_column_with_type_and_name.type);
+        WhichDataType cidr_type(cidr_column_with_type_and_name.type);
+        const auto& [addr_column, addr_const] =
+                unpack_if_const(addr_column_with_type_and_name.column);
+        const auto& [cidr_column, cidr_const] =
+                unpack_if_const(cidr_column_with_type_and_name.column);
+        const ColumnString* str_addr_column = nullptr;
+        const ColumnString* str_cidr_column = nullptr;
+        const NullMap* null_map_addr = nullptr;
+        const NullMap* null_map_cidr = nullptr;
+        if (addr_type.is_nullable()) {
+            const auto* addr_column_nullable =
+                    assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column = assert_cast<const ColumnString*>(
+                    addr_column_nullable->get_nested_column_ptr().get());
+            null_map_addr = &addr_column_nullable->get_null_map_data();
+        } else {
+            str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
+        }
+
+        if (cidr_type.is_nullable()) {
+            const auto* cidr_column_nullable =
+                    assert_cast<const ColumnNullable*>(cidr_column.get());
+            str_cidr_column = assert_cast<const ColumnString*>(
+                    cidr_column_nullable->get_nested_column_ptr().get());
+            null_map_cidr = &cidr_column_nullable->get_null_map_data();
+        } else {
+            str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
+        }
+
+        auto col_res = ColumnUInt8::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto addr_idx = index_check_const(i, addr_const);
+            auto cidr_idx = index_check_const(i, cidr_const);
+            if (null_map_addr && (*null_map_addr)[addr_idx]) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
+            }
+            if (null_map_cidr && (*null_map_cidr)[cidr_idx]) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
+            }
+            const auto addr =
+                    IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
+            const auto cidr =
+                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
+            col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
+        }
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+};
+
 class FunctionIPv4CIDRToRange : public IFunction {
 public:
     static constexpr auto name = "ipv4_cidr_to_range";
