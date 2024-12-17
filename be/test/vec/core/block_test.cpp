@@ -3887,117 +3887,347 @@ TEST(BlockTest, ColumnTransformations) {
 }
 
 TEST(BlockTest, HashUpdate) {
-    // Test case 1: Single column with single value
+    // Test with empty block
     {
-        vectorized::Block block;
-        auto col = vectorized::ColumnVector<Int32>::create();
-        col->insert_value(42);
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
-        block.insert({std::move(col), type, "col1"});
+        // Single empty block
+        {
+            vectorized::Block empty_block;
+            SipHash hash1;
+            empty_block.update_hash(hash1);
+            uint64_t hash1_value = hash1.get64();
 
-        SipHash hash1;
-        block.update_hash(hash1);
-        uint64_t hash1_value = hash1.get64();
+            // Same empty block should produce same hash
+            SipHash hash2;
+            empty_block.update_hash(hash2);
+            EXPECT_EQ(hash1_value, hash2.get64());
+        }
 
-        // Same data should produce same hash
-        SipHash hash2;
-        block.update_hash(hash2);
-        EXPECT_EQ(hash1_value, hash2.get64());
+        // Multiple empty blocks
+        {
+            vectorized::Block block1;
+            vectorized::Block block2;
+
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_EQ(hash1.get64(), hash2.get64());
+        }
     }
 
-    // Test case 2: Multiple columns
+    // Test with regular columns
     {
-        vectorized::Block block;
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
-
-        // First column
+        // Single column with single value
         {
-            auto col1 = vectorized::ColumnVector<Int32>::create();
-            col1->insert_value(1);
-            block.insert({std::move(col1), type, "col1"});
+            vectorized::Block block;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+            
+            auto col = vectorized::ColumnVector<Int32>::create();
+            col->insert_value(42);
+            block.insert({std::move(col), type, "col1"});
+
+            SipHash hash1;
+            block.update_hash(hash1);
+            uint64_t hash1_value = hash1.get64();
+
+            // Same data should produce same hash
+            SipHash hash2;
+            block.update_hash(hash2);
+            EXPECT_EQ(hash1_value, hash2.get64());
         }
 
-        // Second column
+        // Multiple columns
         {
-            auto col2 = vectorized::ColumnVector<Int32>::create();
-            col2->insert_value(2);
-            block.insert({std::move(col2), type, "col2"});
+            vectorized::Block block1;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+            // Create first block with values [1, 2]
+            {
+                auto col1 = vectorized::ColumnVector<Int32>::create();
+                col1->insert_value(1);
+                block1.insert({std::move(col1), type, "col1"});
+
+                auto col2 = vectorized::ColumnVector<Int32>::create();
+                col2->insert_value(2);
+                block1.insert({std::move(col2), type, "col2"});
+            }
+
+            // Create second block with values [2, 1]
+            vectorized::Block block2;
+            {
+                auto col1 = vectorized::ColumnVector<Int32>::create();
+                col1->insert_value(2);
+                block2.insert({std::move(col1), type, "col1"});
+
+                auto col2 = vectorized::ColumnVector<Int32>::create();
+                col2->insert_value(1);
+                block2.insert({std::move(col2), type, "col2"});
+            }
+
+            // Different order of same values should produce different hash
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_NE(hash1.get64(), hash2.get64());
         }
 
-        SipHash hash1;
-        block.update_hash(hash1);
-        uint64_t hash1_value = hash1.get64();
-
-        // Different order of same values should produce different hash
-        vectorized::Block block2;
+        // Multiple rows
         {
-            auto col1 = vectorized::ColumnVector<Int32>::create();
-            col1->insert_value(2);
-            block2.insert({std::move(col1), type, "col1"});
-        }
-        {
-            auto col2 = vectorized::ColumnVector<Int32>::create();
-            col2->insert_value(1);
-            block2.insert({std::move(col2), type, "col2"});
-        }
+            vectorized::Block block1;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-        SipHash hash2;
-        block2.update_hash(hash2);
-        EXPECT_NE(hash1_value, hash2.get64());
+            // Create first block with ascending values
+            {
+                auto col = vectorized::ColumnVector<Int32>::create();
+                for (int i = 0; i < 5; ++i) {
+                    col->insert_value(i);
+                }
+                block1.insert({std::move(col), type, "col1"});
+            }
+
+            // Create second block with descending values
+            vectorized::Block block2;
+            {
+                auto col = vectorized::ColumnVector<Int32>::create();
+                for (int i = 4; i >= 0; --i) {
+                    col->insert_value(i);
+                }
+                block2.insert({std::move(col), type, "col1"});
+            }
+
+            // Different order of same values should produce different hash
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_NE(hash1.get64(), hash2.get64());
+        }
     }
 
-    // Test case 3: Multiple rows
+    // Test with const columns
     {
-        vectorized::Block block;
-        auto col = vectorized::ColumnVector<Int32>::create();
-        for (int i = 0; i < 5; ++i) {
-            col->insert_value(i);
+        // Single column with single value
+        {
+            vectorized::Block block;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+            auto base_col = vectorized::ColumnVector<Int32>::create();
+            base_col->insert_value(42);
+            auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 5);
+            block.insert({const_col->get_ptr(), type, "const_col"});
+
+            SipHash hash1;
+            block.update_hash(hash1);
+            uint64_t hash1_value = hash1.get64();
+
+            // Same data should produce same hash
+            SipHash hash2;
+            block.update_hash(hash2);
+            EXPECT_EQ(hash1_value, hash2.get64());
         }
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
-        block.insert({std::move(col), type, "col1"});
 
-        SipHash hash1;
-        block.update_hash(hash1);
-        uint64_t hash1_value = hash1.get64();
+        // Multiple columns
+        {
+            vectorized::Block block1;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-        // Different order of same values should produce different hash
-        auto col2 = vectorized::ColumnVector<Int32>::create();
-        for (int i = 4; i >= 0; --i) {
-            col2->insert_value(i);
+            // Create first block with const values [1, 2]
+            {
+                auto base_col1 = vectorized::ColumnVector<Int32>::create();
+                base_col1->insert_value(1);
+                auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 5);
+                block1.insert({const_col1->get_ptr(), type, "const_col1"});
+
+                auto base_col2 = vectorized::ColumnVector<Int32>::create();
+                base_col2->insert_value(2);
+                auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+                block1.insert({const_col2->get_ptr(), type, "const_col2"});
+            }
+
+            // Create second block with const values [2, 1]
+            vectorized::Block block2;
+            {
+                auto base_col1 = vectorized::ColumnVector<Int32>::create();
+                base_col1->insert_value(2);
+                auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 5);
+                block2.insert({const_col1->get_ptr(), type, "const_col1"});
+
+                auto base_col2 = vectorized::ColumnVector<Int32>::create();
+                base_col2->insert_value(1);
+                auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+                block2.insert({const_col2->get_ptr(), type, "const_col2"});
+            }
+
+            // Different order of same values should produce different hash
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_NE(hash1.get64(), hash2.get64());
         }
-        vectorized::Block block2;
-        block2.insert({std::move(col2), type, "col1"});
 
-        SipHash hash2;
-        block2.update_hash(hash2);
-        EXPECT_NE(hash1_value, hash2.get64());
+        // Multiple rows (same value repeated)
+        {
+            vectorized::Block block1;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+            auto base_col = vectorized::ColumnVector<Int32>::create();
+            base_col->insert_value(42);
+            auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 5);
+            block1.insert({const_col->get_ptr(), type, "const_col"});
+
+            // Create second block with same value but different row count
+            vectorized::Block block2;
+            auto base_col2 = vectorized::ColumnVector<Int32>::create();
+            base_col2->insert_value(42);
+            auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 3);
+            block2.insert({const_col2->get_ptr(), type, "const_col"});
+
+            // Different row counts should produce different hash
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_NE(hash1.get64(), hash2.get64());
+        }
     }
 
-    // Test case 4: Empty block
+    // Test with nullable columns
     {
-        vectorized::Block empty_block;
-        SipHash hash;
-        empty_block.update_hash(hash);
-        // Should not crash
-    }
+        // Single column with single value
+        {
+            vectorized::Block block;
+            auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+            auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
 
-    // Test case 5: Nullable column
-    {
-        vectorized::Block block;
-        auto col = vectorized::ColumnVector<Int32>::create();
-        col->insert_value(1);
-        auto nullable_col = vectorized::make_nullable(std::move(col));
-        auto type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
-        block.insert({std::move(nullable_col), type, "nullable_col"});
+            auto col = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col->get_nested_column_ptr().get());
+            auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col->get_null_map_column_ptr().get());
+            nested->insert_value(42);
+            null_map->insert_value(0);
+            block.insert({col->get_ptr(), nullable_type, "nullable_col"});
 
-        SipHash hash1;
-        block.update_hash(hash1);
-        uint64_t hash1_value = hash1.get64();
+            SipHash hash1;
+            block.update_hash(hash1);
+            uint64_t hash1_value = hash1.get64();
 
-        // Same nullable column should produce same hash
-        SipHash hash2;
-        block.update_hash(hash2);
-        EXPECT_EQ(hash1_value, hash2.get64());
+            // Same data should produce same hash
+            SipHash hash2;
+            block.update_hash(hash2);
+            EXPECT_EQ(hash1_value, hash2.get64());
+        }
+
+        // Multiple columns
+        {
+            vectorized::Block block1;
+            auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+            auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+            // Create first block with values [1(not null), 2(null)]
+            {
+                auto col1 = vectorized::ColumnNullable::create(
+                        vectorized::ColumnVector<Int32>::create(),
+                        vectorized::ColumnVector<vectorized::UInt8>::create());
+                auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                        col1->get_nested_column_ptr().get());
+                auto* null_map1 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                        col1->get_null_map_column_ptr().get());
+                nested1->insert_value(1);
+                null_map1->insert_value(0);
+                block1.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
+
+                auto col2 = vectorized::ColumnNullable::create(
+                        vectorized::ColumnVector<Int32>::create(),
+                        vectorized::ColumnVector<vectorized::UInt8>::create());
+                auto* nested2 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                        col2->get_nested_column_ptr().get());
+                auto* null_map2 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                        col2->get_null_map_column_ptr().get());
+                nested2->insert_value(2);
+                null_map2->insert_value(1);
+                block1.insert({col2->get_ptr(), nullable_type, "nullable_col2"});
+            }
+
+            // Create second block with values [2(null), 1(not null)]
+            vectorized::Block block2;
+            {
+                auto col1 = vectorized::ColumnNullable::create(
+                        vectorized::ColumnVector<Int32>::create(),
+                        vectorized::ColumnVector<vectorized::UInt8>::create());
+                auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                        col1->get_nested_column_ptr().get());
+                auto* null_map1 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                        col1->get_null_map_column_ptr().get());
+                nested1->insert_value(2);
+                null_map1->insert_value(1);
+                block2.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
+
+                auto col2 = vectorized::ColumnNullable::create(
+                        vectorized::ColumnVector<Int32>::create(),
+                        vectorized::ColumnVector<vectorized::UInt8>::create());
+                auto* nested2 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                        col2->get_nested_column_ptr().get());
+                auto* null_map2 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                        col2->get_null_map_column_ptr().get());
+                nested2->insert_value(1);
+                null_map2->insert_value(0);
+                block2.insert({col2->get_ptr(), nullable_type, "nullable_col2"});
+            }
+
+            // Different order of same values should produce different hash
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_NE(hash1.get64(), hash2.get64());
+        }
+
+        // Multiple rows
+        {
+            vectorized::Block block1;
+            auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+            auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+            // Create first block with ascending values and alternating null flags
+            {
+                auto col = vectorized::ColumnNullable::create(
+                        vectorized::ColumnVector<Int32>::create(),
+                        vectorized::ColumnVector<vectorized::UInt8>::create());
+                auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
+                        col->get_nested_column_ptr().get());
+                auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                        col->get_null_map_column_ptr().get());
+                
+                for (int i = 0; i < 5; ++i) {
+                    nested->insert_value(i);
+                    null_map->insert_value(i % 2);
+                }
+                block1.insert({col->get_ptr(), nullable_type, "nullable_col"});
+            }
+
+            // Create second block with descending values and alternating null flags
+            vectorized::Block block2;
+            {
+                auto col = vectorized::ColumnNullable::create(
+                        vectorized::ColumnVector<Int32>::create(),
+                        vectorized::ColumnVector<vectorized::UInt8>::create());
+                auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
+                        col->get_nested_column_ptr().get());
+                auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                        col->get_null_map_column_ptr().get());
+                
+                for (int i = 4; i >= 0; --i) {
+                    nested->insert_value(i);
+                    null_map->insert_value(i % 2);
+                }
+                block2.insert({col->get_ptr(), nullable_type, "nullable_col"});
+            }
+
+            // Different order of same values should produce different hash
+            SipHash hash1, hash2;
+            block1.update_hash(hash1);
+            block2.update_hash(hash2);
+            EXPECT_NE(hash1.get64(), hash2.get64());
+        }
     }
 }
 
