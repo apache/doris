@@ -35,6 +35,7 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/stream_load_pipe.h"
@@ -260,7 +261,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _runtime_state = RuntimeState::create_unique(
                 request.query_id, request.fragment_id, request.query_options,
                 _query_ctx->query_globals, _exec_env, _query_ctx.get());
-
+        _runtime_state->set_task_execution_context(shared_from_this());
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         if (request.__isset.backend_id) {
             _runtime_state->set_backend_id(request.backend_id);
@@ -295,6 +296,14 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         }
         if (local_params.__isset.topn_filter_descs) {
             _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
+        }
+
+        // init fragment_instance_ids
+        const auto target_size = request.local_params.size();
+        _fragment_instance_ids.resize(target_size);
+        for (size_t i = 0; i < request.local_params.size(); i++) {
+            auto fragment_instance_id = request.local_params[i].fragment_instance_id;
+            _fragment_instance_ids[i] = fragment_instance_id;
         }
     }
 
@@ -353,7 +362,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     _total_tasks = 0;
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
-    _fragment_instance_ids.resize(target_size);
     _runtime_filter_states.resize(target_size);
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
@@ -365,8 +373,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     auto pre_and_submit = [&](int i, PipelineFragmentContext* ctx) {
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
-        _fragment_instance_ids[i] = fragment_instance_id;
-
         _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
         std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
                 request.query_id, _runtime_filter_states[i], _query_ctx->query_mem_tracker, false);
@@ -493,8 +499,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
             if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
                 auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 DCHECK(pipeline_id_to_profile[pip_idx]);
-                RETURN_IF_ERROR(task->prepare(local_params, request.fragment.output_sink,
-                                              _query_ctx.get()));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
+                        local_params, request.fragment.output_sink, _query_ctx.get()));
             }
         }
         {
@@ -1007,7 +1013,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing data stream sink.");
         }
         _sink.reset(new ExchangeSinkOperatorX(state, row_desc, next_sink_operator_id(),
-                                              thrift_sink.stream_sink, params.destinations));
+                                              thrift_sink.stream_sink, params.destinations,
+                                              _fragment_instance_ids));
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -1134,10 +1141,10 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorPtr sink_op;
-            sink_op.reset(
-                    new ExchangeSinkOperatorX(state, *_row_desc, next_sink_operator_id(),
-                                              thrift_sink.multi_cast_stream_sink.sinks[i],
-                                              thrift_sink.multi_cast_stream_sink.destinations[i]));
+            sink_op.reset(new ExchangeSinkOperatorX(
+                    state, *_row_desc, next_sink_operator_id(),
+                    thrift_sink.multi_cast_stream_sink.sinks[i],
+                    thrift_sink.multi_cast_stream_sink.destinations[i], _fragment_instance_ids));
 
             RETURN_IF_ERROR(new_pipeline->set_sink(sink_op));
             {

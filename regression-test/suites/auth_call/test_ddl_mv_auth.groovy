@@ -54,7 +54,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         """
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
             exception "denied"
@@ -65,7 +65,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         test {
             sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
@@ -77,7 +77,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         }
     }
     sql """grant alter_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
         waitingMVTaskFinishedByMvName(dbName, tableName)
@@ -92,7 +92,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     sql """revoke select_priv(username) on ${dbName}.${tableName} from ${user}"""
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName} ON ${dbName}.${tableName};"""
             exception "denied"
@@ -103,7 +103,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         }
     }
     sql """grant alter_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName} ON ${tableName};"""
         sql """ALTER TABLE ${dbName}.${tableName} DROP ROLLUP ${rollupName};"""

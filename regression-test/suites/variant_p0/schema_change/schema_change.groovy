@@ -32,7 +32,7 @@ suite("regression_test_variant_schema_change", "variant_type"){
     def useTime = 0
     def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
+            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal

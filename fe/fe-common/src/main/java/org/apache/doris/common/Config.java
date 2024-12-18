@@ -784,7 +784,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
-    public static int max_broker_concurrency = 10;
+    public static int max_broker_concurrency = 100;
 
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -1624,6 +1624,15 @@ public class Config extends ConfigBase {
     public static boolean enable_restore_snapshot_rpc_compression = true;
 
     /**
+     * A internal config, to indicate whether to reset the index id when restore olap table.
+     *
+     * The inverted index saves the index id in the file path/header, so the index id between
+     * two clusters must be the same.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean restore_reset_index_id = true;
+
+    /**
      * Control the max num of tablets per backup job involved.
      */
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -1637,6 +1646,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean ignore_backup_not_support_table_type = false;
+
+    /**
+     * whether to ignore temp partitions when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否忽略备份临时分区，不报异常",
+        "Whether to ignore temp partitions when backup, and not report exception."
+    })
+    public static boolean ignore_backup_tmp_partitions = false;
 
     /**
      * A internal config, to control the update interval of backup handler. Only used to speed up tests.
@@ -2948,7 +2966,13 @@ public class Config extends ConfigBase {
             "Columns that have not been collected within the specified interval will trigger automatic analyze. "
                 + "0 means not trigger."
     })
-    public static long auto_analyze_interval_seconds = 0;
+    public static long auto_analyze_interval_seconds = 86400; // 24 hours.
+
+    // A internal config to control whether to enable the checkpoint.
+    //
+    // ATTN: it only used in test environment.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_checkpoint = true;
 
     //==========================================================================
     //                    begin of cloud config

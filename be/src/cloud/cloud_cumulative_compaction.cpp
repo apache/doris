@@ -92,6 +92,10 @@ PREPARE_TRY_AGAIN:
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             update_cumulative_point();
+            if (!config::enable_sleep_between_delete_cumu_compaction) {
+                st = Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                        "_last_delete_version.first not equal to -1");
+            }
         }
         return st;
     }
@@ -385,28 +389,10 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     }
     std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
     if (!pre_rowsets.empty()) {
-        auto pre_max_version = _output_rowset->version().second;
-        DeleteBitmapPtr new_delete_bitmap =
-                std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
         std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>
                 to_remove_vec;
-        for (auto& rowset : pre_rowsets) {
-            if (rowset->rowset_meta()->total_disk_size() == 0) {
-                continue;
-            }
-            for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-                rowset->rowset_id().to_string();
-                DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
-                DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
-                auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
-                        {rowset->rowset_id(), seg_id, pre_max_version});
-                to_remove_vec.emplace_back(std::make_tuple(_tablet->tablet_id(), start, end));
-                if (d->isEmpty()) {
-                    continue;
-                }
-                new_delete_bitmap->set(end, *d);
-            }
-        }
+        DeleteBitmapPtr new_delete_bitmap = nullptr;
+        agg_and_remove_old_version_delete_bitmap(pre_rowsets, to_remove_vec, new_delete_bitmap);
         if (!new_delete_bitmap->empty()) {
             // store agg delete bitmap
             DBUG_EXECUTE_IF("CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed",
@@ -426,9 +412,9 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
             }
             _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
                                                                         to_remove_vec);
-            DBUG_EXECUTE_IF(
-                    "CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets",
-                    { static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets(); });
+            DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
+                static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets();
+            });
         }
     }
     return Status::OK();

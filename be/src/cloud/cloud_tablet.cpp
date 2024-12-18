@@ -220,6 +220,7 @@ Status CloudTablet::sync_if_not_running() {
 }
 
 TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
+    std::shared_lock rlock(_meta_lock);
     return _merged_tablet_schema;
 }
 

@@ -19,7 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -40,6 +40,7 @@ import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.Options;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     protected String catalogType;
     protected Catalog catalog;
     protected AuthenticationConfig authConf;
+    protected HadoopAuthenticator hadoopAuthenticator;
 
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             PaimonProperties.WAREHOUSE
@@ -71,9 +73,8 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> propEntry : this.catalogProperty.getHadoopProperties().entrySet()) {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
-        authConf = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
+        authConf = AuthenticationConfig.getKerberosConfig(conf);
+        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authConf);
     }
 
     public String getCatalogType() {
@@ -82,40 +83,57 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     protected List<String> listDatabaseNames() {
-        return HadoopUGI.ugiDoAs(authConf, () -> new ArrayList<>(catalog.listDatabases()));
+        try {
+            return hadoopAuthenticator.doAs(() -> new ArrayList<>(catalog.listDatabases()));
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to list databases names, catalog name: " + getName(), e);
+        }
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return HadoopUGI.ugiDoAs(authConf, () -> catalog.tableExists(Identifier.create(dbName, tblName)));
+        try {
+            return hadoopAuthenticator.doAs(() -> catalog.tableExists(Identifier.create(dbName, tblName)));
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to check table existence, catalog name: " + getName(), e);
+        }
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return HadoopUGI.ugiDoAs(authConf, () -> {
-            List<String> tableNames = null;
-            try {
-                tableNames = catalog.listTables(dbName);
-            } catch (Catalog.DatabaseNotExistException e) {
-                LOG.warn("DatabaseNotExistException", e);
-            }
-            return tableNames;
-        });
+        try {
+            return hadoopAuthenticator.doAs(() -> {
+                List<String> tableNames = null;
+                try {
+                    tableNames = catalog.listTables(dbName);
+                } catch (Catalog.DatabaseNotExistException e) {
+                    LOG.warn("DatabaseNotExistException", e);
+                }
+                return tableNames;
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to list table names, catalog name: " + getName(), e);
+        }
     }
 
     public org.apache.paimon.table.Table getPaimonTable(String dbName, String tblName) {
         makeSureInitialized();
-        return HadoopUGI.ugiDoAs(authConf, () -> {
-            org.apache.paimon.table.Table table = null;
-            try {
-                table = catalog.getTable(Identifier.create(dbName, tblName));
-            } catch (Catalog.TableNotExistException e) {
-                LOG.warn("TableNotExistException", e);
-            }
-            return table;
-        });
+        try {
+            return hadoopAuthenticator.doAs(() -> {
+                org.apache.paimon.table.Table table = null;
+                try {
+                    table = catalog.getTable(Identifier.create(dbName, tblName));
+                } catch (Catalog.TableNotExistException e) {
+                    LOG.warn("TableNotExistException", e);
+                }
+                return table;
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to get Paimon table, catalog name: " + getName() + ", db: "
+                    + dbName + ", table: " + tblName, e);
+        }
     }
 
     protected String getPaimonCatalogType(String catalogType) {
@@ -127,15 +145,19 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     protected Catalog createCatalog() {
-        return HadoopUGI.ugiDoAs(authConf, () -> {
-            Options options = new Options();
-            Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
-            for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
-                options.set(kv.getKey(), kv.getValue());
-            }
-            CatalogContext context = CatalogContext.create(options, getConfiguration());
-            return createCatalogImpl(context);
-        });
+        try {
+            return hadoopAuthenticator.doAs(() -> {
+                Options options = new Options();
+                Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
+                for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
+                    options.set(kv.getKey(), kv.getValue());
+                }
+                CatalogContext context = CatalogContext.create(options, getConfiguration());
+                return createCatalogImpl(context);
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create catalog, catalog name: " + getName(), e);
+        }
     }
 
     protected Catalog createCatalogImpl(CatalogContext context) {

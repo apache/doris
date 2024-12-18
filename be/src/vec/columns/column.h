@@ -126,7 +126,7 @@ public:
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}
 
-    /// Some columns may require finalization before using of other operations.
+    // Only used in ColumnObject to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary
@@ -208,6 +208,8 @@ public:
     }
 
     /// Appends one element from other column with the same type multiple times.
+    /// we should make sure position is less than src's size and length is less than src's size,
+    /// and position + length is less than src's size
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);
@@ -221,6 +223,7 @@ public:
                                           const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
+    /// Also here should make sure indices_end is bigger than indices_begin
     /// indices_begin + indices_end represent the row indices of column src
     virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                      const uint32_t* indices_end) = 0;
@@ -460,7 +463,7 @@ public:
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
-      * reverse - reverse ordering (ascending).
+      * reverse - true: descending order, false: ascending order.
       * limit - if isn't 0, then only first limit elements of the result column could be sorted.
       * nan_direction_hint - see above.
       */
@@ -475,13 +478,6 @@ public:
       * It is necessary in ARRAY JOIN operation.
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
-
-    /// Appends one field multiple times. Can be optimized in inherited classes.
-    virtual void insert_many(const Field& field, size_t length) {
-        for (size_t i = 0; i < length; ++i) {
-            insert(field);
-        }
-    }
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
@@ -511,6 +507,7 @@ public:
 
     /// Resize memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
+    /// Note. resize means not only change column self but also sub-columns if have.
     virtual void resize(size_t /*n*/) {}
 
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
@@ -647,8 +644,7 @@ public:
       */
     String dump_structure() const;
 
-    // only used in agg value replace
-    // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
     // replace data to default value if null, used to avoid null data output decimal check failure

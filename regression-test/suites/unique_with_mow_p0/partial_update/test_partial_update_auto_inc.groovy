@@ -19,7 +19,7 @@ suite("test_partial_update_auto_inc") {
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
-    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+    connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
         sql "use ${db};"
 
         sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc """
