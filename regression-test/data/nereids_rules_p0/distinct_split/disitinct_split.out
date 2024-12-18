@@ -411,10 +411,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((.d = .d)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((.d = .d)) otherCondition=()
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashJoin[INNER_JOIN] hashCondition=((.d = .d)) otherCondition=()
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
@@ -424,10 +420,35 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
 ----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_LOCAL]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------PhysicalCteConsumer ( cteId=CTEId#0 )
+
+-- !has_other_func --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----NestedLoopJoin[CROSS_JOIN]
+------NestedLoopJoin[CROSS_JOIN]
+--------hashAgg[DISTINCT_GLOBAL]
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------hashAgg[DISTINCT_GLOBAL]
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_with_gby --
 PhysicalResultSink

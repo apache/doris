@@ -114,7 +114,7 @@ suite("distinct_split") {
     qt_count_multi_sum_avg_no_gby "select sum(distinct b), count(distinct a,d), avg(distinct c) from test_distinct_multi"
     qt_count_sum_avg_with_gby "select sum(distinct b), count(distinct a), avg(distinct c) from test_distinct_multi group by b,a order by 1,2,3"
     qt_count_multi_sum_avg_with_gby "select sum(distinct b), count(distinct a,d), avg(distinct c) from test_distinct_multi  group by a,b order by 1,2,3"
-//这里以下还需要验证结果
+
     // There is a reference query in the upper layer
     qt_multi_sum_has_upper """select c1+ c2 from (select sum(distinct b) c1, sum(distinct a) c2 from test_distinct_multi) t"""
     qt_000_count_has_upper """select abs(c1) from (select count(distinct a) c1 from test_distinct_multi) t"""
@@ -189,6 +189,7 @@ suite("distinct_split") {
     qt_multi_count_mulitcols_with_gby """explain shape plan select count(distinct b,c), count(distinct a,b) from test_distinct_multi group by d"""
     qt_three_count_mulitcols_without_gby """explain shape plan select count(distinct b,c), count(distinct a,b), count(distinct a,b,c) from test_distinct_multi"""
     qt_four_count_mulitcols_with_gby """explain shape plan select count(distinct b,c), count(distinct a,b),count(distinct b,c,d), count(distinct a,b,c) from test_distinct_multi group by d"""
+    qt_has_other_func "explain shape plan select count(distinct b), count(distinct a), max(b),sum(c),min(a)  from test_distinct_multi"
 
     // should not rewrite
     qt_multi_count_with_gby """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by c"""

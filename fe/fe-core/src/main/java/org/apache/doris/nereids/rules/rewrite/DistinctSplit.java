@@ -152,14 +152,6 @@ public class DistinctSplit extends DefaultPlanRewriter<DistinctSplitContext> imp
             Alias alias = new Alias(newDistinctAggFunc);
             outputExpressions.add(alias);
             if (i == 0) {
-                List<Expression> otherAggFuncAliases = otherAggFuncs.stream()
-                        .map(e -> ExpressionUtils.replace(e, producerToConsumerSlotMap)).collect(Collectors.toList());
-                for (Expression otherAggFuncAlias : otherAggFuncAliases) {
-                    // otherAggFunc is instance of Alias
-                    Alias outputOtherFunc = new Alias(otherAggFuncAlias.child(0));
-                    outputExpressions.add(outputOtherFunc);
-                    newToOriginDistinctFuncAlias.put(outputOtherFunc, (Alias) otherAggFuncAlias);
-                }
                 // save replacedGroupBy
                 outputJoinGroupBys.addAll(replacedGroupBy);
             }
@@ -167,10 +159,39 @@ public class DistinctSplit extends DefaultPlanRewriter<DistinctSplitContext> imp
             newAggs.add(newAgg);
             newToOriginDistinctFuncAlias.put(alias, distinctFuncWithAlias.get(i));
         }
+        buildOtherAggFuncAggregate(otherAggFuncs, producer, ctx, cloneAgg, newToOriginDistinctFuncAlias, newAggs);
         List<Expression> groupBy = agg.getGroupByExpressions();
         LogicalJoin<Plan, Plan> join = constructJoin(newAggs, groupBy);
-        return constructProject(groupBy, newToOriginDistinctFuncAlias,
-                outputJoinGroupBys, join);
+        return constructProject(groupBy, newToOriginDistinctFuncAlias, outputJoinGroupBys, join);
+    }
+
+    private static void buildOtherAggFuncAggregate(List<Alias> otherAggFuncs, LogicalCTEProducer<Plan> producer,
+            DistinctSplitContext ctx, LogicalAggregate<Plan> cloneAgg, Map<Alias, Alias> newToOriginDistinctFuncAlias,
+            List<LogicalAggregate<Plan>> newAggs) {
+        if (otherAggFuncs.isEmpty()) {
+            return;
+        }
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
+                producer.getCteId(), "", producer);
+        ctx.cascadesContext.putCTEIdToConsumer(consumer);
+        Map<Slot, Slot> producerToConsumerSlotMap = new HashMap<>();
+        for (Map.Entry<Slot, Slot> entry : consumer.getConsumerToProducerOutputMap().entrySet()) {
+            producerToConsumerSlotMap.put(entry.getValue(), entry.getKey());
+        }
+        List<Expression> replacedGroupBy = ExpressionUtils.replace(cloneAgg.getGroupByExpressions(),
+                producerToConsumerSlotMap);
+        List<NamedExpression> outputExpressions = replacedGroupBy.stream()
+                .map(Slot.class::cast).collect(Collectors.toList());
+        List<Expression> otherAggFuncAliases = otherAggFuncs.stream()
+                .map(e -> ExpressionUtils.replace(e, producerToConsumerSlotMap)).collect(Collectors.toList());
+        for (Expression otherAggFuncAlias : otherAggFuncAliases) {
+            // otherAggFunc is instance of Alias
+            Alias outputOtherFunc = new Alias(otherAggFuncAlias.child(0));
+            outputExpressions.add(outputOtherFunc);
+            newToOriginDistinctFuncAlias.put(outputOtherFunc, (Alias) otherAggFuncAlias);
+        }
+        LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(replacedGroupBy, outputExpressions, consumer);
+        newAggs.add(newAgg);
     }
 
     private static boolean isDistinctMultiColumns(AggregateFunction func) {
