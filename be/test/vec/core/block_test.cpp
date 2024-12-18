@@ -1465,7 +1465,7 @@ TEST(BlockTest, SortColumns) {
         EXPECT_EQ(nullptr, typeid_cast<const vectorized::ColumnConst*>(
                                    sorted_block.get_by_position(0).column.get()));
         EXPECT_TRUE(sorted_block.get_by_position(1).type->is_nullable());
-        EXPECT_EQ(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+        EXPECT_NE(nullptr, typeid_cast<const vectorized::ColumnConst*>(
                                    sorted_block.get_by_position(2).column.get()));
     }
 }
