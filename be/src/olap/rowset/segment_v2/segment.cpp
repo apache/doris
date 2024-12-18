@@ -1123,6 +1123,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                        OlapReaderStatistics& stats,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
     StorageReadOptions storage_read_opt;
+    storage_read_opt.stats = &stats;
     storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
