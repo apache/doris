@@ -3373,7 +3373,7 @@ TEST(BlockTest, ClearColumnData) {
         {
             vectorized::Block block;
             auto type = std::make_shared<vectorized::DataTypeInt32>();
-            
+
             for (int i = 0; i < 3; ++i) {
                 auto col = vectorized::ColumnVector<Int32>::create();
                 block.insert({std::move(col), type, "empty_col" + std::to_string(i)});
@@ -3402,7 +3402,7 @@ TEST(BlockTest, ClearColumnData) {
         auto create_test_block = [](int num_columns) {
             vectorized::Block block;
             auto type = std::make_shared<vectorized::DataTypeInt32>();
-            
+
             for (int i = 0; i < num_columns; ++i) {
                 auto col = vectorized::ColumnVector<Int32>::create();
                 col->insert_value(i + 1);
@@ -3453,7 +3453,7 @@ TEST(BlockTest, ClearColumnData) {
         auto create_test_block = [](int num_columns) {
             vectorized::Block block;
             auto type = std::make_shared<vectorized::DataTypeInt32>();
-            
+
             for (int i = 0; i < num_columns; ++i) {
                 auto base_col = vectorized::ColumnVector<Int32>::create();
                 base_col->insert_value(42 + i);
@@ -3506,21 +3506,22 @@ TEST(BlockTest, ClearColumnData) {
             vectorized::Block block;
             auto base_type = std::make_shared<vectorized::DataTypeInt32>();
             auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
-            
+
             for (int i = 0; i < num_columns; ++i) {
                 auto col = vectorized::ColumnNullable::create(
                         vectorized::ColumnVector<Int32>::create(),
                         vectorized::ColumnVector<vectorized::UInt8>::create());
-                
+
                 auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
                         col->get_nested_column_ptr().get());
                 auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
                         col->get_null_map_column_ptr().get());
-                
+
                 nested->insert_value(i + 1);
                 null_map->insert_value(i % 2);
-                
-                block.insert({col->get_ptr(), nullable_type, "nullable_col" + std::to_string(i + 1)});
+
+                block.insert(
+                        {col->get_ptr(), nullable_type, "nullable_col" + std::to_string(i + 1)});
             }
             return block;
         };
@@ -3568,7 +3569,7 @@ TEST(BlockTest, IndexByName) {
     {
         vectorized::Block block;
         block.initialize_index_by_name();
-        
+
         // Test basic name operations
         EXPECT_FALSE(block.has("col1"));
         EXPECT_THROW(block.get_position_by_name("col1"), Exception);
@@ -3745,7 +3746,8 @@ TEST(BlockTest, IndexByName) {
         // Test after structure modification
         block.erase(2); // Remove last "nullable_col1"
         block.initialize_index_by_name();
-        EXPECT_EQ(0, block.get_position_by_name("nullable_col1")); // Now first "nullable_col1" is found
+        EXPECT_EQ(0, block.get_position_by_name(
+                             "nullable_col1")); // Now first "nullable_col1" is found
     }
 }
 
@@ -3827,10 +3829,10 @@ TEST(BlockTest, ColumnTransformations) {
         EXPECT_EQ("const_col1", block.get_by_position(1).name);
 
         // Verify const values are preserved
-        const auto* col1 = assert_cast<const vectorized::ColumnConst*>(
-                block.get_by_position(1).column.get());
-        const auto* col2 = assert_cast<const vectorized::ColumnConst*>(
-                block.get_by_position(0).column.get());
+        const auto* col1 =
+                assert_cast<const vectorized::ColumnConst*>(block.get_by_position(1).column.get());
+        const auto* col2 =
+                assert_cast<const vectorized::ColumnConst*>(block.get_by_position(0).column.get());
 
         EXPECT_EQ(42, col1->get_int(0));
         EXPECT_EQ(24, col2->get_int(0));
@@ -3932,7 +3934,7 @@ TEST(BlockTest, HashUpdate) {
         {
             vectorized::Block block;
             auto type = std::make_shared<vectorized::DataTypeInt32>();
-            
+
             auto col = vectorized::ColumnVector<Int32>::create();
             col->insert_value(42);
             block.insert({std::move(col), type, "col1"});
@@ -4208,7 +4210,7 @@ TEST(BlockTest, HashUpdate) {
                         col->get_nested_column_ptr().get());
                 auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
                         col->get_null_map_column_ptr().get());
-                
+
                 for (int i = 0; i < 5; ++i) {
                     nested->insert_value(i);
                     null_map->insert_value(i % 2);
@@ -4226,7 +4228,7 @@ TEST(BlockTest, HashUpdate) {
                         col->get_nested_column_ptr().get());
                 auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
                         col->get_null_map_column_ptr().get());
-                
+
                 for (int i = 4; i >= 0; --i) {
                     nested->insert_value(i);
                     null_map->insert_value(i % 2);
@@ -4322,11 +4324,11 @@ TEST(BlockTest, CompareAt) {
     // Test with empty blocks
     {
         vectorized::Block block1, block2;
-        
+
         // Test basic compare_at
         EXPECT_EQ(0, block1.compare_at(0, 0, block2, 0));
         EXPECT_DEATH(block1.compare_at(1, 1, block2, 0), "");
-        
+
         // Test compare_at with num_columns
         EXPECT_DEATH(block1.compare_at(0, 0, 1, block2, 0), "");
 
@@ -4371,15 +4373,15 @@ TEST(BlockTest, CompareAt) {
         }
 
         // Test basic compare_at
-        EXPECT_EQ(0, block1.compare_at(0, 0, block2, 0));  // Equal rows
-        EXPECT_LT(block1.compare_at(0, 1, block2, 1), 0);  // [1,3] < [3,5]
-        EXPECT_GT(block1.compare_at(1, 0, block2, 0), 0);  // [2,4] > [1,3]
+        EXPECT_EQ(0, block1.compare_at(0, 0, block2, 0)); // Equal rows
+        EXPECT_LT(block1.compare_at(0, 1, block2, 1), 0); // [1,3] < [3,5]
+        EXPECT_GT(block1.compare_at(1, 0, block2, 0), 0); // [2,4] > [1,3]
 
         // Test compare_at with num_columns
-        EXPECT_EQ(0, block1.compare_at(0, 0, 1, block2, 0));  // Compare only first column
+        EXPECT_EQ(0, block1.compare_at(0, 0, 1, block2, 0)); // Compare only first column
 
         // Test compare_at with specific columns
-        std::vector<uint32_t> compare_cols = {1};  // Compare only second column
+        std::vector<uint32_t> compare_cols = {1}; // Compare only second column
         EXPECT_EQ(0, block1.compare_at(0, 0, &compare_cols, block2, 0));
     }
 
@@ -4424,11 +4426,11 @@ TEST(BlockTest, CompareAt) {
         EXPECT_EQ(-1, block1.compare_at(1, 0, block2, 0));
 
         // Test compare_at with num_columns
-        EXPECT_EQ(0, block1.compare_at(0, 0, 1, block2, 0));  // Compare only first column
+        EXPECT_EQ(0, block1.compare_at(0, 0, 1, block2, 0)); // Compare only first column
 
         // Test compare_at with specific columns
-        std::vector<uint32_t> compare_cols = {1};  // Compare only second column
-        EXPECT_LT(block1.compare_at(0, 0, &compare_cols, block2, 0), 0);  // const(2) < const(3)
+        std::vector<uint32_t> compare_cols = {1}; // Compare only second column
+        EXPECT_LT(block1.compare_at(0, 0, &compare_cols, block2, 0), 0); // const(2) < const(3)
     }
 
     // Test with nullable columns
@@ -4449,8 +4451,8 @@ TEST(BlockTest, CompareAt) {
                     col1->get_null_map_column_ptr().get());
             nested1->insert_value(1);
             nested1->insert_value(2);
-            null_map1->insert_value(0);  // not null
-            null_map1->insert_value(1);  // null
+            null_map1->insert_value(0); // not null
+            null_map1->insert_value(1); // null
             block1.insert({col1->get_ptr(), nullable_type, "col1"});
 
             // Second column: [null, 4]
@@ -4463,8 +4465,8 @@ TEST(BlockTest, CompareAt) {
                     col2->get_null_map_column_ptr().get());
             nested2->insert_value(3);
             nested2->insert_value(4);
-            null_map2->insert_value(1);  // null
-            null_map2->insert_value(0);  // not null
+            null_map2->insert_value(1); // null
+            null_map2->insert_value(0); // not null
             block1.insert({col2->get_ptr(), nullable_type, "col2"});
         }
 
@@ -4480,8 +4482,8 @@ TEST(BlockTest, CompareAt) {
                     col1->get_null_map_column_ptr().get());
             nested1->insert_value(1);
             nested1->insert_value(3);
-            null_map1->insert_value(0);  // not null
-            null_map1->insert_value(0);  // not null
+            null_map1->insert_value(0); // not null
+            null_map1->insert_value(0); // not null
             block2.insert({col1->get_ptr(), nullable_type, "col1"});
 
             // Second column: [3, null]
@@ -4494,21 +4496,21 @@ TEST(BlockTest, CompareAt) {
                     col2->get_null_map_column_ptr().get());
             nested2->insert_value(3);
             nested2->insert_value(5);
-            null_map2->insert_value(0);  // not null
-            null_map2->insert_value(1);  // null
+            null_map2->insert_value(0); // not null
+            null_map2->insert_value(1); // null
             block2.insert({col2->get_ptr(), nullable_type, "col2"});
         }
 
         // Test basic compare_at
-        EXPECT_EQ(0, block1.compare_at(0, 0, block2, 0));    // Equal non-null values
-        EXPECT_LT(block1.compare_at(0, 1, block2, 1), 0);    // null < non-null
-        EXPECT_GT(block1.compare_at(1, 0, block2, 0), 0);    // non-null > null
+        EXPECT_EQ(0, block1.compare_at(0, 0, block2, 0)); // Equal non-null values
+        EXPECT_LT(block1.compare_at(0, 1, block2, 1), 0); // null < non-null
+        EXPECT_GT(block1.compare_at(1, 0, block2, 0), 0); // non-null > null
 
         // Test compare_at with num_columns
         EXPECT_EQ(0, block1.compare_at(0, 0, 1, block2, 0)); // Compare only first column
 
         // Test compare_at with specific columns
-        std::vector<uint32_t> compare_cols = {1};            // Compare only second column
+        std::vector<uint32_t> compare_cols = {1}; // Compare only second column
         EXPECT_EQ(0, block1.compare_at(0, 0, &compare_cols, block2, 0)); // null > non-null
     }
 }
@@ -4552,10 +4554,10 @@ TEST(BlockTest, CompareColumnAt) {
         }
 
         // Test compare_column_at for each column
-        EXPECT_EQ(0, block1.compare_column_at(0, 0, 0, block2, 0));  // First column, equal values
-        EXPECT_LT(block1.compare_column_at(0, 1, 0, block2, 1), 0);  // First column, 2 < 3
-        EXPECT_EQ(0, block1.compare_column_at(0, 0, 1, block2, 0));  // Second column, equal values
-        EXPECT_LT(block1.compare_column_at(0, 1, 1, block2, 1), 0);  // Second column, 4 < 5
+        EXPECT_EQ(0, block1.compare_column_at(0, 0, 0, block2, 0)); // First column, equal values
+        EXPECT_LT(block1.compare_column_at(0, 1, 0, block2, 1), 0); // First column, 2 < 3
+        EXPECT_EQ(0, block1.compare_column_at(0, 0, 1, block2, 0)); // Second column, equal values
+        EXPECT_LT(block1.compare_column_at(0, 1, 1, block2, 1), 0); // Second column, 4 < 5
     }
 
     // Test with const columns
@@ -4590,10 +4592,10 @@ TEST(BlockTest, CompareColumnAt) {
         }
 
         // Test compare_column_at for each column
-        EXPECT_EQ(0, block1.compare_column_at(0, 0, 0, block2, 0));  // First column, equal values
-        EXPECT_EQ(0, block1.compare_column_at(1, 1, 0, block2, 1));  // First column, equal values
-        EXPECT_LT(block1.compare_column_at(0, 0, 1, block2, 0), 0);  // Second column, 2 < 3
-        EXPECT_LT(block1.compare_column_at(1, 1, 1, block2, 1), 0);  // Second column, 2 < 3
+        EXPECT_EQ(0, block1.compare_column_at(0, 0, 0, block2, 0)); // First column, equal values
+        EXPECT_EQ(0, block1.compare_column_at(1, 1, 0, block2, 1)); // First column, equal values
+        EXPECT_LT(block1.compare_column_at(0, 0, 1, block2, 0), 0); // Second column, 2 < 3
+        EXPECT_LT(block1.compare_column_at(1, 1, 1, block2, 1), 0); // Second column, 2 < 3
     }
 
     // Test with nullable columns
@@ -4613,8 +4615,8 @@ TEST(BlockTest, CompareColumnAt) {
                     col1->get_null_map_column_ptr().get());
             nested1->insert_value(1);
             nested1->insert_value(2);
-            null_map1->insert_value(0);  // not null
-            null_map1->insert_value(1);  // null
+            null_map1->insert_value(0); // not null
+            null_map1->insert_value(1); // null
             block1.insert({col1->get_ptr(), nullable_type, "col1"});
 
             auto col2 = vectorized::ColumnNullable::create(
@@ -4626,8 +4628,8 @@ TEST(BlockTest, CompareColumnAt) {
                     col2->get_null_map_column_ptr().get());
             nested2->insert_value(3);
             nested2->insert_value(4);
-            null_map2->insert_value(1);  // null
-            null_map2->insert_value(0);  // not null
+            null_map2->insert_value(1); // null
+            null_map2->insert_value(0); // not null
             block1.insert({col2->get_ptr(), nullable_type, "col2"});
         }
 
@@ -4642,8 +4644,8 @@ TEST(BlockTest, CompareColumnAt) {
                     col1->get_null_map_column_ptr().get());
             nested1->insert_value(1);
             nested1->insert_value(3);
-            null_map1->insert_value(0);  // not null
-            null_map1->insert_value(0);  // not null
+            null_map1->insert_value(0); // not null
+            null_map1->insert_value(0); // not null
             block2.insert({col1->get_ptr(), nullable_type, "col1"});
 
             auto col2 = vectorized::ColumnNullable::create(
@@ -4655,16 +4657,19 @@ TEST(BlockTest, CompareColumnAt) {
                     col2->get_null_map_column_ptr().get());
             nested2->insert_value(3);
             nested2->insert_value(5);
-            null_map2->insert_value(0);  // not null
-            null_map2->insert_value(1);  // null
+            null_map2->insert_value(0); // not null
+            null_map2->insert_value(1); // null
             block2.insert({col2->get_ptr(), nullable_type, "col2"});
         }
 
         // Test compare_column_at for each column
-        EXPECT_EQ(0, block1.compare_column_at(0, 0, 0, block2, 0));   // First column, equal non-null values
-        EXPECT_GT(block1.compare_column_at(1, 1, 0, block2, 1), 0);   // First column, null < non-null
-        EXPECT_EQ(block1.compare_column_at(0, 0, 1, block2, 0), 0);   // Second column, non-null > null
-        EXPECT_LT(block1.compare_column_at(1, 1, 1, block2, 1), 0);   // Second column, non-null < null
+        EXPECT_EQ(0, block1.compare_column_at(0, 0, 0, block2,
+                                              0)); // First column, equal non-null values
+        EXPECT_GT(block1.compare_column_at(1, 1, 0, block2, 1), 0); // First column, null < non-null
+        EXPECT_EQ(block1.compare_column_at(0, 0, 1, block2, 0),
+                  0); // Second column, non-null > null
+        EXPECT_LT(block1.compare_column_at(1, 1, 1, block2, 1),
+                  0); // Second column, non-null < null
     }
 }
 
@@ -4903,7 +4908,7 @@ TEST(BlockTest, CreateSameStructBlock) {
             const auto* null_map = assert_cast<const vectorized::ColumnVector<vectorized::UInt8>*>(
                     col->get_null_map_column_ptr().get());
             for (size_t i = 0; i < 5; ++i) {
-                EXPECT_EQ(0, nested->get_data()[i]); // Default value for Int32 is 0
+                EXPECT_EQ(0, nested->get_data()[i]);   // Default value for Int32 is 0
                 EXPECT_EQ(1, null_map->get_data()[i]); // Default is null
             }
         }
@@ -4944,7 +4949,8 @@ TEST(BlockTest, EraseTmpColumns) {
             auto col = vectorized::ColumnVector<Int32>::create();
             col->insert_value(i + 10);
             block.insert({std::move(col), type,
-                         std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_col" + std::to_string(i)});
+                          std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_col" +
+                                  std::to_string(i)});
         }
 
         EXPECT_EQ(5, block.columns());
@@ -4955,12 +4961,13 @@ TEST(BlockTest, EraseTmpColumns) {
         for (int i = 1; i <= 3; ++i) {
             std::string col_name = "normal_col" + std::to_string(i);
             EXPECT_TRUE(block.has(col_name));
-            EXPECT_EQ(col_name, block.get_by_position(i-1).name);
+            EXPECT_EQ(col_name, block.get_by_position(i - 1).name);
         }
 
         // Verify temporary columns are removed
         for (int i = 1; i <= 2; ++i) {
-            EXPECT_FALSE(block.has(std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_col" + std::to_string(i)));
+            EXPECT_FALSE(block.has(std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_col" +
+                                   std::to_string(i)));
         }
     }
 
@@ -4983,7 +4990,8 @@ TEST(BlockTest, EraseTmpColumns) {
             base_col->insert_value(i + 10);
             auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 5);
             block.insert({const_col->get_ptr(), type,
-                         std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_const" + std::to_string(i)});
+                          std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_const" +
+                                  std::to_string(i)});
         }
 
         EXPECT_EQ(4, block.columns());
@@ -4994,12 +5002,13 @@ TEST(BlockTest, EraseTmpColumns) {
         for (int i = 1; i <= 2; ++i) {
             std::string col_name = "const_col" + std::to_string(i);
             EXPECT_TRUE(block.has(col_name));
-            EXPECT_EQ(col_name, block.get_by_position(i-1).name);
+            EXPECT_EQ(col_name, block.get_by_position(i - 1).name);
         }
 
         // Verify temporary const columns are removed
         for (int i = 1; i <= 2; ++i) {
-            EXPECT_FALSE(block.has(std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_const" + std::to_string(i)));
+            EXPECT_FALSE(block.has(std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_const" +
+                                   std::to_string(i)));
         }
     }
 
@@ -5035,7 +5044,8 @@ TEST(BlockTest, EraseTmpColumns) {
             nested->insert_value(i + 10);
             null_map->insert_value((i + 1) % 2);
             block.insert({col->get_ptr(), nullable_type,
-                         std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_null" + std::to_string(i)});
+                          std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_null" +
+                                  std::to_string(i)});
         }
 
         EXPECT_EQ(4, block.columns());
@@ -5046,12 +5056,13 @@ TEST(BlockTest, EraseTmpColumns) {
         for (int i = 1; i <= 2; ++i) {
             std::string col_name = "nullable_col" + std::to_string(i);
             EXPECT_TRUE(block.has(col_name));
-            EXPECT_EQ(col_name, block.get_by_position(i-1).name);
+            EXPECT_EQ(col_name, block.get_by_position(i - 1).name);
         }
 
         // Verify temporary nullable columns are removed
         for (int i = 1; i <= 2; ++i) {
-            EXPECT_FALSE(block.has(std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_null" + std::to_string(i)));
+            EXPECT_FALSE(block.has(std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "tmp_null" +
+                                   std::to_string(i)));
         }
     }
 }
@@ -5085,7 +5096,7 @@ TEST(BlockTest, ClearColumnMemNotKeep) {
         keep_flags[2] = true;
 
         EXPECT_EQ(keep_flags.size(), block.columns());
-        
+
         block.clear_column_mem_not_keep(keep_flags, true);
 
         // Verify columns are kept but data is cleared for non-kept columns
@@ -5099,7 +5110,7 @@ TEST(BlockTest, ClearColumnMemNotKeep) {
                 block.get_by_position(0).column.get());
         const auto* col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
                 block.get_by_position(2).column.get());
-        
+
         for (int i = 0; i < 5; ++i) {
             EXPECT_EQ(i, col0->get_data()[i]);
             EXPECT_EQ(20 + i, col2->get_data()[i]);
@@ -5136,11 +5147,11 @@ TEST(BlockTest, ClearColumnMemNotKeep) {
         EXPECT_EQ(5, block.get_by_position(2).column->size()); // Kept
 
         // Verify const values in kept columns remain intact
-        const auto* col0 = assert_cast<const vectorized::ColumnConst*>(
-                block.get_by_position(0).column.get());
-        const auto* col2 = assert_cast<const vectorized::ColumnConst*>(
-                block.get_by_position(2).column.get());
-        
+        const auto* col0 =
+                assert_cast<const vectorized::ColumnConst*>(block.get_by_position(0).column.get());
+        const auto* col2 =
+                assert_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get());
+
         EXPECT_EQ(0, col0->get_int(0));
         EXPECT_EQ(20, col2->get_int(0));
     }
@@ -5161,7 +5172,7 @@ TEST(BlockTest, ClearColumnMemNotKeep) {
                     col->get_nested_column_ptr().get());
             auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
                     col->get_null_map_column_ptr().get());
-            
+
             for (int j = 0; j < 5; ++j) {
                 nested->insert_value(i * 10 + j);
                 null_map->insert_value(j % 2); // Alternate between null and non-null
@@ -5189,7 +5200,7 @@ TEST(BlockTest, ClearColumnMemNotKeep) {
                 block.get_by_position(0).column.get());
         const auto* col2 = assert_cast<const vectorized::ColumnNullable*>(
                 block.get_by_position(2).column.get());
-        
+
         for (int i = 0; i < 5; ++i) {
             EXPECT_EQ(i % 2, col0->is_null_at(i));
             EXPECT_EQ(i % 2, col2->is_null_at(i));
@@ -5222,10 +5233,10 @@ TEST(BlockTest, StringOperations) {
         {
             auto col = vectorized::ColumnString::create();
             std::vector<std::pair<std::string, size_t>> test_strings = {
-                {"hello\0\0\0"s, 8},  // 8 bytes, 3 trailing zeros
-                {"world\0\0"s, 7},    // 7 bytes, 2 trailing zeros
-                {"test\0"s, 5},       // 5 bytes, 1 trailing zero
-                {""s, 0}              // empty string
+                    {"hello\0\0\0"s, 8}, // 8 bytes, 3 trailing zeros
+                    {"world\0\0"s, 7},   // 7 bytes, 2 trailing zeros
+                    {"test\0"s, 5},      // 5 bytes, 1 trailing zero
+                    {""s, 0}             // empty string
             };
 
             for (const auto& [str, size] : test_strings) {
@@ -5249,24 +5260,20 @@ TEST(BlockTest, StringOperations) {
 
         // Verify initial state
         ASSERT_EQ(2, block.columns());
-        
+
         // Test shrinking string column
         std::vector<size_t> char_type_idx = {0}; // Index of string column
         ASSERT_LT(char_type_idx[0], block.columns());
         block.shrink_char_type_column_suffix_zero(char_type_idx);
 
         // Verify string column is shrunk
-        const auto* str_col = assert_cast<const vectorized::ColumnString*>(
-                block.get_by_position(0).column.get());
+        const auto* str_col =
+                assert_cast<const vectorized::ColumnString*>(block.get_by_position(0).column.get());
         ASSERT_NE(nullptr, str_col);
 
         // Verify each string
         std::vector<std::pair<std::string, size_t>> expected_results = {
-            {"hello", 5},
-            {"world", 5},
-            {"test", 4},
-            {"", 0}
-        };
+                {"hello", 5}, {"world", 5}, {"test", 4}, {"", 0}};
 
         ASSERT_EQ(expected_results.size(), str_col->size());
         for (size_t i = 0; i < expected_results.size(); ++i) {
@@ -5298,11 +5305,7 @@ TEST(BlockTest, StringOperations) {
         // Add strings with trailing zeros
         auto string_col = vectorized::ColumnString::create();
         std::vector<std::pair<std::string, size_t>> test_strings = {
-            {"hello\0\0"s, 7},
-            {"world\0"s, 6},
-            {"test\0\0\0"s, 8},
-            {""s, 0}
-        };
+                {"hello\0\0"s, 7}, {"world\0"s, 6}, {"test\0\0\0"s, 8}, {""s, 0}};
 
         for (const auto& [str, size] : test_strings) {
             string_col->insert_data(str.c_str(), size);
@@ -5314,7 +5317,8 @@ TEST(BlockTest, StringOperations) {
         array_offsets->get_data().push_back(4); // Second array: ["test", ""]
 
         // Create and insert array column
-        auto array_col = vectorized::ColumnArray::create(std::move(string_col), std::move(array_offsets));
+        auto array_col =
+                vectorized::ColumnArray::create(std::move(string_col), std::move(array_offsets));
         block.insert({std::move(array_col), array_type, "array_str_col"});
 
         // Verify initial state
@@ -5326,8 +5330,8 @@ TEST(BlockTest, StringOperations) {
         block.shrink_char_type_column_suffix_zero(char_type_idx);
 
         // Verify strings in array are shrunk
-        const auto* array_col_result = assert_cast<const vectorized::ColumnArray*>(
-                block.get_by_position(0).column.get());
+        const auto* array_col_result =
+                assert_cast<const vectorized::ColumnArray*>(block.get_by_position(0).column.get());
         ASSERT_NE(nullptr, array_col_result);
 
         const auto* string_col_result = assert_cast<const vectorized::ColumnString*>(
@@ -5336,11 +5340,7 @@ TEST(BlockTest, StringOperations) {
 
         // Verify each string in the arrays
         std::vector<std::pair<std::string, size_t>> expected_results = {
-            {"hello", 5},
-            {"world", 5},
-            {"test", 4},
-            {"", 0}
-        };
+                {"hello", 5}, {"world", 5}, {"test", 4}, {"", 0}};
 
         ASSERT_EQ(expected_results.size(), string_col_result->size());
         for (size_t i = 0; i < expected_results.size(); ++i) {
