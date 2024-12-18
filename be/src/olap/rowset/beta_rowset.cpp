@@ -18,6 +18,7 @@
 #include "olap/rowset/beta_rowset.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -578,6 +579,10 @@ Status BetaRowset::add_to_binlog() {
         }
     }};
 
+    // The publish_txn might fail even if the add_to_binlog success, so we need to check
+    // whether a file already exists before linking.
+    auto errno_is_file_exists = []() { return Errno::no() == EEXIST; };
+
     // all segments are in the same directory, so cache binlog_dir without multi times check
     std::string binlog_dir;
     for (int i = 0; i < segments_num; ++i) {
@@ -586,20 +591,18 @@ Status BetaRowset::add_to_binlog() {
         if (binlog_dir.empty()) {
             binlog_dir = std::filesystem::path(seg_file).parent_path().append("_binlog").string();
 
-            // Delete all existing files in binlog dir, to keep binlog dir clean.
             bool exists = true;
             RETURN_IF_ERROR(fs->exists(binlog_dir, &exists));
-            if (exists) {
-                RETURN_IF_ERROR(fs->delete_directory(binlog_dir));
+            if (!exists) {
+                RETURN_IF_ERROR(fs->create_directory(binlog_dir));
             }
-            RETURN_IF_ERROR(fs->create_directory(binlog_dir));
         }
 
         auto binlog_file =
                 (std::filesystem::path(binlog_dir) / std::filesystem::path(seg_file).filename())
                         .string();
         VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
-        if (!fs->link_file(seg_file, binlog_file).ok()) {
+        if (!fs->link_file(seg_file, binlog_file).ok() && !errno_is_file_exists()) {
             status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
                                              seg_file, binlog_file, Errno::no());
             return status;
@@ -616,7 +619,7 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                if (!fs->link_file(index_file, binlog_index_file).ok()) {
+                if (!fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
                     status = Status::Error<OS_ERROR>(
                             "fail to create hard link. from={}, to={}, errno={}", index_file,
                             binlog_index_file, Errno::no());
@@ -632,7 +635,7 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                if (!fs->link_file(index_file, binlog_index_file).ok()) {
+                if (!fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
                     status = Status::Error<OS_ERROR>(
                             "fail to create hard link. from={}, to={}, errno={}", index_file,
                             binlog_index_file, Errno::no());
