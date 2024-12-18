@@ -186,6 +186,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
     _segment_iterator_init_inverted_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitInvertedIndexIteratorsTimer");
+
+    _segment_create_column_readers_timer =
+            ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
+    _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
     return Status::OK();
 }
 

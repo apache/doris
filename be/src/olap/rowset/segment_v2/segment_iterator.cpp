@@ -269,7 +269,6 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
-    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     auto status = _init_impl(opts);
     if (!status.ok()) {
         _segment->update_healthy_status(status);
@@ -282,9 +281,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     if (_inited) {
         return Status::OK();
     }
+    _opts = opts;
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
-    _opts = opts;
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -1055,8 +1055,8 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
     }
     for (auto cid : _schema->column_ids()) {
         if (_bitmap_index_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
-                                                                &_bitmap_index_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(
+                    _opts.tablet_schema->column(cid), _opts, &_bitmap_index_iterators[cid]));
         }
     }
     return Status::OK();

@@ -675,6 +675,8 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.rowset_reader_create_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_rowset_reader_init_iterators_timer,
                    stats.rowset_reader_init_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_load_segments_timer,
+                   stats.rowset_reader_load_segments_timer_ns);
 
     COUNTER_UPDATE(local_state->_segment_iterator_init_timer, stats.segment_iterator_init_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_return_column_iterators_timer,
@@ -683,6 +685,10 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.segment_iterator_init_bitmap_index_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_inverted_index_iterators_timer,
                    stats.segment_iterator_init_inverted_index_iterators_timer_ns);
+
+    COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
+                   stats.segment_create_column_readers_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_load_index_timer, stats.segment_load_index_timer_ns);
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(

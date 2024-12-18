@@ -409,6 +409,9 @@ struct OlapReaderStatistics {
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
     int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
+
+    int64_t segment_create_column_readers_timer_ns = 0;
+    int64_t segment_load_index_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;
