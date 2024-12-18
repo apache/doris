@@ -25,15 +25,10 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -46,11 +41,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
-import org.apache.hadoop.fs.BlockLocation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -67,26 +60,11 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
-    protected long fileSplitSize;
-    protected boolean isSplitSizeSetBySession = false;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
-    }
-
-    @Override
-    public void init() throws UserException {
-        initFileSplitSize();
-    }
-
-    protected void initFileSplitSize() {
-        this.fileSplitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
-        this.isSplitSizeSetBySession = this.fileSplitSize > 0;
-        if (this.fileSplitSize <= 0) {
-            this.fileSplitSize = DEFAULT_SPLIT_SIZE;
-        }
     }
 
     @Override
@@ -247,62 +225,5 @@ public abstract class FileScanNode extends ExternalScanNode {
                 }
             }
         }
-    }
-
-    protected List<Split> splitFile(LocationPath path, long blockSize, BlockLocation[] blockLocations, long length,
-            long modificationTime, boolean splittable, List<String> partitionValues, SplitCreator splitCreator)
-            throws IOException {
-        if (blockLocations == null) {
-            blockLocations = new BlockLocation[0];
-        }
-        List<Split> result = Lists.newArrayList();
-        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.get());
-        if (!splittable || compressType != TFileCompressType.PLAIN) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Path {} is not splittable.", path);
-            }
-            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
-            result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
-            return result;
-        }
-        // if file split size is set by session variable, use session variable.
-        // Otherwise, use max(file split size, block size)
-        if (!isSplitSizeSetBySession) {
-            fileSplitSize = Math.max(fileSplitSize, blockSize);
-        }
-        long bytesRemaining;
-        for (bytesRemaining = length; (double) bytesRemaining / (double) fileSplitSize > 1.1D;
-                bytesRemaining -= fileSplitSize) {
-            int location = getBlockIndex(blockLocations, length - bytesRemaining);
-            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(splitCreator.create(path, length - bytesRemaining, fileSplitSize,
-                    length, modificationTime, hosts, partitionValues));
-        }
-        if (bytesRemaining != 0L) {
-            int location = getBlockIndex(blockLocations, length - bytesRemaining);
-            String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(splitCreator.create(path, length - bytesRemaining, bytesRemaining,
-                    length, modificationTime, hosts, partitionValues));
-        }
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Path {} includes {} splits.", path, result.size());
-        }
-        return result;
-    }
-
-    protected int getBlockIndex(BlockLocation[] blkLocations, long offset) {
-        if (blkLocations == null || blkLocations.length == 0) {
-            return -1;
-        }
-        for (int i = 0; i < blkLocations.length; ++i) {
-            if (blkLocations[i].getOffset() <= offset
-                    && offset < blkLocations[i].getOffset() + blkLocations[i].getLength()) {
-                return i;
-            }
-        }
-        BlockLocation last = blkLocations[blkLocations.length - 1];
-        long fileLength = last.getOffset() + last.getLength() - 1L;
-        throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
     }
 }
