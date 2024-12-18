@@ -51,6 +51,7 @@ suite ("test_nvl") {
     qt_select_mv "select ifnull(id,0) from dwd order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
 
     mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")

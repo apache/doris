@@ -20,7 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.TrashProcDir;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -39,13 +43,23 @@ import java.util.List;
  */
 public class ShowTrashCommand extends ShowCommand {
     private List<Backend> backends = Lists.newArrayList();
+    private String backendQuery;
 
     public ShowTrashCommand() {
         super(PlanType.SHOW_TRASH_COMMAND);
     }
 
+    public ShowTrashCommand(String backendQuery) {
+        super(PlanType.SHOW_TRASH_COMMAND);
+        this.backendQuery = backendQuery;
+    }
+
     public List<Backend> getBackends() {
         return backends;
+    }
+
+    public String getBackend() {
+        return backendQuery;
     }
 
     public ShowResultSetMetaData getMetaData() {
@@ -56,10 +70,26 @@ public class ShowTrashCommand extends ShowCommand {
         return builder.build();
     }
 
-    private ShowResultSet handleShowTrash() throws Exception {
+    private ShowResultSet handleShowTrash(String backendQuery) throws Exception {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
+        }
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        for (Backend backend : backendsInfo.values()) {
-            this.backends.add(backend);
+        if (backendQuery == null || backendQuery.isEmpty()) {
+            for (Backend backend : backendsInfo.values()) {
+                this.backends.add(backend);
+            }
+        } else {
+            for (Backend backend : backendsInfo.values()) {
+                String backendStr = NetUtils.getHostPortInAccessibleFormat(backend.getHost(),
+                        backend.getHeartbeatPort());
+                if (backendQuery.equals(backendStr)) {
+                    this.backends.add(backend);
+                    break;
+                }
+            }
         }
         List<List<String>> infos = Lists.newArrayList();
         TrashProcDir.getTrashInfo(backends, infos);
@@ -73,6 +103,7 @@ public class ShowTrashCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        return handleShowTrash();
+        return handleShowTrash(backendQuery);
     }
 }
+

@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <ostream>
 #include <vector>
 
@@ -223,9 +224,6 @@ bool PipelineTask::_wait_to_start() {
     _blocked_dep = _execution_dep->is_blocked_by(this);
     if (_blocked_dep != nullptr) {
         static_cast<Dependency*>(_blocked_dep)->start_watcher();
-        if (_wake_up_by_downstream) {
-            _eos = true;
-        }
         return true;
     }
 
@@ -233,9 +231,6 @@ bool PipelineTask::_wait_to_start() {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
-            if (_wake_up_by_downstream) {
-                _eos = true;
-            }
             return true;
         }
     }
@@ -257,9 +252,6 @@ bool PipelineTask::_is_blocked() {
                 _blocked_dep = dep->is_blocked_by(this);
                 if (_blocked_dep != nullptr) {
                     _blocked_dep->start_watcher();
-                    if (_wake_up_by_downstream) {
-                        _eos = true;
-                    }
                     return true;
                 }
             }
@@ -279,9 +271,6 @@ bool PipelineTask::_is_blocked() {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
-            if (_wake_up_by_downstream) {
-                _eos = true;
-            }
             return true;
         }
     }
@@ -289,15 +278,15 @@ bool PipelineTask::_is_blocked() {
 }
 
 Status PipelineTask::execute(bool* eos) {
+    if (_eos) {
+        *eos = true;
+        return Status::OK();
+    }
+
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
-    _eos = _sink->is_finished(_state) || _eos || _wake_up_by_downstream;
-    *eos = _eos;
-    if (_eos) {
-        // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
-        return Status::OK();
-    }
+
     int64_t time_spent = 0;
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
@@ -315,30 +304,34 @@ Status PipelineTask::execute(bool* eos) {
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
-        query_context()->update_wg_cpu_adder(delta_cpu_time);
+        query_context()->update_cpu_time(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         return Status::OK();
     }
-    if (_wake_up_by_downstream) {
-        _eos = true;
-        *eos = true;
-        return Status::OK();
-    }
+
     // The status must be runnable
     if (!_opened && !_fragment_context->is_canceled()) {
+        if (_wake_up_early) {
+            *eos = true;
+            _eos = true;
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_open());
     }
+
+    auto set_wake_up_and_dep_ready = [&]() {
+        if (wake_up_early()) {
+            return;
+        }
+        set_wake_up_early();
+        clear_blocking_state();
+    };
 
     _task_profile->add_info_string("TaskState", "Runnable");
     _task_profile->add_info_string("BlockedByDependency", "");
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
-            return Status::OK();
-        }
-        if (_wake_up_by_downstream) {
-            _eos = true;
-            *eos = true;
             return Status::OK();
         }
 
@@ -361,47 +354,47 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_sink->revoke_memory(_state));
             continue;
         }
-        *eos = _eos;
         DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
             Status status =
                     Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
             return status;
         });
-        // `_dry_run` means sink operator need no more data
         // `_sink->is_finished(_state)` means sink operator should be finished
-        if (_dry_run || _sink->is_finished(_state)) {
-            *eos = true;
-            _eos = true;
-        } else {
+        if (_sink->is_finished(_state)) {
+            set_wake_up_and_dep_ready();
+        }
+
+        // `_dry_run` means sink operator need no more data
+        *eos = wake_up_early() || _dry_run;
+        if (!*eos) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         }
 
+        if (*eos) {
+            RETURN_IF_ERROR(close(Status::OK(), false));
+        }
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            Status status = Status::OK();
-            // Define a lambda function to catch sink exception, because sink will check
-            // return error status with EOF, it is special, could not return directly.
-            auto sink_function = [&]() -> Status {
-                Status internal_st;
-                internal_st = _sink->sink(_state, block, *eos);
-                return internal_st;
-            };
-            status = sink_function();
-            if (!status.is<ErrorCode::END_OF_FILE>()) {
-                RETURN_IF_ERROR(status);
+            Status status = _sink->sink(_state, block, *eos);
+
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                set_wake_up_and_dep_ready();
+            } else if (!status) {
+                return status;
             }
-            *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
+
             if (*eos) { // just return, the scheduler will do finish work
-                _eos = true;
                 _task_profile->add_info_string("TaskState", "Finished");
+                _eos = true;
                 return Status::OK();
             }
         }
     }
 
-    static_cast<void>(get_task_queue()->push_back(this));
+    RETURN_IF_ERROR(get_task_queue()->push_back(this));
     return Status::OK();
 }
 
@@ -470,17 +463,14 @@ void PipelineTask::finalize() {
     _le_state_map.clear();
 }
 
-Status PipelineTask::close(Status exec_status) {
+Status PipelineTask::close(Status exec_status, bool close_sink) {
     int64_t close_ns = 0;
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, close_ns);
-        }
-    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
-        s = _sink->close(_state, exec_status);
+        if (close_sink) {
+            s = _sink->close(_state, exec_status);
+        }
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
@@ -489,9 +479,17 @@ Status PipelineTask::close(Status exec_status) {
         }
     }
     if (_opened) {
-        _fresh_profile_counter();
-        COUNTER_SET(_close_timer, close_ns);
+        COUNTER_UPDATE(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
+    }
+
+    if (close_sink && _opened) {
+        _task_profile->add_info_string("WakeUpEarly", wake_up_early() ? "true" : "false");
+        _fresh_profile_counter();
+    }
+
+    if (_task_queue) {
+        _task_queue->update_statistics(this, close_ns);
     }
     return s;
 }
@@ -508,10 +506,10 @@ std::string PipelineTask::debug_string() {
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
-                   "{}, elapse time = {}s, _wake_up_by_downstream = {}], block dependency = {}, is "
+                   "{}, elapse time = {}s, _wake_up_early = {}], block dependency = {}, is "
                    "running = {}\noperators: ",
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
-                   _wake_up_by_downstream.load(),
+                   _wake_up_early.load(),
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
     for (size_t i = 0; i < _operators.size(); i++) {

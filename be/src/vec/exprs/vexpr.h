@@ -148,6 +148,9 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+
+    bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
+
     virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
@@ -325,7 +328,6 @@ protected:
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
-    bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
 };
 

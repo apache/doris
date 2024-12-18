@@ -26,11 +26,8 @@ namespace iceberg {
 class StructLike {
 public:
     virtual ~StructLike() = default;
-    virtual int size() const = 0;
 
-    virtual std::any get(int pos) const = 0;
-
-    virtual void set(int pos, const std::any& value) = 0;
+    virtual std::any get(size_t pos) const = 0;
 };
 
 } // namespace iceberg

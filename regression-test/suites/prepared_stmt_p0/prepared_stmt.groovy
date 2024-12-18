@@ -24,7 +24,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
     def password = context.config.jdbcPassword
     // def url = context.config.jdbcUrl + "&useServerPrepStmts=true&useCursorFetch=true"
     String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, "regression_test_prepared_stmt_p0")
-    def result1 = connect(user=user, password=password, url=url) {
+    def result1 = connect(user, password, url) {
         sql """DROP TABLE IF EXISTS ${tableName} """
         sql """
              CREATE TABLE IF NOT EXISTS ${tableName} (

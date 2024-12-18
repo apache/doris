@@ -105,6 +105,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * EditLog maintains a log of the memory modifications.
@@ -296,11 +297,13 @@ public class EditLog {
                 case OperationType.OP_RECOVER_TABLE: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverTable(info);
+                    env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RECOVER_PARTITION: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverPartition(info);
+                    env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_TABLE: {
@@ -318,7 +321,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenamePartition(info);
-                    env.getBinlogManager().addTableRename(info, logId);
+                    env.getBinlogManager().addPartitionRename(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_COLUMN: {
@@ -341,15 +344,26 @@ public class EditLog {
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
                     env.getMaterializedViewHandler().replayDropRollup(info, env);
+                    env.getBinlogManager().addDropRollup(info, logId);
                     break;
                 }
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
-                    for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        env.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, false, 0),
-                                env);
+                    if (batchDropInfo.hasIndexNameMap()) {
+                        for (Map.Entry<Long, String> entry : batchDropInfo.getIndexNameMap().entrySet()) {
+                            long indexId = entry.getKey();
+                            String indexName = entry.getValue();
+                            DropInfo info = new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
+                                            batchDropInfo.getTableName(), indexId, indexName, false, false, 0);
+                            env.getMaterializedViewHandler().replayDropRollup(info, env);
+                            env.getBinlogManager().addDropRollup(info, logId);
+                        }
+                    } else {
+                        for (Long indexId : batchDropInfo.getIndexIdSet()) {
+                            DropInfo info = new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
+                                    batchDropInfo.getTableName(), indexId, "", false, false, 0);
+                            env.getMaterializedViewHandler().replayDropRollup(info, env);
+                        }
                     }
                     break;
                 }
@@ -366,7 +380,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
-                    env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
+                    env.getBinlogManager().addRollupRename(info, logId);
                     break;
                 }
                 case OperationType.OP_LOAD_START:
@@ -1432,7 +1446,8 @@ public class EditLog {
     }
 
     public void logRecoverPartition(RecoverInfo info) {
-        logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        long logId = logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logModifyPartition(ModifyPartitionInfo info) {
@@ -1459,15 +1474,25 @@ public class EditLog {
     }
 
     public void logRecoverTable(RecoverInfo info) {
-        logEdit(OperationType.OP_RECOVER_TABLE, info);
+        long logId = logEdit(OperationType.OP_RECOVER_TABLE, info);
+        Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logDropRollup(DropInfo info) {
-        logEdit(OperationType.OP_DROP_ROLLUP, info);
+        long logId = logEdit(OperationType.OP_DROP_ROLLUP, info);
+        Env.getCurrentEnv().getBinlogManager().addDropRollup(info, logId);
     }
 
     public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
-        logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
+        long logId = logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
+        for (Map.Entry<Long, String> entry : batchDropInfo.getIndexNameMap().entrySet()) {
+            DropInfo info = new DropInfo(batchDropInfo.getDbId(),
+                    batchDropInfo.getTableId(),
+                    batchDropInfo.getTableName(),
+                    entry.getKey(), entry.getValue(),
+                    false, true, 0);
+            Env.getCurrentEnv().getBinlogManager().addDropRollup(info, logId);
+        }
     }
 
     public void logFinishConsistencyCheck(ConsistencyCheckInfo info) {
@@ -1591,13 +1616,13 @@ public class EditLog {
     public void logRollupRename(TableInfo tableInfo) {
         long logId = logEdit(OperationType.OP_RENAME_ROLLUP, tableInfo);
         LOG.info("log rollup rename, logId : {}, infos: {}", logId, tableInfo);
-        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
+        Env.getCurrentEnv().getBinlogManager().addRollupRename(tableInfo, logId);
     }
 
     public void logPartitionRename(TableInfo tableInfo) {
         long logId = logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
         LOG.info("log partition rename, logId : {}, infos: {}", logId, tableInfo);
-        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
+        Env.getCurrentEnv().getBinlogManager().addPartitionRename(tableInfo, logId);
     }
 
     public void logColumnRename(TableRenameColumnInfo info) {
@@ -2061,15 +2086,11 @@ public class EditLog {
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
         long logId = logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
-        LOG.info("walter log modify table add or drop inverted indices, infos: {}, json: {}",
-                info, info.toJson(), new RuntimeException("test"));
         Env.getCurrentEnv().getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
     }
 
     public void logIndexChangeJob(IndexChangeJob indexChangeJob) {
         long logId = logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
-        LOG.info("walter log inverted index job, infos: {}, json: {}",
-                indexChangeJob, indexChangeJob.toJson(), new RuntimeException("test"));
         Env.getCurrentEnv().getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
     }
 

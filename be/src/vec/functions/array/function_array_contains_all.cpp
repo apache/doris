@@ -29,6 +29,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayContainsAll : public IFunction {
 public:
@@ -189,12 +190,12 @@ private:
         for (ssize_t row = 0; row < input_rows_count; ++row) {
             auto left_index = index_check_const(row, left_is_const);
             auto right_index = index_check_const(row, right_is_const);
-            ssize_t left_start = (*left_data.offsets_ptr)[left_index - 1];
-            ssize_t left_end = (*left_data.offsets_ptr)[left_index];
-            ssize_t left_size = left_end - left_start;
-            ssize_t right_start = (*right_data.offsets_ptr)[right_index - 1];
-            ssize_t right_end = (*right_data.offsets_ptr)[right_index];
-            ssize_t right_size = right_end - right_start;
+            size_t left_start = (*left_data.offsets_ptr)[left_index - 1];
+            size_t left_end = (*left_data.offsets_ptr)[left_index];
+            size_t left_size = left_end - left_start;
+            size_t right_start = (*right_data.offsets_ptr)[right_index - 1];
+            size_t right_end = (*right_data.offsets_ptr)[right_index];
+            size_t right_size = right_end - right_start;
             // case: [1,2,3] : []
             if (right_size == 0) {
                 dst_data[row] = 1;
@@ -216,7 +217,7 @@ private:
                     is_equal_value = false;
                     break;
                 }
-                int left_nested_loop_pos = left_pos;
+                size_t left_nested_loop_pos = left_pos;
                 right_pos = right_start;
                 while (right_pos < right_end) {
                     bool left_nested_data_is_null =
@@ -230,8 +231,9 @@ private:
                         is_equal_value = false;
                     } else {
                         // all is not null, check the data is equal
-                        const auto* left_column = assert_cast<const T*>(left_data.nested_col);
-                        const auto* right_column = assert_cast<const T*>(right_data.nested_col);
+                        const auto* left_column = assert_cast<const T*>(left_data.nested_col.get());
+                        const auto* right_column =
+                                assert_cast<const T*>(right_data.nested_col.get());
                         auto res = left_column->compare_at(left_nested_loop_pos, right_pos,
                                                            *right_column, -1);
                         is_equal_value = (res == 0);
@@ -261,5 +263,5 @@ void register_function_array_contains_all(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayContainsAll>();
     factory.register_alias("array_contains_all", "hasSubstr");
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

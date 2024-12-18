@@ -16,7 +16,7 @@ PhysicalResultSink
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+--------------------------------filter(OR[(return_rank <= 10),(currency_rank <= 10)])
 ----------------------------------PhysicalWindow
 ------------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------------PhysicalWindow
@@ -48,7 +48,7 @@ PhysicalResultSink
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+--------------------------------filter(OR[(return_rank <= 10),(currency_rank <= 10)])
 ----------------------------------PhysicalWindow
 ------------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------------PhysicalWindow
@@ -80,7 +80,7 @@ PhysicalResultSink
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+--------------------------------filter(OR[(return_rank <= 10),(currency_rank <= 10)])
 ----------------------------------PhysicalWindow
 ------------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------------PhysicalWindow

@@ -168,25 +168,35 @@ int Checker::start() {
             auto ctime_ms =
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             g_bvar_checker_enqueue_cost_s.put(instance_id, ctime_ms / 1000 - enqueue_time_s);
-            ret = checker->do_check();
+
+            bool success {true};
+
+            if (int ret = checker->do_check(); ret != 0) {
+                success = false;
+            }
 
             if (config::enable_inverted_check) {
-                if (ret == 0) {
-                    ret = checker->do_inverted_check();
+                if (int ret = checker->do_inverted_check(); ret != 0) {
+                    success = false;
                 }
             }
 
-            if (ret < 0) {
-                // If ret < 0, it means that a temporary error occurred during the check process.
-                // The check job should not be considered finished, and the next round of check job
-                // should be retried as soon as possible.
-                return;
+            if (config::enable_delete_bitmap_inverted_check) {
+                if (int ret = checker->do_delete_bitmap_inverted_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_delete_bitmap_storage_optimize_check) {
+                if (int ret = checker->do_delete_bitmap_storage_optimize_check(); ret != 0) {
+                    success = false;
+                }
             }
 
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
-                                            ip_port_, ret == 0, ctime_ms);
+                                            ip_port_, success, ctime_ms);
             }
             {
                 std::lock_guard lock(mtx_);
@@ -746,6 +756,437 @@ int InstanceChecker::do_inverted_check() {
         }
     }
     return num_file_leak > 0 ? 1 : check_ret;
+}
+
+int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_rowset_key({instance_id_, 0, 0});
+    auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it, false, 1);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version} -> RowsetMetaCloudPB
+            auto tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+
+            if (!it->has_next()) {
+                // Update to next smallest key for iteration
+                // scan for next tablet in this instance
+                begin = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+            }
+
+            TabletMetaCloudPB tablet_meta;
+            int ret = get_tablet_meta(txn_kv_.get(), instance_id_, tablet_id, tablet_meta);
+            if (ret < 0) {
+                LOG(WARNING) << fmt::format(
+                        "failed to get_tablet_meta in do_delete_bitmap_integrity_check(), "
+                        "instance_id={}, tablet_id={}",
+                        instance_id_, tablet_id);
+                return ret;
+            }
+
+            if (tablet_meta.enable_unique_key_merge_on_write()) {
+                // only check merge-on-write table
+                int ret = check_func(tablet_id);
+                if (ret < 0) {
+                    // return immediately when encounter unexpected error,
+                    // otherwise, we continue to check the next tablet
+                    return ret;
+                }
+            }
+        }
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::traverse_rowset_delete_bitmaps(
+        int64_t tablet_id, std::string rowset_id,
+        const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback) {
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
+    auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id,
+                                       std::numeric_limits<int64_t>::max(),
+                                       std::numeric_limits<int64_t>::max()});
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            auto version = std::get<std::int64_t>(std::get<0>(out[5]));
+            auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
+
+            int ret = callback(tablet_id, rowset_id, version, segment_id);
+            if (ret != 0) {
+                return ret;
+            }
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
+    } while (it->more() && !stopped());
+
+    return 0;
+}
+
+int InstanceChecker::collect_tablet_rowsets(
+        int64_t tablet_id, const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
+    auto end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+
+    int64_t rowsets_num {0};
+    do {
+        TxnErrorCode err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            doris::RowsetMetaCloudPB rowset;
+            if (!rowset.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
+                return -1;
+            }
+
+            ++rowsets_num;
+            collect_cb(rowset);
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
+    } while (it->more() && !stopped());
+
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] successfully collect rowsets for instance_id={}, "
+            "tablet_id={}, rowsets_num={}",
+            instance_id_, tablet_id, rowsets_num);
+    return 0;
+}
+
+int InstanceChecker::do_delete_bitmap_inverted_check() {
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] begin to do_delete_bitmap_inverted_check for instance_id={}",
+            instance_id_);
+
+    // number of delete bitmap keys being scanned
+    int64_t total_delete_bitmap_keys {0};
+    // number of delete bitmaps which belongs to non mow tablet
+    int64_t abnormal_delete_bitmaps {0};
+    // number of delete bitmaps which doesn't have corresponding rowset in MS
+    int64_t leaked_delete_bitmaps {0};
+
+    auto start_time = std::chrono::steady_clock::now();
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+        g_bvar_inverted_checker_leaked_delete_bitmaps.put(instance_id_, leaked_delete_bitmaps);
+        g_bvar_inverted_checker_abnormal_delete_bitmaps.put(instance_id_, abnormal_delete_bitmaps);
+        g_bvar_inverted_checker_delete_bitmaps_scanned.put(instance_id_, total_delete_bitmap_keys);
+
+        auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - start_time)
+                            .count();
+        if (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) {
+            LOG(WARNING) << fmt::format(
+                    "[delete bitmap check fails] delete bitmap inverted check for instance_id={}, "
+                    "cost={} ms, total_delete_bitmap_keys={}, leaked_delete_bitmaps={}, "
+                    "abnormal_delete_bitmaps={}",
+                    instance_id_, cost, total_delete_bitmap_keys, leaked_delete_bitmaps,
+                    abnormal_delete_bitmaps);
+        } else {
+            LOG(INFO) << fmt::format(
+                    "[delete bitmap checker] delete bitmap inverted check for instance_id={}, "
+                    "passed. cost={} ms, total_delete_bitmap_keys={}",
+                    instance_id_, cost, total_delete_bitmap_keys);
+        }
+    });
+
+    struct TabletsRowsetsCache {
+        int64_t tablet_id {-1};
+        bool enable_merge_on_write {false};
+        std::unordered_set<std::string> rowsets {};
+    } tablet_rowsets_cache {};
+
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_delete_bitmap_key({instance_id_, 0, "", 0, 0});
+    auto end =
+            meta_delete_bitmap_key({instance_id_, std::numeric_limits<int64_t>::max(), "", 0, 0});
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            auto tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+            auto rowset_id = std::get<std::string>(std::get<0>(out[4]));
+            auto version = std::get<std::int64_t>(std::get<0>(out[5]));
+            auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
+
+            ++total_delete_bitmap_keys;
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+            }
+
+            if (tablet_rowsets_cache.tablet_id == -1 ||
+                tablet_rowsets_cache.tablet_id != tablet_id) {
+                TabletMetaCloudPB tablet_meta;
+                int ret = get_tablet_meta(txn_kv_.get(), instance_id_, tablet_id, tablet_meta);
+                if (ret < 0) {
+                    LOG(WARNING) << fmt::format(
+                            "[delete bitmap checker] failed to get_tablet_meta in "
+                            "do_delete_bitmap_inverted_check(), instance_id={}, tablet_id={}",
+                            instance_id_, tablet_id);
+                    return ret;
+                }
+
+                tablet_rowsets_cache.tablet_id = tablet_id;
+                tablet_rowsets_cache.enable_merge_on_write =
+                        tablet_meta.enable_unique_key_merge_on_write();
+                tablet_rowsets_cache.rowsets.clear();
+
+                if (tablet_rowsets_cache.enable_merge_on_write) {
+                    // only collect rowsets for merge-on-write tablet
+                    auto collect_cb =
+                            [&tablet_rowsets_cache](const doris::RowsetMetaCloudPB& rowset) {
+                                tablet_rowsets_cache.rowsets.insert(rowset.rowset_id_v2());
+                            };
+                    ret = collect_tablet_rowsets(tablet_id, collect_cb);
+                    if (ret < 0) {
+                        return ret;
+                    }
+                }
+            }
+            DCHECK_EQ(tablet_id, tablet_rowsets_cache.tablet_id);
+
+            if (!tablet_rowsets_cache.enable_merge_on_write) {
+                // clang-format off
+                TEST_SYNC_POINT_CALLBACK(
+                        "InstanceChecker::do_delete_bitmap_inverted_check.get_abnormal_delete_bitmap",
+                        &tablet_id, &rowset_id, &version, &segment_id);
+                // clang-format on
+                ++abnormal_delete_bitmaps;
+                // log an error and continue to check the next delete bitmap
+                LOG(WARNING) << fmt::format(
+                        "[delete bitmap check fails] find a delete bitmap belongs to tablet "
+                        "which is not a merge-on-write table! instance_id={}, tablet_id={}, "
+                        "version={}, segment_id={}",
+                        instance_id_, tablet_id, version, segment_id);
+                continue;
+            }
+
+            if (!tablet_rowsets_cache.rowsets.contains(rowset_id)) {
+                TEST_SYNC_POINT_CALLBACK(
+                        "InstanceChecker::do_delete_bitmap_inverted_check.get_leaked_delete_bitmap",
+                        &tablet_id, &rowset_id, &version, &segment_id);
+                ++leaked_delete_bitmaps;
+                // log an error and continue to check the next delete bitmap
+                LOG(WARNING) << fmt::format(
+                        "[delete bitmap check fails] can't find corresponding rowset for delete "
+                        "bitmap instance_id={}, tablet_id={}, rowset_id={}, version={}, "
+                        "segment_id={}",
+                        instance_id_, tablet_id, rowset_id, version, segment_id);
+            }
+        }
+    } while (it->more() && !stopped());
+
+    return (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) ? 1 : 0;
+}
+
+int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
+    using Version = std::pair<int64_t, int64_t>;
+    struct RowsetDigest {
+        std::string rowset_id;
+        Version version;
+        doris::SegmentsOverlapPB segments_overlap;
+
+        bool operator<(const RowsetDigest& other) const {
+            return version.first < other.version.first;
+        }
+
+        bool produced_by_compaction() const {
+            return (version.first < version.second) ||
+                   ((version.first == version.second) && segments_overlap == NONOVERLAPPING);
+        }
+    };
+
+    // number of rowsets which may have problems
+    int64_t abnormal_rowsets_num {0};
+
+    std::vector<RowsetDigest> tablet_rowsets {};
+    // Get all visible rowsets of this tablet
+    auto collect_cb = [&tablet_rowsets](const doris::RowsetMetaCloudPB& rowset) {
+        if (rowset.start_version() == 0 && rowset.end_version() == 1) {
+            // ignore dummy rowset [0-1]
+            return;
+        }
+        tablet_rowsets.emplace_back(
+                rowset.rowset_id_v2(),
+                std::make_pair<int64_t, int64_t>(rowset.start_version(), rowset.end_version()),
+                rowset.segments_overlap_pb());
+    };
+    if (int ret = collect_tablet_rowsets(tablet_id, collect_cb); ret != 0) {
+        return ret;
+    }
+
+    std::sort(tablet_rowsets.begin(), tablet_rowsets.end());
+
+    // find right-most rowset which is produced by compaction
+    auto it = std::find_if(
+            tablet_rowsets.crbegin(), tablet_rowsets.crend(),
+            [](const RowsetDigest& rowset) { return rowset.produced_by_compaction(); });
+    if (it == tablet_rowsets.crend()) {
+        LOG(INFO) << fmt::format(
+                "[delete bitmap checker] skip to check delete bitmap storage optimize for "
+                "tablet_id={} because it doesn't have compacted rowsets.",
+                tablet_id);
+        return 0;
+    }
+
+    int64_t start_version = it->version.first;
+    int64_t pre_min_version = it->version.second;
+
+    // after BE sweeping stale rowsets, all rowsets in this tablet before
+    // should not have delete bitmaps with versions lower than `pre_min_version`
+    if (config::delete_bitmap_storage_optimize_check_version_gap > 0) {
+        pre_min_version -= config::delete_bitmap_storage_optimize_check_version_gap;
+        if (pre_min_version <= 1) {
+            LOG(INFO) << fmt::format(
+                    "[delete bitmap checker] skip to check delete bitmap storage optimize for "
+                    "tablet_id={} because pre_min_version is too small.",
+                    tablet_id);
+            return 0;
+        }
+    }
+
+    auto check_func = [pre_min_version, instance_id = instance_id_](
+                              int64_t tablet_id, std::string_view rowset_id, int64_t version,
+                              int64_t segment_id) -> int {
+        if (version < pre_min_version) {
+            LOG(WARNING) << fmt::format(
+                    "[delete bitmap check fails] delete bitmap storage optimize check fail for "
+                    "instance_id={}, tablet_id={}, rowset_id={}, found delete bitmap with "
+                    "version={} < pre_min_version={}",
+                    instance_id, tablet_id, rowset_id, version, pre_min_version);
+            return 1;
+        }
+        return 0;
+    };
+
+    for (const auto& rowset : tablet_rowsets) {
+        // check for all rowsets before the max compacted rowset
+        if (rowset.version.second < start_version) {
+            auto rowset_id = rowset.rowset_id;
+            int ret = traverse_rowset_delete_bitmaps(tablet_id, rowset_id, check_func);
+            if (ret < 0) {
+                return ret;
+            }
+
+            if (ret != 0) {
+                ++abnormal_rowsets_num;
+                TEST_SYNC_POINT_CALLBACK(
+                        "InstanceChecker::check_delete_bitmap_storage_optimize.get_abnormal_rowset",
+                        &tablet_id, &rowset_id);
+            }
+        }
+    }
+
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] finish check delete bitmap storage optimize for "
+            "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}, "
+            "pre_min_version={}",
+            instance_id_, tablet_id, tablet_rowsets.size(), abnormal_rowsets_num, pre_min_version);
+
+    return (abnormal_rowsets_num > 1 ? 1 : 0);
+}
+
+int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
+    int64_t total_tablets_num {0};
+    int64_t failed_tablets_num {0};
+
+    // check that for every visible rowset, there exists at least delete one bitmap in MS
+    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
+        ++total_tablets_num;
+        int res = check_delete_bitmap_storage_optimize(tablet_id);
+        failed_tablets_num += (res != 0);
+        return res;
+    });
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] check delete bitmap storage optimize for instance_id={}, "
+            "total_tablets_num={}, failed_tablets_num={}",
+            instance_id_, total_tablets_num, failed_tablets_num);
+
+    return (failed_tablets_num > 0) ? 1 : 0;
 }
 
 } // namespace doris::cloud

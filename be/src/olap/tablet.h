@@ -173,6 +173,7 @@ public:
     // MUST hold EXCLUSIVE `_meta_lock`.
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
+    bool rowset_exists_unlocked(const RowsetSharedPtr& rowset);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
@@ -417,7 +418,8 @@ public:
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
+                              const RowsetIdUnorderedSet& cur_rowset_ids,
+                              int64_t lock_id = -1) override;
 
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     bool check_all_rowset_segment();
@@ -439,11 +441,6 @@ public:
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     std::string get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const;
-    std::string get_segment_index_filepath(std::string_view rowset_id,
-                                           std::string_view segment_index,
-                                           std::string_view index_id) const;
-    std::string get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
-                                           int64_t index_id) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);

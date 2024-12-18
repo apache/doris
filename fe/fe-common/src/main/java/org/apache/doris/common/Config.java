@@ -164,7 +164,7 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
-    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+    @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
             "Force SQLServer Jdbc Catalog encrypt to false"})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
@@ -424,6 +424,10 @@ public class Config extends ConfigBase {
                     + "If you enlarge this value, you should enlarge the value in "
                     + "`/proc/sys/net/core/somaxconn` at the same time"})
     public static int mysql_nio_backlog_num = 1024;
+
+    @ConfField(description = {"是否启用 mysql 连接中的 TCP keep alive，默认禁用",
+            "Whether to enable TCP Keep-Alive for MySQL connections, disabled by default"})
+    public static boolean mysql_nio_enable_keep_alive = false;
 
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
@@ -780,7 +784,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
-    public static int max_broker_concurrency = 10;
+    public static int max_broker_concurrency = 100;
 
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -1620,6 +1624,15 @@ public class Config extends ConfigBase {
     public static boolean enable_restore_snapshot_rpc_compression = true;
 
     /**
+     * A internal config, to indicate whether to reset the index id when restore olap table.
+     *
+     * The inverted index saves the index id in the file path/header, so the index id between
+     * two clusters must be the same.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean restore_reset_index_id = true;
+
+    /**
      * Control the max num of tablets per backup job involved.
      */
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -1633,6 +1646,21 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean ignore_backup_not_support_table_type = false;
+
+    /**
+     * whether to ignore temp partitions when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否忽略备份临时分区，不报异常",
+        "Whether to ignore temp partitions when backup, and not report exception."
+    })
+    public static boolean ignore_backup_tmp_partitions = false;
+
+    /**
+     * A internal config, to control the update interval of backup handler. Only used to speed up tests.
+     */
+    @ConfField(mutable = false)
+    public static long backup_handler_update_interval_millis = 3000;
 
     /**
      * Control the default max num of the instance for a user.
@@ -2765,16 +2793,17 @@ public class Config extends ConfigBase {
     public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
-            "The max number of upload tasks assigned to each be during the backup process, the default value is 3."
+            "备份过程中，一个 upload 任务上传的快照数量上限，默认值为10个",
+            "The max number of snapshots assigned to a upload task during the backup process, the default value is 10."
     })
-    public static int backup_upload_task_num_per_be = 3;
+    public static int backup_upload_snapshot_batch_size = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "恢复过程中，分配给每个be的download任务最大个数，默认值为3个。",
-            "The max number of download tasks assigned to each be during the restore process, the default value is 3."
+            "恢复过程中，一个 download 任务下载的快照数量上限，默认值为10个",
+            "The max number of snapshots assigned to a download task during the restore process, "
+            + "the default value is 10."
     })
-    public static int restore_download_task_num_per_be = 3;
+    public static int restore_download_snapshot_batch_size = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "备份恢复过程中，单次 RPC 分配给每个be的任务最大个数，默认值为10000个。",
@@ -2937,7 +2966,13 @@ public class Config extends ConfigBase {
             "Columns that have not been collected within the specified interval will trigger automatic analyze. "
                 + "0 means not trigger."
     })
-    public static long auto_analyze_interval_seconds = 0;
+    public static long auto_analyze_interval_seconds = 86400; // 24 hours.
+
+    // A internal config to control whether to enable the checkpoint.
+    //
+    // ATTN: it only used in test environment.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_checkpoint = true;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3188,6 +3223,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
     public static int calculate_delete_bitmap_task_timeout_seconds = 15;
 
+    @ConfField(mutable = true, description = {"存算分离模式下事务导入calculate delete bitmap task 超时时间，默认300s"})
+    public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
+
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
 
@@ -3220,6 +3258,10 @@ public class Config extends ConfigBase {
             + "doris will switch to the next default compute group automatically"
             })
     public static boolean enable_multi_default_compute_group = false;
+
+    @ConfField(description = {"Get tablet stat task的最大并发数。",
+        "Maximal concurrent num of get tablet stat job."})
+    public static int max_get_tablet_stat_task_threads_num = 4;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

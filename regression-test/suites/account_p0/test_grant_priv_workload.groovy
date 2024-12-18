@@ -33,7 +33,7 @@ suite("test_grant_priv_workload") {
 
     // test only have USAGE_PRIV, can not grant to other user
     sql """grant USAGE_PRIV on WORKLOAD GROUP ${workload1} to ${user1}"""
-    connect(user=user1, password="${pwd}", url=url) {
+    connect(user1, "${pwd}", url) {
         try {
             sql """grant USAGE_PRIV on WORKLOAD GROUP ${workload1} to ${user2}"""
             Assert.fail("can not grant to other user");
@@ -44,7 +44,7 @@ suite("test_grant_priv_workload") {
 
     // test both have USAGE_PRIV and grant_priv , can grant to other user
     sql """grant grant_priv on WORKLOAD GROUP ${workload1} to ${user1}"""
-    connect(user=user1, password="${pwd}", url=url) {
+    connect(user1, "${pwd}", url) {
         try {
            sql """grant USAGE_PRIV on WORKLOAD GROUP ${workload1} to ${user2}"""
         } catch (Exception e) {

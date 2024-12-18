@@ -342,38 +342,22 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     if constexpr (std::is_same_v<T, Int128>) { // largeint
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-        char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-        if (!ptr) {
-            return Status::InternalError(
-                    "malloc memory error when write largeint column data to orc file.");
-        }
-        StringRef bufferRef;
-        bufferRef.data = ptr;
-        bufferRef.size = BUFFER_UNIT_SIZE;
-        size_t offset = 0;
-        const size_t begin_off = offset;
+        INIT_MEMORY_FOR_ORC_WRITER()
 
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 0) {
-                continue;
-            }
-            std::string value_str = fmt::format("{}", col_data[row_id]);
-            size_t len = value_str.size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
-            offset += len;
-            cur_batch->length[row_id] = len;
-        }
-        size_t data_off = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
-                data_off += cur_batch->length[row_id];
+                std::string value_str = fmt::format("{}", col_data[row_id]);
+                size_t len = value_str.size();
+
+                REALLOC_MEMORY_FOR_ORC_WRITER()
+
+                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+                cur_batch->length[row_id] = len;
+                offset += len;
             }
         }
-        buffer_list.emplace_back(bufferRef);
+
         cur_batch->numElements = end - start;
     } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) { // tinyint/boolean
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ByteVectorBatch)

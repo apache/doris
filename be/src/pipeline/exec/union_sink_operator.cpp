@@ -19,6 +19,7 @@
 
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
@@ -27,6 +28,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -54,7 +56,8 @@ Status UnionSinkLocalState::open(RuntimeState* state) {
 UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
                                        const TPlanNode& tnode, const DescriptorTbl& descs)
         : Base(sink_id, tnode.node_id, tnode.node_id),
-          _first_materialized_child_idx(tnode.union_node.first_materialized_child_idx),
+          _first_materialized_child_idx(
+                  cast_set<int>(tnode.union_node.first_materialized_child_idx)),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _cur_child_id(child_id),
           _child_size(tnode.num_children) {}
@@ -130,4 +133,5 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

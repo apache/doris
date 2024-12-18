@@ -134,6 +134,57 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 -- !predicate_pushdown8 --
 1533
 
+-- !predicate_pushdown_in1 --
+0
+
+-- !predicate_pushdown_in2 --
+1634
+
+-- !predicate_pushdown_in3 --
+1597
+
+-- !orc_all_types_tinyint_col_is_null --
+366
+
+-- !orc_all_types_smallint_col_is_null --
+359
+
+-- !orc_all_types_int_col_is_null --
+361
+
+-- !orc_all_types_bigint_col_is_null --
+377
+
+-- !orc_all_types_boolean_col_is_null --
+369
+
+-- !orc_all_types_float_col_is_null --
+340
+
+-- !orc_all_types_double_col_is_null --
+395
+
+-- !orc_all_types_string_col_is_null --
+347
+
+-- !orc_all_types_binary_col_is_null --
+362
+
+-- !orc_all_types_timestamp_col_is_null --
+339
+
+-- !orc_all_types_decimal_col_is_null --
+367
+
+-- !orc_all_types_char_col_is_null --
+0
+
+-- !orc_all_types_varchar_col_is_null --
+0
+
+-- !orc_all_types_date_col_is_null --
+378
+
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.8723304616937395E17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col
 2	49	999613702	105493714032727452	\N	6.3322381E8	9.8642324410240179E17	Unveil bright recruit participate. Suspect impression camera mathematical revelation. Fault live2 elbow debt west hydrogen current.	how literary	2022-09-03T17:20:21	481707.1065	tablets	boolean_col	2020-01-12	[]	["HoMrAnn", "wteEFvIwoZsVpVQdscMb", null, "zcGFmv", "kGEBBckbMtX", "hrEtCGFdPWZK"]	tablets	boolean_col
@@ -320,6 +371,57 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 
 -- !predicate_pushdown8 --
 1533
+
+-- !predicate_pushdown_in1 --
+0
+
+-- !predicate_pushdown_in2 --
+1634
+
+-- !predicate_pushdown_in3 --
+1597
+
+-- !orc_all_types_tinyint_col_is_null --
+366
+
+-- !orc_all_types_smallint_col_is_null --
+359
+
+-- !orc_all_types_int_col_is_null --
+361
+
+-- !orc_all_types_bigint_col_is_null --
+377
+
+-- !orc_all_types_boolean_col_is_null --
+369
+
+-- !orc_all_types_float_col_is_null --
+340
+
+-- !orc_all_types_double_col_is_null --
+395
+
+-- !orc_all_types_string_col_is_null --
+347
+
+-- !orc_all_types_binary_col_is_null --
+362
+
+-- !orc_all_types_timestamp_col_is_null --
+339
+
+-- !orc_all_types_decimal_col_is_null --
+367
+
+-- !orc_all_types_char_col_is_null --
+0
+
+-- !orc_all_types_varchar_col_is_null --
+0
+
+-- !orc_all_types_date_col_is_null --
+378
 
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.8723304616937395E17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col

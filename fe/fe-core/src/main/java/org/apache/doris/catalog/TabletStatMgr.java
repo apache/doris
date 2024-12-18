@@ -114,6 +114,11 @@ public class TabletStatMgr extends MasterDaemon {
                 Long tableDataSize = 0L;
                 Long tableTotalReplicaDataSize = 0L;
 
+                Long tableTotalLocalIndexSize = 0L;
+                Long tableTotalLocalSegmentSize = 0L;
+                Long tableTotalRemoteIndexSize = 0L;
+                Long tableTotalRemoteSegmentSize = 0L;
+
                 Long tableRemoteDataSize = 0L;
 
                 Long tableReplicaCount = 0L;
@@ -171,6 +176,10 @@ public class TabletStatMgr extends MasterDaemon {
                                         tabletRemoteDataSize = replica.getRemoteDataSize();
                                     }
                                     tableReplicaCount++;
+                                    tableTotalLocalIndexSize += replica.getLocalInvertedIndexSize();
+                                    tableTotalLocalSegmentSize += replica.getLocalSegmentSize();
+                                    tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
+                                    tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
@@ -196,7 +205,9 @@ public class TabletStatMgr extends MasterDaemon {
                     // this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
-                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
+                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
+                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize,
+                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",
@@ -220,6 +231,10 @@ public class TabletStatMgr extends MasterDaemon {
                     if (replica != null) {
                         replica.setDataSize(stat.getDataSize());
                         replica.setRemoteDataSize(stat.getRemoteDataSize());
+                        replica.setLocalInvertedIndexSize(stat.getLocalIndexSize());
+                        replica.setLocalSegmentSize(stat.getLocalSegmentSize());
+                        replica.setRemoteInvertedIndexSize(stat.getRemoteIndexSize());
+                        replica.setRemoteSegmentSize(stat.getRemoteSegmentSize());
                         replica.setRowCount(stat.getRowCount());
                         replica.setTotalVersionCount(stat.getTotalVersionCount());
                         replica.setVisibleVersionCount(stat.isSetVisibleVersionCount() ? stat.getVisibleVersionCount()

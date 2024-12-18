@@ -167,7 +167,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateGroupByConstant()),
 
             topDown(new SimplifyAggGroupBy()),
-            topDown(new CompressedMaterialize()),
+            bottomUp(new CompressedMaterialize()),
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
             topDown(new QualifyToFilter()),

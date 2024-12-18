@@ -205,6 +205,7 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     s3_conf.region = obj_info.region();
     s3_conf.bucket = obj_info.bucket();
     s3_conf.prefix = obj_info.prefix();
+    s3_conf.use_virtual_addressing = !obj_info.use_path_style();
 
     return s3_conf;
 }
@@ -289,7 +290,7 @@ int S3Accessor::init() {
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 std::move(aws_cred), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                true /* useVirtualAddressing */);
+                conf_.use_virtual_addressing /* useVirtualAddressing */);
         obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);
         return 0;
     }
