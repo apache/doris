@@ -328,7 +328,6 @@ protected:
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
-    bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
 };
 
