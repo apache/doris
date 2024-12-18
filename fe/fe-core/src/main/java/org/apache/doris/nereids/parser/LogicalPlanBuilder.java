@@ -5112,21 +5112,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitSwitchCatalog(SwitchCatalogContext ctx) {
-        String catalogName = ctx.catalog.getText();
-        if (catalogName != null) {
-            return new SwitchCommand(catalogName);
+        if (ctx.catalog != null) {
+            return new SwitchCommand(ctx.catalog.getText());
         }
         throw new ParseException("catalog name can not be null");
     }
 
     @Override
     public LogicalPlan visitUseDatabase(UseDatabaseContext ctx) {
-        String catalog = ctx.catalog.getText();
-        String database = ctx.database.getText();
-        if (database == null) {
+        if (ctx.database == null) {
             throw new ParseException("database name can not be null");
         }
-        return catalog == null ? new UseCommand(database) : new UseCommand(catalog, database);
+        return ctx.catalog != null ? new UseCommand(ctx.catalog.getText(), ctx.database.getText())
+                : new UseCommand(ctx.database.getText());
     }
 }
 
