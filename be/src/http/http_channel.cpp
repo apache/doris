@@ -25,7 +25,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "common/logging.h"
 #include "common/status.h"
