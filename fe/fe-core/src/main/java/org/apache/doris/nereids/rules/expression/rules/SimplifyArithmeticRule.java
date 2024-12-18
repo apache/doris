@@ -168,8 +168,8 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
                 doFlatten(!isNegativeArithmetic.test(arithmetic), arithmetic.right(), isAddOrSub, result, castType);
             }
         } else {
-            if (castType.isPresent() && !(expr.getDataType().equals(castType.get()))) {
-                result.add(Operand.of(flag, new Cast(expr, castType.get())));
+            if (castType.isPresent()) {
+                result.add(Operand.of(flag, TypeCoercionUtils.castIfNotSameType(expr, castType.get())));
             } else {
                 result.add(Operand.of(flag, expr));
             }
