@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.nereids.trees.plans.algebra.CouldPushed;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -45,7 +46,7 @@ import java.util.Optional;
  * Logical partition-top-N plan.
  */
 public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements PartitionTopN, PropagateFuncDeps {
+        implements PartitionTopN, PropagateFuncDeps, CouldPushed {
     private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderExpression> orderKeys;
@@ -138,10 +139,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         return partitionLimit;
     }
 
-    public boolean isPushed() {
-        return pushed;
-    }
-
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalPartitionTopN",
@@ -210,5 +207,15 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
                 groupExpression, logicalProperties, children.get(0), this.pushed);
+    }
+
+    @Override
+    public boolean needRemain() {
+        return true;
+    }
+
+    @Override
+    public boolean isPushed() {
+        return pushed;
     }
 }
