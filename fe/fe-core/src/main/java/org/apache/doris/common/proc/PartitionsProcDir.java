@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -94,11 +95,16 @@ public class PartitionsProcDir implements ProcDirInterface {
         if (filterMap == null) {
             return true;
         }
-        Expr subExpr = filterMap.get(columnName.toLowerCase());
+        Expr subExpr = filterMap.get(columnName.toLowerCase()); // predicate on this column.
         if (subExpr == null) {
             return true;
         }
         if (subExpr instanceof BinaryPredicate) {
+            // show partitions only provide very limited filtering capacity in FE. so restrict here.
+            if (!(subExpr.getChild(1) instanceof LiteralExpr)) {
+                throw new AnalysisException("Not Supported. Use `select * from partitions(...)` instead");
+            }
+
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
             if (subExpr.getChild(1) instanceof StringLiteral
                     && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
@@ -169,6 +175,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             filterPartitionInfos = partitionInfos;
         } else {
             filterPartitionInfos = Lists.newArrayList();
+            // TODO: we should change the order of loops to speed up. use filters to filter column value.
             for (List<Comparable> partitionInfo : partitionInfos) {
                 if (partitionInfo.size() != TITLE_NAMES.size()) {
                     throw new AnalysisException("PartitionInfos.size() " + partitionInfos.size()

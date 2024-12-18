@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -144,7 +145,7 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    _slot_num = _dest_tuple_desc->slots().size();
+    _slot_num = cast_set<int>(_dest_tuple_desc->slots().size());
     // get src tuple desc
     const auto* schema_table =
             static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
@@ -269,4 +270,5 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
