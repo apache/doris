@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.RangeSet;
+import com.google.common.collect.Range;
 
 import java.util.List;
 import java.util.Objects;
@@ -28,10 +28,15 @@ import java.util.Objects;
 /** SortedPartitionRanges */
 public class SortedPartitionRanges<K> {
     public final List<PartitionItemAndRange<K>> sortedPartitions;
+    public final List<PartitionItemAndId<K>> defaultPartitions;
 
-    public SortedPartitionRanges(List<PartitionItemAndRange<K>> sortedPartitions) {
+    public SortedPartitionRanges(
+            List<PartitionItemAndRange<K>> sortedPartitions, List<PartitionItemAndId<K>> defaultPartitions) {
         this.sortedPartitions = Utils.fastToImmutableList(
                 Objects.requireNonNull(sortedPartitions, "sortedPartitions bounds can not be null")
+        );
+        this.defaultPartitions = Utils.fastToImmutableList(
+                Objects.requireNonNull(defaultPartitions, "defaultPartitions bounds can not be null")
         );
     }
 
@@ -39,12 +44,28 @@ public class SortedPartitionRanges<K> {
     public static class PartitionItemAndRange<K> {
         public final K id;
         public final PartitionItem partitionItem;
-        public final RangeSet<MultiColumnBound> ranges;
+        public final Range<MultiColumnBound> range;
 
-        public PartitionItemAndRange(K id, PartitionItem partitionItem, RangeSet<MultiColumnBound> ranges) {
+        public PartitionItemAndRange(K id, PartitionItem partitionItem, Range<MultiColumnBound> range) {
             this.id = id;
             this.partitionItem = partitionItem;
-            this.ranges = ranges;
+            this.range = range;
+        }
+
+        @Override
+        public String toString() {
+            return range.toString();
+        }
+    }
+
+    /** PartitionItemAndId */
+    public static class PartitionItemAndId<K> {
+        public final K id;
+        public final PartitionItem partitionItem;
+
+        public PartitionItemAndId(K id, PartitionItem partitionItem) {
+            this.id = id;
+            this.partitionItem = partitionItem;
         }
     }
 }

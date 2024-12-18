@@ -28,12 +28,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.rules.expression.rules.MultiColumnBound;
 import org.apache.doris.nereids.rules.expression.rules.PartitionItemToRange;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Range;
-import com.google.common.collect.TreeRangeSet;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.apache.hadoop.util.Lists;
@@ -84,14 +84,23 @@ public class NereidsSortedPartitionsCacheManager {
         Map<Long, PartitionItem> allPartitions = partitionInfo.getIdToItem(false);
         List<Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(allPartitions.entrySet());
         List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(allPartitions.size());
+        List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
         for (Entry<Long, PartitionItem> entry : sortedList) {
-            TreeRangeSet<MultiColumnBound> rangeSet = PartitionItemToRange.toRangeSets(entry.getValue());
-            sortedRanges.add(new PartitionItemAndRange<>(entry.getKey(), entry.getValue(), rangeSet));
+            PartitionItem partitionItem = entry.getValue();
+            Long id = entry.getKey();
+            if (!partitionItem.isDefaultPartition()) {
+                List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
+                for (Range<MultiColumnBound> range : ranges) {
+                    sortedRanges.add(new PartitionItemAndRange<>(id, partitionItem, range));
+                }
+            } else {
+                defaultPartitions.add(new PartitionItemAndId<>(id, partitionItem));
+            }
         }
 
         sortedRanges.sort((o1, o2) -> {
-            Range<MultiColumnBound> span1 = o1.ranges.span();
-            Range<MultiColumnBound> span2 = o2.ranges.span();
+            Range<MultiColumnBound> span1 = o1.range;
+            Range<MultiColumnBound> span2 = o2.range;
             int result = span1.lowerEndpoint().compareTo(span2.lowerEndpoint());
             if (result != 0) {
                 return result;
@@ -99,7 +108,9 @@ public class NereidsSortedPartitionsCacheManager {
             result = span1.upperEndpoint().compareTo(span2.upperEndpoint());
             return result;
         });
-        SortedPartitionRanges sortedPartitionRanges = new SortedPartitionRanges(sortedRanges);
+        SortedPartitionRanges<?> sortedPartitionRanges = new SortedPartitionRanges(
+                sortedRanges, defaultPartitions
+        );
         PartitionCacheContext context = new PartitionCacheContext(
                 olapTable.getId(), olapTable.getVisibleVersion(), sortedPartitionRanges);
         partitionCaches.put(key, context);

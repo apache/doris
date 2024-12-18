@@ -23,25 +23,25 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Range;
-import com.google.common.collect.TreeRangeSet;
 
 import java.util.List;
 
 /** PartitionItemToRange */
 public class PartitionItemToRange {
     /** toRangeSets */
-    public static TreeRangeSet<MultiColumnBound> toRangeSets(PartitionItem partitionItem) {
+    public static List<Range<MultiColumnBound>> toRanges(PartitionItem partitionItem) {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
-            TreeRangeSet<MultiColumnBound> oneRangePartitionRanges = TreeRangeSet.create();
             PartitionKey lowerKey = range.lowerEndpoint();
             ImmutableList.Builder<ColumnBound> lowerBounds
                     = ImmutableList.builderWithExpectedSize(lowerKey.getKeys().size());
             for (LiteralExpr key : lowerKey.getKeys()) {
-                Literal literal = Literal.fromLegacyLiteral(key, key.getType());
+                Literal literal = toNereidsLiteral(key);
                 lowerBounds.add(ColumnBound.of(literal));
             }
 
@@ -53,26 +53,35 @@ public class PartitionItemToRange {
                 upperBounds.add(ColumnBound.of(literal));
             }
 
-            oneRangePartitionRanges.add(Range.closedOpen(
+            return ImmutableList.of(Range.closedOpen(
                     new MultiColumnBound(lowerBounds.build()),
-                    new MultiColumnBound(upperBounds.build())));
-            return oneRangePartitionRanges;
+                    new MultiColumnBound(upperBounds.build())
+            ));
         } else if (partitionItem instanceof ListPartitionItem) {
-            TreeRangeSet<MultiColumnBound> oneListPartitionRanges = TreeRangeSet.create();
             List<PartitionKey> partitionKeys = partitionItem.getItems();
+            ImmutableList.Builder<Range<MultiColumnBound>> ranges
+                    = ImmutableList.builderWithExpectedSize(partitionKeys.size());
             for (PartitionKey partitionKey : partitionKeys) {
                 ImmutableList.Builder<ColumnBound> bounds
                         = ImmutableList.builderWithExpectedSize(partitionKeys.size());
                 for (LiteralExpr key : partitionKey.getKeys()) {
-                    Literal literal = Literal.fromLegacyLiteral(key, key.getType());
+                    Literal literal = toNereidsLiteral(key);
                     bounds.add(ColumnBound.of(literal));
                 }
                 MultiColumnBound bound = new MultiColumnBound(bounds.build());
-                oneListPartitionRanges.add(Range.singleton(bound));
+                ranges.add(Range.singleton(bound));
             }
-            return oneListPartitionRanges;
+            return ranges.build();
         } else {
             throw new UnsupportedOperationException(partitionItem.getClass().getName());
+        }
+    }
+
+    private static Literal toNereidsLiteral(LiteralExpr partitionKeyLiteral) {
+        if (!partitionKeyLiteral.isMinValue()) {
+            return Literal.fromLegacyLiteral(partitionKeyLiteral, partitionKeyLiteral.getType());
+        } else {
+            return new NullLiteral(DataType.fromCatalogType(partitionKeyLiteral.getType()));
         }
     }
 }
