@@ -5193,55 +5193,86 @@ TEST(BlockTest, ClearColumnMemNotKeep) {
 
 TEST(BlockTest, StringOperations) {
     using namespace std::string_literals;
-    // Test shrink_char_type_column_suffix_zero
+
+    // Test with empty block
+    {
+        vectorized::Block block;
+        std::vector<size_t> char_type_idx;
+        block.shrink_char_type_column_suffix_zero(char_type_idx);
+        EXPECT_EQ(0, block.columns());
+    }
+
+    // Test with regular string column
     {
         vectorized::Block block;
 
         // Add a string column with padding zeros
         {
             auto col = vectorized::ColumnString::create();
-            // Add string with trailing zeros
-            std::string str1 = "hello\0\0\0"s; // 8bytes, contains 3 trailing zeros
-            std::string str2 = "world\0\0"s;   // 7bytes, contains 2 trailing zeros
-            col->insert_data(str1.c_str(), str1.size());
-            col->insert_data(str2.c_str(), str2.size());
+            std::vector<std::pair<std::string, size_t>> test_strings = {
+                {"hello\0\0\0"s, 8},  // 8 bytes, 3 trailing zeros
+                {"world\0\0"s, 7},    // 7 bytes, 2 trailing zeros
+                {"test\0"s, 5},       // 5 bytes, 1 trailing zero
+                {""s, 0}              // empty string
+            };
+
+            for (const auto& [str, size] : test_strings) {
+                col->insert_data(str.c_str(), size);
+            }
 
             auto type = std::make_shared<vectorized::DataTypeString>();
             block.insert({std::move(col), type, "str_col"});
         }
 
-        // Add a non-string column
+        // Add a non-string column for comparison
         {
             auto col = vectorized::ColumnVector<Int32>::create();
-            col->insert_value(1);
-            col->insert_value(2);
+            std::vector<Int32> test_values = {1, 2, 3, 4};
+            for (const auto& val : test_values) {
+                col->insert_value(val);
+            }
             auto type = std::make_shared<vectorized::DataTypeInt32>();
             block.insert({std::move(col), type, "int_col"});
         }
 
+        // Verify initial state
+        ASSERT_EQ(2, block.columns());
+        
         // Test shrinking string column
         std::vector<size_t> char_type_idx = {0}; // Index of string column
+        ASSERT_LT(char_type_idx[0], block.columns());
         block.shrink_char_type_column_suffix_zero(char_type_idx);
 
         // Verify string column is shrunk
-        const auto* str_col =
-                assert_cast<const vectorized::ColumnString*>(block.get_by_position(0).column.get());
+        const auto* str_col = assert_cast<const vectorized::ColumnString*>(
+                block.get_by_position(0).column.get());
+        ASSERT_NE(nullptr, str_col);
 
-        // Verify first string
-        StringRef ref1 = str_col->get_data_at(0);
-        EXPECT_EQ(5, ref1.size); // "hello" without zeros
-        EXPECT_EQ(0, memcmp(ref1.data, "hello", 5));
+        // Verify each string
+        std::vector<std::pair<std::string, size_t>> expected_results = {
+            {"hello", 5},
+            {"world", 5},
+            {"test", 4},
+            {"", 0}
+        };
 
-        // Verify second string
-        StringRef ref2 = str_col->get_data_at(1);
-        EXPECT_EQ(5, ref2.size); // "world" without zeros
-        EXPECT_EQ(0, memcmp(ref2.data, "world", 5));
+        ASSERT_EQ(expected_results.size(), str_col->size());
+        for (size_t i = 0; i < expected_results.size(); ++i) {
+            StringRef ref = str_col->get_data_at(i);
+            const auto& [expected_str, expected_size] = expected_results[i];
+            EXPECT_EQ(expected_size, ref.size);
+            if (expected_size > 0) {
+                EXPECT_EQ(0, memcmp(ref.data, expected_str.c_str(), expected_size));
+            }
+        }
 
         // Verify non-string column remains unchanged
         const auto* int_col = assert_cast<const vectorized::ColumnVector<Int32>*>(
                 block.get_by_position(1).column.get());
-        EXPECT_EQ(1, int_col->get_data()[0]);
-        EXPECT_EQ(2, int_col->get_data()[1]);
+        ASSERT_NE(nullptr, int_col);
+        for (size_t i = 0; i < 4; ++i) {
+            EXPECT_EQ(i + 1, int_col->get_data()[i]);
+        }
     }
 
     // Test with Array<String>
@@ -5252,43 +5283,68 @@ TEST(BlockTest, StringOperations) {
         auto string_type = std::make_shared<vectorized::DataTypeString>();
         auto array_type = std::make_shared<vectorized::DataTypeArray>(string_type);
 
-        // Add two strings with trailing zeros
+        // Add strings with trailing zeros
         auto string_col = vectorized::ColumnString::create();
-        std::string str1 = "hello\0\0"s;
-        std::string str2 = "world\0"s;
-        string_col->insert_data(str1.c_str(), str1.size());
-        string_col->insert_data(str2.c_str(), str2.size());
+        std::vector<std::pair<std::string, size_t>> test_strings = {
+            {"hello\0\0"s, 7},
+            {"world\0"s, 6},
+            {"test\0\0\0"s, 8},
+            {""s, 0}
+        };
+
+        for (const auto& [str, size] : test_strings) {
+            string_col->insert_data(str.c_str(), size);
+        }
 
         // Create array offsets column
         auto array_offsets = vectorized::ColumnArray::ColumnOffsets::create();
-        array_offsets->get_data().push_back(2); // First array has 2 elements
+        array_offsets->get_data().push_back(2); // First array: ["hello", "world"]
+        array_offsets->get_data().push_back(4); // Second array: ["test", ""]
 
-        // Create array column
-        auto array_col =
-                vectorized::ColumnArray::create(std::move(string_col), std::move(array_offsets));
-
-        // Insert array column into block
+        // Create and insert array column
+        auto array_col = vectorized::ColumnArray::create(std::move(string_col), std::move(array_offsets));
         block.insert({std::move(array_col), array_type, "array_str_col"});
+
+        // Verify initial state
+        ASSERT_EQ(1, block.columns());
 
         // Shrink array<string> column
         std::vector<size_t> char_type_idx = {0};
+        ASSERT_LT(char_type_idx[0], block.columns());
         block.shrink_char_type_column_suffix_zero(char_type_idx);
 
         // Verify strings in array are shrunk
-        const auto* array_col_result =
-                assert_cast<const vectorized::ColumnArray*>(block.get_by_position(0).column.get());
+        const auto* array_col_result = assert_cast<const vectorized::ColumnArray*>(
+                block.get_by_position(0).column.get());
+        ASSERT_NE(nullptr, array_col_result);
+
         const auto* string_col_result = assert_cast<const vectorized::ColumnString*>(
                 array_col_result->get_data_ptr().get());
+        ASSERT_NE(nullptr, string_col_result);
 
-        // Verify first string in array
-        StringRef ref1 = string_col_result->get_data_at(0);
-        EXPECT_EQ(5, ref1.size); // "hello" without zeros
-        EXPECT_EQ(0, memcmp(ref1.data, "hello", 5));
+        // Verify each string in the arrays
+        std::vector<std::pair<std::string, size_t>> expected_results = {
+            {"hello", 5},
+            {"world", 5},
+            {"test", 4},
+            {"", 0}
+        };
 
-        // Verify second string in array
-        StringRef ref2 = string_col_result->get_data_at(1);
-        EXPECT_EQ(5, ref2.size); // "world" without zeros
-        EXPECT_EQ(0, memcmp(ref2.data, "world", 5));
+        ASSERT_EQ(expected_results.size(), string_col_result->size());
+        for (size_t i = 0; i < expected_results.size(); ++i) {
+            StringRef ref = string_col_result->get_data_at(i);
+            const auto& [expected_str, expected_size] = expected_results[i];
+            EXPECT_EQ(expected_size, ref.size);
+            if (expected_size > 0) {
+                EXPECT_EQ(0, memcmp(ref.data, expected_str.c_str(), expected_size));
+            }
+        }
+
+        // Verify array structure remains intact
+        const auto& offsets = array_col_result->get_offsets();
+        ASSERT_EQ(2, offsets.size());
+        EXPECT_EQ(2, offsets[0]);
+        EXPECT_EQ(4, offsets[1]);
     }
 }
 
