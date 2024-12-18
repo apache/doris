@@ -2080,7 +2080,7 @@ TEST(BlockTest, CloneOperations) {
     // Test with empty block
     {
         vectorized::Block empty_block;
-        
+
         // Test clone_empty
         auto cloned_empty = empty_block.clone_empty();
         EXPECT_EQ(0, cloned_empty.columns());
@@ -2301,14 +2301,16 @@ TEST(BlockTest, CloneOperations) {
         col1->insert_value(1);
         auto null_map1 = vectorized::ColumnUInt8::create();
         null_map1->insert_value(0); // Not null
-        auto nullable_col1 = vectorized::ColumnNullable::create(col1->get_ptr(), null_map1->get_ptr());
+        auto nullable_col1 =
+                vectorized::ColumnNullable::create(col1->get_ptr(), null_map1->get_ptr());
         block.insert({nullable_col1->get_ptr(), nullable_type, "nullable_col1"});
 
         auto col2 = vectorized::ColumnVector<Int32>::create();
         col2->insert_value(2);
         auto null_map2 = vectorized::ColumnUInt8::create();
         null_map2->insert_value(1); // Null
-        auto nullable_col2 = vectorized::ColumnNullable::create(col2->get_ptr(), null_map2->get_ptr());
+        auto nullable_col2 =
+                vectorized::ColumnNullable::create(col2->get_ptr(), null_map2->get_ptr());
         block.insert({nullable_col2->get_ptr(), nullable_type, "nullable_col2"});
 
         // Test all clone operations
@@ -2376,7 +2378,7 @@ TEST(BlockTest, FilterAndSelector) {
     // Test empty block
     {
         vectorized::Block empty_block;
-        
+
         // Test filter_block_internal
         vectorized::IColumn::Filter filter(0);
         EXPECT_NO_THROW(vectorized::Block::filter_block_internal(&empty_block, filter));
@@ -2385,9 +2387,10 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Test filter_block
         std::vector<uint32_t> columns_to_filter;
-        EXPECT_DEATH(vectorized::Block::filter_block(&empty_block, columns_to_filter, 0, 0).ok(), "");
+        EXPECT_DEATH(vectorized::Block::filter_block(&empty_block, columns_to_filter, 0, 0).ok(),
+                     "");
         EXPECT_EQ(0, empty_block.rows());
-        
+
         // Test append_to_block_by_selector
         vectorized::Block dst_block;
         vectorized::MutableBlock dst(&dst_block);
@@ -2724,8 +2727,7 @@ TEST(BlockTest, FilterAndSelector) {
 
             auto nullable_filter = vectorized::ColumnNullable::create(
                     vectorized::ColumnVector<vectorized::UInt8>::create(10, 1),
-                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)
-            );
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0));
             auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
                     std::make_shared<vectorized::DataTypeUInt8>());
 
@@ -2746,8 +2748,7 @@ TEST(BlockTest, FilterAndSelector) {
             auto test_block = create_test_block(10);
 
             auto const_filter = vectorized::ColumnConst::create(
-                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0),
-                    10);
+                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0), 10);
             auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
 
             test_block.insert({const_filter->get_ptr(), filter_type, "filter"});
@@ -2873,7 +2874,7 @@ TEST(BlockTest, FilterAndSelector) {
             for (int i = 0; i < size; ++i) {
                 nested1->insert_value(i);
                 nested2->insert_value(i * 2);
-                null_map1->insert_value(i % 2); // Even rows are not null
+                null_map1->insert_value(i % 2);       // Even rows are not null
                 null_map2->insert_value((i + 1) % 2); // Odd rows are not null
             }
 
@@ -2906,11 +2907,14 @@ TEST(BlockTest, FilterAndSelector) {
 
                 if (!filtered_col1->is_null_at(i)) {
                     EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                                                    filtered_col1->get_nested_column_ptr().get())
+                                                    ->get_data()[i]);
                 }
                 if (!filtered_col2->is_null_at(i)) {
-                    EXPECT_EQ(original_row * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                    EXPECT_EQ(original_row * 2,
+                              assert_cast<const vectorized::ColumnVector<Int32>*>(
+                                      filtered_col2->get_nested_column_ptr().get())
+                                      ->get_data()[i]);
                 }
             }
         }
@@ -2936,7 +2940,8 @@ TEST(BlockTest, FilterAndSelector) {
                 EXPECT_EQ(original_row % 2, filtered_col1->is_null_at(i));
                 if (!filtered_col1->is_null_at(i)) {
                     EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                                                    filtered_col1->get_nested_column_ptr().get())
+                                                    ->get_data()[i]);
                 }
             }
 
@@ -2945,7 +2950,8 @@ TEST(BlockTest, FilterAndSelector) {
                 EXPECT_EQ((i + 1) % 2, filtered_col2->is_null_at(i));
                 if (!filtered_col2->is_null_at(i)) {
                     EXPECT_EQ(i * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                                             filtered_col2->get_nested_column_ptr().get())
+                                             ->get_data()[i]);
                 }
             }
         }
