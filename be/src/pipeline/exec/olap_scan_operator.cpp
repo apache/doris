@@ -169,6 +169,21 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "BlockReaderRsReadersInitTimer");
     _block_reader_build_heap_init_timer =
             ADD_TIMER(_scanner_profile, "BlockReaderBuildHeapInitTimer");
+
+    _rowset_reader_get_segment_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_create_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer");
+    _rowset_reader_init_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderInitIteratorsTimer");
+
+    _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
+    _segment_iterator_init_return_column_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
+    _segment_iterator_init_bitmap_index_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
+    _segment_iterator_init_inverted_index_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitInvertedIndexIteratorsTimer");
     return Status::OK();
 }
 

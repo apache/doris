@@ -269,6 +269,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     auto status = _init_impl(opts);
     if (!status.ok()) {
         _segment->update_healthy_status(status);
@@ -1005,6 +1006,7 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
 }
 
 Status SegmentIterator::_init_return_column_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_return_column_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
@@ -1047,6 +1049,7 @@ Status SegmentIterator::_init_return_column_iterators() {
 }
 
 Status SegmentIterator::_init_bitmap_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_bitmap_index_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
@@ -1060,6 +1063,7 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
 }
 
 Status SegmentIterator::_init_inverted_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_inverted_index_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }

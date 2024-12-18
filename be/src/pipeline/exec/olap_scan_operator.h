@@ -197,6 +197,15 @@ private:
     RuntimeProfile::Counter* _block_reader_rs_readers_init_timer = nullptr;
     RuntimeProfile::Counter* _block_reader_build_heap_init_timer = nullptr;
 
+    RuntimeProfile::Counter* _rowset_reader_get_segment_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_create_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_init_iterators_timer = nullptr;
+
+    RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_inverted_index_iterators_timer = nullptr;
+
     std::mutex _profile_mtx;
 };
 

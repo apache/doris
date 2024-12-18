@@ -399,6 +399,15 @@ struct OlapReaderStatistics {
     int64_t block_reader_vcollect_iter_init_timer_ns = 0;
     int64_t block_reader_rs_readers_init_timer_ns = 0;
     int64_t block_reader_build_heap_init_timer_ns = 0;
+
+    int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
+    int64_t rowset_reader_create_iterators_timer_ns = 0;
+    int64_t rowset_reader_init_iterators_timer_ns = 0;
+
+    int64_t segment_iterator_init_timer_ns = 0;
+    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;
