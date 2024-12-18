@@ -46,6 +46,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/io/reader_buffer.h"
@@ -307,15 +308,10 @@ public:
     // ensure root node is a certain type
     void ensure_root_node_type(const DataTypePtr& type);
 
-    // create jsonb root if missing
-    // notice: should only using in VariantRootColumnIterator
-    // since some datastructures(sparse columns are schema on read
-    void create_root();
-
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
 
-    DataTypePtr get_most_common_type() const;
+    static const DataTypePtr& get_most_common_type();
 
     // root is null or type nothing
     bool is_null_root() const;
@@ -375,6 +371,12 @@ public:
         return vectorized::ColumnMap::create(vectorized::ColumnString::create(),
                                              vectorized::ColumnString::create(),
                                              vectorized::ColumnArray::ColumnOffsets::create());
+    }
+
+    static const DataTypePtr& get_sparse_column_type() {
+        static DataTypePtr type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                                                std::make_shared<DataTypeString>());
+        return type;
     }
 
     void set_sparse_column(ColumnPtr column) { serialized_sparse_column = column; }

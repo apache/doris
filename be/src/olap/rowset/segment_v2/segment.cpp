@@ -201,22 +201,23 @@ Status Segment::_open() {
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
 
-    uint32_t ordinal = 0;
-    for (const auto& column_meta : _footer_pb->columns()) {
-        // unique_id < 0 means this column is extracted column from variant
-        if (static_cast<int>(column_meta.unique_id()) >= 0) {
-            _column_id_to_footer_ordinal[column_meta.unique_id()] = ordinal++;
+    // collec variant statistics
+    for (const auto& column_pb : _footer_pb->columns()) {
+        if (column_pb.has_variant_statistics()) {
+            _variant_column_stats.try_emplace(column_pb.unique_id(),
+                                              column_pb.variant_statistics());
         }
     }
+
     return Status::OK();
 }
 
-const ColumnMetaPB* Segment::get_column_meta(int32_t unique_id) const {
-    auto it = _column_id_to_footer_ordinal.find(unique_id);
-    if (it == _column_id_to_footer_ordinal.end()) {
+const VariantStatisticsPB* Segment::get_stats(int32_t unique_id) const {
+    auto it = _variant_column_stats.find(unique_id);
+    if (it == _variant_column_stats.end()) {
         return nullptr;
     }
-    return &_footer_pb->columns(it->second);
+    return &it->second;
 }
 
 Status Segment::_open_inverted_index() {
@@ -570,8 +571,9 @@ Status Segment::healthy_status() {
 vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identifier,
                                                   bool read_flat_leaves) const {
     // Path has higher priority
-    if (identifier.path != nullptr && !identifier.path->empty()) {
-        auto relative_path = identifier.path->copy_pop_front();
+    auto relative_path = identifier.path != nullptr ? identifier.path->copy_pop_front()
+                                                    : vectorized::PathInData();
+    if (!relative_path.empty()) {
         int32_t unique_id =
                 identifier.unique_id > 0 ? identifier.unique_id : identifier.parent_unique_id;
         const auto* node = _column_readers.contains(unique_id)
@@ -605,11 +607,17 @@ Status Segment::_create_column_readers_once() {
 }
 
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
+    // unique_id -> idx in footer.columns()
+    std::unordered_map<int32_t, uint32_t> column_id_to_footer_ordinal;
+    uint32_t ordinal = 0;
+    for (const auto& column_meta : _footer_pb->columns()) {
+        column_id_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
+    }
     // init by unique_id
     for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         const auto& column = _tablet_schema->column(ordinal);
-        auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
-        if (iter == _column_id_to_footer_ordinal.end()) {
+        auto iter = column_id_to_footer_ordinal.find(column.unique_id());
+        if (iter == column_id_to_footer_ordinal.end()) {
             continue;
         }
 
@@ -796,8 +804,8 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     // }
 
     // For compability reason unique_id may less than 0 for variant extracted column
-    int32_t unique_id = tablet_column.unique_id() > 0 ? tablet_column.unique_id()
-                                                      : tablet_column.parent_unique_id();
+    int32_t unique_id = tablet_column.unique_id() >= 0 ? tablet_column.unique_id()
+                                                       : tablet_column.parent_unique_id();
     // init default iterator
     if (!_column_readers.contains(unique_id)) {
         RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
