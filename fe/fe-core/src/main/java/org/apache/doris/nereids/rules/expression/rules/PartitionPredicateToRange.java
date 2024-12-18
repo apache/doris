@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.BoundType;
@@ -70,14 +71,15 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
     @Override
     public RangeSet<MultiColumnBound> visitAnd(And and, Void context) {
         boolean first = true;
-        RangeSet<MultiColumnBound> intersects = TreeRangeSet.create();
+        RangeSet<MultiColumnBound> intersects = null;
         for (Expression child : and.children()) {
             RangeSet<MultiColumnBound> childRanges = child.accept(this, context);
-            if (childRanges == null) {
-                return null;
-            }
 
-            if (first) {
+            // if some conjunct not supported, just skip it safety because the big ranges contains
+            // all partitions the predicates need
+            if (childRanges == null) {
+                continue;
+            } else if (first) {
                 first = false;
                 intersects = childRanges;
                 continue;
@@ -101,6 +103,8 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         RangeSet<MultiColumnBound> intersects = TreeRangeSet.create();
         for (Expression child : or.children()) {
             RangeSet<MultiColumnBound> childRanges = child.accept(this, context);
+
+            // if any predicate can not parse to range, we can not do binary search
             if (childRanges == null) {
                 return null;
             }
@@ -116,11 +120,11 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
             SlotReference slot = (SlotReference) ((IsNull) child).child();
             int slotId = slot.getExprId().asInt();
             if (slotIds.contains(slotId)) {
-                Range<ColumnBound> columnRange = ColumnBound.range(
-                        new NullLiteral(child.getDataType()), BoundType.OPEN,
-                        new MaxLiteral(child.getDataType()), BoundType.CLOSED
+                DataType dataType = child.getDataType();
+                return toRangeSet(slot,
+                        new NullLiteral(dataType), BoundType.OPEN,
+                        new MaxLiteral(dataType), BoundType.CLOSED
                 );
-                return toRangeSet(slot, columnRange, BoundType.OPEN, BoundType.CLOSED);
             }
         }
         return null;
@@ -130,8 +134,8 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
     public RangeSet<MultiColumnBound> visitIsNull(IsNull isNull, Void context) {
         Expression child = isNull.child();
         if (child instanceof SlotReference && slotIds.contains(((SlotReference) child).getExprId().asInt())) {
-            Range<ColumnBound> singleton = ColumnBound.singleton(new NullLiteral(child.getDataType()));
-            return toRangeSet((SlotReference) child, singleton, BoundType.CLOSED, BoundType.CLOSED);
+            NullLiteral nullLiteral = new NullLiteral(child.getDataType());
+            return toRangeSet((SlotReference) child, nullLiteral, BoundType.CLOSED, nullLiteral, BoundType.CLOSED);
         }
         return null;
     }
@@ -142,8 +146,8 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = equalTo.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                Range<ColumnBound> singleton = ColumnBound.singleton((Literal) right);
-                return toRangeSet((SlotReference) left, singleton, BoundType.CLOSED, BoundType.CLOSED);
+                Literal literal = (Literal) right;
+                return toRangeSet((SlotReference) left, literal, BoundType.CLOSED, literal, BoundType.CLOSED);
             }
         }
         return null;
@@ -155,8 +159,8 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = nullSafeEqual.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                Range<ColumnBound> singleton = ColumnBound.singleton((Literal) right);
-                return toRangeSet((SlotReference) left, singleton, BoundType.CLOSED, BoundType.CLOSED);
+                Literal literal = (Literal) right;
+                return toRangeSet((SlotReference) left, literal, BoundType.CLOSED, literal, BoundType.CLOSED);
             }
         }
         return null;
@@ -173,9 +177,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
                     if (!(option instanceof Literal)) {
                         return null;
                     }
-                    Range<ColumnBound> singleton = ColumnBound.singleton((Literal) option);
+                    Literal literal = (Literal) option;
                     union.addAll(
-                            toRangeSet(slot, singleton, BoundType.CLOSED, BoundType.CLOSED)
+                            toRangeSet(slot, literal, BoundType.CLOSED, literal, BoundType.CLOSED)
                     );
                 }
                 return union;
@@ -190,10 +194,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = lessThan.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                Range<ColumnBound> columnRange = ColumnBound.range(
-                        new NullLiteral(right.getDataType()), BoundType.CLOSED, (Literal) right, BoundType.OPEN
-                );
-                return toRangeSet((SlotReference) left, columnRange, BoundType.CLOSED, BoundType.OPEN);
+                NullLiteral nullLiteral = new NullLiteral(right.getDataType());
+                Literal literal = (Literal) right;
+                return toRangeSet((SlotReference) left, nullLiteral, BoundType.OPEN, literal, BoundType.OPEN);
             }
         }
         return null;
@@ -205,10 +208,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = lessThanEqual.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                Range<ColumnBound> columnRange = ColumnBound.range(
-                        new NullLiteral(right.getDataType()), BoundType.CLOSED, (Literal) right, BoundType.CLOSED
-                );
-                return toRangeSet((SlotReference) left, columnRange, BoundType.CLOSED, BoundType.CLOSED);
+                NullLiteral nullLiteral = new NullLiteral(right.getDataType());
+                Literal literal = (Literal) right;
+                return toRangeSet((SlotReference) left, nullLiteral, BoundType.OPEN, literal, BoundType.CLOSED);
             }
         }
         return null;
@@ -220,10 +222,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = greaterThan.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                Range<ColumnBound> columnRange = ColumnBound.range(
-                        (Literal) right, BoundType.OPEN, new MaxLiteral(right.getDataType()), BoundType.CLOSED
-                );
-                return toRangeSet((SlotReference) left, columnRange, BoundType.OPEN, BoundType.CLOSED);
+                Literal literal = (Literal) right;
+                MaxLiteral maxLiteral = new MaxLiteral(right.getDataType());
+                return toRangeSet((SlotReference) left, literal, BoundType.OPEN, maxLiteral, BoundType.CLOSED);
             }
         }
         return null;
@@ -235,24 +236,23 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = greaterThanEqual.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                Range<ColumnBound> columnRange = ColumnBound.range(
-                        (Literal) right, BoundType.CLOSED, new MaxLiteral(right.getDataType()), BoundType.CLOSED
-                );
-                return toRangeSet((SlotReference) left, columnRange, BoundType.CLOSED, BoundType.CLOSED);
+                Literal literal = (Literal) right;
+                MaxLiteral maxLiteral = new MaxLiteral(right.getDataType());
+                return toRangeSet((SlotReference) left, literal, BoundType.CLOSED, maxLiteral, BoundType.CLOSED);
             }
         }
         return null;
     }
 
-    private RangeSet<MultiColumnBound> toRangeSet(
-            SlotReference slotReference, Range<ColumnBound> columnRange,
-            BoundType lowerBoundType, BoundType upperBoundType) {
+    private RangeSet<MultiColumnBound> toRangeSet(SlotReference slotReference,
+            Literal columnLowerBound, BoundType lowerBoundType,
+            Literal columnUpperBound, BoundType upperBoundType) {
         List<ColumnBound> lowerBounds = Lists.newArrayListWithCapacity(columns.size());
         List<ColumnBound> upperBounds = Lists.newArrayListWithCapacity(columns.size());
         for (Slot column : columns) {
             if (column.getExprId().asInt() == slotReference.getExprId().asInt()) {
-                lowerBounds.add(columnRange.lowerEndpoint());
-                upperBounds.add(columnRange.upperEndpoint());
+                lowerBounds.add(ColumnBound.of(columnLowerBound));
+                upperBounds.add(ColumnBound.of(columnUpperBound));
             } else {
                 lowerBounds.add(ColumnBound.of(new NullLiteral(slotReference.getDataType())));
                 upperBounds.add(ColumnBound.of(new MaxLiteral(slotReference.getDataType())));
