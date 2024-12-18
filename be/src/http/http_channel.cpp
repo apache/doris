@@ -25,6 +25,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <inttypes.h>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -123,7 +124,7 @@ void HttpChannel::send_files(HttpRequest* request, const std::string& root_dir,
         VLOG_DEBUG << "http channel send file " << file_path << ", size: " << file_size;
 
         evbuffer_add_printf(evb.get(), "File-Name: %s\r\n", file.c_str());
-        evbuffer_add_printf(evb.get(), "Content-Length: %ld\r\n", file_size);
+        evbuffer_add_printf(evb.get(), "Content-Length: %" PRId64 "\r\n", file_size);
         evbuffer_add_printf(evb.get(), "\r\n");
         if (file_size > 0) {
             evbuffer_add_file(evb.get(), fd, 0, file_size);
