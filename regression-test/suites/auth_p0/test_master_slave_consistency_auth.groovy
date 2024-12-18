@@ -20,10 +20,16 @@ suite ("test_follower_consistent_auth","p0,auth") {
     def get_follower_ip = {
         def result = sql """show frontends;"""
         logger.info("result:" + result)
-        for (int i = 0; i < result.size(); i++) {
-            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
-                return result[i][1]
+        def random_ip = []
+        if (result.size() > 0) {
+            for (int i = 0; i < result.size(); i++) {
+                if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
+                    random_ip.add(result[i][1])
+                }
             }
+            def random = new Random()
+            def ip_index = random.nextInt(random_ip.size())
+            return random_ip[ip_index]
         }
         return "null"
     }
@@ -115,6 +121,24 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         logger.info("url_tmp1:" + url_tmp1)
         logger.info("new_jdbc_url:" + new_jdbc_url)
+
+        def judge_equal = {
+            def master_priv
+            def follower_priv
+            connect(user, "${pwd}", url_tmp1) {
+                master_priv = sql """show grants;"""
+            }
+            connect(user, "${pwd}", new_jdbc_url) {
+                follower_priv = sql """show grants;"""
+            }
+            assertTrue(master_priv.size() == follower_priv.size())
+            for (int i = 0; i < master_priv.size(); i++) {
+                for (int j = 0; j < master_priv[i].size(); j++) {
+                    assertTrue(master_priv[i][j] == follower_priv[i][j])
+                }
+            }
+        }
+
         connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
@@ -252,6 +276,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
+        judge_equal()
 
         // role
         sql """grant select_priv on ${dbName}.${tableName} to ROLE '${role}'"""
@@ -334,6 +359,34 @@ suite ("test_follower_consistent_auth","p0,auth") {
             logger.info("res:" + res)
             assertTrue(res.size() == 10)
         }
+
+        judge_equal()
+
+        sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
+        judge_equal()
+        sql """grant LOAD_PRIV on ${dbName}.${tableName} to ${user}"""
+        judge_equal()
+        sql """grant ALTER_PRIV on ${dbName}.${tableName} to ${user}"""
+        judge_equal()
+        sql """grant CREATE_PRIV on ${dbName}.${tableName} to ${user}"""
+        judge_equal()
+        sql """grant DROP_PRIV on ${dbName}.${tableName} to ${user}"""
+        judge_equal()
+        sql """grant SHOW_VIEW_PRIV on ${dbName}.${tableName} to ${user}"""
+        judge_equal()
+
+        sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
+        judge_equal()
+        sql """revoke LOAD_PRIV on ${dbName}.${tableName} from ${user}"""
+        judge_equal()
+        sql """revoke ALTER_PRIV on ${dbName}.${tableName} from ${user}"""
+        judge_equal()
+        sql """revoke CREATE_PRIV on ${dbName}.${tableName} from ${user}"""
+        judge_equal()
+        sql """revoke DROP_PRIV on ${dbName}.${tableName} from ${user}"""
+        judge_equal()
+        sql """revoke SHOW_VIEW_PRIV on ${dbName}.${tableName} from ${user}"""
+        judge_equal()
 
         try_sql("DROP USER ${user}")
         try_sql("drop workload group if exists ${wg};")

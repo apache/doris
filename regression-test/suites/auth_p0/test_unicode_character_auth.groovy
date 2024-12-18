@@ -1,0 +1,210 @@
+
+suite("test_unicode_character_auth") {
+
+    String user1 = 'test_unicode_character_auth_userA'
+    String user2 = 'test_unicode_character_auth_userΩ'
+    String user3 = 'test_unicode_character_auth_user.,!?©'
+    String user4 = 'test_unicode_character_auth_user一飞$'
+    String user5 = 'test_unicode_character_auth_user+-*÷>=≥'
+    String user6 = 'test_unicode_character_auth_user😊😢🎉'
+    String user7 = 'test_unicode_character_auth_user𝓐Δ'
+    String user8 = 'test_unicode_character_auth_user𝔸⌘'
+
+
+    String role1 = 'test_unicode_character_auth_roleA'
+    String role2 = 'test_unicode_character_auth_roleΩ'
+    String role3 = 'test_unicode_character_auth_role.,!?©'
+    String role4 = 'test_unicode_character_auth_role一飞$'
+    String role5 = 'test_unicode_character_auth_role+-*÷>=≥'
+    String role6 = 'test_unicode_character_auth_role😊😢🎉'
+    String role7 = 'test_unicode_character_auth_role𝓐Δ'
+    String role8 = 'test_unicode_character_auth_role𝔸⌘'
+
+
+    String pwd = 'C123_567p'
+    String dbName = 'test_unicode_character_auth_db'
+    String tableName = 'test_unicode_character_auth_tb'
+
+    try_sql("DROP USER ${user1}")
+    try_sql("DROP USER ${user2}")
+    try_sql("DROP USER ${user3}")
+    try_sql("DROP USER ${user4}")
+    try_sql("DROP USER ${user5}")
+    try_sql("DROP USER ${user6}")
+    try_sql("DROP USER ${user7}")
+    try_sql("DROP USER ${user8}")
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user1}'"""
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user2}'"""
+            exception "invalid user name"
+        }
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user3}'"""
+            exception "invalid user name"
+        }
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user4}'"""
+            exception "invalid user name"
+        }
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user5}'"""
+            exception "invalid user name"
+        }
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user6}'"""
+            exception "invalid user name"
+        }
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user7}'"""
+            exception "invalid user name"
+        }
+        test {
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user8}'"""
+            exception "invalid user name"
+        }
+    }
+
+    try_sql """drop database if exists ${dbName}"""
+
+    sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+    test {
+        sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """CREATE USER '${user3}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """CREATE USER '${user4}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """CREATE USER '${user5}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """CREATE USER '${user6}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """CREATE USER '${user7}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """CREATE USER '${user8}' IDENTIFIED BY '${pwd}'"""
+        exception "invalid user name"
+    }
+
+    sql """grant select_priv on regression_test to '${user1}'"""
+    test {
+        sql """grant select_priv on regression_test to '${user2}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """grant select_priv on regression_test to '${user3}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """grant select_priv on regression_test to '${user4}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """grant select_priv on regression_test to '${user5}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """grant select_priv on regression_test to '${user6}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """grant select_priv on regression_test to '${user7}'"""
+        exception "invalid user name"
+    }
+    test {
+        sql """grant select_priv on regression_test to '${user8}'"""
+        exception "invalid user name"
+    }
+
+    sql """create database ${dbName}"""
+    sql """create table ${dbName}.${tableName} (
+            id BIGINT,
+            username VARCHAR(20)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );"""
+
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user1}"""
+
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
+        sql """select * from ${dbName}.${tableName}"""
+        def res = sql """show grants"""
+        assertTrue(res[0][3] == "")
+        assertTrue(res[0][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv")
+        assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
+    }
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user1}"""
+
+    try_sql("DROP role ${role1}")
+    try_sql("DROP role ${role2}")
+    try_sql("DROP role ${role3}")
+    try_sql("DROP role ${role4}")
+    try_sql("DROP role ${role5}")
+    try_sql("DROP role ${role6}")
+    try_sql("DROP role ${role7}")
+    try_sql("DROP role ${role8}")
+
+    sql """CREATE ROLE ${role1}"""
+
+    test {
+        sql """CREATE ROLE ${role2}"""
+        exception "invalid role format"
+    }
+    try {
+        sql """CREATE ROLE ${role3}"""
+    } catch (Exception e) {
+        logger.info(e.getMessage())
+    }
+    test {
+        sql """CREATE ROLE ${role4}"""
+        exception "invalid role format"
+    }
+    try {
+        sql """CREATE ROLE ${role5}"""
+    } catch (Exception e) {
+        logger.info(e.getMessage())
+    }
+    test {
+        sql """CREATE ROLE ${role6}"""
+        exception "invalid role format"
+    }
+    test {
+        sql """CREATE ROLE ${role7}"""
+        exception "invalid role format"
+    }
+    test {
+        sql """CREATE ROLE ${role8}"""
+        exception "invalid role format"
+    }
+
+    sql """GRANT '${role1}' TO ${user1};"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role1}'"""
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
+        sql """select * from ${dbName}.${tableName}"""
+        def res = sql """show grants"""
+        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        assertTrue(res[0][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv")
+        assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
+    }
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role1}'"""
+
+
+}
