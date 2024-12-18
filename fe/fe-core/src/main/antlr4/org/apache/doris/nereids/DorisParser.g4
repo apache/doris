@@ -62,6 +62,7 @@ statementBase
     | supportedCancelStatement          #supportedCancelStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
+    | supportedUseStatement             #supportedUseStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -867,10 +868,13 @@ supportedUnsetStatement
     | UNSET DEFAULT STORAGE VAULT
     ;
 
+supportedUseStatement
+     : SWITCH catalog=identifier                                                      #switchCatalog
+     ;
+
 unsupportedUseStatement
     : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
-    | SWITCH catalog=identifier                                                      #switchCatalog
     ;
 
 unsupportedDmlStatement

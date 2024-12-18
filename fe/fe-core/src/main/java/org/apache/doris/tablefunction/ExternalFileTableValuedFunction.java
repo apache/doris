@@ -120,6 +120,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = FileFormatConstants.DEFAULT_LINE_DELIMITER;
+    private byte enclose = 0;
     private String jsonRoot = "";
     private String jsonPaths = "";
     private boolean stripOuterArray;
@@ -231,6 +232,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
+        String enclosedString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_ENCLOSE, "");
+        if (!Strings.isNullOrEmpty(enclosedString)) {
+            if (enclosedString.length() > 1) {
+                throw new AnalysisException("enclose should not be longer than one byte.");
+            }
+            enclose = (byte) enclosedString.charAt(0);
+            if (enclose == 0) {
+                throw new AnalysisException("enclose should not be byte [0].");
+            }
+        }
+
         jsonRoot = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_ROOT, "");
         jsonPaths = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_PATHS, "");
         readJsonByLine = Boolean.valueOf(
@@ -285,6 +297,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
+        if (enclose != 0) {
+            fileTextScanRangeParams.setEnclose(enclose);
+        }
         fileAttributes.setTextParams(fileTextScanRangeParams);
         if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
             fileAttributes.setHeaderType(this.headerType);

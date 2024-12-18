@@ -42,6 +42,7 @@
 //#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
   * The comparison functions always return 0 or 1 (UInt8).
@@ -441,7 +442,7 @@ private:
 
             if (c0_const_string) {
                 c0_const_chars = &c0_const_string->get_chars();
-                c0_const_size = c0_const_string->get_data_at(0).size;
+                c0_const_size = c0_const_string->get_offsets()[0];
             } else {
                 return Status::NotSupported("Illegal columns {}, of argument of function {}",
                                             c0->get_name(), name);
@@ -454,7 +455,7 @@ private:
 
             if (c1_const_string) {
                 c1_const_chars = &c1_const_string->get_chars();
-                c1_const_size = c1_const_string->get_data_at(0).size;
+                c1_const_size = c1_const_string->get_offsets()[0];
             } else {
                 return Status::NotSupported("Illegal columns {}, of argument of function {}",
                                             c1->get_name(), name);
@@ -714,4 +715,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
