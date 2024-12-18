@@ -178,7 +178,8 @@ public class SimpleScheduler {
         }
 
         blacklistBackends.put(backendID, Pair.of(Config.blacklist_duration_second + 1, reason));
-        LOG.warn("add backend {} to black list. reason: {}", backendID, reason);
+        // Should print the exception stack, so that we will know when it is added to blacklist.
+        LOG.warn("add backend {} to black list. reason: {}", backendID, reason, new Exception());
     }
 
     public static boolean isAvailable(Backend backend) {
