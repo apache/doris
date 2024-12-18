@@ -583,7 +583,6 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
     // if not doing segcompaction, just check segment number
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
-        !_context.tablet_schema->cluster_key_uids().empty() ||
         _context.tablet_schema->num_variant_columns() > 0) {
         return _check_segment_number_limit(_num_segment);
     }

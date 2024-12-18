@@ -17,8 +17,9 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_segcompaction_unique_keys_mow") {
-    def tableName = "segcompaction_unique_keys_regression_test_mow"
+suite("test_segcompaction_unique_keys_mow_ck") {
+    for (int i = 0; i < 2; i++) {
+    def tableName = "segcompaction_unique_keys_regression_test_mow_ck_" + i
     String ak = getS3AK()
     String sk = getS3SK()
     String endpoint = getS3Endpoint()
@@ -42,8 +43,10 @@ suite("test_segcompaction_unique_keys_mow") {
                 `col_40` VARCHAR(20),`col_41` VARCHAR(20),`col_42` VARCHAR(20),`col_43` VARCHAR(20),`col_44` VARCHAR(20),
                 `col_45` VARCHAR(20),`col_46` VARCHAR(20),`col_47` VARCHAR(20),`col_48` VARCHAR(20),`col_49` VARCHAR(20)
                 )
-            UNIQUE KEY(`col_0`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
+            UNIQUE KEY(`col_0`) cluster by(`col_1`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
             PROPERTIES (
+                """ + (i == 1 ? "\"function_column.sequence_col\"='col_0', " : "") +
+                """
                 "replication_num" = "1"
                 );
         """
@@ -107,6 +110,7 @@ suite("test_segcompaction_unique_keys_mow") {
             assertEquals(code, 0)
         }
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
+        // try_sql("DROP TABLE IF EXISTS ${tableName}")
+    }
     }
 }
