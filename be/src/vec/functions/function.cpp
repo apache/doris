@@ -296,45 +296,28 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
 
 bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
         const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
-    return (is_date_or_datetime(return_type->is_nullable()
-                                        ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                        : return_type) &&
-            is_date_or_datetime(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           (is_date_v2_or_datetime_v2(
-                    return_type->is_nullable()
-                            ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                            : return_type) &&
-            is_date_v2_or_datetime_v2(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           // For some date functions such as str_to_date(string, string), return_type will
-           // be datetimev2 if users enable datev2 but get_return_type(arguments) will still
-           // return datetime. We need keep backward compatibility here.
-           (is_date_v2_or_datetime_v2(
-                    return_type->is_nullable()
-                            ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                            : return_type) &&
-            is_date_or_datetime(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           (is_date_or_datetime(return_type->is_nullable()
-                                        ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                        : return_type) &&
-            is_date_v2_or_datetime_v2(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           (is_decimal(return_type->is_nullable()
-                               ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                               : return_type) &&
-            is_decimal(func_return_type->is_nullable()
-                               ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                               : func_return_type));
+    auto expect_return_type = remove_nullable(return_type);
+    auto real_return_type = remove_nullable(func_return_type);
+
+    auto check_date_and_datetime = [&]() -> bool {
+        return (is_date_or_datetime(expect_return_type) && is_date_or_datetime(real_return_type)) ||
+               (is_date_v2_or_datetime_v2(expect_return_type) &&
+                is_date_v2_or_datetime_v2(real_return_type));
+    };
+
+    // It is required that both types are either Decimal32, Decimal64, or Decimal128,
+    // and the scale must be the same. Due to differences between FE and BE code,
+    // no requirements are currently enforced for precision.
+
+    auto check_decimal = [&]() -> bool {
+        if (is_decimal(expect_return_type) && is_decimal(real_return_type)) {
+            return (expect_return_type->get_type_id() == real_return_type->get_type_id()) &&
+                   (expect_return_type->get_scale() == real_return_type->get_scale());
+        }
+        return false;
+    };
+
+    return check_date_and_datetime() || check_decimal();
 }
 
 bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(

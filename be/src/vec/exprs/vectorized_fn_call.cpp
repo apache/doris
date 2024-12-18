@@ -59,7 +59,11 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        std::shared_ptr<ColumnPtrWrapper> const_col;
+        RETURN_IF_ERROR(child->open(state, context, FunctionContext::FRAGMENT_LOCAL));
+        RETURN_IF_ERROR(child->get_const_col(context, &const_col));
+        argument_template.emplace_back(const_col ? const_col->column_ptr : nullptr,
+                                       child->data_type(), child->expr_name());
     }
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
@@ -122,8 +126,10 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
-    for (auto& i : _children) {
-        RETURN_IF_ERROR(i->open(state, context, scope));
+    if (scope != FunctionContext::FRAGMENT_LOCAL) {
+        for (auto& i : _children) {
+            RETURN_IF_ERROR(i->open(state, context, scope));
+        }
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
