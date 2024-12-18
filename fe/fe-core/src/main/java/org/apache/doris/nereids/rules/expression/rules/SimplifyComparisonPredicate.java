@@ -236,12 +236,15 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                     int literalPrecision = org.apache.doris.analysis.DecimalLiteral
                             .getBigDecimalPrecision(trailingZerosValue);
 
-                    // if we have a column with decimalv3 type and set enable_decimal_conversion = false.
                     // we have a column named col1 with type decimalv3(15, 2)
                     // and we have a comparison like col1 > 0.5 + 0.1
-                    // then the result type of 0.5 + 0.1 is decimalv2(27, 9)
-                    // and the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
-                    // then simplify it from cast(col1 as decimalv3(27, 9)) > 0.6 to col1 > 0.6
+                    // suppose the result type of 0.5 + 0.1 is decimalv3(27, 9)
+                    // then the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
+                    // then will have cast(col1 as decimalv3(27,9)) > 0.5 + 0.1,
+                    // after fold constant, we have cast(col1 as decimalv3(27, 9)) > 0.6 (0.6 is decimalv3(27, 9))
+                    // but 0.6 can be represented using decimalv3(15, 2)
+                    // then simplify it from 'cast(col1 as decimalv3(27, 9)) > 0.6' (0.6 is decimalv3(27, 9))
+                    // to 'col1 > 0.6' (0.6 is decimalv3(15, 2))
                     if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
                         trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
                         Expression newLiteral = new DecimalV3Literal(
