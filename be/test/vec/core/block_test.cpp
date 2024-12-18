@@ -2978,7 +2978,8 @@ TEST(BlockTest, FilterAndSelector) {
                 EXPECT_EQ(expected_null_col1, filtered_col1->is_null_at(i));
                 if (!filtered_col1->is_null_at(i)) {
                     EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                                                    filtered_col1->get_nested_column_ptr().get())
+                                                    ->get_data()[i]);
                 }
             }
 
@@ -2987,7 +2988,8 @@ TEST(BlockTest, FilterAndSelector) {
                 EXPECT_EQ((i + 1) % 2, filtered_col2->is_null_at(i));
                 if (!filtered_col2->is_null_at(i)) {
                     EXPECT_EQ(i * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                                             filtered_col2->get_nested_column_ptr().get())
+                                             ->get_data()[i]);
                 }
             }
         }
@@ -2999,8 +3001,7 @@ TEST(BlockTest, FilterAndSelector) {
             // Create nullable filter column
             auto nullable_filter = vectorized::ColumnNullable::create(
                     vectorized::ColumnVector<vectorized::UInt8>::create(10, 1),
-                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)
-            );
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0));
             auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
                     std::make_shared<vectorized::DataTypeUInt8>());
 
@@ -3024,8 +3025,7 @@ TEST(BlockTest, FilterAndSelector) {
 
             // Create const filter column (false)
             auto const_filter = vectorized::ColumnConst::create(
-                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0),
-                    10);
+                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0), 10);
             auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
 
             test_block.insert({const_filter->get_ptr(), filter_type, "filter"});
@@ -3073,18 +3073,21 @@ TEST(BlockTest, FilterAndSelector) {
 
                 if (!filtered_col1->is_null_at(i)) {
                     EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                                                    filtered_col1->get_nested_column_ptr().get())
+                                                    ->get_data()[i]);
                 }
                 if (!filtered_col2->is_null_at(i)) {
-                    EXPECT_EQ(original_row * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                    EXPECT_EQ(original_row * 2,
+                              assert_cast<const vectorized::ColumnVector<Int32>*>(
+                                      filtered_col2->get_nested_column_ptr().get())
+                                      ->get_data()[i]);
                 }
             }
         }
         // Test append_to_block_by_selector
         {
             auto block = create_test_block(10);
-            
+
             // Create destination block with proper columns
             auto base_type = std::make_shared<vectorized::DataTypeInt32>();
             auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
@@ -3123,7 +3126,7 @@ TEST(BlockTest, FilterAndSelector) {
             // Verify data and null map for selected rows
             for (size_t i = 0; i < 5; ++i) {
                 size_t original_row = i * 2;
-                
+
                 // Verify null flags
                 EXPECT_EQ(original_row % 2, selected_col1->is_null_at(i));
                 EXPECT_EQ((original_row + 1) % 2, selected_col2->is_null_at(i));
@@ -3131,11 +3134,14 @@ TEST(BlockTest, FilterAndSelector) {
                 // Verify values for non-null elements
                 if (!selected_col1->is_null_at(i)) {
                     EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            selected_col1->get_nested_column_ptr().get())->get_data()[i]);
+                                                    selected_col1->get_nested_column_ptr().get())
+                                                    ->get_data()[i]);
                 }
                 if (!selected_col2->is_null_at(i)) {
-                    EXPECT_EQ(original_row * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            selected_col2->get_nested_column_ptr().get())->get_data()[i]);
+                    EXPECT_EQ(original_row * 2,
+                              assert_cast<const vectorized::ColumnVector<Int32>*>(
+                                      selected_col2->get_nested_column_ptr().get())
+                                      ->get_data()[i]);
                 }
             }
         }
@@ -3259,7 +3265,7 @@ TEST(BlockTest, RowCheck) {
             auto col1 = vectorized::ColumnNullable::create(
                     vectorized::ColumnVector<Int32>::create(),
                     vectorized::ColumnVector<vectorized::UInt8>::create());
-            
+
             // Need to cast to concrete type before calling insert_value
             auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
                     col1->get_nested_column_ptr().get());
@@ -3267,7 +3273,7 @@ TEST(BlockTest, RowCheck) {
                     col1->get_null_map_column_ptr().get());
             nested1->insert_value(1);
             null_map1->insert_value(0);
-            
+
             block.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
 
             auto col2 = vectorized::ColumnNullable::create(
@@ -3293,7 +3299,7 @@ TEST(BlockTest, RowCheck) {
             auto col = vectorized::ColumnNullable::create(
                     vectorized::ColumnVector<Int32>::create(),
                     vectorized::ColumnVector<vectorized::UInt8>::create());
-            
+
             // Need to cast to concrete type before calling insert_value
             auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
                     col->get_nested_column_ptr().get());
@@ -3301,7 +3307,7 @@ TEST(BlockTest, RowCheck) {
                     col->get_null_map_column_ptr().get());
             nested->insert_value(1);
             null_map->insert_value(0);
-            
+
             other_block.insert({col->get_ptr(), nullable_type, "nullable_col1"});
 
             block.swap(other_block);
