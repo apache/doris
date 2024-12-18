@@ -18,13 +18,13 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
-Suite.metaClass.getComactionStatus = { String backendIP, String backendPort, String tabletID ->
+Suite.metaClass.checkComactionStatus = { String backendIP, String backendPort, String tabletID ->
     def (code, out, err) = be_get_compaction_status(backendIP, backendPort, tabletID)
     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
     if (code != 0) {
-        throw new IllegalArgumentException("get compaction status failed, code = ${code}")
+        return false
     }
-        
+
     def compactionStatus = parseJson(out.trim())
     if ("success" == compactionStatus.status.toLowerCase()) {
         return compactionStatus.run_status
@@ -35,12 +35,12 @@ Suite.metaClass.getComactionStatus = { String backendIP, String backendPort, Str
 
 Suite.metaClass.assertCompactionStatus = { String backendIP, String backendPort, String tabletID ->
     Awaitility.await().untilAsserted({
-        assert getComactionStatus(backendIP, backendPort, tabletID)
+        assert checkComactionStatus(backendIP, backendPort, tabletID)
     })
 }
 
 Suite.metaClass.assertCompactionStatusAtMost = { String backendIP, String backendPort, String tabletID, long t, TimeUnit tu ->
     Awaitility.await().atMost(t, tu).untilAsserted({
-        assert getComactionStatus(backendIP, backendPort, tabletID)
+        assert checkComactionStatus(backendIP, backendPort, tabletID)
     })
 }

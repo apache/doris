@@ -237,10 +237,10 @@ suite("test_show_index_data", "p1") {
             }
         }
         sql """ alter table ${show_table_name} drop column clientip"""
-        Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
-            Thread.sleep(30000)
-            tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
-            for (def tablet in tablets) {
+        Thread.sleep(30000)
+
+        for (def tablet in tablets) {
+            Awaititly.await().pollInterval(2, TimeUnit.SECONDS).atMost(30, TimeUnit.MINUTES).untilAsserted({
                 String tablet_id = tablet.TabletId
                 (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -256,8 +256,8 @@ suite("test_show_index_data", "p1") {
                     logger.info("rowsetid: " + rowsetid)
                     assertTrue(!rowsetids.contains(rowsetid))
                 }
-            }
-        });
+            })
+        }
     }
 
     def build_index = {
@@ -285,10 +285,10 @@ suite("test_show_index_data", "p1") {
         if (!isCloudMode()) {
             sql """ build index status_idx on ${show_table_name}"""
         }
-        Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
-            Thread.sleep(30000)
-            tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
-            for (def tablet in tablets) {
+        Thread.Sleep(10000)
+
+        for (def tablet in tablets) {
+            Awaititly.await().pollInterval(2, TimeUnit.SECONDS).atMost(30, TimeUnit.MINUTES).untilAsserted({
                 String tablet_id = tablet.TabletId
                 (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -304,8 +304,8 @@ suite("test_show_index_data", "p1") {
                     logger.info("rowsetid: " + rowsetid)
                     assertTrue(!rowsetids.contains(rowsetid))
                 }
-            }
-        });
+            })
+        }
     }
 
     def drop_index = {
@@ -329,10 +329,10 @@ suite("test_show_index_data", "p1") {
             }
         }
         sql """ DROP INDEX status_idx on ${show_table_name}"""
-        Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
-            Thread.sleep(30000)
-            tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
-            for (def tablet in tablets) {
+        Thread.sleep(30000)
+        
+        for (def tablet in tablets) {
+            Awaititly.await().pollInterval(2, TimeUnit.SECONDS).atMost(30, TimeUnit.MINUTES).untilAsserted({
                 String tablet_id = tablet.TabletId
                 (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -348,8 +348,8 @@ suite("test_show_index_data", "p1") {
                     logger.info("rowsetid: " + rowsetid)
                     assertTrue(!rowsetids.contains(rowsetid))
                 }
-            }
-        });
+            })
+        }
     }
 
     // 1. load data
