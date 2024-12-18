@@ -358,7 +358,8 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
             "{}, peak used {}, current used {}. backend {}, {}.",
             label(), type_string(_type), MemCounter::print_bytes(limit()),
             MemCounter::print_bytes(peak_consumption()), MemCounter::print_bytes(consumption()),
-            BackendOptions::get_localhost(), GlobalMemoryArbitrator::process_memory_used_str());
+            BackendOptions::get_localhost(),
+            GlobalMemoryArbitrator::process_memory_used_details_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "

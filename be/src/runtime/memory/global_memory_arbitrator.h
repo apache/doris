@@ -91,12 +91,13 @@ public:
     static inline std::string sys_mem_available_details_str() {
         auto msg = fmt::format(
                 "sys available memory {}(= {}[proc/available] - {}[reserved] - "
-                "{}B[waiting_refresh])",
+                "{}B[waiting_refresh] + {}[tc/jemalloc_cache])",
                 PrettyPrinter::print(sys_mem_available(), TUnit::BYTES),
                 PrettyPrinter::print(MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed),
                                      TUnit::BYTES),
                 PrettyPrinter::print(process_reserved_memory(), TUnit::BYTES),
-                refresh_interval_memory_growth);
+                refresh_interval_memory_growth,
+                PrettyPrinter::print_bytes(static_cast<uint64_t>(MemInfo::allocator_cache_mem())));
 #ifdef ADDRESS_SANITIZER
         msg = "[ASAN]" + msg;
 #endif
@@ -165,15 +166,16 @@ public:
 
     static std::string process_limit_exceeded_errmsg_str() {
         return fmt::format(
-                "{} exceed limit {} or {} less than low water mark {}", process_memory_used_str(),
-                MemInfo::mem_limit_str(), sys_mem_available_str(),
+                "{} exceed limit {} or {} less than low water mark {}",
+                process_memory_used_details_str(), MemInfo::mem_limit_str(),
+                sys_mem_available_details_str(),
                 PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
     }
 
     static std::string process_soft_limit_exceeded_errmsg_str() {
         return fmt::format("{} exceed soft limit {} or {} less than warning water mark {}.",
-                           process_memory_used_str(), MemInfo::soft_mem_limit_str(),
-                           sys_mem_available_str(),
+                           process_memory_used_details_str(), MemInfo::soft_mem_limit_str(),
+                           sys_mem_available_details_str(),
                            PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
                                                 TUnit::BYTES));
     }

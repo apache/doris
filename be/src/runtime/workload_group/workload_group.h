@@ -113,7 +113,11 @@ public:
         return _total_query_slot_count.load(std::memory_order_relaxed);
     }
 
-    bool add_wg_refresh_interval_memory_growth(int64_t size);
+    void add_wg_refresh_interval_memory_growth(int64_t size) {
+        _wg_refresh_interval_memory_growth.fetch_add(size);
+    }
+
+    bool try_add_wg_refresh_interval_memory_growth(int64_t size);
 
     void sub_wg_refresh_interval_memory_growth(int64_t size) {
         _wg_refresh_interval_memory_growth.fetch_sub(size);

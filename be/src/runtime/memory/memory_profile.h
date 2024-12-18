@@ -69,6 +69,7 @@ public:
     // process memory changes more than 256M, or the GC ends
     void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
     void print_log_process_usage();
+    std::string process_memory_detail_str() const;
 
 private:
     MultiVersion<RuntimeProfile> _memory_overview_profile;

@@ -118,7 +118,7 @@ std::string WorkloadGroup::debug_string() const {
             _remote_scan_bytes_per_second);
 }
 
-bool WorkloadGroup::add_wg_refresh_interval_memory_growth(int64_t size) {
+bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
     auto realtime_total_mem_used =
             _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
     if ((realtime_total_mem_used >
@@ -137,15 +137,19 @@ std::string WorkloadGroup::memory_debug_string() const {
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
     auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
-            "WorkloadGroup[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = {}, "
-            "total_mem_used = {}, wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, "
-            "memory_low_watermark = {}, memory_high_watermark = {}, version = {}, is_shutdown = "
-            "{}, query_num = {}]",
-            _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false",
+            "WorkloadGroup[id = {}, name = {}, version = {},"
+            "total_query_slot_count = {}, "
+            "memory_limit = {}, slot_memory_policy = {}, write_buffer_ratio= {}%, "
+            "enable_memory_overcommit = {}, total_mem_used = {} (write_buffer_size={}),"
+            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, "
+            "memory_low_watermark={}, memory_high_watermark={}, is_shutdown={}, query_num={}]",
+            _id, _name, _version, _total_query_slot_count,
+            PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
+            _load_buffer_ratio, _enable_memory_overcommit ? "true" : "false",
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
-            mem_used_ratio, _memory_low_watermark, _memory_high_watermark, _version, _is_shutdown,
+            mem_used_ratio, _memory_low_watermark, _memory_high_watermark, _is_shutdown,
             _query_ctxs.size());
 }
 

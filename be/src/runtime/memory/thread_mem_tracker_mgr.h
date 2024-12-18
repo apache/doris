@@ -83,7 +83,7 @@ public:
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size);
+    doris::Status try_reserve(int64_t size, bool only_check_process_memory);
 
     void release_reserved();
 
@@ -278,7 +278,8 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = false;
 }
 
-inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
+inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size,
+                                                      bool only_check_process_memory) {
     DCHECK(_limiter_tracker);
     DCHECK(size >= 0);
     CHECK(init());
@@ -286,26 +287,35 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
     auto wg_ptr = _wg_wptr.lock();
-    if (!_limiter_tracker->try_reserve(size)) {
-        auto err_msg = fmt::format(
-                "reserve memory failed, size: {}, because query memory exceeded, memory tracker "
-                "consumption: {}, limit: {}",
-                PrettyPrinter::print(size, TUnit::BYTES),
-                PrettyPrinter::print(_limiter_tracker->consumption(), TUnit::BYTES),
-                PrettyPrinter::print(_limiter_tracker->limit(), TUnit::BYTES));
-        return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
-    }
-    if (wg_ptr) {
-        if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
+    if (only_check_process_memory) {
+        _limiter_tracker->reserve(size);
+        if (wg_ptr) {
+            wg_ptr->add_wg_refresh_interval_memory_growth(size);
+        }
+    } else {
+        if (!_limiter_tracker->try_reserve(size)) {
             auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because workload group memory exceeded, "
-                    "workload group: {}",
-                    PrettyPrinter::print(size, TUnit::BYTES), wg_ptr->memory_debug_string());
-            _limiter_tracker->release(size);          // rollback
-            _limiter_tracker->release_reserved(size); // rollback
-            return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
+                    "reserve memory failed, size: {}, because query memory exceeded, memory "
+                    "tracker "
+                    "consumption: {}, limit: {}",
+                    PrettyPrinter::print(size, TUnit::BYTES),
+                    PrettyPrinter::print(_limiter_tracker->consumption(), TUnit::BYTES),
+                    PrettyPrinter::print(_limiter_tracker->limit(), TUnit::BYTES));
+            return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
+        }
+        if (wg_ptr) {
+            if (!wg_ptr->try_add_wg_refresh_interval_memory_growth(size)) {
+                auto err_msg = fmt::format(
+                        "reserve memory failed, size: {}, because workload group memory exceeded, "
+                        "workload group: {}",
+                        PrettyPrinter::print(size, TUnit::BYTES), wg_ptr->memory_debug_string());
+                _limiter_tracker->release(size);          // rollback
+                _limiter_tracker->release_reserved(size); // rollback
+                return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
+            }
         }
     }
+
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
         auto err_msg =
                 fmt::format("reserve memory failed, size: {}, because proccess memory exceeded, {}",

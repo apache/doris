@@ -397,7 +397,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INTERNAL_SESSION = "internal_session";
 
-    public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
     public static final String PARTITIONED_HASH_AGG_ROWS_THRESHOLD = "partitioned_hash_agg_rows_threshold";
 
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
@@ -1588,10 +1587,6 @@ public class SessionVariable implements Serializable, Writable {
     public boolean internalSession = false;
 
     // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD, fuzzy = true)
-    public int partitionedHashJoinRowsThreshold = 0;
-
-    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD, fuzzy = true)
     public int partitionedHashAggRowsThreshold = 0;
 
@@ -2377,7 +2372,6 @@ public class SessionVariable implements Serializable, Writable {
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
-        this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
@@ -3073,14 +3067,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryCacheEntryMaxRows(long queryCacheEntryMaxRows) {
         this.queryCacheEntryMaxRows = queryCacheEntryMaxRows;
-    }
-
-    public int getPartitionedHashJoinRowsThreshold() {
-        return partitionedHashJoinRowsThreshold;
-    }
-
-    public void setPartitionedHashJoinRowsThreshold(int threshold) {
-        this.partitionedHashJoinRowsThreshold = threshold;
     }
 
     // Serialize to thrift object
@@ -3910,7 +3896,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
-        tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);

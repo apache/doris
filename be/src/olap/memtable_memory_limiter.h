@@ -43,7 +43,7 @@ public:
     // If yes, it will flush memtable to try to reduce memory consumption.
     // Every write operation will call this API to check if need flush memtable OR hang
     // when memory is not available.
-    void handle_memtable_flush();
+    void handle_memtable_flush(WorkloadGroupPtr wg);
 
     int64_t flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush_bytes);
 

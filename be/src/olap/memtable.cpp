@@ -611,6 +611,20 @@ bool MemTable::need_agg() const {
     return false;
 }
 
+size_t MemTable::get_flush_reserve_memory_size() const {
+    size_t reserve_size = 0;
+    if (_keys_type == KeysType::DUP_KEYS) {
+        if (_tablet_schema->num_key_columns() == 0) {
+            // no need to reserve
+        } else {
+            reserve_size = _input_mutable_block.allocated_bytes();
+        }
+    } else {
+        reserve_size = _input_mutable_block.allocated_bytes();
+    }
+    return reserve_size;
+}
+
 Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {

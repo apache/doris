@@ -28,6 +28,7 @@
 #include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/storage_engine.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -140,6 +141,36 @@ Status FlushToken::wait() {
     return Status::OK();
 }
 
+Status FlushToken::_try_reserve_memory(int64_t size) {
+    auto* thread_context = doris::thread_context();
+    auto* memtable_flush_executor =
+            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
+    Status st;
+    do {
+        // only try to reserve process memory
+        st = thread_context->reserve_memory(size);
+        if (st.ok()) {
+            memtable_flush_executor->inc_flushing_task();
+            break;
+        }
+        if (_is_shutdown()) {
+            st = Status::Cancelled("flush memtable already cancelled");
+            break;
+        }
+        // Make sure at least one memtable is flushing even reserve memory failed.
+        if (memtable_flush_executor->check_and_inc_has_any_flushing_task()) {
+            // If there are already any flushing task, Wait for some time and retry.
+            LOG(INFO) << fmt::format(
+                    "Failed to reserve memory {} for flush memtable, retry after 100ms", size);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        } else {
+            st = Status::OK();
+            break;
+        }
+    } while (true);
+    return st;
+}
+
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
                   << ", memsize: " << memtable->memory_usage()
@@ -150,10 +181,18 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     SCOPED_ATTACH_TASK(memtable->query_thread_context());
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
+
+    DEFER_RELEASE_RESERVED();
+
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 memtable->query_thread_context().query_mem_tracker->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
+        auto reserve_size = memtable->get_flush_reserve_memory_size();
+        RETURN_IF_ERROR(_try_reserve_memory(reserve_size));
+        Defer defer {[&]() {
+            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
+        }};
         std::unique_ptr<vectorized::Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
