@@ -144,15 +144,13 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            // set fast_execute when expr evaluated by inverted index correctly
-            _can_fast_execute = true;
             context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
     }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
-        if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        if (fast_execute(context, block, result_column_id)) {
             return Status::OK();
         }
         if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
