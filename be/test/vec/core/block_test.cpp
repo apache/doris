@@ -3402,7 +3402,7 @@ TEST(BlockTest, ClearColumnData) {
         auto type = std::make_shared<vectorized::DataTypeInt32>();
 
         for (int i = 0; i < num_columns; ++i) {
-             auto col = vectorized::ColumnVector<Int32>::create();
+            auto col = vectorized::ColumnVector<Int32>::create();
             col->insert_value(i + 1);
             block.insert({std::move(col), type, "col" + std::to_string(i + 1)});
         }
