@@ -258,7 +258,7 @@ if [[ "${HELPER}" != "" ]]; then
     HELPER="-helper ${HELPER}"
 fi
 
-if [[ "$OPT_VERSION" != "" ]]; then
+if [[ "${OPT_VERSION}" != "" ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE --version
     exit 0
