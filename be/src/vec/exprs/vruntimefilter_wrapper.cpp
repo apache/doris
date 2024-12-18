@@ -77,6 +77,12 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(_impl->open(state, context, scope));
     _open_finished = true;
+
+    if (is_constant()) {
+        return Status::InternalError("VRuntimeFilterWrapper not constant , name : {}",
+                                     debug_string());
+    }
+
     return Status::OK();
 }
 
