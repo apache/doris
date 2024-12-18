@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.CouldPushed;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -42,7 +43,7 @@ import java.util.Optional;
 /**
  * Logical top-N plan.
  */
-public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements TopN {
+public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements TopN, CouldPushed {
 
     private final List<OrderKey> orderKeys;
     private final long limit;
@@ -92,10 +93,6 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public long getLimit() {
         return limit;
-    }
-
-    public boolean isPushed() {
-        return pushed;
     }
 
     @Override
@@ -200,5 +197,15 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public ObjectId getObjectId() {
         return id;
+    }
+
+    @Override
+    public boolean needRemain() {
+        return true;
+    }
+
+    @Override
+    public boolean isPushed() {
+        return pushed;
     }
 }
