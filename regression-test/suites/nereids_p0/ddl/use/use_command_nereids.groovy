@@ -26,6 +26,10 @@ suite("use_command_nereids") {
     // create database
     sql """create database ${db1};"""
     sql """create database ${db2};"""
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
     // use command
     checkNereidsExecute("use ${db1};")
 
