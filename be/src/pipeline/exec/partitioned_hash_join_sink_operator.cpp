@@ -568,6 +568,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
                     RETURN_IF_ERROR(_setup_internal_operator(state));
                 }
+
                 DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::sink_eos", {
                     return Status::Error<INTERNAL_ERROR>(
                             "fault_inject partitioned_hash_join_sink "
