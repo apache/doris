@@ -31,6 +31,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 class TDataSink;
 
@@ -263,4 +264,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

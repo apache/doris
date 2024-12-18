@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewOlapScanner;
@@ -198,4 +199,5 @@ private:
     TQueryCacheParam _cache_param;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
