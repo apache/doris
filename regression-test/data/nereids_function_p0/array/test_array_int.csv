@@ -1,4 +1,4 @@
-// this is data case file for array<int> type, contains normal, corner, exceptional data cases
+// this is data case file for int> type, contains normal, corner, exceptional data cases
 []
 [null]
 NULL
