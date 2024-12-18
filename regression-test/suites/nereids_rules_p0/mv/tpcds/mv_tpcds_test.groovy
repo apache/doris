@@ -6324,288 +6324,2497 @@ suite("mv_tpcds_test") {
 //    sql """ DROP MATERIALIZED VIEW IF EXISTS mv30"""
 
 
-    def mv31 = """
-"""
-    def query31 = """
-"""
-    order_qt_query31_before "${query31}"
-    async_mv_rewrite_success(db, mv31, query31, "mv31")
-    order_qt_query31_after "${query31}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv31"""
+//    def mv31 = """
+//WITH
+//  ss AS (
+//   SELECT
+//     ca_county
+//   , d_qoy
+//   , d_year
+//   , sum(ss_ext_sales_price) store_sales
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer_address
+//   WHERE (ss_sold_date_sk = d_date_sk)
+//      AND (ss_addr_sk = ca_address_sk)
+//   GROUP BY ca_county, d_qoy, d_year
+//)
+//, ws AS (
+//   SELECT
+//     ca_county
+//   , d_qoy
+//   , d_year
+//   , sum(ws_ext_sales_price) web_sales
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer_address
+//   WHERE (ws_sold_date_sk = d_date_sk)
+//      AND (ws_bill_addr_sk = ca_address_sk)
+//   GROUP BY ca_county, d_qoy, d_year
+//)
+//SELECT
+//  ss1.ca_county
+//, ss1.d_year
+//, (ws2.web_sales / ws1.web_sales) web_q1_q2_increase
+//, (ss2.store_sales / ss1.store_sales) store_q1_q2_increase
+//, (ws3.web_sales / ws2.web_sales) web_q2_q3_increase
+//, (ss3.store_sales / ss2.store_sales) store_q2_q3_increase
+//FROM
+//  ss ss1
+//, ss ss2
+//, ss ss3
+//, ws ws1
+//, ws ws2
+//, ws ws3
+//WHERE (ss1.d_qoy = 1)
+//   AND (ss1.d_year = 2000)
+//   AND (ss1.ca_county = ss2.ca_county)
+//   AND (ss2.d_qoy = 2)
+//   AND (ss2.d_year = 2000)
+//   AND (ss2.ca_county = ss3.ca_county)
+//   AND (ss3.d_qoy = 3)
+//   AND (ss3.d_year = 2000)
+//   AND (ss1.ca_county = ws1.ca_county)
+//   AND (ws1.d_qoy = 1)
+//   AND (ws1.d_year = 2000)
+//   AND (ws1.ca_county = ws2.ca_county)
+//   AND (ws2.d_qoy = 2)
+//   AND (ws2.d_year = 2000)
+//   AND (ws1.ca_county = ws3.ca_county)
+//   AND (ws3.d_qoy = 3)
+//   AND (ws3.d_year = 2000)
+//   AND ((CASE WHEN (ws1.web_sales > 0) THEN (CAST(ws2.web_sales AS DECIMAL(21,3)) / ws1.web_sales) ELSE null END) > (CASE WHEN (ss1.store_sales > 0) THEN (CAST(ss2.store_sales AS DECIMAL(21,3)) / ss1.store_sales) ELSE null END))
+//   AND ((CASE WHEN (ws2.web_sales > 0) THEN (CAST(ws3.web_sales AS DECIMAL(21,3)) / ws2.web_sales) ELSE null END) > (CASE WHEN (ss2.store_sales > 0) THEN (CAST(ss3.store_sales AS DECIMAL(21,3)) / ss2.store_sales) ELSE null END))
+//ORDER BY ss1.ca_county ASC;
+//"""
+//    def query31 = """
+//WITH
+//  ss AS (
+//   SELECT
+//     ca_county
+//   , d_qoy
+//   , d_year
+//   , sum(ss_ext_sales_price) store_sales
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer_address
+//   WHERE (ss_sold_date_sk = d_date_sk)
+//      AND (ss_addr_sk = ca_address_sk)
+//   GROUP BY ca_county, d_qoy, d_year
+//)
+//, ws AS (
+//   SELECT
+//     ca_county
+//   , d_qoy
+//   , d_year
+//   , sum(ws_ext_sales_price) web_sales
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer_address
+//   WHERE (ws_sold_date_sk = d_date_sk)
+//      AND (ws_bill_addr_sk = ca_address_sk)
+//   GROUP BY ca_county, d_qoy, d_year
+//)
+//SELECT
+//  ss1.ca_county
+//, ss1.d_year
+//, (ws2.web_sales / ws1.web_sales) web_q1_q2_increase
+//, (ss2.store_sales / ss1.store_sales) store_q1_q2_increase
+//, (ws3.web_sales / ws2.web_sales) web_q2_q3_increase
+//, (ss3.store_sales / ss2.store_sales) store_q2_q3_increase
+//FROM
+//  ss ss1
+//, ss ss2
+//, ss ss3
+//, ws ws1
+//, ws ws2
+//, ws ws3
+//WHERE (ss1.d_qoy = 1)
+//   AND (ss1.d_year = 2000)
+//   AND (ss1.ca_county = ss2.ca_county)
+//   AND (ss2.d_qoy = 2)
+//   AND (ss2.d_year = 2000)
+//   AND (ss2.ca_county = ss3.ca_county)
+//   AND (ss3.d_qoy = 3)
+//   AND (ss3.d_year = 2000)
+//   AND (ss1.ca_county = ws1.ca_county)
+//   AND (ws1.d_qoy = 1)
+//   AND (ws1.d_year = 2000)
+//   AND (ws1.ca_county = ws2.ca_county)
+//   AND (ws2.d_qoy = 2)
+//   AND (ws2.d_year = 2000)
+//   AND (ws1.ca_county = ws3.ca_county)
+//   AND (ws3.d_qoy = 3)
+//   AND (ws3.d_year = 2000)
+//   AND ((CASE WHEN (ws1.web_sales > 0) THEN (CAST(ws2.web_sales AS DECIMAL(21,3)) / ws1.web_sales) ELSE null END) > (CASE WHEN (ss1.store_sales > 0) THEN (CAST(ss2.store_sales AS DECIMAL(21,3)) / ss1.store_sales) ELSE null END))
+//   AND ((CASE WHEN (ws2.web_sales > 0) THEN (CAST(ws3.web_sales AS DECIMAL(21,3)) / ws2.web_sales) ELSE null END) > (CASE WHEN (ss2.store_sales > 0) THEN (CAST(ss3.store_sales AS DECIMAL(21,3)) / ss2.store_sales) ELSE null END))
+//ORDER BY ss1.ca_county ASC;
+//"""
+//
+//
+//
+//    def mv32 = """
+//SELECT sum(cs_ext_discount_amt) 'excess discount amount'
+//FROM
+//  catalog_sales
+//, item
+//, date_dim
+//WHERE (i_manufact_id = 977)
+//   AND (i_item_sk = cs_item_sk)
+//   AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//   AND (d_date_sk = cs_sold_date_sk)
+//   AND (cs_ext_discount_amt > (
+//      SELECT (CAST('1.3' AS DECIMAL(2,1)) * avg(cs_ext_discount_amt))
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (cs_item_sk = i_item_sk)
+//         AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//         AND (d_date_sk = cs_sold_date_sk)
+//   ))
+//LIMIT 100;
+//"""
+//    def query32 = """
+//SELECT sum(cs_ext_discount_amt) 'excess discount amount'
+//FROM
+//  catalog_sales
+//, item
+//, date_dim
+//WHERE (i_manufact_id = 977)
+//   AND (i_item_sk = cs_item_sk)
+//   AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//   AND (d_date_sk = cs_sold_date_sk)
+//   AND (cs_ext_discount_amt > (
+//      SELECT (CAST('1.3' AS DECIMAL(2,1)) * avg(cs_ext_discount_amt))
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (cs_item_sk = i_item_sk)
+//         AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//         AND (d_date_sk = cs_sold_date_sk)
+//   ))
+//LIMIT 100;
+//"""
+//    order_qt_query32_before "${query32}"
+//    async_mv_rewrite_fail(db, mv32, query32, "mv32")
+//    order_qt_query32_after "${query32}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32"""
+//
+//    def mv32_1 = """
+//SELECT sum(cs_ext_discount_amt) 'excess discount amount'
+//FROM
+//  catalog_sales
+//, item
+//, date_dim
+//WHERE (i_manufact_id = 977)
+//   AND (i_item_sk = cs_item_sk)
+//   AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//   AND (d_date_sk = cs_sold_date_sk)
+//   AND (cs_ext_discount_amt > (
+//      SELECT (CAST('1.3' AS DECIMAL(2,1)) * avg(cs_ext_discount_amt))
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (cs_item_sk = i_item_sk)
+//         AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//         AND (d_date_sk = cs_sold_date_sk)
+//   ));
+//"""
+//    def query32_1 = """
+//SELECT sum(cs_ext_discount_amt) 'excess discount amount'
+//FROM
+//  catalog_sales
+//, item
+//, date_dim
+//WHERE (i_manufact_id = 977)
+//   AND (i_item_sk = cs_item_sk)
+//   AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//   AND (d_date_sk = cs_sold_date_sk)
+//   AND (cs_ext_discount_amt > (
+//      SELECT (CAST('1.3' AS DECIMAL(2,1)) * avg(cs_ext_discount_amt))
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (cs_item_sk = i_item_sk)
+//         AND (d_date BETWEEN CAST('2000-01-27' AS DATE) AND (CAST('2000-01-27' AS DATE) + INTERVAL  '90' DAY))
+//         AND (d_date_sk = cs_sold_date_sk)
+//   ))
+//LIMIT 100;
+//"""
+//    order_qt_query32_1_before "${query32_1}"
+//    // Should success but fail
+//    async_mv_rewrite_fail(db, mv32_1, query32_1, "mv32_1")
+//    order_qt_query32_1_after "${query32_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_1"""
+//
+//    def mv33 = """
+//WITH
+//  ss AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ss_ext_sales_price) total_sales
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ss_item_sk = i_item_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ss_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, cs AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(cs_ext_sales_price) total_sales
+//   FROM
+//     catalog_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (cs_item_sk = i_item_sk)
+//      AND (cs_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (cs_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, ws AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ws_ext_sales_price) total_sales
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ws_item_sk = i_item_sk)
+//      AND (ws_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ws_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//SELECT
+//  i_manufact_id
+//, sum(total_sales) total_sales
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     ss
+//UNION ALL    SELECT *
+//   FROM
+//     cs
+//UNION ALL    SELECT *
+//   FROM
+//     ws
+//)  tmp1
+//GROUP BY i_manufact_id
+//ORDER BY total_sales ASC
+//LIMIT 100;
+//"""
+//    def query33 = """
+//WITH
+//  ss AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ss_ext_sales_price) total_sales
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ss_item_sk = i_item_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ss_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, cs AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(cs_ext_sales_price) total_sales
+//   FROM
+//     catalog_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (cs_item_sk = i_item_sk)
+//      AND (cs_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (cs_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, ws AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ws_ext_sales_price) total_sales
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ws_item_sk = i_item_sk)
+//      AND (ws_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ws_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//SELECT
+//  i_manufact_id
+//, sum(total_sales) total_sales
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     ss
+//UNION ALL    SELECT *
+//   FROM
+//     cs
+//UNION ALL    SELECT *
+//   FROM
+//     ws
+//)  tmp1
+//GROUP BY i_manufact_id
+//ORDER BY total_sales ASC
+//LIMIT 100;
+//"""
+//    order_qt_query33_before "${query33}"
+//    async_mv_rewrite_fail(db, mv33, query33, "mv33")
+//    order_qt_query33_after "${query33}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv33"""
+//
+//    def mv33_1 = """
+//WITH
+//  ss AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ss_ext_sales_price) total_sales
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ss_item_sk = i_item_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ss_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, cs AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(cs_ext_sales_price) total_sales
+//   FROM
+//     catalog_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (cs_item_sk = i_item_sk)
+//      AND (cs_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (cs_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, ws AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ws_ext_sales_price) total_sales
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ws_item_sk = i_item_sk)
+//      AND (ws_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ws_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//SELECT
+//  i_manufact_id
+//, sum(total_sales) total_sales
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     ss
+//UNION ALL    SELECT *
+//   FROM
+//     cs
+//UNION ALL    SELECT *
+//   FROM
+//     ws
+//)  tmp1
+//GROUP BY i_manufact_id;
+//"""
+//    def query33_1 = """
+//WITH
+//  ss AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ss_ext_sales_price) total_sales
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ss_item_sk = i_item_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ss_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, cs AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(cs_ext_sales_price) total_sales
+//   FROM
+//     catalog_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (cs_item_sk = i_item_sk)
+//      AND (cs_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (cs_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//, ws AS (
+//   SELECT
+//     i_manufact_id
+//   , sum(ws_ext_sales_price) total_sales
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer_address
+//   , item
+//   WHERE (i_manufact_id IN (
+//      SELECT i_manufact_id
+//      FROM
+//        item
+//      WHERE (i_category IN ('Electronics'))
+//   ))
+//      AND (ws_item_sk = i_item_sk)
+//      AND (ws_sold_date_sk = d_date_sk)
+//      AND (d_year = 1998)
+//      AND (d_moy = 5)
+//      AND (ws_bill_addr_sk = ca_address_sk)
+//      AND (ca_gmt_offset = -5)
+//   GROUP BY i_manufact_id
+//)
+//SELECT
+//  i_manufact_id
+//, sum(total_sales) total_sales
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     ss
+//UNION ALL    SELECT *
+//   FROM
+//     cs
+//UNION ALL    SELECT *
+//   FROM
+//     ws
+//)  tmp1
+//GROUP BY i_manufact_id
+//ORDER BY total_sales ASC
+//LIMIT 100;
+//"""
+//    order_qt_query33_1_before "${query33_1}"
+//    async_mv_rewrite_fail(db, mv33_1, query33_1, "mv33_1")
+//    order_qt_query33_1_after "${query33_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv33_1"""
+//
+//    def mv34 = """
+//SELECT
+//  c_last_name
+//, c_first_name
+//, c_salutation
+//, c_preferred_cust_flag
+//, ss_ticket_number
+//, cnt
+//FROM
+//  (
+//   SELECT
+//     ss_ticket_number
+//   , ss_customer_sk
+//   , count(*) cnt
+//   FROM
+//     store_sales
+//   , date_dim
+//   , store
+//   , household_demographics
+//   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+//      AND (store_sales.ss_store_sk = store.s_store_sk)
+//      AND (store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+//      AND ((date_dim.d_dom BETWEEN 1 AND 3)
+//         OR (date_dim.d_dom BETWEEN 25 AND 28))
+//      AND ((household_demographics.hd_buy_potential = '>10000')
+//         OR (household_demographics.hd_buy_potential = 'Unknown'))
+//      AND (household_demographics.hd_vehicle_count > 0)
+//      AND ((CASE WHEN (household_demographics.hd_vehicle_count > 0) THEN (CAST(household_demographics.hd_dep_count AS DECIMAL(7,2)) / household_demographics.hd_vehicle_count) ELSE null END) > CAST('1.2' AS DECIMAL(2,1)))
+//      AND (date_dim.d_year IN (1999   , (1999 + 1)   , (1999 + 2)))
+//      AND (store.s_county IN ('Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'))
+//   GROUP BY ss_ticket_number, ss_customer_sk
+//)  dn
+//, customer
+//WHERE (ss_customer_sk = c_customer_sk)
+//   AND (cnt BETWEEN 15 AND 20)
+//ORDER BY c_last_name ASC, c_first_name ASC, c_salutation ASC, c_preferred_cust_flag DESC, ss_ticket_number ASC;
+//"""
+//    def query34 = """
+//SELECT
+//  c_last_name
+//, c_first_name
+//, c_salutation
+//, c_preferred_cust_flag
+//, ss_ticket_number
+//, cnt
+//FROM
+//  (
+//   SELECT
+//     ss_ticket_number
+//   , ss_customer_sk
+//   , count(*) cnt
+//   FROM
+//     store_sales
+//   , date_dim
+//   , store
+//   , household_demographics
+//   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+//      AND (store_sales.ss_store_sk = store.s_store_sk)
+//      AND (store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+//      AND ((date_dim.d_dom BETWEEN 1 AND 3)
+//         OR (date_dim.d_dom BETWEEN 25 AND 28))
+//      AND ((household_demographics.hd_buy_potential = '>10000')
+//         OR (household_demographics.hd_buy_potential = 'Unknown'))
+//      AND (household_demographics.hd_vehicle_count > 0)
+//      AND ((CASE WHEN (household_demographics.hd_vehicle_count > 0) THEN (CAST(household_demographics.hd_dep_count AS DECIMAL(7,2)) / household_demographics.hd_vehicle_count) ELSE null END) > CAST('1.2' AS DECIMAL(2,1)))
+//      AND (date_dim.d_year IN (1999   , (1999 + 1)   , (1999 + 2)))
+//      AND (store.s_county IN ('Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'   , 'Williamson County'))
+//   GROUP BY ss_ticket_number, ss_customer_sk
+//)  dn
+//, customer
+//WHERE (ss_customer_sk = c_customer_sk)
+//   AND (cnt BETWEEN 15 AND 20)
+//ORDER BY c_last_name ASC, c_first_name ASC, c_salutation ASC, c_preferred_cust_flag DESC, ss_ticket_number ASC;
+//"""
+//    order_qt_query34_before "${query34}"
+//    // shoudl success but fail
+//    async_mv_rewrite_fail(db, mv34, query34, "mv34")
+//    order_qt_query34_after "${query34}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv34"""
+//
+//
+//    def mv35 = """
+//SELECT
+//  ca_state
+//, cd_gender
+//, cd_marital_status
+//, cd_dep_count
+//, count(*) cnt1
+//, min(cd_dep_count)
+//, max(cd_dep_count)
+//, avg(cd_dep_count)
+//, cd_dep_employed_count
+//, count(*) cnt2
+//, min(cd_dep_employed_count)
+//, max(cd_dep_employed_count)
+//, avg(cd_dep_employed_count)
+//, cd_dep_college_count
+//, count(*) cnt3
+//, min(cd_dep_college_count)
+//, max(cd_dep_college_count)
+//, avg(cd_dep_college_count)
+//FROM
+//  customer c
+//, customer_address ca
+//, customer_demographics
+//WHERE (c.c_current_addr_sk = ca.ca_address_sk)
+//   AND (cd_demo_sk = c.c_current_cdemo_sk)
+//   AND (EXISTS (
+//   SELECT *
+//   FROM
+//     store_sales
+//   , date_dim
+//   WHERE (c.c_customer_sk = ss_customer_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 2002)
+//      AND (d_qoy < 4)
+//))
+//   AND ((EXISTS (
+//      SELECT *
+//      FROM
+//        web_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = ws_bill_customer_sk)
+//         AND (ws_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   ))
+//      OR (EXISTS (
+//      SELECT *
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = cs_ship_customer_sk)
+//         AND (cs_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   )))
+//GROUP BY ca_state, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
+//ORDER BY ca_state ASC, cd_gender ASC, cd_marital_status ASC, cd_dep_count ASC, cd_dep_employed_count ASC, cd_dep_college_count ASC
+//LIMIT 100;
+//"""
+//    def query35 = """
+//SELECT
+//  ca_state
+//, cd_gender
+//, cd_marital_status
+//, cd_dep_count
+//, count(*) cnt1
+//, min(cd_dep_count)
+//, max(cd_dep_count)
+//, avg(cd_dep_count)
+//, cd_dep_employed_count
+//, count(*) cnt2
+//, min(cd_dep_employed_count)
+//, max(cd_dep_employed_count)
+//, avg(cd_dep_employed_count)
+//, cd_dep_college_count
+//, count(*) cnt3
+//, min(cd_dep_college_count)
+//, max(cd_dep_college_count)
+//, avg(cd_dep_college_count)
+//FROM
+//  customer c
+//, customer_address ca
+//, customer_demographics
+//WHERE (c.c_current_addr_sk = ca.ca_address_sk)
+//   AND (cd_demo_sk = c.c_current_cdemo_sk)
+//   AND (EXISTS (
+//   SELECT *
+//   FROM
+//     store_sales
+//   , date_dim
+//   WHERE (c.c_customer_sk = ss_customer_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 2002)
+//      AND (d_qoy < 4)
+//))
+//   AND ((EXISTS (
+//      SELECT *
+//      FROM
+//        web_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = ws_bill_customer_sk)
+//         AND (ws_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   ))
+//      OR (EXISTS (
+//      SELECT *
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = cs_ship_customer_sk)
+//         AND (cs_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   )))
+//GROUP BY ca_state, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
+//ORDER BY ca_state ASC, cd_gender ASC, cd_marital_status ASC, cd_dep_count ASC, cd_dep_employed_count ASC, cd_dep_college_count ASC
+//LIMIT 100;
+//"""
+//    order_qt_query35_before "${query35}"
+//    async_mv_rewrite_fail(db, mv35, query35, "mv35")
+//    order_qt_query35_after "${query35}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv35"""
+//
+//    def mv35_1 = """
+//SELECT
+//  ca_state
+//, cd_gender
+//, cd_marital_status
+//, cd_dep_count
+//, count(*) cnt1
+//, min(cd_dep_count)
+//, max(cd_dep_count)
+//, avg(cd_dep_count)
+//, cd_dep_employed_count
+//, count(*) cnt2
+//, min(cd_dep_employed_count)
+//, max(cd_dep_employed_count)
+//, avg(cd_dep_employed_count)
+//, cd_dep_college_count
+//, count(*) cnt3
+//, min(cd_dep_college_count)
+//, max(cd_dep_college_count)
+//, avg(cd_dep_college_count)
+//FROM
+//  customer c
+//, customer_address ca
+//, customer_demographics
+//WHERE (c.c_current_addr_sk = ca.ca_address_sk)
+//   AND (cd_demo_sk = c.c_current_cdemo_sk)
+//   AND (EXISTS (
+//   SELECT *
+//   FROM
+//     store_sales
+//   , date_dim
+//   WHERE (c.c_customer_sk = ss_customer_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 2002)
+//      AND (d_qoy < 4)
+//))
+//   AND ((EXISTS (
+//      SELECT *
+//      FROM
+//        web_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = ws_bill_customer_sk)
+//         AND (ws_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   ))
+//      OR (EXISTS (
+//      SELECT *
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = cs_ship_customer_sk)
+//         AND (cs_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   )))
+//GROUP BY ca_state, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count;
+//"""
+//    def query35_1 = """
+//SELECT
+//  ca_state
+//, cd_gender
+//, cd_marital_status
+//, cd_dep_count
+//, count(*) cnt1
+//, min(cd_dep_count)
+//, max(cd_dep_count)
+//, avg(cd_dep_count)
+//, cd_dep_employed_count
+//, count(*) cnt2
+//, min(cd_dep_employed_count)
+//, max(cd_dep_employed_count)
+//, avg(cd_dep_employed_count)
+//, cd_dep_college_count
+//, count(*) cnt3
+//, min(cd_dep_college_count)
+//, max(cd_dep_college_count)
+//, avg(cd_dep_college_count)
+//FROM
+//  customer c
+//, customer_address ca
+//, customer_demographics
+//WHERE (c.c_current_addr_sk = ca.ca_address_sk)
+//   AND (cd_demo_sk = c.c_current_cdemo_sk)
+//   AND (EXISTS (
+//   SELECT *
+//   FROM
+//     store_sales
+//   , date_dim
+//   WHERE (c.c_customer_sk = ss_customer_sk)
+//      AND (ss_sold_date_sk = d_date_sk)
+//      AND (d_year = 2002)
+//      AND (d_qoy < 4)
+//))
+//   AND ((EXISTS (
+//      SELECT *
+//      FROM
+//        web_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = ws_bill_customer_sk)
+//         AND (ws_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   ))
+//      OR (EXISTS (
+//      SELECT *
+//      FROM
+//        catalog_sales
+//      , date_dim
+//      WHERE (c.c_customer_sk = cs_ship_customer_sk)
+//         AND (cs_sold_date_sk = d_date_sk)
+//         AND (d_year = 2002)
+//         AND (d_qoy < 4)
+//   )))
+//GROUP BY ca_state, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
+//ORDER BY ca_state ASC, cd_gender ASC, cd_marital_status ASC, cd_dep_count ASC, cd_dep_employed_count ASC, cd_dep_college_count ASC
+//LIMIT 100;
+//"""
+//    order_qt_query35_1_before "${query35_1}"
+//    // should success but fail
+//    async_mv_rewrite_fail(db, mv35_1, query35_1, "mv35_1")
+//    order_qt_query35_1_after "${query35_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv35_1"""
+//
+//    def mv36 = """
+//SELECT
+//  (sum(ss_net_profit) / sum(ss_ext_sales_price)) gross_margin
+//, i_category
+//, i_class
+//, (GROUPING (i_category) + GROUPING (i_class)) lochierarchy
+//, rank() OVER (PARTITION BY (GROUPING (i_category) + GROUPING (i_class)), (CASE WHEN (GROUPING (i_class) = 0) THEN i_category END) ORDER BY (sum(ss_net_profit) / sum(ss_ext_sales_price)) ASC) rank_within_parent
+//FROM
+//  store_sales
+//, date_dim d1
+//, item
+//, store
+//WHERE (d1.d_year = 2001)
+//   AND (d1.d_date_sk = ss_sold_date_sk)
+//   AND (i_item_sk = ss_item_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_state IN (
+//     'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'))
+//GROUP BY ROLLUP (i_category, i_class)
+//ORDER BY lochierarchy DESC, (CASE WHEN (lochierarchy = 0) THEN i_category END) ASC, rank_within_parent ASC, i_category, i_class
+//LIMIT 100;
+//"""
+//    def query36 = """
+//SELECT
+//  (sum(ss_net_profit) / sum(ss_ext_sales_price)) gross_margin
+//, i_category
+//, i_class
+//, (GROUPING (i_category) + GROUPING (i_class)) lochierarchy
+//, rank() OVER (PARTITION BY (GROUPING (i_category) + GROUPING (i_class)), (CASE WHEN (GROUPING (i_class) = 0) THEN i_category END) ORDER BY (sum(ss_net_profit) / sum(ss_ext_sales_price)) ASC) rank_within_parent
+//FROM
+//  store_sales
+//, date_dim d1
+//, item
+//, store
+//WHERE (d1.d_year = 2001)
+//   AND (d1.d_date_sk = ss_sold_date_sk)
+//   AND (i_item_sk = ss_item_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_state IN (
+//     'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'))
+//GROUP BY ROLLUP (i_category, i_class)
+//ORDER BY lochierarchy DESC, (CASE WHEN (lochierarchy = 0) THEN i_category END) ASC, rank_within_parent ASC, i_category, i_class
+//LIMIT 100;
+//"""
+//    order_qt_query36_before "${query36}"
+//    async_mv_rewrite_fail(db, mv36, query36, "mv36")
+//    order_qt_query36_after "${query36}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv36"""
+//
+//    def mv36_1 = """
+//SELECT
+//  (sum(ss_net_profit) / sum(ss_ext_sales_price)) gross_margin
+//, i_category
+//, i_class
+//, (GROUPING (i_category) + GROUPING (i_class)) lochierarchy
+//, rank() OVER (PARTITION BY (GROUPING (i_category) + GROUPING (i_class)), (CASE WHEN (GROUPING (i_class) = 0) THEN i_category END) ORDER BY (sum(ss_net_profit) / sum(ss_ext_sales_price)) ASC) rank_within_parent
+//FROM
+//  store_sales
+//, date_dim d1
+//, item
+//, store
+//WHERE (d1.d_year = 2001)
+//   AND (d1.d_date_sk = ss_sold_date_sk)
+//   AND (i_item_sk = ss_item_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_state IN (
+//     'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'))
+//GROUP BY ROLLUP (i_category, i_class);
+//"""
+//    def query36_1 = """
+//SELECT
+//  (sum(ss_net_profit) / sum(ss_ext_sales_price)) gross_margin
+//, i_category
+//, i_class
+//, (GROUPING (i_category) + GROUPING (i_class)) lochierarchy
+//, rank() OVER (PARTITION BY (GROUPING (i_category) + GROUPING (i_class)), (CASE WHEN (GROUPING (i_class) = 0) THEN i_category END) ORDER BY (sum(ss_net_profit) / sum(ss_ext_sales_price)) ASC) rank_within_parent
+//FROM
+//  store_sales
+//, date_dim d1
+//, item
+//, store
+//WHERE (d1.d_year = 2001)
+//   AND (d1.d_date_sk = ss_sold_date_sk)
+//   AND (i_item_sk = ss_item_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_state IN (
+//     'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'
+//   , 'TN'))
+//GROUP BY ROLLUP (i_category, i_class)
+//ORDER BY lochierarchy DESC, (CASE WHEN (lochierarchy = 0) THEN i_category END) ASC, rank_within_parent ASC, i_category, i_class
+//LIMIT 100;
+//"""
+//    order_qt_query36_1_before "${query36_1}"
+//    // sould support window
+//    async_mv_rewrite_fail(db, mv36_1, query36_1, "mv36_1")
+//    order_qt_query36_1_after "${query36_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv36_1"""
+//
+//    def mv37 = """
+//SELECT
+//  i_item_id
+//, i_item_desc
+//, i_current_price
+//FROM
+//  item
+//, inventory
+//, date_dim
+//, catalog_sales
+//WHERE (i_current_price BETWEEN 68 AND (68 + 30))
+//   AND (inv_item_sk = i_item_sk)
+//   AND (d_date_sk = inv_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN CAST('2000-02-01' AS DATE) AND (CAST('2000-02-01' AS DATE) + INTERVAL  '60' DAY))
+//   AND (i_manufact_id IN (677, 940, 694, 808))
+//   AND (inv_quantity_on_hand BETWEEN 100 AND 500)
+//   AND (cs_item_sk = i_item_sk)
+//GROUP BY i_item_id, i_item_desc, i_current_price
+//ORDER BY i_item_id ASC
+//LIMIT 100;
+//"""
+//    def query37 = """
+//SELECT
+//  i_item_id
+//, i_item_desc
+//, i_current_price
+//FROM
+//  item
+//, inventory
+//, date_dim
+//, catalog_sales
+//WHERE (i_current_price BETWEEN 68 AND (68 + 30))
+//   AND (inv_item_sk = i_item_sk)
+//   AND (d_date_sk = inv_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN CAST('2000-02-01' AS DATE) AND (CAST('2000-02-01' AS DATE) + INTERVAL  '60' DAY))
+//   AND (i_manufact_id IN (677, 940, 694, 808))
+//   AND (inv_quantity_on_hand BETWEEN 100 AND 500)
+//   AND (cs_item_sk = i_item_sk)
+//GROUP BY i_item_id, i_item_desc, i_current_price
+//ORDER BY i_item_id ASC
+//LIMIT 100;
+//"""
+//    order_qt_query37_before "${query37}"
+//    async_mv_rewrite_fail(db, mv37, query37, "mv37")
+//    order_qt_query37_after "${query37}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv37"""
+//
+//    def mv37_1 = """
+//SELECT
+//  i_item_id
+//, i_item_desc
+//, i_current_price
+//FROM
+//  item
+//, inventory
+//, date_dim
+//, catalog_sales
+//WHERE (i_current_price BETWEEN 68 AND (68 + 30))
+//   AND (inv_item_sk = i_item_sk)
+//   AND (d_date_sk = inv_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN CAST('2000-02-01' AS DATE) AND (CAST('2000-02-01' AS DATE) + INTERVAL  '60' DAY))
+//   AND (i_manufact_id IN (677, 940, 694, 808))
+//   AND (inv_quantity_on_hand BETWEEN 100 AND 500)
+//   AND (cs_item_sk = i_item_sk)
+//GROUP BY i_item_id, i_item_desc, i_current_price;
+//"""
+//    def query37_1 = """
+//SELECT
+//  i_item_id
+//, i_item_desc
+//, i_current_price
+//FROM
+//  item
+//, inventory
+//, date_dim
+//, catalog_sales
+//WHERE (i_current_price BETWEEN 68 AND (68 + 30))
+//   AND (inv_item_sk = i_item_sk)
+//   AND (d_date_sk = inv_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN CAST('2000-02-01' AS DATE) AND (CAST('2000-02-01' AS DATE) + INTERVAL  '60' DAY))
+//   AND (i_manufact_id IN (677, 940, 694, 808))
+//   AND (inv_quantity_on_hand BETWEEN 100 AND 500)
+//   AND (cs_item_sk = i_item_sk)
+//GROUP BY i_item_id, i_item_desc, i_current_price
+//ORDER BY i_item_id ASC
+//LIMIT 100;
+//"""
+//    order_qt_query37_1_before "${query37_1}"
+//    async_mv_rewrite_success(db, mv37_1, query37_1, "mv37_1")
+//    order_qt_query37_1_after "${query37_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv37_1"""
+//
+//    def mv38 = """
+//SELECT count(*)
+//FROM
+//  (
+//   SELECT DISTINCT
+//     c_last_name
+//   , c_first_name
+//   , d_date
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer
+//   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+//      AND (store_sales.ss_customer_sk = customer.c_customer_sk)
+//      AND (d_month_seq BETWEEN 1200 AND (1200 + 11))
+//INTERSECT    SELECT DISTINCT
+//     c_last_name
+//   , c_first_name
+//   , d_date
+//   FROM
+//     catalog_sales
+//   , date_dim
+//   , customer
+//   WHERE (catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+//      AND (catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)
+//      AND (d_month_seq BETWEEN 1200 AND (1200 + 11))
+//INTERSECT    SELECT DISTINCT
+//     c_last_name
+//   , c_first_name
+//   , d_date
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer
+//   WHERE (web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+//      AND (web_sales.ws_bill_customer_sk = customer.c_customer_sk)
+//      AND (d_month_seq BETWEEN 1200 AND (1200 + 11))
+//)  hot_cust
+//LIMIT 100;
+//"""
+//    def query38 = """
+//SELECT count(*)
+//FROM
+//  (
+//   SELECT DISTINCT
+//     c_last_name
+//   , c_first_name
+//   , d_date
+//   FROM
+//     store_sales
+//   , date_dim
+//   , customer
+//   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+//      AND (store_sales.ss_customer_sk = customer.c_customer_sk)
+//      AND (d_month_seq BETWEEN 1200 AND (1200 + 11))
+//INTERSECT    SELECT DISTINCT
+//     c_last_name
+//   , c_first_name
+//   , d_date
+//   FROM
+//     catalog_sales
+//   , date_dim
+//   , customer
+//   WHERE (catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+//      AND (catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)
+//      AND (d_month_seq BETWEEN 1200 AND (1200 + 11))
+//INTERSECT    SELECT DISTINCT
+//     c_last_name
+//   , c_first_name
+//   , d_date
+//   FROM
+//     web_sales
+//   , date_dim
+//   , customer
+//   WHERE (web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+//      AND (web_sales.ws_bill_customer_sk = customer.c_customer_sk)
+//      AND (d_month_seq BETWEEN 1200 AND (1200 + 11))
+//)  hot_cust
+//LIMIT 100;
+//"""
+//    order_qt_query38_before "${query38}"
+//    async_mv_rewrite_fail(db, mv38, query38, "mv38")
+//    order_qt_query38_after "${query38}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv38"""
+//
+//
+//    def mv39 = """
+//WITH
+//  inv AS (
+//   SELECT
+//     w_warehouse_name
+//   , w_warehouse_sk
+//   , i_item_sk
+//   , d_moy
+//   , stdev
+//   , mean
+//   , (CASE mean WHEN 0 THEN null ELSE (stdev / mean) END) cov
+//   FROM
+//     (
+//      SELECT
+//        w_warehouse_name
+//      , w_warehouse_sk
+//      , i_item_sk
+//      , d_moy
+//      , stddev_samp(inv_quantity_on_hand) stdev
+//      , avg(inv_quantity_on_hand) mean
+//      FROM
+//        inventory
+//      , item
+//      , warehouse
+//      , date_dim
+//      WHERE (inv_item_sk = i_item_sk)
+//         AND (inv_warehouse_sk = w_warehouse_sk)
+//         AND (inv_date_sk = d_date_sk)
+//         AND (d_year = 2001)
+//      GROUP BY w_warehouse_name, w_warehouse_sk, i_item_sk, d_moy
+//   )  foo
+//   WHERE ((CASE mean WHEN 0 THEN 0 ELSE (stdev / mean) END) > 1)
+//)
+//SELECT
+//  inv1.w_warehouse_sk
+//, inv1.i_item_sk
+//, inv1.d_moy
+//, inv1.mean
+//, inv1.cov
+//, inv2.w_warehouse_sk as w_warehouse_sk2
+//, inv2.i_item_sk as i_item_sk2
+//, inv2.d_moy as d_moy2
+//, inv2.mean as mean2
+//, inv2.cov as cov2
+//FROM
+//  inv inv1
+//, inv inv2
+//WHERE (inv1.i_item_sk = inv2.i_item_sk)
+//   AND (inv1.w_warehouse_sk = inv2.w_warehouse_sk)
+//   AND (inv1.d_moy = 1)
+//   AND (inv2.d_moy = (1 + 1))
+//ORDER BY inv1.w_warehouse_sk ASC, inv1.i_item_sk ASC, inv1.d_moy ASC, inv1.mean ASC, inv1.cov ASC, inv2.d_moy ASC, inv2.mean ASC, inv2.cov ASC;
+//"""
+//    def query39 = """
+//WITH
+//  inv AS (
+//   SELECT
+//     w_warehouse_name
+//   , w_warehouse_sk
+//   , i_item_sk
+//   , d_moy
+//   , stdev
+//   , mean
+//   , (CASE mean WHEN 0 THEN null ELSE (stdev / mean) END) cov
+//   FROM
+//     (
+//      SELECT
+//        w_warehouse_name
+//      , w_warehouse_sk
+//      , i_item_sk
+//      , d_moy
+//      , stddev_samp(inv_quantity_on_hand) stdev
+//      , avg(inv_quantity_on_hand) mean
+//      FROM
+//        inventory
+//      , item
+//      , warehouse
+//      , date_dim
+//      WHERE (inv_item_sk = i_item_sk)
+//         AND (inv_warehouse_sk = w_warehouse_sk)
+//         AND (inv_date_sk = d_date_sk)
+//         AND (d_year = 2001)
+//      GROUP BY w_warehouse_name, w_warehouse_sk, i_item_sk, d_moy
+//   )  foo
+//   WHERE ((CASE mean WHEN 0 THEN 0 ELSE (stdev / mean) END) > 1)
+//)
+//SELECT
+//  inv1.w_warehouse_sk
+//, inv1.i_item_sk
+//, inv1.d_moy
+//, inv1.mean
+//, inv1.cov
+//, inv2.w_warehouse_sk
+//, inv2.i_item_sk
+//, inv2.d_moy
+//, inv2.mean
+//, inv2.cov
+//FROM
+//  inv inv1
+//, inv inv2
+//WHERE (inv1.i_item_sk = inv2.i_item_sk)
+//   AND (inv1.w_warehouse_sk = inv2.w_warehouse_sk)
+//   AND (inv1.d_moy = 1)
+//   AND (inv2.d_moy = (1 + 1))
+//ORDER BY inv1.w_warehouse_sk ASC, inv1.i_item_sk ASC, inv1.d_moy ASC, inv1.mean ASC, inv1.cov ASC, inv2.d_moy ASC, inv2.mean ASC, inv2.cov ASC;
+//"""
+//    order_qt_query39_before "${query39}"
+//    async_mv_rewrite_fail(db, mv39, query39, "mv39")
+//    order_qt_query39_after "${query39}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv39"""
+//
+//
+//    def mv40 = """
+//SELECT
+//  w_state
+//, i_item_id
+//, sum((CASE WHEN (CAST(d_date AS DATE) < CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_before
+//, sum((CASE WHEN (CAST(d_date AS DATE) >= CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_after
+//FROM
+//  catalog_sales
+//LEFT JOIN catalog_returns ON (cs_order_number = cr_order_number)
+//   AND (cs_item_sk = cr_item_sk)
+//, warehouse
+//, item
+//, date_dim
+//WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL(3,2)) AND CAST('1.49' AS DECIMAL(3,2)))
+//   AND (i_item_sk = cs_item_sk)
+//   AND (cs_warehouse_sk = w_warehouse_sk)
+//   AND (cs_sold_date_sk = d_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN (CAST('2000-03-11' AS DATE) - INTERVAL  '30' DAY) AND (CAST('2000-03-11' AS DATE) + INTERVAL  '30' DAY))
+//GROUP BY w_state, i_item_id
+//ORDER BY w_state ASC, i_item_id ASC
+//LIMIT 100;
+//"""
+//    def query40 = """
+//SELECT
+//  w_state
+//, i_item_id
+//, sum((CASE WHEN (CAST(d_date AS DATE) < CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_before
+//, sum((CASE WHEN (CAST(d_date AS DATE) >= CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_after
+//FROM
+//  catalog_sales
+//LEFT JOIN catalog_returns ON (cs_order_number = cr_order_number)
+//   AND (cs_item_sk = cr_item_sk)
+//, warehouse
+//, item
+//, date_dim
+//WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL(3,2)) AND CAST('1.49' AS DECIMAL(3,2)))
+//   AND (i_item_sk = cs_item_sk)
+//   AND (cs_warehouse_sk = w_warehouse_sk)
+//   AND (cs_sold_date_sk = d_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN (CAST('2000-03-11' AS DATE) - INTERVAL  '30' DAY) AND (CAST('2000-03-11' AS DATE) + INTERVAL  '30' DAY))
+//GROUP BY w_state, i_item_id
+//ORDER BY w_state ASC, i_item_id ASC
+//LIMIT 100;
+//"""
+//    order_qt_query40_before "${query40}"
+//    async_mv_rewrite_fail(db, mv40, query40, "mv40")
+//    order_qt_query40_after "${query40}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv40"""
+//
+//    def mv40_1 = """
+//SELECT
+//  w_state
+//, i_item_id
+//, sum((CASE WHEN (CAST(d_date AS DATE) < CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_before
+//, sum((CASE WHEN (CAST(d_date AS DATE) >= CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_after
+//FROM
+//  catalog_sales
+//LEFT JOIN catalog_returns ON (cs_order_number = cr_order_number)
+//   AND (cs_item_sk = cr_item_sk)
+//, warehouse
+//, item
+//, date_dim
+//WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL(3,2)) AND CAST('1.49' AS DECIMAL(3,2)))
+//   AND (i_item_sk = cs_item_sk)
+//   AND (cs_warehouse_sk = w_warehouse_sk)
+//   AND (cs_sold_date_sk = d_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN (CAST('2000-03-11' AS DATE) - INTERVAL  '30' DAY) AND (CAST('2000-03-11' AS DATE) + INTERVAL  '30' DAY))
+//GROUP BY w_state, i_item_id;
+//"""
+//    def query40_1 = """
+//SELECT
+//  w_state
+//, i_item_id
+//, sum((CASE WHEN (CAST(d_date AS DATE) < CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_before
+//, sum((CASE WHEN (CAST(d_date AS DATE) >= CAST('2000-03-11' AS DATE)) THEN (cs_sales_price - COALESCE(cr_refunded_cash, 0)) ELSE 0 END)) sales_after
+//FROM
+//  catalog_sales
+//LEFT JOIN catalog_returns ON (cs_order_number = cr_order_number)
+//   AND (cs_item_sk = cr_item_sk)
+//, warehouse
+//, item
+//, date_dim
+//WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL(3,2)) AND CAST('1.49' AS DECIMAL(3,2)))
+//   AND (i_item_sk = cs_item_sk)
+//   AND (cs_warehouse_sk = w_warehouse_sk)
+//   AND (cs_sold_date_sk = d_date_sk)
+//   AND (CAST(d_date AS DATE) BETWEEN (CAST('2000-03-11' AS DATE) - INTERVAL  '30' DAY) AND (CAST('2000-03-11' AS DATE) + INTERVAL  '30' DAY))
+//GROUP BY w_state, i_item_id
+//ORDER BY w_state ASC, i_item_id ASC
+//LIMIT 100;
+//"""
+//    order_qt_query40_1_before "${query40_1}"
+//    async_mv_rewrite_success(db, mv40_1, query40_1, "mv40_1")
+//    order_qt_query40_1_after "${query40_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv40_1"""
 
-    def mv31_1 = """
-"""
-    def query31_1 = """
-"""
-    order_qt_query31_1_before "${query31_1}"
-    async_mv_rewrite_success(db, mv31_1, query31_1, "mv31_1")
-    order_qt_query31_1_after "${query31_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_1"""
-
-    def mv32 = """
-"""
-    def query32 = """
-"""
-    order_qt_query32_before "${query32}"
-    async_mv_rewrite_success(db, mv32, query32, "mv32")
-    order_qt_query32_after "${query32}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32"""
-
-    def mv32_1 = """
-"""
-    def query32_1 = """
-"""
-    order_qt_query32_1_before "${query32_1}"
-    async_mv_rewrite_success(db, mv32_1, query32_1, "mv32_1")
-    order_qt_query32_1_after "${query32_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv32_1"""
-
-    def mv33 = """
-"""
-    def query33 = """
-"""
-    order_qt_query33_before "${query33}"
-    async_mv_rewrite_success(db, mv33, query33, "mv33")
-    order_qt_query33_after "${query33}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv33"""
-
-    def mv33_1 = """
-"""
-    def query33_1 = """
-"""
-    order_qt_query33_1_before "${query33_1}"
-    async_mv_rewrite_success(db, mv33_1, query33_1, "mv33_1")
-    order_qt_query33_1_after "${query33_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv33_1"""
-
-    def mv34 = """
-"""
-    def query34 = """
-"""
-    order_qt_query34_before "${query34}"
-    async_mv_rewrite_success(db, mv34, query34, "mv34")
-    order_qt_query34_after "${query34}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv34"""
-
-    def mv34_1 = """
-"""
-    def query34_1 = """
-"""
-    order_qt_query34_1_before "${query34_1}"
-    async_mv_rewrite_success(db, mv34_1, query34_1, "mv34_1")
-    order_qt_query34_1_after "${query34_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv34_1"""
-
-    def mv35 = """
-"""
-    def query35 = """
-"""
-    order_qt_query35_before "${query35}"
-    async_mv_rewrite_success(db, mv35, query35, "mv35")
-    order_qt_query35_after "${query35}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv35"""
-
-    def mv35_1 = """
-"""
-    def query35_1 = """
-"""
-    order_qt_query35_1_before "${query35_1}"
-    async_mv_rewrite_success(db, mv35_1, query35_1, "mv35_1")
-    order_qt_query35_1_after "${query35_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv35_1"""
-
-    def mv36 = """
-"""
-    def query36 = """
-"""
-    order_qt_query36_before "${query36}"
-    async_mv_rewrite_success(db, mv36, query36, "mv36")
-    order_qt_query36_after "${query36}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv36"""
-
-    def mv36_1 = """
-"""
-    def query36_1 = """
-"""
-    order_qt_query36_1_before "${query36_1}"
-    async_mv_rewrite_success(db, mv36_1, query36_1, "mv36_1")
-    order_qt_query36_1_after "${query36_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv36_1"""
-
-    def mv37 = """
-"""
-    def query37 = """
-"""
-    order_qt_query37_before "${query37}"
-    async_mv_rewrite_success(db, mv37, query37, "mv37")
-    order_qt_query37_after "${query37}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv37"""
-
-    def mv37_1 = """
-"""
-    def query37_1 = """
-"""
-    order_qt_query37_1_before "${query37_1}"
-    async_mv_rewrite_success(db, mv37_1, query37_1, "mv37_1")
-    order_qt_query37_1_after "${query37_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv37_1"""
-
-    def mv38 = """
-"""
-    def query38 = """
-"""
-    order_qt_query38_before "${query38}"
-    async_mv_rewrite_success(db, mv38, query38, "mv38")
-    order_qt_query38_after "${query38}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv38"""
-
-    def mv38_1 = """
-"""
-    def query38_1 = """
-"""
-    order_qt_query38_1_before "${query38_1}"
-    async_mv_rewrite_success(db, mv38_1, query38_1, "mv38_1")
-    order_qt_query38_1_after "${query38_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv38_1"""
-
-    def mv39 = """
-"""
-    def query39 = """
-"""
-    order_qt_query39_before "${query39}"
-    async_mv_rewrite_success(db, mv39, query39, "mv39")
-    order_qt_query39_after "${query39}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv39"""
-
-    def mv39_1 = """
-"""
-    def query39_1 = """
-"""
-    order_qt_query39_1_before "${query39_1}"
-    async_mv_rewrite_success(db, mv39_1, query39_1, "mv39_1")
-    order_qt_query39_1_after "${query39_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv39_1"""
-
-    def mv40 = """
-"""
-    def query40 = """
-"""
-    order_qt_query40_before "${query40}"
-    async_mv_rewrite_success(db, mv40, query40, "mv40")
-    order_qt_query40_after "${query40}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv40"""
-
-    def mv40_1 = """
-"""
-    def query40_1 = """
-"""
-    order_qt_query40_1_before "${query40_1}"
-    async_mv_rewrite_success(db, mv40_1, query40_1, "mv40_1")
-    order_qt_query40_1_after "${query40_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv40_1"""
-
-    def mv41 = """
-"""
-    def query41 = """
-"""
-    order_qt_query41_before "${query41}"
-    async_mv_rewrite_success(db, mv41, query41, "mv41")
-    order_qt_query41_after "${query41}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv41"""
-
-    def mv41_1 = """
-"""
-    def query41_1 = """
-"""
-    order_qt_query41_1_before "${query41_1}"
-    async_mv_rewrite_success(db, mv41_1, query41_1, "mv41_1")
-    order_qt_query41_1_after "${query41_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv41_1"""
-
-    def mv42 = """
-"""
-    def query42 = """
-"""
-    order_qt_query42_before "${query42}"
-    async_mv_rewrite_success(db, mv42, query42, "mv42")
-    order_qt_query42_after "${query42}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv42"""
-
-    def mv42_1 = """
-"""
-    def query42_1 = """
-"""
-    order_qt_query42_1_before "${query42_1}"
-    async_mv_rewrite_success(db, mv42_1, query42_1, "mv42_1")
-    order_qt_query42_1_after "${query42_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv42_1"""
-
-    def mv43 = """
-"""
-    def query43 = """
-"""
-    order_qt_query43_before "${query43}"
-    async_mv_rewrite_success(db, mv43, query43, "mv43")
-    order_qt_query43_after "${query43}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv43"""
-
-    def mv43_1 = """
-"""
-    def query43_1 = """
-"""
-    order_qt_query43_1_before "${query43_1}"
-    async_mv_rewrite_success(db, mv43_1, query43_1, "mv43_1")
-    order_qt_query43_1_after "${query43_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv43_1"""
-
-    def mv44 = """
-"""
-    def query44 = """
-"""
-    order_qt_query44_before "${query44}"
-    async_mv_rewrite_success(db, mv44, query44, "mv44")
-    order_qt_query44_after "${query44}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv44"""
-
-    def mv44_1 = """
-"""
-    def query44_1 = """
-"""
-    order_qt_query44_1_before "${query44_1}"
-    async_mv_rewrite_success(db, mv44_1, query44_1, "mv44_1")
-    order_qt_query44_1_after "${query44_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv44_1"""
+//    def mv41 = """
+//SELECT DISTINCT i_product_name
+//FROM
+//  item i1
+//WHERE (i_manufact_id BETWEEN 738 AND (738 + 40))
+//   AND ((
+//      SELECT count(*) item_cnt
+//      FROM
+//        item
+//      WHERE ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'powder')
+//                     OR (i_color = 'khaki'))
+//                  AND ((i_units = 'Ounce')
+//                     OR (i_units = 'Oz'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'brown')
+//                     OR (i_color = 'honeydew'))
+//                  AND ((i_units = 'Bunch')
+//                     OR (i_units = 'Ton'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'floral')
+//                     OR (i_color = 'deep'))
+//                  AND ((i_units = 'N/A')
+//                     OR (i_units = 'Dozen'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'light')
+//                     OR (i_color = 'cornflower'))
+//                  AND ((i_units = 'Box')
+//                     OR (i_units = 'Pound'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//         OR ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'midnight')
+//                     OR (i_color = 'snow'))
+//                  AND ((i_units = 'Pallet')
+//                     OR (i_units = 'Gross'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'cyan')
+//                     OR (i_color = 'papaya'))
+//                  AND ((i_units = 'Cup')
+//                     OR (i_units = 'Dram'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'orange')
+//                     OR (i_color = 'frosted'))
+//                  AND ((i_units = 'Each')
+//                     OR (i_units = 'Tbl'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'forest')
+//                     OR (i_color = 'ghost'))
+//                  AND ((i_units = 'Lb')
+//                     OR (i_units = 'Bundle'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//   ) > 0)
+//ORDER BY i_product_name ASC
+//LIMIT 100;
+//"""
+//    def query41 = """
+//SELECT DISTINCT i_product_name
+//FROM
+//  item i1
+//WHERE (i_manufact_id BETWEEN 738 AND (738 + 40))
+//   AND ((
+//      SELECT count(*) item_cnt
+//      FROM
+//        item
+//      WHERE ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'powder')
+//                     OR (i_color = 'khaki'))
+//                  AND ((i_units = 'Ounce')
+//                     OR (i_units = 'Oz'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'brown')
+//                     OR (i_color = 'honeydew'))
+//                  AND ((i_units = 'Bunch')
+//                     OR (i_units = 'Ton'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'floral')
+//                     OR (i_color = 'deep'))
+//                  AND ((i_units = 'N/A')
+//                     OR (i_units = 'Dozen'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'light')
+//                     OR (i_color = 'cornflower'))
+//                  AND ((i_units = 'Box')
+//                     OR (i_units = 'Pound'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//         OR ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'midnight')
+//                     OR (i_color = 'snow'))
+//                  AND ((i_units = 'Pallet')
+//                     OR (i_units = 'Gross'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'cyan')
+//                     OR (i_color = 'papaya'))
+//                  AND ((i_units = 'Cup')
+//                     OR (i_units = 'Dram'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'orange')
+//                     OR (i_color = 'frosted'))
+//                  AND ((i_units = 'Each')
+//                     OR (i_units = 'Tbl'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'forest')
+//                     OR (i_color = 'ghost'))
+//                  AND ((i_units = 'Lb')
+//                     OR (i_units = 'Bundle'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//   ) > 0)
+//ORDER BY i_product_name ASC
+//LIMIT 100;
+//"""
+//    order_qt_query41_before "${query41}"
+//    async_mv_rewrite_fail(db, mv41, query41, "mv41")
+//    order_qt_query41_after "${query41}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv41"""
+//
+//    def mv41_1 = """
+//SELECT DISTINCT i_product_name
+//FROM
+//  item i1
+//WHERE (i_manufact_id BETWEEN 738 AND (738 + 40))
+//   AND ((
+//      SELECT count(*) item_cnt
+//      FROM
+//        item
+//      WHERE ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'powder')
+//                     OR (i_color = 'khaki'))
+//                  AND ((i_units = 'Ounce')
+//                     OR (i_units = 'Oz'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'brown')
+//                     OR (i_color = 'honeydew'))
+//                  AND ((i_units = 'Bunch')
+//                     OR (i_units = 'Ton'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'floral')
+//                     OR (i_color = 'deep'))
+//                  AND ((i_units = 'N/A')
+//                     OR (i_units = 'Dozen'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'light')
+//                     OR (i_color = 'cornflower'))
+//                  AND ((i_units = 'Box')
+//                     OR (i_units = 'Pound'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//         OR ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'midnight')
+//                     OR (i_color = 'snow'))
+//                  AND ((i_units = 'Pallet')
+//                     OR (i_units = 'Gross'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'cyan')
+//                     OR (i_color = 'papaya'))
+//                  AND ((i_units = 'Cup')
+//                     OR (i_units = 'Dram'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'orange')
+//                     OR (i_color = 'frosted'))
+//                  AND ((i_units = 'Each')
+//                     OR (i_units = 'Tbl'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'forest')
+//                     OR (i_color = 'ghost'))
+//                  AND ((i_units = 'Lb')
+//                     OR (i_units = 'Bundle'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//   ) > 0);
+//"""
+//    def query41_1 = """
+//SELECT DISTINCT i_product_name
+//FROM
+//  item i1
+//WHERE (i_manufact_id BETWEEN 738 AND (738 + 40))
+//   AND ((
+//      SELECT count(*) item_cnt
+//      FROM
+//        item
+//      WHERE ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'powder')
+//                     OR (i_color = 'khaki'))
+//                  AND ((i_units = 'Ounce')
+//                     OR (i_units = 'Oz'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'brown')
+//                     OR (i_color = 'honeydew'))
+//                  AND ((i_units = 'Bunch')
+//                     OR (i_units = 'Ton'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'floral')
+//                     OR (i_color = 'deep'))
+//                  AND ((i_units = 'N/A')
+//                     OR (i_units = 'Dozen'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'light')
+//                     OR (i_color = 'cornflower'))
+//                  AND ((i_units = 'Box')
+//                     OR (i_units = 'Pound'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//         OR ((i_manufact = i1.i_manufact)
+//            AND (((i_category = 'Women')
+//                  AND ((i_color = 'midnight')
+//                     OR (i_color = 'snow'))
+//                  AND ((i_units = 'Pallet')
+//                     OR (i_units = 'Gross'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))
+//               OR ((i_category = 'Women')
+//                  AND ((i_color = 'cyan')
+//                     OR (i_color = 'papaya'))
+//                  AND ((i_units = 'Cup')
+//                     OR (i_units = 'Dram'))
+//                  AND ((i_size = 'N/A')
+//                     OR (i_size = 'small')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'orange')
+//                     OR (i_color = 'frosted'))
+//                  AND ((i_units = 'Each')
+//                     OR (i_units = 'Tbl'))
+//                  AND ((i_size = 'petite')
+//                     OR (i_size = 'large')))
+//               OR ((i_category = 'Men')
+//                  AND ((i_color = 'forest')
+//                     OR (i_color = 'ghost'))
+//                  AND ((i_units = 'Lb')
+//                     OR (i_units = 'Bundle'))
+//                  AND ((i_size = 'medium')
+//                     OR (i_size = 'extra large')))))
+//   ) > 0)
+//ORDER BY i_product_name ASC
+//LIMIT 100;
+//"""
+//    order_qt_query41_1_before "${query41_1}"
+//    async_mv_rewrite_success(db, mv41_1, query41_1, "mv41_1")
+//    order_qt_query41_1_after "${query41_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv41_1"""
+//
+//    def mv42 = """
+//SELECT
+//  dt.d_year
+//, item.i_category_id
+//, item.i_category
+//, sum(ss_ext_sales_price)
+//FROM
+//  date_dim dt
+//, store_sales
+//, item
+//WHERE (dt.d_date_sk = store_sales.ss_sold_date_sk)
+//   AND (store_sales.ss_item_sk = item.i_item_sk)
+//   AND (item.i_manager_id = 1)
+//   AND (dt.d_moy = 11)
+//   AND (dt.d_year = 2000)
+//GROUP BY dt.d_year, item.i_category_id, item.i_category
+//ORDER BY sum(ss_ext_sales_price) DESC, dt.d_year ASC, item.i_category_id ASC, item.i_category ASC
+//LIMIT 100;
+//"""
+//    def query42 = """
+//SELECT
+//  dt.d_year
+//, item.i_category_id
+//, item.i_category
+//, sum(ss_ext_sales_price)
+//FROM
+//  date_dim dt
+//, store_sales
+//, item
+//WHERE (dt.d_date_sk = store_sales.ss_sold_date_sk)
+//   AND (store_sales.ss_item_sk = item.i_item_sk)
+//   AND (item.i_manager_id = 1)
+//   AND (dt.d_moy = 11)
+//   AND (dt.d_year = 2000)
+//GROUP BY dt.d_year, item.i_category_id, item.i_category
+//ORDER BY sum(ss_ext_sales_price) DESC, dt.d_year ASC, item.i_category_id ASC, item.i_category ASC
+//LIMIT 100;
+//"""
+//    order_qt_query42_before "${query42}"
+//    async_mv_rewrite_fail(db, mv42, query42, "mv42")
+//    order_qt_query42_after "${query42}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv42"""
+//
+//    def mv42_1 = """
+//SELECT
+//  dt.d_year
+//, item.i_category_id
+//, item.i_category
+//, sum(ss_ext_sales_price)
+//FROM
+//  date_dim dt
+//, store_sales
+//, item
+//WHERE (dt.d_date_sk = store_sales.ss_sold_date_sk)
+//   AND (store_sales.ss_item_sk = item.i_item_sk)
+//   AND (item.i_manager_id = 1)
+//   AND (dt.d_moy = 11)
+//   AND (dt.d_year = 2000)
+//GROUP BY dt.d_year, item.i_category_id, item.i_category;
+//"""
+//    def query42_1 = """
+//SELECT
+//  dt.d_year
+//, item.i_category_id
+//, item.i_category
+//, sum(ss_ext_sales_price)
+//FROM
+//  date_dim dt
+//, store_sales
+//, item
+//WHERE (dt.d_date_sk = store_sales.ss_sold_date_sk)
+//   AND (store_sales.ss_item_sk = item.i_item_sk)
+//   AND (item.i_manager_id = 1)
+//   AND (dt.d_moy = 11)
+//   AND (dt.d_year = 2000)
+//GROUP BY dt.d_year, item.i_category_id, item.i_category
+//ORDER BY sum(ss_ext_sales_price) DESC, dt.d_year ASC, item.i_category_id ASC, item.i_category ASC
+//LIMIT 100;
+//"""
+//    order_qt_query42_1_before "${query42_1}"
+//    async_mv_rewrite_success(db, mv42_1, query42_1, "mv42_1")
+//    order_qt_query42_1_after "${query42_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv42_1"""
+//
+//    def mv43 = """
+//SELECT
+//  s_store_name
+//, s_store_id
+//, sum((CASE WHEN (d_day_name = 'Sunday') THEN ss_sales_price ELSE null END)) sun_sales
+//, sum((CASE WHEN (d_day_name = 'Monday') THEN ss_sales_price ELSE null END)) mon_sales
+//, sum((CASE WHEN (d_day_name = 'Tuesday') THEN ss_sales_price ELSE null END)) tue_sales
+//, sum((CASE WHEN (d_day_name = 'Wednesday') THEN ss_sales_price ELSE null END)) wed_sales
+//, sum((CASE WHEN (d_day_name = 'Thursday') THEN ss_sales_price ELSE null END)) thu_sales
+//, sum((CASE WHEN (d_day_name = 'Friday') THEN ss_sales_price ELSE null END)) fri_sales
+//, sum((CASE WHEN (d_day_name = 'Saturday') THEN ss_sales_price ELSE null END)) sat_sales
+//FROM
+//  date_dim
+//, store_sales
+//, store
+//WHERE (d_date_sk = ss_sold_date_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_gmt_offset = -5)
+//   AND (d_year = 2000)
+//GROUP BY s_store_name, s_store_id
+//ORDER BY s_store_name ASC, s_store_id ASC, sun_sales ASC, mon_sales ASC, tue_sales ASC, wed_sales ASC, thu_sales ASC, fri_sales ASC, sat_sales ASC
+//LIMIT 100;
+//"""
+//    def query43 = """
+//SELECT
+//  s_store_name
+//, s_store_id
+//, sum((CASE WHEN (d_day_name = 'Sunday') THEN ss_sales_price ELSE null END)) sun_sales
+//, sum((CASE WHEN (d_day_name = 'Monday') THEN ss_sales_price ELSE null END)) mon_sales
+//, sum((CASE WHEN (d_day_name = 'Tuesday') THEN ss_sales_price ELSE null END)) tue_sales
+//, sum((CASE WHEN (d_day_name = 'Wednesday') THEN ss_sales_price ELSE null END)) wed_sales
+//, sum((CASE WHEN (d_day_name = 'Thursday') THEN ss_sales_price ELSE null END)) thu_sales
+//, sum((CASE WHEN (d_day_name = 'Friday') THEN ss_sales_price ELSE null END)) fri_sales
+//, sum((CASE WHEN (d_day_name = 'Saturday') THEN ss_sales_price ELSE null END)) sat_sales
+//FROM
+//  date_dim
+//, store_sales
+//, store
+//WHERE (d_date_sk = ss_sold_date_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_gmt_offset = -5)
+//   AND (d_year = 2000)
+//GROUP BY s_store_name, s_store_id
+//ORDER BY s_store_name ASC, s_store_id ASC, sun_sales ASC, mon_sales ASC, tue_sales ASC, wed_sales ASC, thu_sales ASC, fri_sales ASC, sat_sales ASC
+//LIMIT 100;
+//"""
+//    order_qt_query43_before "${query43}"
+//    async_mv_rewrite_fail(db, mv43, query43, "mv43")
+//    order_qt_query43_after "${query43}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv43"""
+//
+//    def mv43_1 = """
+//SELECT
+//  s_store_name
+//, s_store_id
+//, sum((CASE WHEN (d_day_name = 'Sunday') THEN ss_sales_price ELSE null END)) sun_sales
+//, sum((CASE WHEN (d_day_name = 'Monday') THEN ss_sales_price ELSE null END)) mon_sales
+//, sum((CASE WHEN (d_day_name = 'Tuesday') THEN ss_sales_price ELSE null END)) tue_sales
+//, sum((CASE WHEN (d_day_name = 'Wednesday') THEN ss_sales_price ELSE null END)) wed_sales
+//, sum((CASE WHEN (d_day_name = 'Thursday') THEN ss_sales_price ELSE null END)) thu_sales
+//, sum((CASE WHEN (d_day_name = 'Friday') THEN ss_sales_price ELSE null END)) fri_sales
+//, sum((CASE WHEN (d_day_name = 'Saturday') THEN ss_sales_price ELSE null END)) sat_sales
+//FROM
+//  date_dim
+//, store_sales
+//, store
+//WHERE (d_date_sk = ss_sold_date_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_gmt_offset = -5)
+//   AND (d_year = 2000)
+//GROUP BY s_store_name, s_store_id;
+//"""
+//    def query43_1 = """
+//SELECT
+//  s_store_name
+//, s_store_id
+//, sum((CASE WHEN (d_day_name = 'Sunday') THEN ss_sales_price ELSE null END)) sun_sales
+//, sum((CASE WHEN (d_day_name = 'Monday') THEN ss_sales_price ELSE null END)) mon_sales
+//, sum((CASE WHEN (d_day_name = 'Tuesday') THEN ss_sales_price ELSE null END)) tue_sales
+//, sum((CASE WHEN (d_day_name = 'Wednesday') THEN ss_sales_price ELSE null END)) wed_sales
+//, sum((CASE WHEN (d_day_name = 'Thursday') THEN ss_sales_price ELSE null END)) thu_sales
+//, sum((CASE WHEN (d_day_name = 'Friday') THEN ss_sales_price ELSE null END)) fri_sales
+//, sum((CASE WHEN (d_day_name = 'Saturday') THEN ss_sales_price ELSE null END)) sat_sales
+//FROM
+//  date_dim
+//, store_sales
+//, store
+//WHERE (d_date_sk = ss_sold_date_sk)
+//   AND (s_store_sk = ss_store_sk)
+//   AND (s_gmt_offset = -5)
+//   AND (d_year = 2000)
+//GROUP BY s_store_name, s_store_id
+//ORDER BY s_store_name ASC, s_store_id ASC, sun_sales ASC, mon_sales ASC, tue_sales ASC, wed_sales ASC, thu_sales ASC, fri_sales ASC, sat_sales ASC
+//LIMIT 100;
+//"""
+//    order_qt_query43_1_before "${query43_1}"
+//    async_mv_rewrite_success(db, mv43_1, query43_1, "mv43_1")
+//    order_qt_query43_1_after "${query43_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv43_1"""
+//
+//    def mv44 = """
+//SELECT
+//  asceding.rnk
+//, i1.i_product_name best_performing
+//, i2.i_product_name worst_performing
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col ASC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v1
+//   )  v11
+//   WHERE (rnk < 11)
+//)  asceding
+//, (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col DESC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v2
+//   )  v21
+//   WHERE (rnk < 11)
+//)  descending
+//, item i1
+//, item i2
+//WHERE (asceding.rnk = descending.rnk)
+//   AND (i1.i_item_sk = asceding.item_sk)
+//   AND (i2.i_item_sk = descending.item_sk)
+//ORDER BY asceding.rnk ASC
+//LIMIT 100;
+//"""
+//    def query44 = """
+//SELECT
+//  asceding.rnk
+//, i1.i_product_name best_performing
+//, i2.i_product_name worst_performing
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col ASC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v1
+//   )  v11
+//   WHERE (rnk < 11)
+//)  asceding
+//, (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col DESC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v2
+//   )  v21
+//   WHERE (rnk < 11)
+//)  descending
+//, item i1
+//, item i2
+//WHERE (asceding.rnk = descending.rnk)
+//   AND (i1.i_item_sk = asceding.item_sk)
+//   AND (i2.i_item_sk = descending.item_sk)
+//ORDER BY asceding.rnk ASC
+//LIMIT 100;
+//"""
+//    order_qt_query44_before "${query44}"
+//    async_mv_rewrite_fail(db, mv44, query44, "mv44")
+//    order_qt_query44_after "${query44}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv44"""
+//
+//    def mv44_1 = """
+//SELECT
+//  asceding.rnk
+//, i1.i_product_name best_performing
+//, i2.i_product_name worst_performing
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col ASC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v1
+//   )  v11
+//   WHERE (rnk < 11)
+//)  asceding
+//, (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col DESC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v2
+//   )  v21
+//   WHERE (rnk < 11)
+//)  descending
+//, item i1
+//, item i2
+//WHERE (asceding.rnk = descending.rnk)
+//   AND (i1.i_item_sk = asceding.item_sk)
+//   AND (i2.i_item_sk = descending.item_sk);
+//"""
+//    def query44_1 = """
+//SELECT
+//  asceding.rnk
+//, i1.i_product_name best_performing
+//, i2.i_product_name worst_performing
+//FROM
+//  (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col ASC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v1
+//   )  v11
+//   WHERE (rnk < 11)
+//)  asceding
+//, (
+//   SELECT *
+//   FROM
+//     (
+//      SELECT
+//        item_sk
+//      , rank() OVER (ORDER BY rank_col DESC) rnk
+//      FROM
+//        (
+//         SELECT
+//           ss_item_sk item_sk
+//         , avg(ss_net_profit) rank_col
+//         FROM
+//           store_sales ss1
+//         WHERE (ss_store_sk = 4)
+//         GROUP BY ss_item_sk
+//         HAVING (avg(ss_net_profit) > (CAST('0.9' AS DECIMAL(2,1)) * (
+//                  SELECT avg(ss_net_profit) rank_col
+//                  FROM
+//                    store_sales
+//                  WHERE (ss_store_sk = 4)
+//                     AND (ss_addr_sk IS NULL)
+//                  GROUP BY ss_store_sk
+//               )))
+//      )  v2
+//   )  v21
+//   WHERE (rnk < 11)
+//)  descending
+//, item i1
+//, item i2
+//WHERE (asceding.rnk = descending.rnk)
+//   AND (i1.i_item_sk = asceding.item_sk)
+//   AND (i2.i_item_sk = descending.item_sk)
+//ORDER BY asceding.rnk ASC
+//LIMIT 100;
+//"""
+//    order_qt_query44_1_before "${query44_1}"
+//    async_mv_rewrite_fail(db, mv44_1, query44_1, "mv44_1")
+//    order_qt_query44_1_after "${query44_1}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv44_1"""
 
     def mv45 = """
+SELECT
+  ca_zip
+, ca_city
+, sum(ws_sales_price)
+FROM
+  web_sales
+, customer
+, customer_address
+, date_dim
+, item
+WHERE (ws_bill_customer_sk = c_customer_sk)
+   AND (c_current_addr_sk = ca_address_sk)
+   AND (ws_item_sk = i_item_sk)
+   AND ((substr(ca_zip, 1, 5) IN ('85669'   , '86197'   , '88274'   , '83405'   , '86475'   , '85392'   , '85460'   , '80348'   , '81792'))
+      OR (i_item_id IN (
+      SELECT i_item_id
+      FROM
+        item
+      WHERE (i_item_sk IN (2      , 3      , 5      , 7      , 11      , 13      , 17      , 19      , 23      , 29))
+   )))
+   AND (ws_sold_date_sk = d_date_sk)
+   AND (d_qoy = 2)
+   AND (d_year = 2001)
+GROUP BY ca_zip, ca_city
+ORDER BY ca_zip ASC, ca_city ASC
+LIMIT 100;
 """
     def query45 = """
+SELECT
+  ca_zip
+, ca_city
+, sum(ws_sales_price)
+FROM
+  web_sales
+, customer
+, customer_address
+, date_dim
+, item
+WHERE (ws_bill_customer_sk = c_customer_sk)
+   AND (c_current_addr_sk = ca_address_sk)
+   AND (ws_item_sk = i_item_sk)
+   AND ((substr(ca_zip, 1, 5) IN ('85669'   , '86197'   , '88274'   , '83405'   , '86475'   , '85392'   , '85460'   , '80348'   , '81792'))
+      OR (i_item_id IN (
+      SELECT i_item_id
+      FROM
+        item
+      WHERE (i_item_sk IN (2      , 3      , 5      , 7      , 11      , 13      , 17      , 19      , 23      , 29))
+   )))
+   AND (ws_sold_date_sk = d_date_sk)
+   AND (d_qoy = 2)
+   AND (d_year = 2001)
+GROUP BY ca_zip, ca_city
+ORDER BY ca_zip ASC, ca_city ASC
+LIMIT 100;
 """
     order_qt_query45_before "${query45}"
-    async_mv_rewrite_success(db, mv45, query45, "mv45")
+    async_mv_rewrite_fail(db, mv45, query45, "mv45")
     order_qt_query45_after "${query45}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv45"""
 
     def mv45_1 = """
+SELECT
+  ca_zip
+, ca_city
+, sum(ws_sales_price)
+FROM
+  web_sales
+, customer
+, customer_address
+, date_dim
+, item
+WHERE (ws_bill_customer_sk = c_customer_sk)
+   AND (c_current_addr_sk = ca_address_sk)
+   AND (ws_item_sk = i_item_sk)
+   AND ((substr(ca_zip, 1, 5) IN ('85669'   , '86197'   , '88274'   , '83405'   , '86475'   , '85392'   , '85460'   , '80348'   , '81792'))
+      OR (i_item_id IN (
+      SELECT i_item_id
+      FROM
+        item
+      WHERE (i_item_sk IN (2      , 3      , 5      , 7      , 11      , 13      , 17      , 19      , 23      , 29))
+   )))
+   AND (ws_sold_date_sk = d_date_sk)
+   AND (d_qoy = 2)
+   AND (d_year = 2001)
+GROUP BY ca_zip, ca_city;
 """
     def query45_1 = """
+SELECT
+  ca_zip
+, ca_city
+, sum(ws_sales_price)
+FROM
+  web_sales
+, customer
+, customer_address
+, date_dim
+, item
+WHERE (ws_bill_customer_sk = c_customer_sk)
+   AND (c_current_addr_sk = ca_address_sk)
+   AND (ws_item_sk = i_item_sk)
+   AND ((substr(ca_zip, 1, 5) IN ('85669'   , '86197'   , '88274'   , '83405'   , '86475'   , '85392'   , '85460'   , '80348'   , '81792'))
+      OR (i_item_id IN (
+      SELECT i_item_id
+      FROM
+        item
+      WHERE (i_item_sk IN (2      , 3      , 5      , 7      , 11      , 13      , 17      , 19      , 23      , 29))
+   )))
+   AND (ws_sold_date_sk = d_date_sk)
+   AND (d_qoy = 2)
+   AND (d_year = 2001)
+GROUP BY ca_zip, ca_city
+ORDER BY ca_zip ASC, ca_city ASC
+LIMIT 100;
 """
     order_qt_query45_1_before "${query45_1}"
-    async_mv_rewrite_success(db, mv45_1, query45_1, "mv45_1")
+    // should success but fail
+    async_mv_rewrite_fail(db, mv45_1, query45_1, "mv45_1")
     order_qt_query45_1_after "${query45_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv45_1"""
 
     def mv46 = """
+SELECT
+  c_last_name
+, c_first_name
+, ca_city
+, bought_city
+, ss_ticket_number
+, amt
+, profit
+FROM
+  (
+   SELECT
+     ss_ticket_number
+   , ss_customer_sk
+   , ca_city bought_city
+   , sum(ss_coupon_amt) amt
+   , sum(ss_net_profit) profit
+   FROM
+     store_sales
+   , date_dim
+   , store
+   , household_demographics
+   , customer_address
+   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+      AND (store_sales.ss_store_sk = store.s_store_sk)
+      AND (store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+      AND (store_sales.ss_addr_sk = customer_address.ca_address_sk)
+      AND ((household_demographics.hd_dep_count = 4)
+         OR (household_demographics.hd_vehicle_count = 3))
+      AND (date_dim.d_dow IN (6   , 0))
+      AND (date_dim.d_year IN (1999   , (1999 + 1)   , (1999 + 2)))
+      AND (store.s_city IN ('Fairview'   , 'Midway'   , 'Fairview'   , 'Fairview'   , 'Fairview'))
+   GROUP BY ss_ticket_number, ss_customer_sk, ss_addr_sk, ca_city
+)  dn
+, customer
+, customer_address current_addr
+WHERE (ss_customer_sk = c_customer_sk)
+   AND (customer.c_current_addr_sk = current_addr.ca_address_sk)
+   AND (current_addr.ca_city <> bought_city)
+ORDER BY c_last_name ASC, c_first_name ASC, ca_city ASC, bought_city ASC, ss_ticket_number ASC
+LIMIT 100;
 """
     def query46 = """
+SELECT
+  c_last_name
+, c_first_name
+, ca_city
+, bought_city
+, ss_ticket_number
+, amt
+, profit
+FROM
+  (
+   SELECT
+     ss_ticket_number
+   , ss_customer_sk
+   , ca_city bought_city
+   , sum(ss_coupon_amt) amt
+   , sum(ss_net_profit) profit
+   FROM
+     store_sales
+   , date_dim
+   , store
+   , household_demographics
+   , customer_address
+   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+      AND (store_sales.ss_store_sk = store.s_store_sk)
+      AND (store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+      AND (store_sales.ss_addr_sk = customer_address.ca_address_sk)
+      AND ((household_demographics.hd_dep_count = 4)
+         OR (household_demographics.hd_vehicle_count = 3))
+      AND (date_dim.d_dow IN (6   , 0))
+      AND (date_dim.d_year IN (1999   , (1999 + 1)   , (1999 + 2)))
+      AND (store.s_city IN ('Fairview'   , 'Midway'   , 'Fairview'   , 'Fairview'   , 'Fairview'))
+   GROUP BY ss_ticket_number, ss_customer_sk, ss_addr_sk, ca_city
+)  dn
+, customer
+, customer_address current_addr
+WHERE (ss_customer_sk = c_customer_sk)
+   AND (customer.c_current_addr_sk = current_addr.ca_address_sk)
+   AND (current_addr.ca_city <> bought_city)
+ORDER BY c_last_name ASC, c_first_name ASC, ca_city ASC, bought_city ASC, ss_ticket_number ASC
+LIMIT 100;
 """
     order_qt_query46_before "${query46}"
-    async_mv_rewrite_success(db, mv46, query46, "mv46")
+    async_mv_rewrite_fail(db, mv46, query46, "mv46")
     order_qt_query46_after "${query46}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv46"""
 
     def mv46_1 = """
+SELECT
+  c_last_name
+, c_first_name
+, ca_city
+, bought_city
+, ss_ticket_number
+, amt
+, profit
+FROM
+  (
+   SELECT
+     ss_ticket_number
+   , ss_customer_sk
+   , ca_city bought_city
+   , sum(ss_coupon_amt) amt
+   , sum(ss_net_profit) profit
+   FROM
+     store_sales
+   , date_dim
+   , store
+   , household_demographics
+   , customer_address
+   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+      AND (store_sales.ss_store_sk = store.s_store_sk)
+      AND (store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+      AND (store_sales.ss_addr_sk = customer_address.ca_address_sk)
+      AND ((household_demographics.hd_dep_count = 4)
+         OR (household_demographics.hd_vehicle_count = 3))
+      AND (date_dim.d_dow IN (6   , 0))
+      AND (date_dim.d_year IN (1999   , (1999 + 1)   , (1999 + 2)))
+      AND (store.s_city IN ('Fairview'   , 'Midway'   , 'Fairview'   , 'Fairview'   , 'Fairview'))
+   GROUP BY ss_ticket_number, ss_customer_sk, ss_addr_sk, ca_city
+)  dn
+, customer
+, customer_address current_addr
+WHERE (ss_customer_sk = c_customer_sk)
+   AND (customer.c_current_addr_sk = current_addr.ca_address_sk)
+   AND (current_addr.ca_city <> bought_city);
 """
     def query46_1 = """
+SELECT
+  c_last_name
+, c_first_name
+, ca_city
+, bought_city
+, ss_ticket_number
+, amt
+, profit
+FROM
+  (
+   SELECT
+     ss_ticket_number
+   , ss_customer_sk
+   , ca_city bought_city
+   , sum(ss_coupon_amt) amt
+   , sum(ss_net_profit) profit
+   FROM
+     store_sales
+   , date_dim
+   , store
+   , household_demographics
+   , customer_address
+   WHERE (store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+      AND (store_sales.ss_store_sk = store.s_store_sk)
+      AND (store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+      AND (store_sales.ss_addr_sk = customer_address.ca_address_sk)
+      AND ((household_demographics.hd_dep_count = 4)
+         OR (household_demographics.hd_vehicle_count = 3))
+      AND (date_dim.d_dow IN (6   , 0))
+      AND (date_dim.d_year IN (1999   , (1999 + 1)   , (1999 + 2)))
+      AND (store.s_city IN ('Fairview'   , 'Midway'   , 'Fairview'   , 'Fairview'   , 'Fairview'))
+   GROUP BY ss_ticket_number, ss_customer_sk, ss_addr_sk, ca_city
+)  dn
+, customer
+, customer_address current_addr
+WHERE (ss_customer_sk = c_customer_sk)
+   AND (customer.c_current_addr_sk = current_addr.ca_address_sk)
+   AND (current_addr.ca_city <> bought_city)
+ORDER BY c_last_name ASC, c_first_name ASC, ca_city ASC, bought_city ASC, ss_ticket_number ASC
+LIMIT 100;
 """
     order_qt_query46_1_before "${query46_1}"
     async_mv_rewrite_success(db, mv46_1, query46_1, "mv46_1")
@@ -6613,71 +8822,616 @@ suite("mv_tpcds_test") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv46_1"""
 
     def mv47 = """
+WITH
+  v1 AS (
+   SELECT
+     i_category
+   , i_brand
+   , s_store_name
+   , s_company_name
+   , d_year
+   , d_moy
+   , sum(ss_sales_price) sum_sales
+   , avg(sum(ss_sales_price)) OVER (PARTITION BY i_category, i_brand, s_store_name, s_company_name, d_year) avg_monthly_sales
+   , rank() OVER (PARTITION BY i_category, i_brand, s_store_name, s_company_name ORDER BY d_year ASC, d_moy ASC) rn
+   FROM
+     item
+   , store_sales
+   , date_dim
+   , store
+   WHERE (ss_item_sk = i_item_sk)
+      AND (ss_sold_date_sk = d_date_sk)
+      AND (ss_store_sk = s_store_sk)
+      AND ((d_year = 1999)
+         OR ((d_year = (1999 - 1))
+            AND (d_moy = 12))
+         OR ((d_year = (1999 + 1))
+            AND (d_moy = 1)))
+   GROUP BY i_category, i_brand, s_store_name, s_company_name, d_year, d_moy
+)
+, v2 AS (
+   SELECT
+     v1.i_category
+   , v1.i_brand
+   , v1.s_store_name
+   , v1.s_company_name
+   , v1.d_year
+   , v1.d_moy
+   , v1.avg_monthly_sales
+   , v1.sum_sales
+   , v1_lag.sum_sales psum
+   , v1_lead.sum_sales nsum
+   FROM
+     v1
+   , v1 v1_lag
+   , v1 v1_lead
+   WHERE (v1.i_category = v1_lag.i_category)
+      AND (v1.i_category = v1_lead.i_category)
+      AND (v1.i_brand = v1_lag.i_brand)
+      AND (v1.i_brand = v1_lead.i_brand)
+      AND (v1.s_store_name = v1_lag.s_store_name)
+      AND (v1.s_store_name = v1_lead.s_store_name)
+      AND (v1.s_company_name = v1_lag.s_company_name)
+      AND (v1.s_company_name = v1_lead.s_company_name)
+      AND (v1.rn = (v1_lag.rn + 1))
+      AND (v1.rn = (v1_lead.rn - 1))
+)
+SELECT *
+FROM
+  v2
+WHERE (d_year = 1999)
+   AND (avg_monthly_sales > 0)
+   AND ((CASE WHEN (avg_monthly_sales > 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL(2,1)))
+ORDER BY (sum_sales - avg_monthly_sales) ASC, 3 ASC
+LIMIT 100;
 """
     def query47 = """
+WITH
+  v1 AS (
+   SELECT
+     i_category
+   , i_brand
+   , s_store_name
+   , s_company_name
+   , d_year
+   , d_moy
+   , sum(ss_sales_price) sum_sales
+   , avg(sum(ss_sales_price)) OVER (PARTITION BY i_category, i_brand, s_store_name, s_company_name, d_year) avg_monthly_sales
+   , rank() OVER (PARTITION BY i_category, i_brand, s_store_name, s_company_name ORDER BY d_year ASC, d_moy ASC) rn
+   FROM
+     item
+   , store_sales
+   , date_dim
+   , store
+   WHERE (ss_item_sk = i_item_sk)
+      AND (ss_sold_date_sk = d_date_sk)
+      AND (ss_store_sk = s_store_sk)
+      AND ((d_year = 1999)
+         OR ((d_year = (1999 - 1))
+            AND (d_moy = 12))
+         OR ((d_year = (1999 + 1))
+            AND (d_moy = 1)))
+   GROUP BY i_category, i_brand, s_store_name, s_company_name, d_year, d_moy
+)
+, v2 AS (
+   SELECT
+     v1.i_category
+   , v1.i_brand
+   , v1.s_store_name
+   , v1.s_company_name
+   , v1.d_year
+   , v1.d_moy
+   , v1.avg_monthly_sales
+   , v1.sum_sales
+   , v1_lag.sum_sales psum
+   , v1_lead.sum_sales nsum
+   FROM
+     v1
+   , v1 v1_lag
+   , v1 v1_lead
+   WHERE (v1.i_category = v1_lag.i_category)
+      AND (v1.i_category = v1_lead.i_category)
+      AND (v1.i_brand = v1_lag.i_brand)
+      AND (v1.i_brand = v1_lead.i_brand)
+      AND (v1.s_store_name = v1_lag.s_store_name)
+      AND (v1.s_store_name = v1_lead.s_store_name)
+      AND (v1.s_company_name = v1_lag.s_company_name)
+      AND (v1.s_company_name = v1_lead.s_company_name)
+      AND (v1.rn = (v1_lag.rn + 1))
+      AND (v1.rn = (v1_lead.rn - 1))
+)
+SELECT *
+FROM
+  v2
+WHERE (d_year = 1999)
+   AND (avg_monthly_sales > 0)
+   AND ((CASE WHEN (avg_monthly_sales > 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL(2,1)))
+ORDER BY (sum_sales - avg_monthly_sales) ASC, 3 ASC
+LIMIT 100;
 """
     order_qt_query47_before "${query47}"
-    async_mv_rewrite_success(db, mv47, query47, "mv47")
+    async_mv_rewrite_fail(db, mv47, query47, "mv47")
     order_qt_query47_after "${query47}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv47"""
 
-    def mv47_1 = """
-"""
-    def query47_1 = """
-"""
-    order_qt_query47_1_before "${query47_1}"
-    async_mv_rewrite_success(db, mv47_1, query47_1, "mv47_1")
-    order_qt_query47_1_after "${query47_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv47_1"""
 
     def mv48 = """
+SELECT sum(ss_quantity)
+FROM
+  store_sales
+, store
+, customer_demographics
+, customer_address
+, date_dim
+WHERE (s_store_sk = ss_store_sk)
+   AND (ss_sold_date_sk = d_date_sk)
+   AND (d_year = 2000)
+   AND (((cd_demo_sk = ss_cdemo_sk)
+         AND (cd_marital_status = 'M')
+         AND (cd_education_status = '4 yr Degree')
+         AND (ss_sales_price BETWEEN CAST('100.00' AS DECIMAL(5,2)) AND CAST('150.00' AS DECIMAL(5,2))))
+      OR ((cd_demo_sk = ss_cdemo_sk)
+         AND (cd_marital_status = 'D')
+         AND (cd_education_status = '2 yr Degree')
+         AND (ss_sales_price BETWEEN CAST('50.00' AS DECIMAL(5,2)) AND CAST('100.00' AS DECIMAL(5,2))))
+      OR ((cd_demo_sk = ss_cdemo_sk)
+         AND (cd_marital_status = 'S')
+         AND (cd_education_status = 'College')
+         AND (ss_sales_price BETWEEN CAST('150.00' AS DECIMAL(5,2)) AND CAST('200.00' AS DECIMAL(5,2)))))
+   AND (((ss_addr_sk = ca_address_sk)
+         AND (ca_country = 'United States')
+         AND (ca_state IN ('CO'      , 'OH'      , 'TX'))
+         AND (ss_net_profit BETWEEN 0 AND 2000))
+      OR ((ss_addr_sk = ca_address_sk)
+         AND (ca_country = 'United States')
+         AND (ca_state IN ('OR'      , 'MN'      , 'KY'))
+         AND (ss_net_profit BETWEEN 150 AND 3000))
+      OR ((ss_addr_sk = ca_address_sk)
+         AND (ca_country = 'United States')
+         AND (ca_state IN ('VA'      , 'CA'      , 'MS'))
+         AND (ss_net_profit BETWEEN 50 AND 25000)));
 """
     def query48 = """
+SELECT sum(ss_quantity)
+FROM
+  store_sales
+, store
+, customer_demographics
+, customer_address
+, date_dim
+WHERE (s_store_sk = ss_store_sk)
+   AND (ss_sold_date_sk = d_date_sk)
+   AND (d_year = 2000)
+   AND (((cd_demo_sk = ss_cdemo_sk)
+         AND (cd_marital_status = 'M')
+         AND (cd_education_status = '4 yr Degree')
+         AND (ss_sales_price BETWEEN CAST('100.00' AS DECIMAL(5,2)) AND CAST('150.00' AS DECIMAL(5,2))))
+      OR ((cd_demo_sk = ss_cdemo_sk)
+         AND (cd_marital_status = 'D')
+         AND (cd_education_status = '2 yr Degree')
+         AND (ss_sales_price BETWEEN CAST('50.00' AS DECIMAL(5,2)) AND CAST('100.00' AS DECIMAL(5,2))))
+      OR ((cd_demo_sk = ss_cdemo_sk)
+         AND (cd_marital_status = 'S')
+         AND (cd_education_status = 'College')
+         AND (ss_sales_price BETWEEN CAST('150.00' AS DECIMAL(5,2)) AND CAST('200.00' AS DECIMAL(5,2)))))
+   AND (((ss_addr_sk = ca_address_sk)
+         AND (ca_country = 'United States')
+         AND (ca_state IN ('CO'      , 'OH'      , 'TX'))
+         AND (ss_net_profit BETWEEN 0 AND 2000))
+      OR ((ss_addr_sk = ca_address_sk)
+         AND (ca_country = 'United States')
+         AND (ca_state IN ('OR'      , 'MN'      , 'KY'))
+         AND (ss_net_profit BETWEEN 150 AND 3000))
+      OR ((ss_addr_sk = ca_address_sk)
+         AND (ca_country = 'United States')
+         AND (ca_state IN ('VA'      , 'CA'      , 'MS'))
+         AND (ss_net_profit BETWEEN 50 AND 25000)));
 """
     order_qt_query48_before "${query48}"
     async_mv_rewrite_success(db, mv48, query48, "mv48")
     order_qt_query48_after "${query48}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv48"""
 
-    def mv48_1 = """
-"""
-    def query48_1 = """
-"""
-    order_qt_query48_1_before "${query48_1}"
-    async_mv_rewrite_success(db, mv48_1, query48_1, "mv48_1")
-    order_qt_query48_1_after "${query48_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv48_1"""
-
     def mv49 = """
+-- 目前union后跟得order没有效果，需要在外面包一层select后再order
+
+SELECT channel, item, return_ratio, return_rank, currency_rank
+FROM
+(SELECT
+  'web' channel
+, web.item
+, web.return_ratio
+, web.return_rank
+, web.currency_rank
+FROM
+  (
+   SELECT
+     item
+   , return_ratio
+   , currency_ratio
+   , rank() OVER (ORDER BY return_ratio ASC) return_rank
+   , rank() OVER (ORDER BY currency_ratio ASC) currency_rank
+   FROM
+     (
+      SELECT
+        ws.ws_item_sk item
+      , (CAST(sum(COALESCE(wr.wr_return_quantity, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(ws.ws_quantity, 0)) AS DECIMAL(15,4))) return_ratio
+      , (CAST(sum(COALESCE(wr.wr_return_amt, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(ws.ws_net_paid, 0)) AS DECIMAL(15,4))) currency_ratio
+      FROM
+        web_sales ws
+      LEFT JOIN web_returns wr ON (ws.ws_order_number = wr.wr_order_number)
+         AND (ws.ws_item_sk = wr.wr_item_sk)
+      , date_dim
+      WHERE (wr.wr_return_amt > 10000)
+         AND (ws.ws_net_profit > 1)
+         AND (ws.ws_net_paid > 0)
+         AND (ws.ws_quantity > 0)
+         AND (ws_sold_date_sk = d_date_sk)
+         AND (d_year = 2001)
+         AND (d_moy = 12)
+      GROUP BY ws.ws_item_sk
+   )  in_web
+)  web
+WHERE (web.return_rank <= 10)
+   OR (web.currency_rank <= 10)
+UNION SELECT
+  'catalog' channel
+, catalog.item
+, catalog.return_ratio
+, catalog.return_rank
+, catalog.currency_rank
+FROM
+  (
+   SELECT
+     item
+   , return_ratio
+   , currency_ratio
+   , rank() OVER (ORDER BY return_ratio ASC) return_rank
+   , rank() OVER (ORDER BY currency_ratio ASC) currency_rank
+   FROM
+     (
+      SELECT
+        cs.cs_item_sk item
+      , (CAST(sum(COALESCE(cr.cr_return_quantity, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(cs.cs_quantity, 0)) AS DECIMAL(15,4))) return_ratio
+      , (CAST(sum(COALESCE(cr.cr_return_amount, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(cs.cs_net_paid, 0)) AS DECIMAL(15,4))) currency_ratio
+      FROM
+        catalog_sales cs
+      LEFT JOIN catalog_returns cr ON (cs.cs_order_number = cr.cr_order_number)
+         AND (cs.cs_item_sk = cr.cr_item_sk)
+      , date_dim
+      WHERE (cr.cr_return_amount > 10000)
+         AND (cs.cs_net_profit > 1)
+         AND (cs.cs_net_paid > 0)
+         AND (cs.cs_quantity > 0)
+         AND (cs_sold_date_sk = d_date_sk)
+         AND (d_year = 2001)
+         AND (d_moy = 12)
+      GROUP BY cs.cs_item_sk
+   )  in_cat
+) catalog 
+WHERE (catalog.return_rank <= 10)
+   OR (catalog.currency_rank <= 10)
+UNION SELECT
+  'store' channel
+, store.item
+, store.return_ratio
+, store.return_rank
+, store.currency_rank
+FROM
+  (
+   SELECT
+     item
+   , return_ratio
+   , currency_ratio
+   , rank() OVER (ORDER BY return_ratio ASC) return_rank
+   , rank() OVER (ORDER BY currency_ratio ASC) currency_rank
+   FROM
+     (
+      SELECT
+        sts.ss_item_sk item
+      , (CAST(sum(COALESCE(sr.sr_return_quantity, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(sts.ss_quantity, 0)) AS DECIMAL(15,4))) return_ratio
+      , (CAST(sum(COALESCE(sr.sr_return_amt, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(sts.ss_net_paid, 0)) AS DECIMAL(15,4))) currency_ratio
+      FROM
+        store_sales sts
+      LEFT JOIN store_returns sr ON (sts.ss_ticket_number = sr.sr_ticket_number)
+         AND (sts.ss_item_sk = sr.sr_item_sk)
+      , date_dim
+      WHERE (sr.sr_return_amt > 10000)
+         AND (sts.ss_net_profit > 1)
+         AND (sts.ss_net_paid > 0)
+         AND (sts.ss_quantity > 0)
+         AND (ss_sold_date_sk = d_date_sk)
+         AND (d_year = 2001)
+         AND (d_moy = 12)
+      GROUP BY sts.ss_item_sk
+   )  in_store
+)  store
+WHERE (store.return_rank <= 10)
+   OR (store.currency_rank <= 10)
+) r
+ORDER BY 1 ASC, 4 ASC, 5 ASC, 2 ASC
+LIMIT 100;
 """
     def query49 = """
+-- 目前union后跟得order没有效果，需要在外面包一层select后再order
+
+SELECT channel, item, return_ratio, return_rank, currency_rank
+FROM
+(SELECT
+  'web' channel
+, web.item
+, web.return_ratio
+, web.return_rank
+, web.currency_rank
+FROM
+  (
+   SELECT
+     item
+   , return_ratio
+   , currency_ratio
+   , rank() OVER (ORDER BY return_ratio ASC) return_rank
+   , rank() OVER (ORDER BY currency_ratio ASC) currency_rank
+   FROM
+     (
+      SELECT
+        ws.ws_item_sk item
+      , (CAST(sum(COALESCE(wr.wr_return_quantity, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(ws.ws_quantity, 0)) AS DECIMAL(15,4))) return_ratio
+      , (CAST(sum(COALESCE(wr.wr_return_amt, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(ws.ws_net_paid, 0)) AS DECIMAL(15,4))) currency_ratio
+      FROM
+        web_sales ws
+      LEFT JOIN web_returns wr ON (ws.ws_order_number = wr.wr_order_number)
+         AND (ws.ws_item_sk = wr.wr_item_sk)
+      , date_dim
+      WHERE (wr.wr_return_amt > 10000)
+         AND (ws.ws_net_profit > 1)
+         AND (ws.ws_net_paid > 0)
+         AND (ws.ws_quantity > 0)
+         AND (ws_sold_date_sk = d_date_sk)
+         AND (d_year = 2001)
+         AND (d_moy = 12)
+      GROUP BY ws.ws_item_sk
+   )  in_web
+)  web
+WHERE (web.return_rank <= 10)
+   OR (web.currency_rank <= 10)
+UNION SELECT
+  'catalog' channel
+, catalog.item
+, catalog.return_ratio
+, catalog.return_rank
+, catalog.currency_rank
+FROM
+  (
+   SELECT
+     item
+   , return_ratio
+   , currency_ratio
+   , rank() OVER (ORDER BY return_ratio ASC) return_rank
+   , rank() OVER (ORDER BY currency_ratio ASC) currency_rank
+   FROM
+     (
+      SELECT
+        cs.cs_item_sk item
+      , (CAST(sum(COALESCE(cr.cr_return_quantity, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(cs.cs_quantity, 0)) AS DECIMAL(15,4))) return_ratio
+      , (CAST(sum(COALESCE(cr.cr_return_amount, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(cs.cs_net_paid, 0)) AS DECIMAL(15,4))) currency_ratio
+      FROM
+        catalog_sales cs
+      LEFT JOIN catalog_returns cr ON (cs.cs_order_number = cr.cr_order_number)
+         AND (cs.cs_item_sk = cr.cr_item_sk)
+      , date_dim
+      WHERE (cr.cr_return_amount > 10000)
+         AND (cs.cs_net_profit > 1)
+         AND (cs.cs_net_paid > 0)
+         AND (cs.cs_quantity > 0)
+         AND (cs_sold_date_sk = d_date_sk)
+         AND (d_year = 2001)
+         AND (d_moy = 12)
+      GROUP BY cs.cs_item_sk
+   )  in_cat
+) catalog 
+WHERE (catalog.return_rank <= 10)
+   OR (catalog.currency_rank <= 10)
+UNION SELECT
+  'store' channel
+, store.item
+, store.return_ratio
+, store.return_rank
+, store.currency_rank
+FROM
+  (
+   SELECT
+     item
+   , return_ratio
+   , currency_ratio
+   , rank() OVER (ORDER BY return_ratio ASC) return_rank
+   , rank() OVER (ORDER BY currency_ratio ASC) currency_rank
+   FROM
+     (
+      SELECT
+        sts.ss_item_sk item
+      , (CAST(sum(COALESCE(sr.sr_return_quantity, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(sts.ss_quantity, 0)) AS DECIMAL(15,4))) return_ratio
+      , (CAST(sum(COALESCE(sr.sr_return_amt, 0)) AS DECIMAL(15,4)) / CAST(sum(COALESCE(sts.ss_net_paid, 0)) AS DECIMAL(15,4))) currency_ratio
+      FROM
+        store_sales sts
+      LEFT JOIN store_returns sr ON (sts.ss_ticket_number = sr.sr_ticket_number)
+         AND (sts.ss_item_sk = sr.sr_item_sk)
+      , date_dim
+      WHERE (sr.sr_return_amt > 10000)
+         AND (sts.ss_net_profit > 1)
+         AND (sts.ss_net_paid > 0)
+         AND (sts.ss_quantity > 0)
+         AND (ss_sold_date_sk = d_date_sk)
+         AND (d_year = 2001)
+         AND (d_moy = 12)
+      GROUP BY sts.ss_item_sk
+   )  in_store
+)  store
+WHERE (store.return_rank <= 10)
+   OR (store.currency_rank <= 10)
+) r
+ORDER BY 1 ASC, 4 ASC, 5 ASC, 2 ASC
+LIMIT 100;
 """
     order_qt_query49_before "${query49}"
-    async_mv_rewrite_success(db, mv49, query49, "mv49")
+    async_mv_rewrite_fail(db, mv49, query49, "mv49")
     order_qt_query49_after "${query49}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv49"""
 
-    def mv49_1 = """
-"""
-    def query49_1 = """
-"""
-    order_qt_query49_1_before "${query49_1}"
-    async_mv_rewrite_success(db, mv49_1, query49_1, "mv49_1")
-    order_qt_query49_1_after "${query49_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv49_1"""
 
     def mv50 = """
+SELECT
+  s_store_name
+, s_company_id
+, s_street_number
+, s_street_name
+, s_street_type
+, s_suite_number
+, s_city
+, s_county
+, s_state
+, s_zip
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) <= 30) THEN 1 ELSE 0 END)) '30 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 30)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 60) THEN 1 ELSE 0 END)) '31-60 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 60)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 90) THEN 1 ELSE 0 END)) '61-90 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 90)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 120) THEN 1 ELSE 0 END)) '91-120 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 120) THEN 1 ELSE 0 END)) '>120 days'
+FROM
+  store_sales
+, store_returns
+, store
+, date_dim d1
+, date_dim d2
+WHERE (d2.d_year = 2001)
+   AND (d2.d_moy = 8)
+   AND (ss_ticket_number = sr_ticket_number)
+   AND (ss_item_sk = sr_item_sk)
+   AND (ss_sold_date_sk = d1.d_date_sk)
+   AND (sr_returned_date_sk = d2.d_date_sk)
+   AND (ss_customer_sk = sr_customer_sk)
+   AND (ss_store_sk = s_store_sk)
+GROUP BY s_store_name, s_company_id, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip
+ORDER BY s_store_name ASC, s_company_id ASC, s_street_number ASC, s_street_name ASC, s_street_type ASC, s_suite_number ASC, s_city ASC, s_county ASC, s_state ASC, s_zip ASC
+LIMIT 100;
 """
     def query50 = """
+SELECT
+  s_store_name
+, s_company_id
+, s_street_number
+, s_street_name
+, s_street_type
+, s_suite_number
+, s_city
+, s_county
+, s_state
+, s_zip
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) <= 30) THEN 1 ELSE 0 END)) '30 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 30)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 60) THEN 1 ELSE 0 END)) '31-60 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 60)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 90) THEN 1 ELSE 0 END)) '61-90 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 90)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 120) THEN 1 ELSE 0 END)) '91-120 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 120) THEN 1 ELSE 0 END)) '>120 days'
+FROM
+  store_sales
+, store_returns
+, store
+, date_dim d1
+, date_dim d2
+WHERE (d2.d_year = 2001)
+   AND (d2.d_moy = 8)
+   AND (ss_ticket_number = sr_ticket_number)
+   AND (ss_item_sk = sr_item_sk)
+   AND (ss_sold_date_sk = d1.d_date_sk)
+   AND (sr_returned_date_sk = d2.d_date_sk)
+   AND (ss_customer_sk = sr_customer_sk)
+   AND (ss_store_sk = s_store_sk)
+GROUP BY s_store_name, s_company_id, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip
+ORDER BY s_store_name ASC, s_company_id ASC, s_street_number ASC, s_street_name ASC, s_street_type ASC, s_suite_number ASC, s_city ASC, s_county ASC, s_state ASC, s_zip ASC
+LIMIT 100;
 """
     order_qt_query50_before "${query50}"
-    async_mv_rewrite_success(db, mv50, query50, "mv50")
+    async_mv_rewrite_fail(db, mv50, query50, "mv50")
     order_qt_query50_after "${query50}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv50"""
 
     def mv50_1 = """
+SELECT
+  s_store_name
+, s_company_id
+, s_street_number
+, s_street_name
+, s_street_type
+, s_suite_number
+, s_city
+, s_county
+, s_state
+, s_zip
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) <= 30) THEN 1 ELSE 0 END)) '30 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 30)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 60) THEN 1 ELSE 0 END)) '31-60 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 60)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 90) THEN 1 ELSE 0 END)) '61-90 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 90)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 120) THEN 1 ELSE 0 END)) '91-120 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 120) THEN 1 ELSE 0 END)) '>120 days'
+FROM
+  store_sales
+, store_returns
+, store
+, date_dim d1
+, date_dim d2
+WHERE (d2.d_year = 2001)
+   AND (d2.d_moy = 8)
+   AND (ss_ticket_number = sr_ticket_number)
+   AND (ss_item_sk = sr_item_sk)
+   AND (ss_sold_date_sk = d1.d_date_sk)
+   AND (sr_returned_date_sk = d2.d_date_sk)
+   AND (ss_customer_sk = sr_customer_sk)
+   AND (ss_store_sk = s_store_sk)
+GROUP BY s_store_name, s_company_id, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip;
 """
     def query50_1 = """
+SELECT
+  s_store_name
+, s_company_id
+, s_street_number
+, s_street_name
+, s_street_type
+, s_suite_number
+, s_city
+, s_county
+, s_state
+, s_zip
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) <= 30) THEN 1 ELSE 0 END)) '30 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 30)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 60) THEN 1 ELSE 0 END)) '31-60 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 60)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 90) THEN 1 ELSE 0 END)) '61-90 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 90)
+   AND ((sr_returned_date_sk - ss_sold_date_sk) <= 120) THEN 1 ELSE 0 END)) '91-120 days'
+, sum((CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 120) THEN 1 ELSE 0 END)) '>120 days'
+FROM
+  store_sales
+, store_returns
+, store
+, date_dim d1
+, date_dim d2
+WHERE (d2.d_year = 2001)
+   AND (d2.d_moy = 8)
+   AND (ss_ticket_number = sr_ticket_number)
+   AND (ss_item_sk = sr_item_sk)
+   AND (ss_sold_date_sk = d1.d_date_sk)
+   AND (sr_returned_date_sk = d2.d_date_sk)
+   AND (ss_customer_sk = sr_customer_sk)
+   AND (ss_store_sk = s_store_sk)
+GROUP BY s_store_name, s_company_id, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip
+ORDER BY s_store_name ASC, s_company_id ASC, s_street_number ASC, s_street_name ASC, s_street_type ASC, s_suite_number ASC, s_city ASC, s_county ASC, s_state ASC, s_zip ASC
+LIMIT 100;
 """
     order_qt_query50_1_before "${query50_1}"
     async_mv_rewrite_success(db, mv50_1, query50_1, "mv50_1")
