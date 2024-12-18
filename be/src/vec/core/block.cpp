@@ -735,6 +735,7 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     for (auto& d : data) {
         if (d.column) {
             // Temporarily disable reference count check because a column might be referenced multiple times within a block.
+            // Queries like this: `select c, c from t1;`
             // DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
             (*std::move(d.column)).assume_mutable()->clear();
         }
