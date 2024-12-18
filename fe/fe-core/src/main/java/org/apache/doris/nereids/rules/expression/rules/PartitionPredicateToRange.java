@@ -116,8 +116,11 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
             SlotReference slot = (SlotReference) ((IsNull) child).child();
             int slotId = slot.getExprId().asInt();
             if (slotIds.contains(slotId)) {
-                Range<ColumnBound> singleton = ColumnBound.singleton(new NullLiteral(child.getDataType()));
-                return toRangeSet(slot, singleton, BoundType.OPEN, BoundType.CLOSED);
+                Range<ColumnBound> columnRange = ColumnBound.range(
+                        new NullLiteral(child.getDataType()), BoundType.OPEN,
+                        new MaxLiteral(child.getDataType()), BoundType.CLOSED
+                );
+                return toRangeSet(slot, columnRange, BoundType.OPEN, BoundType.CLOSED);
             }
         }
         return null;
