@@ -73,6 +73,7 @@ public class CacheHotspotManagerUtils {
                 + "    DISTRIBUTED BY HASH (cluster_id) BUCKETS 1\n"
                 + "    PROPERTIES (\n"
                 + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n"
                 + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
                 + "    \"dynamic_partition.start\" = \"-7\",\n"
                 + "    \"dynamic_partition.end\" = \"3\",\n"
