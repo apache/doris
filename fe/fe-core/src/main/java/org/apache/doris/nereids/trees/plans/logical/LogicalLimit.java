@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.CouldPushed;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -45,7 +46,7 @@ import java.util.Optional;
  * limit: 10
  * offset 100
  */
-public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Limit {
+public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Limit, CouldPushed {
     private final LimitPhase phase;
     private final long limit;
     private final long offset;
@@ -168,5 +169,15 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     @Override
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public boolean needRemain() {
+        return true;
+    }
+
+    @Override
+    public boolean isPushed() {
+        return phase == LimitPhase.LOCAL;
     }
 }
