@@ -153,7 +153,7 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected PreExecutionAuthenticator preExecutionAuthenticator;
 
-    private Configuration cachedConf = null;
+    private volatile Configuration cachedConf = null;
     private final byte[] confLock = new byte[0];
 
     public ExternalCatalog() {
