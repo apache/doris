@@ -151,16 +151,7 @@ suite ("test_dup_keys_schema_change") {
 
         // wait for all compactions done
         for (String[] tablet in tablets) {
-                Awaitility.await().atMost(20, TimeUnit.SECONDS).untilAsserted(() -> {
-                    String tablet_id = tablet[0]
-                    def backend_id = tablet[2]
-                    def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    return compactionStatus.run_status;
-                });
+            assertCompactionStatusAtMost(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId, 20, TimeUnit.SECONDS)
         }
 
         qt_sc """ select count(*) from ${tableName} """

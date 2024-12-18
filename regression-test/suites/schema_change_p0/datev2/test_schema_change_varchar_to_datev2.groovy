@@ -50,17 +50,7 @@ suite("test_schema_change_varchar_to_datev2") {
 
         // wait for all compactions done
         for (String[] tablet in tablets) {
-            Awaitility.await().untilAsserted(() -> {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                return compactionStatus.run_status;
-            });
-        }
+            assertCompactionStatus(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId)
     }
     
     sql """ DROP TABLE IF EXISTS ${tbName} FORCE"""

@@ -143,18 +143,11 @@ suite("test_show_index_data", "p1") {
             assertEquals("success", compactJson.status.toLowerCase())
         }
 
+        Thread.sleep(30000)
+
         // wait for all compactions done
         for (def tablet in tablets) {
-            Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
-                Thread.sleep(30000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("compaction task for this tablet is not running", compactionStatus.msg.toLowerCase())
-            });
+            assertCompactionStatusAtMost(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId, 30, TimeUnit.MINUTES)
         }
 
         

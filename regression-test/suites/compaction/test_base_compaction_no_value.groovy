@@ -16,7 +16,6 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
-import org.awaitility.Awaitility
 
 suite("test_base_compaction_no_value", "p2") {
     def tableName = "base_compaction_uniq_keys_no_value"
@@ -148,16 +147,7 @@ suite("test_base_compaction_no_value", "p2") {
 
     // wait for all compactions done
     for (def tablet in tablets) {
-        Awaitility.await().untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            return compactionStatus.run_status;
-        });
+        assertCompactionStatus(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId)
     }
 
     streamLoad {
@@ -208,16 +198,7 @@ suite("test_base_compaction_no_value", "p2") {
 
     // wait for all compactions done
     for (def tablet in tablets) {
-        Awaitility.await().untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            return compactionStatus.run_status;
-        });
+        assertCompactionStatus(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId)
     }
 
     qt_select_default """ SELECT count(*) FROM ${tableName} """
@@ -237,16 +218,7 @@ suite("test_base_compaction_no_value", "p2") {
 
     // wait for all compactions done
     for (def tablet in tablets) {
-        Awaitility.await().untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            return compactionStatus.run_status;
-        });
+        assertCompactionStatus(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId)
     }
 
     def replicaNum = get_table_replica_num(tableName)
