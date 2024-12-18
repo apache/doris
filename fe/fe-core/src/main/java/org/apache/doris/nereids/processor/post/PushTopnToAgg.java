@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate.TopnPushInfo;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.ConnectContext;
 
@@ -36,9 +37,12 @@ import org.apache.doris.qe.ConnectContext;
  * plan: topn(1) -> aggGlobal -> shuffle -> aggLocal -> scan
  * optimization: aggLocal and aggGlobal only need to generate the smallest row with respect to o_clerk.
  *
- * This rule only applies to the pattern that
- * 1. aggregate is the child of topN (there is no project between topN and aggregate).
- * 2. aggregate is not scalar agg, and there is no distinct arguments
+ * This rule only applies to the patterns
+ * 1. topn->project->agg, or
+ * 2. topn->agg
+ * that
+ * 1. orderKeys and groupkeys are one-one mapping
+ * 2. aggregate is not scalar agg
  * Refer to LimitAggToTopNAgg rule.
  */
 public class PushTopnToAgg extends PlanPostProcessor {
@@ -50,6 +54,9 @@ public class PushTopnToAgg extends PlanPostProcessor {
             return topN;
         }
         Plan topNChild = topN.child();
+        if (topNChild instanceof PhysicalProject) {
+            topNChild = topNChild.child(0);
+        }
         if (topNChild instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<? extends Plan> upperAgg = (PhysicalHashAggregate<? extends Plan>) topNChild;
             if (isGroupKeyIdenticalToOrderKey(topN, upperAgg)) {
