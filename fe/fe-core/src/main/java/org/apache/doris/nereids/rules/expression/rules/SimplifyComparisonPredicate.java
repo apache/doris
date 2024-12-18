@@ -21,14 +21,12 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -44,16 +42,16 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
@@ -70,12 +68,6 @@ import java.util.List;
  */
 public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
-
-    enum AdjustType {
-        LOWER,
-        UPPER,
-        NONE
-    }
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
@@ -116,77 +108,83 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         return cp;
     }
 
-    private static Expression processComparisonPredicateDateTimeV2Literal(
+    private static Expression processDateTimeLikeComparisonPredicateDateTimeV2Literal(
             ComparisonPredicate comparisonPredicate, Expression left, DateTimeV2Literal right) {
-        DateTimeV2Type leftType = (DateTimeV2Type) left.getDataType();
+        DataType leftType = left.getDataType();
+        int toScale = 0;
+        if (leftType instanceof DateTimeType) {
+            toScale = 0;
+        } else if (leftType instanceof DateTimeV2Type) {
+            toScale = ((DateTimeV2Type) leftType).getScale();
+        } else {
+            return comparisonPredicate;
+        }
         DateTimeV2Type rightType = right.getDataType();
-        if (leftType.getScale() < rightType.getScale()) {
-            int toScale = leftType.getScale();
+        if (toScale < rightType.getScale()) {
             if (comparisonPredicate instanceof EqualTo) {
                 long originValue = right.getMicroSecond();
                 right = right.roundCeiling(toScale);
-                if (right.getMicroSecond() == originValue) {
-                    return comparisonPredicate.withChildren(left, right);
-                } else {
-                    if (left.nullable()) {
-                        // TODO: the ideal way is to return an If expr like:
-                        // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
-                        // BooleanLiteral.of(false));
-                        // but current fold constant rule can't handle such complex expr with null literal
-                        // before supporting complex conjuncts with null literal folding rules,
-                        // we use a trick way like this:
-                        return new And(new IsNull(left), new NullLiteral(BooleanType.INSTANCE));
-                    } else {
-                        return BooleanLiteral.of(false);
-                    }
+                if (right.getMicroSecond() != originValue) {
+                    // TODO: the ideal way is to return an If expr like:
+                    // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                    // BooleanLiteral.of(false));
+                    // but current fold constant rule can't handle such complex expr with null literal
+                    // before supporting complex conjuncts with null literal folding rules,
+                    // we use a trick way like this:
+                    return ExpressionUtils.falseOrNull(left);
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
                 long originValue = right.getMicroSecond();
                 right = right.roundCeiling(toScale);
-                if (right.getMicroSecond() == originValue) {
-                    return comparisonPredicate.withChildren(left, right);
-                } else {
+                if (right.getMicroSecond() != originValue) {
                     return BooleanLiteral.of(false);
                 }
             } else if (comparisonPredicate instanceof GreaterThan
                     || comparisonPredicate instanceof LessThanEqual) {
-                return comparisonPredicate.withChildren(left, right.roundFloor(toScale));
+                right = right.roundFloor(toScale);
             } else if (comparisonPredicate instanceof LessThan
                     || comparisonPredicate instanceof GreaterThanEqual) {
-                return comparisonPredicate.withChildren(left, right.roundCeiling(toScale));
+                right = right.roundCeiling(toScale);
+            } else {
+                return comparisonPredicate;
+            }
+            Expression newRight = leftType instanceof DateTimeType ? migrateToDateTime(right) : right;
+            return comparisonPredicate.withChildren(left, newRight);
+        } else {
+            if (leftType instanceof DateTimeType) {
+                return comparisonPredicate.withChildren(left, migrateToDateTime(right));
+            } else {
+                return comparisonPredicate;
             }
         }
-        return comparisonPredicate;
     }
 
     private static Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
         if (left instanceof Cast && right instanceof DateLiteral) {
             Cast cast = (Cast) left;
-            if (cast.child().getDataType() instanceof DateTimeType) {
+            if (cast.child().getDataType() instanceof DateTimeType
+                    || cast.child().getDataType() instanceof DateTimeV2Type) {
                 if (right instanceof DateTimeV2Literal) {
-                    left = cast.child();
-                    right = migrateToDateTime((DateTimeV2Literal) right);
+                    return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
+                            cp, cast.child(), (DateTimeV2Literal) right);
                 }
             }
-            if (cast.child().getDataType() instanceof DateTimeV2Type) {
-                if (right instanceof DateTimeV2Literal) {
-                    left = cast.child();
-                    return processComparisonPredicateDateTimeV2Literal(cp, left, (DateTimeV2Literal) right);
-                }
-            }
+
             // datetime to datev2
             if (cast.child().getDataType() instanceof DateType || cast.child().getDataType() instanceof DateV2Type) {
                 if (right instanceof DateTimeLiteral) {
-                    if (cannotAdjust((DateTimeLiteral) right, cp)) {
-                        return cp;
+                    DateTimeLiteral dateTimeLiteral = (DateTimeLiteral) right;
+                    right = migrateToDateV2(dateTimeLiteral);
+                    if (dateTimeLiteral.getHour() != 0 || dateTimeLiteral.getMinute() != 0
+                            || dateTimeLiteral.getSecond() != 0) {
+                        if (cp instanceof EqualTo) {
+                            return ExpressionUtils.falseOrNull(cast.child());
+                        } else if (cp instanceof NullSafeEqual) {
+                            return BooleanLiteral.FALSE;
+                        } else if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
+                            right = ((DateV2Literal) right).plusDays(1);
+                        }
                     }
-                    AdjustType type = AdjustType.NONE;
-                    if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
-                        type = AdjustType.UPPER;
-                    } else if (cp instanceof GreaterThan || cp instanceof LessThanEqual) {
-                        type = AdjustType.LOWER;
-                    }
-                    right = migrateToDateV2((DateTimeLiteral) right, type);
                     if (cast.child().getDataType() instanceof DateV2Type) {
                         left = cast.child();
                     }
@@ -239,18 +237,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                                     comparisonPredicate.withChildren(left, new DecimalV3Literal(
                                             literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
-                            if (left.nullable()) {
-                                // TODO: the ideal way is to return an If expr like:
-                                // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
-                                // BooleanLiteral.of(false));
-                                // but current fold constant rule can't handle such complex expr with null literal
-                                // before supporting complex conjuncts with null literal folding rules,
-                                // we use a trick way like this:
-                                return new And(new IsNull(left),
-                                        new NullLiteral(BooleanType.INSTANCE));
-                            } else {
-                                return BooleanLiteral.of(false);
-                            }
+                            // TODO: the ideal way is to return an If expr like:
+                            // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                            // BooleanLiteral.of(false));
+                            // but current fold constant rule can't handle such complex expr with null literal
+                            // before supporting complex conjuncts with null literal folding rules,
+                            // we use a trick way like this:
+                            return ExpressionUtils.falseOrNull(left);
                         }
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
@@ -286,17 +279,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             literal = literal.stripTrailingZeros();
             if (literal.scale() > 0) {
                 if (comparisonPredicate instanceof EqualTo) {
-                    if (left.nullable()) {
-                        // TODO: the ideal way is to return an If expr like:
-                        // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
-                        // BooleanLiteral.of(false));
-                        // but current fold constant rule can't handle such complex expr with null literal
-                        // before supporting complex conjuncts with null literal folding rules,
-                        // we use a trick way like this:
-                        return new And(new IsNull(left), new NullLiteral(BooleanType.INSTANCE));
-                    } else {
-                        return BooleanLiteral.of(false);
-                    }
+                    // TODO: the ideal way is to return an If expr like:
+                    // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                    // BooleanLiteral.of(false));
+                    // but current fold constant rule can't handle such complex expr with null literal
+                    // before supporting complex conjuncts with null literal folding rules,
+                    // we use a trick way like this:
+                    return ExpressionUtils.falseOrNull(left);
                 } else if (comparisonPredicate instanceof NullSafeEqual) {
                     return BooleanLiteral.of(false);
                 } else if (comparisonPredicate instanceof GreaterThan
@@ -342,17 +331,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         return new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), l.getHour(), l.getMinute(), l.getSecond());
     }
 
-    private static boolean cannotAdjust(DateTimeLiteral l, ComparisonPredicate cp) {
-        return cp instanceof EqualTo && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0);
-    }
-
-    private static Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
-        DateV2Literal d = new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
-        if (type == AdjustType.UPPER && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0)) {
-            return d.plusDays(1);
-        } else {
-            return d;
-        }
+    private static Expression migrateToDateV2(DateTimeLiteral l) {
+        return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
     }
 
     private static Expression migrateToDate(DateV2Literal l) {
