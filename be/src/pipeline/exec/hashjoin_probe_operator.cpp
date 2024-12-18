@@ -242,7 +242,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         // If we use a short-circuit strategy, should return block directly by add additional null data.
         auto block_rows = local_state._probe_block.rows();
         if (local_state._probe_eos && block_rows == 0) {
-            *eos = local_state._probe_eos;
+            *eos = true;
             return Status::OK();
         }
 

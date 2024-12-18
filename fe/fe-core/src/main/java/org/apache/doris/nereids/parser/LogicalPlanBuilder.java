@@ -50,9 +50,11 @@ import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
+import org.apache.doris.nereids.DorisParser.AdminCancelRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
 import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
 import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
+import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowTabletStorageFormatContext;
@@ -300,6 +302,7 @@ import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.SupportedUnsetStatementContext;
+import org.apache.doris.nereids.DorisParser.SwitchCatalogContext;
 import org.apache.doris.nereids.DorisParser.SyncContext;
 import org.apache.doris.nereids.DorisParser.SystemVariableContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
@@ -481,9 +484,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
@@ -665,6 +670,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -4725,6 +4731,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitAdminRebalanceDisk(AdminRebalanceDiskContext ctx) {
+        if (ctx.ON() != null) {
+            List<String> backendList = Lists.newArrayList();
+            ctx.backends.forEach(backend -> backendList.add(stripQuotes(backend.getText())));
+            return new AdminRebalanceDiskCommand(backendList);
+        }
+        return new AdminRebalanceDiskCommand();
+    }
+
+    @Override
+    public LogicalPlan visitAdminCancelRebalanceDisk(AdminCancelRebalanceDiskContext ctx) {
+        if (ctx.ON() != null) {
+            List<String> backendList = Lists.newArrayList();
+            ctx.backends.forEach(backend -> backendList.add(stripQuotes(backend.getText())));
+            return new AdminCancelRebalanceDiskCommand(backendList);
+        }
+        return new AdminCancelRebalanceDiskCommand();
+    }
+
+    @Override
     public LogicalPlan visitShowDiagnoseTablet(ShowDiagnoseTabletContext ctx) {
         long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new ShowDiagnoseTabletCommand(tabletId);
@@ -5080,6 +5106,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowQueryProfile(ShowQueryProfileContext ctx) {
         String queryIdPath = stripQuotes(ctx.queryIdPath.getText());
         return new ShowQueryProfileCommand(queryIdPath);
+    }
+
+    @Override
+    public Object visitSwitchCatalog(SwitchCatalogContext ctx) {
+        String catalogName = ctx.catalog.getText();
+        if (catalogName != null) {
+            return new SwitchCommand(catalogName);
+        }
+        throw new AnalysisException("catalog name can not be null");
     }
 }
 

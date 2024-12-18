@@ -373,6 +373,7 @@ struct TScanRangeParams {
   2: optional i32 volume_id = -1
 }
 
+// deprecated
 struct TRuntimeFilterTargetParams {
   1: required Types.TUniqueId target_fragment_instance_id
   // The address of the instance where the fragment is expected to run
@@ -390,8 +391,7 @@ struct TRuntimeFilterParams {
   // Runtime filter merge instance address
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
-  // Runtime filter ID to the instance address of the fragment,
-  // that is expected to use this runtime filter
+  // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
