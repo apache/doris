@@ -49,6 +49,7 @@ public class FileFormatConstants {
     public static final String PROP_CSV_SCHEMA = "csv_schema";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
+    public static final String PROP_ENCLOSE = "enclose";
 
     // decimal(p,s)
     public static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
