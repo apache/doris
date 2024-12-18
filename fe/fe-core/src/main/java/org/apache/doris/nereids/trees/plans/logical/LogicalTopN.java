@@ -48,16 +48,18 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     private final long limit;
     private final long offset;
     private final Supplier<List<Expression>> expressions;
+    private final boolean pushed;
 
-    public LogicalTopN(List<OrderKey> orderKeys, long limit, long offset, CHILD_TYPE child) {
-        this(orderKeys, limit, offset, Optional.empty(), Optional.empty(), child);
+    public LogicalTopN(List<OrderKey> orderKeys, long limit, long offset, CHILD_TYPE child, boolean pushed) {
+        this(orderKeys, limit, offset, Optional.empty(), Optional.empty(), child,
+                pushed);
     }
 
     /**
      * Constructor for LogicalSort.
      */
     public LogicalTopN(List<OrderKey> orderKeys, long limit, long offset, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, boolean pushed) {
         super(PlanType.LOGICAL_TOP_N, groupExpression, logicalProperties, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.limit = limit;
@@ -69,6 +71,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
             }
             return exprs.build();
         });
+        this.pushed = pushed;
     }
 
     @Override
@@ -89,6 +92,10 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public long getLimit() {
         return limit;
+    }
+
+    public boolean isPushed() {
+        return pushed;
     }
 
     @Override
@@ -129,35 +136,37 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {
         return new LogicalTopN<>(orderKeys, limit, offset,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
+                Optional.empty(), Optional.of(getLogicalProperties()), child(), this.pushed);
     }
 
-    public LogicalTopN<Plan> withLimitChild(long limit, long offset, Plan child) {
-        return new LogicalTopN<>(orderKeys, limit, offset, child);
+    public LogicalTopN<Plan> withLimitChild(long limit, long offset, Plan child, boolean pushed) {
+        return new LogicalTopN<>(orderKeys, limit, offset, child, pushed);
     }
 
-    public LogicalTopN<Plan> withLimitOrderKeyAndChild(long limit, long offset, List<OrderKey> orderKeys, Plan child) {
-        return new LogicalTopN<>(orderKeys, limit, offset, child);
+    public LogicalTopN<Plan> withLimitOrderKeyAndChild(long limit, long offset, List<OrderKey> orderKeys, Plan child,
+            boolean pushed) {
+        return new LogicalTopN<>(orderKeys, limit, offset, child, pushed);
     }
 
     @Override
     public LogicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalTopN should have 1 child, but input is %s", children.size());
-        return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
+        return new LogicalTopN<>(orderKeys, limit, offset, children.get(0), this.pushed);
     }
 
     @Override
     public LogicalTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(getLogicalProperties()),
-                child());
+                child(), this.pushed);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0),
+                this.pushed);
     }
 
     @Override

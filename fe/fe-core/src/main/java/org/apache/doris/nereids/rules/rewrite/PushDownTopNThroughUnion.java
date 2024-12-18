@@ -75,7 +75,8 @@ public class PushDownTopNThroughUnion implements RewriteRuleFactory {
                                                 ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
                                         .collect(ImmutableList.toImmutableList());
                                 newChildren.add(
-                                        new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0, child));
+                                        new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0,
+                                                child, true));
                             }
                             if (union.children().equals(newChildren)) {
                                 return null;

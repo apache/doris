@@ -50,7 +50,7 @@ public class MergeTopNs extends OneRewriteRuleFactory {
                     long newOffset = offset + childOffset;
                     // choose min limit
                     long newLimit = Math.min(limit, childLimit);
-                    return topN.withLimitChild(newLimit, newOffset, childTopN.child());
+                    return topN.withLimitChild(newLimit, newOffset, childTopN.child(), false);
                 }).toRule(RuleType.MERGE_TOP_N);
     }
 }

@@ -103,7 +103,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> left = topN.withLimitOrderKeyAndChild(
                             topN.getLimit() + topN.getOffset(), 0, pushedOrderKeys,
-                            PlanUtils.distinct(join.left()));
+                            PlanUtils.distinct(join.left()), true);
                     return join.withChildren(left, join.right());
                 }
                 return null;
@@ -114,7 +114,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> right = topN.withLimitOrderKeyAndChild(
                             topN.getLimit() + topN.getOffset(), 0, pushedOrderKeys,
-                            PlanUtils.distinct(join.right()));
+                            PlanUtils.distinct(join.right()), true);
                     return join.withChildren(join.left(), right);
                 }
                 return null;
@@ -127,14 +127,14 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                 if (!leftPushedOrderKeys.isEmpty()) {
                     leftChild = topN.withLimitOrderKeyAndChild(
                             topN.getLimit() + topN.getOffset(), 0, leftPushedOrderKeys,
-                            PlanUtils.distinct(join.left()));
+                            PlanUtils.distinct(join.left()), true);
                 }
                 List<OrderKey> rightPushedOrderKeys = getPushedOrderKeys(groupBySlots,
                         join.right().getOutputSet(), topN.getOrderKeys());
                 if (!rightPushedOrderKeys.isEmpty()) {
                     rightChild = topN.withLimitOrderKeyAndChild(
                             topN.getLimit() + topN.getOffset(), 0, rightPushedOrderKeys,
-                            PlanUtils.distinct(join.right()));
+                            PlanUtils.distinct(join.right()), true);
                 }
                 if (leftChild == join.left() && rightChild == join.right()) {
                     return null;
