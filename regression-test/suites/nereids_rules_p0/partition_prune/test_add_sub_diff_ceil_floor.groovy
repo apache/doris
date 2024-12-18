@@ -341,4 +341,53 @@ suite("test_add_sub_diff_ceil_floor") {
         sql """select * from max_t where hours_sub(hours_add(dt, 1),1) >'2018-01-01' and days_diff(hours_sub(hours_add(dt, 1),1),'2021-01-01') >2"""
         contains("partitions=1/6 (p6)")
     }
+
+    // from_days and unix_timestamp
+    explain {
+        sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
+        contains("partitions=3/6 (p4,p5,p6)")
+    }
+
+    sql "drop table if exists partition_int_from_days"
+    sql """
+    CREATE TABLE `partition_int_from_days` (
+      `a` int NULL,
+      `b` int NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`a`, `b`)
+    PARTITION BY RANGE(`a`)
+    (PARTITION p1 VALUES [("-2147483648"), ("100000")),
+    PARTITION p2 VALUES [("100000"), ("738000")),
+    PARTITION p3 VALUES [("738000"), ("90000000")),
+    PARTITION p4 VALUES [("90000000"), (MAXVALUE)))
+    DISTRIBUTED BY HASH(`a`) BUCKETS 10
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    ); """
+    sql """
+    insert into partition_int_from_days values(100,100),(100022,1002),(738004,33),(90000003,89);
+    """
+    explain {
+        sql """select * from partition_int_from_days where from_days(a)>'2020-07-29' """
+        contains("partitions=3/4 (p1,p3,p4)")
+    }
+
+
+    sql "drop table if exists unix_time_t"
+    sql """create table unix_time_t (a int, dt datetime, d date, c varchar(100)) duplicate key(a)
+    partition by range(dt) (
+            partition p1 values less than ("1980-01-01"),
+            partition p2 values less than ("2018-01-01"),
+            partition p3 values less than ("2039-01-01"),
+            partition p4 values less than MAXVALUE
+    ) distributed by hash(a) properties("replication_num"="1");"""
+    sql """INSERT INTO unix_time_t values(1,'1979-01-01','1979-01-01','abc'),(1,'2012-01-01','2012-01-01','abc'),(1,'2020-01-01','2020-01-01','abc'),(1,'2045-01-01','2045-01-01','abc')"""
+    sql "INSERT INTO unix_time_t  values(3,null,null,null);"
+    show create table unix_time_t
+    select unix_timestamp('2018-01-02')
+    explain {
+        sql """explain select * from unix_time_t where unix_timestamp(dt) > 1514822400 """
+        contains("partitions=2/4 (p3,p4)")
+    }
+
 }
