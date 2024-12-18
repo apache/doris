@@ -181,7 +181,7 @@ public class LogicalPlanBuilder {
         List<OrderKey> orderKeys = orderKeySlotsIndex.stream()
                 .map(i -> new OrderKey(this.plan.getOutput().get(i), false, false))
                 .collect(Collectors.toList());
-        LogicalTopN<Plan> topNPlan = new LogicalTopN<>(orderKeys, limit, offset, this.plan);
+        LogicalTopN<Plan> topNPlan = new LogicalTopN<>(orderKeys, limit, offset, this.plan, false);
         return from(topNPlan);
     }
 
