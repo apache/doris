@@ -2413,6 +2413,7 @@ public class Coordinator implements CoordInterface {
             updateLoadCounters(params.getLoadCounters());
         }
         if (params.isSetTrackingUrl()) {
+            LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
             trackingUrl = params.getTrackingUrl();
         }
         if (params.isSetTxnId()) {
