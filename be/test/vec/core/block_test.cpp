@@ -3319,8 +3319,7 @@ TEST(BlockTest, RowCheck) {
 
 TEST(BlockTest, ClearColumnData) {
     // Test with empty block
-    {
-        // Test clear with column_size == -1
+    { // Test clear with column_size == -1
         {
             vectorized::Block block;
             EXPECT_EQ(0, block.columns());
@@ -3395,7 +3394,7 @@ TEST(BlockTest, ClearColumnData) {
             EXPECT_EQ(0, block.columns());
             EXPECT_EQ(0, block.rows());
         }
-    }
+    } // namespace doris
 
     // Test with regular columns
     {
