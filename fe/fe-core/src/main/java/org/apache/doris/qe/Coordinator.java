@@ -111,7 +111,6 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
-import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -3262,15 +3261,6 @@ public class Coordinator implements CoordInterface {
 
                             localParams.runtime_filter_params.putToRidToTargetParamv2(rf.getFilterId().asInt(),
                                     new ArrayList<TRuntimeFilterTargetParamsV2>(targetParamsV2.values()));
-                        } else {
-                            List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
-                            for (FRuntimeFilterTargetParam targetParam : fParams) {
-                                // Instance id make no sense if this runtime filter doesn't have remote targets.
-                                targetParams.add(new TRuntimeFilterTargetParams(new TUniqueId(),
-                                        targetParam.targetFragmentInstanceAddr));
-                            }
-                            localParams.runtime_filter_params.putToRidToTargetParam(rf.getFilterId().asInt(),
-                                    targetParams);
                         }
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
