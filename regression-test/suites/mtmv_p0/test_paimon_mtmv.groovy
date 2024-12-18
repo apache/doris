@@ -25,6 +25,22 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     String catalogName = "${suiteName}_catalog"
     String mvName = "${suiteName}_mv"
     String dbName = context.config.getDbNameByFile(context.file)
+    String otherDbName = "${suiteName}_otherdb"
+    String tableName = "${suiteName}_table"
+
+    sql """drop database if exists ${otherDbName}"""
+    sql """create database ${otherDbName}"""
+     sql """
+        CREATE TABLE  ${otherDbName}.${tableName} (
+          `user_id` INT,
+          `num` INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`) ;
+       """
+
+    sql """
+        insert into ${otherDbName}.${tableName} values(1,2);
+        """
 
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -99,8 +115,10 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
      sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
+            KEY(`id`)
+            COMMENT "comment1"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2
+            PROPERTIES ('replication_num' = '1',"grace_period"="333")
             AS
             SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
         """
@@ -113,6 +131,58 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     order_qt_not_partition "SELECT * FROM ${mvName} "
     order_qt_not_partition_after "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """drop materialized view if exists ${mvName};"""
+
+    // refresh on schedule
+     sql """
+     CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "9999-12-13 21:07:09"
+        KEY(`id`)
+        COMMENT "comment1"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1',"grace_period"="333")
+        AS
+        SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+    """
+     waitingMTMVTaskFinishedByMvName(mvName)
+     sql """drop materialized view if exists ${mvName};"""
+
+    // refresh on schedule
+     sql """
+     CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH AUTO ON commit
+        KEY(`id`)
+        COMMENT "comment1"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1',"grace_period"="333")
+        AS
+        SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+     sql """drop materialized view if exists ${mvName};"""
+
+    // cross db and join internal table
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`par`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join internal.${otherDbName}.${tableName} b on a.id=b.user_id;
+        """
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_a"))
+    assertTrue(showPartitionsResult.toString().contains("p_b"))
+
+    // refresh one partitions
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_join_one_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
+
     sql """drop catalog if exists ${catalogName}"""
 
 }
