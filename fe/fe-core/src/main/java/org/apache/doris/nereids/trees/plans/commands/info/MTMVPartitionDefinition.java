@@ -25,6 +25,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
@@ -140,9 +141,9 @@ public class MTMVPartitionDefinition {
         if (!partitionColumnNames.contains(relatedTableInfo.getColumn())) {
             throw new AnalysisException("error related column: " + relatedTableInfo.getColumn());
         }
-        if (!(mtmvBaseRealtedTable instanceof HMSExternalTable)
+        if (!(mtmvBaseRealtedTable.getPartitionType(Optional.empty()).equals(PartitionType.LIST))
                 && partitionColumnNames.size() != 1) {
-            throw new AnalysisException("only hms table support multi column partition.");
+            throw new AnalysisException("only List PartitionType support multi column partition.");
         }
         return relatedTableInfo;
     }
