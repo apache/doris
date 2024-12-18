@@ -45,7 +45,6 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -247,7 +246,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         return Utils.fastToImmutableList(selectedIdSets);
     }
 
-    private static <K extends Comparable<K>> List<K> sequentialFiltering(Map<K, PartitionItem> idToPartitions, List<Slot> partitionSlots,
+    private static <K extends Comparable<K>> List<K> sequentialFiltering(
+            Map<K, PartitionItem> idToPartitions, List<Slot> partitionSlots,
             Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold) {
         List<OnePartitionEvaluator<?>> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
         for (Entry<K, PartitionItem> kv : idToPartitions.entrySet()) {

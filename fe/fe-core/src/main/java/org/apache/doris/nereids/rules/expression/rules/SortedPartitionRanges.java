@@ -30,6 +30,7 @@ public class SortedPartitionRanges<K> {
     public final List<PartitionItemAndRange<K>> sortedPartitions;
     public final List<PartitionItemAndId<K>> defaultPartitions;
 
+    /** SortedPartitionRanges */
     public SortedPartitionRanges(
             List<PartitionItemAndRange<K>> sortedPartitions, List<PartitionItemAndId<K>> defaultPartitions) {
         this.sortedPartitions = Utils.fastToImmutableList(
