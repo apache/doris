@@ -336,10 +336,20 @@ public:
 
     DataTypePtr get_return_type() const override { return nested_func->get_return_type(); }
 
-    AggregateFunctionPtr transmit_to_stable() override {
-        return AggregateFunctionPtr(new AggregateFunctionDistinct<Data, true>(
-                nested_func, IAggregateFunction::argument_types));
+    IAggregateFunction* transmit_to_stable() override {
+        return new AggregateFunctionDistinct<Data, true>(nested_func,
+                                                         IAggregateFunction::argument_types);
     }
+};
+
+template <typename T>
+struct FunctionStableTransfer {
+    using FunctionStable = T;
+};
+
+template <template <bool stable> typename Data>
+struct FunctionStableTransfer<AggregateFunctionDistinct<Data, false>> {
+    using FunctionStable = AggregateFunctionDistinct<Data, true>;
 };
 
 } // namespace doris::vectorized
