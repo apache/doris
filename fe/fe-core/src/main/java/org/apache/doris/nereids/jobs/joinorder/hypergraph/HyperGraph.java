@@ -429,7 +429,7 @@ public class HyperGraph {
                 return Pair.of(child.first, child.second);
             }
 
-            if (StructInfo.isValidLimit(plan)) {
+            if (StructInfo.isValidPushedNode(plan)) {
                 return this.buildForMv(plan.child(0));
             }
 
