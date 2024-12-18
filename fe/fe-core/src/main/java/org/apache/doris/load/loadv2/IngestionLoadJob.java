@@ -715,6 +715,7 @@ public class IngestionLoadJob extends LoadJob {
         etlStartTimestamp = System.currentTimeMillis();
         state = JobState.ETL;
         etlStatus = new EtlStatus();
+        unprotectedLogUpdateStateInfo();
     }
 
     private void unprotectedUpdateToLoadingState(EtlStatus etlStatus, Map<String, Long> filePathToSize)
