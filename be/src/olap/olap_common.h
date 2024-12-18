@@ -403,6 +403,7 @@ struct OlapReaderStatistics {
     int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
     int64_t rowset_reader_create_iterators_timer_ns = 0;
     int64_t rowset_reader_init_iterators_timer_ns = 0;
+    int64_t rowset_reader_load_segments_timer_ns = 0;
 
     int64_t segment_iterator_init_timer_ns = 0;
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;

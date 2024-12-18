@@ -200,6 +200,7 @@ private:
     RuntimeProfile::Counter* _rowset_reader_get_segment_iterators_timer = nullptr;
     RuntimeProfile::Counter* _rowset_reader_create_iterators_timer = nullptr;
     RuntimeProfile::Counter* _rowset_reader_init_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;

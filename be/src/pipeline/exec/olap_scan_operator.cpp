@@ -176,6 +176,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer");
     _rowset_reader_init_iterators_timer =
             ADD_TIMER(_scanner_profile, "RowsetReaderInitIteratorsTimer");
+    _rowset_reader_load_segments_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderLoadSegmentsTimer");
 
     _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
     _segment_iterator_init_return_column_iterators_timer =

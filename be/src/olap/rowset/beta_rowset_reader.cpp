@@ -227,9 +227,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     bool should_use_cache = use_cache || (_read_context->reader_type == ReaderType::READER_QUERY &&
                                           enable_segment_cache);
     SegmentCacheHandle segment_cache_handle;
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &segment_cache_handle,
-                                                             should_use_cache,
-                                                             /*need_load_pk_index_and_bf*/ false));
+    {
+        SCOPED_RAW_TIMER(&_stats->rowset_reader_load_segments_timer_ns);
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                _rowset, &segment_cache_handle, should_use_cache,
+                /*need_load_pk_index_and_bf*/ false));
+    }
 
     // create iterator for each segment
     auto& segments = segment_cache_handle.get_segments();
