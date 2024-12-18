@@ -3725,7 +3725,10 @@ public class Env {
         }
 
         // Storage Vault
-        if (!olapTable.getStorageVaultName().isEmpty()) {
+        if (!Strings.isNullOrEmpty(olapTable.getStorageVaultId())) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_STORAGE_VAULT_ID).append("\" = \"");
+            sb.append(olapTable.getStorageVaultId()).append("\"");
             sb.append(",\n\"").append(PropertyAnalyzer
                     .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
             sb.append(olapTable.getStorageVaultName()).append("\"");

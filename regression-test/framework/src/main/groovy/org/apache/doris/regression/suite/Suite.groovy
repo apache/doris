@@ -813,11 +813,11 @@ class Suite implements GroovyInterceptable {
         return randomBoolean ? "true" : "false"
     }
 
-    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+    void expectExceptionLike(Closure userFunction, String errMsg = null) {
         try {
             userFunction()
         } catch (Exception e) {
-            if (!e.getMessage().contains(errorMessage)) {
+            if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
                 throw e
             }
         }

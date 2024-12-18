@@ -523,9 +523,18 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
-static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static bool vault_exist(const InstanceInfoPB& instance, const std::string& new_vault_name) {
+    for (auto& name : instance.storage_vault_names()) {
+        if (new_vault_name == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
                                     const StorageVaultPB& vault, MetaServiceCode& code,
-                                    std::string& msg) {
+                                    std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -591,6 +600,13 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
             msg = ss.str();
             return -1;
         }
+
+        if (vault_exist(instance, vault.alter_name())) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already existed", vault.alter_name());
+            return -1;
+        }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
@@ -623,19 +639,16 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
+    DCHECK_EQ(new_vault.id(), vault_id);
+    response->set_storage_vault_id(new_vault.id());
+    response->set_storage_vault_name(new_vault.name());
     return 0;
 }
 
-static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
                                   const StorageVaultPB& vault, MetaServiceCode& code,
-                                  std::string& msg) {
+                                  std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_obj_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -708,6 +721,13 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
             msg = ss.str();
             return -1;
         }
+
+        if (vault_exist(instance, vault.alter_name())) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already existed", vault.alter_name());
+            return -1;
+        }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
@@ -747,13 +767,10 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
+    DCHECK_EQ(new_vault.id(), vault_id);
+    response->set_storage_vault_id(new_vault.id());
+    response->set_storage_vault_name(new_vault.name());
     return 0;
 }
 
@@ -1100,12 +1117,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response);
+        break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
-        alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        alter_hdfs_storage_vault(instance, txn, request->vault(), code, msg, response);
+        break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
         [[fallthrough]];
