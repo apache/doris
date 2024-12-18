@@ -17,6 +17,8 @@
 
 #include "hashjoin_probe_operator.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <string>
 
 #include "common/logging.h"
@@ -671,21 +673,34 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
         auto data_type = slot->get_data_type_ptr();
-        auto target_data_type = idx < right_col_idx ? _left_table_data_types[idx]
-                                                    : _right_table_data_types[idx - right_col_idx];
+        const auto slot_on_left = idx < right_col_idx;
+        auto target_data_type = slot_on_left ? _left_table_data_types[idx]
+                                             : _right_table_data_types[idx - right_col_idx];
         ++idx;
         if (data_type->equals(*target_data_type)) {
             continue;
         }
 
-        auto data_type_non_nullable = vectorized::remove_nullable(data_type);
-        if (data_type_non_nullable->equals(*target_data_type)) {
+        /// For outer join(left/right/full), the non-nullable columns may be converted to nullable.
+        const auto accept_nullable_not_match =
+                _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                (slot_on_left ? _join_op == TJoinOp::RIGHT_OUTER_JOIN
+                              : _join_op == TJoinOp::LEFT_OUTER_JOIN);
+
+        if (accept_nullable_not_match) {
+            auto data_type_non_nullable = vectorized::remove_nullable(data_type);
+            if (data_type_non_nullable->equals(*target_data_type)) {
+                continue;
+            }
+        } else if (data_type->equals(*target_data_type)) {
             continue;
         }
 
-        return Status::InternalError("intermediate slot({}) data type not match: '{}' vs '{}'",
-                                     slot->id(), data_type->get_name(),
-                                     _left_table_data_types[idx]->get_name());
+        return Status::InternalError(
+                "Join node(id={}, OP={}) intermediate slot({}, #{})'s on {} table data type not "
+                "match: '{}' vs '{}'",
+                _node_id, _join_op, slot->col_name(), slot->id(), (slot_on_left ? "left" : "right"),
+                data_type->get_name(), target_data_type->get_name());
     }
 
     _build_side_child.reset();
