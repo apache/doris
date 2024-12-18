@@ -194,6 +194,8 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
     @Override
     public void close() throws Exception {
+        判断是不是 remote result，看下 insert into 是不是 romote resut
+                处理线程安全问题，close 和 isdone 可能同时到达
         if (ctx.getIsExecStatusDone()) {
             ctx.finalizeArrowFlightSqlRequest();
         }
