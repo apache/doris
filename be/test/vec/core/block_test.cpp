@@ -3319,248 +3319,246 @@ TEST(BlockTest, RowCheck) {
 
 TEST(BlockTest, ClearColumnData) {
     // Test with empty block
-    { // Test clear with column_size == -1
-        {
-            vectorized::Block block;
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
+    {// Test clear with column_size == -1
+     {vectorized::Block block;
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
 
-            block.clear_column_data(-1);
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
-        }
+    block.clear_column_data(-1);
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
+}
 
-        // Test clear with column_size == 0
-        {
-            vectorized::Block block;
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
+// Test clear with column_size == 0
+{
+    vectorized::Block block;
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
 
-            block.clear_column_data(0);
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
-        }
+    block.clear_column_data(0);
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
+}
 
-        // Test clear with column_size > 0
-        {
-            vectorized::Block block;
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
+// Test clear with column_size > 0
+{
+    vectorized::Block block;
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
 
-            block.clear_column_data(1);
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
-        }
+    block.clear_column_data(1);
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
+}
 
-        // Test clear after insert empty column
-        {
-            vectorized::Block block;
-            auto type = std::make_shared<vectorized::DataTypeInt32>();
-            auto col = vectorized::ColumnVector<Int32>::create();
-            block.insert({std::move(col), type, "empty_col"});
+// Test clear after insert empty column
+{
+    vectorized::Block block;
+    auto type = std::make_shared<vectorized::DataTypeInt32>();
+    auto col = vectorized::ColumnVector<Int32>::create();
+    block.insert({std::move(col), type, "empty_col"});
 
-            EXPECT_EQ(1, block.columns());
-            EXPECT_EQ(0, block.rows());
+    EXPECT_EQ(1, block.columns());
+    EXPECT_EQ(0, block.rows());
 
-            block.clear_column_data(-1);
-            EXPECT_EQ(1, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-        }
+    block.clear_column_data(-1);
+    EXPECT_EQ(1, block.columns());
+    EXPECT_EQ(0, block.rows());
+    EXPECT_EQ(0, block.get_by_position(0).column->size());
+}
 
-        // Test clear after multiple empty columns
-        {
-            vectorized::Block block;
-            auto type = std::make_shared<vectorized::DataTypeInt32>();
+// Test clear after multiple empty columns
+{
+    vectorized::Block block;
+    auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-            for (int i = 0; i < 3; ++i) {
-                auto col = vectorized::ColumnVector<Int32>::create();
-                block.insert({std::move(col), type, "empty_col" + std::to_string(i)});
-            }
-
-            EXPECT_EQ(3, block.columns());
-            EXPECT_EQ(0, block.rows());
-
-            // Test clear with different column_size values
-            block.clear_column_data(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-
-            block.clear_column_data(-1);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-
-            block.clear_column_data(0);
-            EXPECT_EQ(0, block.columns());
-            EXPECT_EQ(0, block.rows());
-        }
-    } // namespace doris
-
-    // Test with regular columns
-    {
-        auto create_test_block = [](int num_columns) {
-            vectorized::Block block;
-            auto type = std::make_shared<vectorized::DataTypeInt32>();
-
-            for (int i = 0; i < num_columns; ++i) {
-                auto col = vectorized::ColumnVector<Int32>::create();
-                col->insert_value(i + 1);
-                block.insert({std::move(col), type, "col" + std::to_string(i + 1)});
-            }
-            return block;
-        };
-
-        // Test clear with column_size == -1
-        {
-            auto block = create_test_block(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(1, block.rows());
-
-            block.clear_column_data(-1);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-            EXPECT_EQ(0, block.get_by_position(1).column->size());
-        }
-
-        // Test clear with specific column_size
-        {
-            auto block = create_test_block(3);
-            EXPECT_EQ(3, block.columns());
-
-            block.clear_column_data(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-            EXPECT_EQ(0, block.get_by_position(1).column->size());
-        }
-
-        // Test clear with column_size larger than actual size
-        {
-            auto block = create_test_block(1);
-            EXPECT_EQ(1, block.columns());
-
-            block.clear_column_data(2);
-            EXPECT_EQ(1, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-        }
+    for (int i = 0; i < 3; ++i) {
+        auto col = vectorized::ColumnVector<Int32>::create();
+        block.insert({std::move(col), type, "empty_col" + std::to_string(i)});
     }
 
-    // Test with const columns
+    EXPECT_EQ(3, block.columns());
+    EXPECT_EQ(0, block.rows());
+
+    // Test clear with different column_size values
+    block.clear_column_data(2);
+    EXPECT_EQ(2, block.columns());
+    EXPECT_EQ(0, block.rows());
+
+    block.clear_column_data(-1);
+    EXPECT_EQ(2, block.columns());
+    EXPECT_EQ(0, block.rows());
+
+    block.clear_column_data(0);
+    EXPECT_EQ(0, block.columns());
+    EXPECT_EQ(0, block.rows());
+}
+} // namespace doris
+
+// Test with regular columns
+{
+    auto create_test_block = [](int num_columns) {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        for (int i = 0; i < num_columns; ++i) {
+             auto col = vectorized::ColumnVector<Int32>::create();
+            col->insert_value(i + 1);
+            block.insert({std::move(col), type, "col" + std::to_string(i + 1)});
+        }
+        return block;
+    };
+
+    // Test clear with column_size == -1
     {
-        auto create_test_block = [](int num_columns) {
-            vectorized::Block block;
-            auto type = std::make_shared<vectorized::DataTypeInt32>();
+        auto block = create_test_block(2);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(1, block.rows());
 
-            for (int i = 0; i < num_columns; ++i) {
-                auto base_col = vectorized::ColumnVector<Int32>::create();
-                base_col->insert_value(42 + i);
-                auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 5);
-                block.insert({const_col->get_ptr(), type, "const_col" + std::to_string(i + 1)});
-            }
-            return block;
-        };
-
-        // Test clear with column_size == -1
-        {
-            auto block = create_test_block(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(5, block.rows());
-
-            block.clear_column_data(-1);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-            EXPECT_EQ(0, block.get_by_position(1).column->size());
-        }
-
-        // Test clear with specific column_size
-        {
-            auto block = create_test_block(3);
-            EXPECT_EQ(3, block.columns());
-
-            block.clear_column_data(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-            EXPECT_EQ(0, block.get_by_position(1).column->size());
-        }
-
-        // Test clear with column_size larger than actual size
-        {
-            auto block = create_test_block(1);
-            EXPECT_EQ(1, block.columns());
-
-            block.clear_column_data(2);
-            EXPECT_EQ(1, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-        }
+        block.clear_column_data(-1);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_EQ(0, block.get_by_position(1).column->size());
     }
 
-    // Test with nullable columns
+    // Test clear with specific column_size
     {
-        auto create_test_block = [](int num_columns) {
-            vectorized::Block block;
-            auto base_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+        auto block = create_test_block(3);
+        EXPECT_EQ(3, block.columns());
 
-            for (int i = 0; i < num_columns; ++i) {
-                auto col = vectorized::ColumnNullable::create(
-                        vectorized::ColumnVector<Int32>::create(),
-                        vectorized::ColumnVector<vectorized::UInt8>::create());
-
-                auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
-                        col->get_nested_column_ptr().get());
-                auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
-                        col->get_null_map_column_ptr().get());
-
-                nested->insert_value(i + 1);
-                null_map->insert_value(i % 2);
-
-                block.insert(
-                        {col->get_ptr(), nullable_type, "nullable_col" + std::to_string(i + 1)});
-            }
-            return block;
-        };
-
-        // Test clear with column_size == -1
-        {
-            auto block = create_test_block(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(1, block.rows());
-
-            block.clear_column_data(-1);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-            EXPECT_EQ(0, block.get_by_position(1).column->size());
-        }
-
-        // Test clear with specific column_size
-        {
-            auto block = create_test_block(3);
-            EXPECT_EQ(3, block.columns());
-
-            block.clear_column_data(2);
-            EXPECT_EQ(2, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-            EXPECT_EQ(0, block.get_by_position(1).column->size());
-        }
-
-        // Test clear with column_size larger than actual size
-        {
-            auto block = create_test_block(1);
-            EXPECT_EQ(1, block.columns());
-
-            block.clear_column_data(2);
-            EXPECT_EQ(1, block.columns());
-            EXPECT_EQ(0, block.rows());
-            EXPECT_EQ(0, block.get_by_position(0).column->size());
-        }
+        block.clear_column_data(2);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_EQ(0, block.get_by_position(1).column->size());
     }
+
+    // Test clear with column_size larger than actual size
+    {
+        auto block = create_test_block(1);
+        EXPECT_EQ(1, block.columns());
+
+        block.clear_column_data(2);
+        EXPECT_EQ(1, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+    }
+}
+
+// Test with const columns
+{
+    auto create_test_block = [](int num_columns) {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        for (int i = 0; i < num_columns; ++i) {
+            auto base_col = vectorized::ColumnVector<Int32>::create();
+            base_col->insert_value(42 + i);
+            auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 5);
+            block.insert({const_col->get_ptr(), type, "const_col" + std::to_string(i + 1)});
+        }
+        return block;
+    };
+
+    // Test clear with column_size == -1
+    {
+        auto block = create_test_block(2);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(5, block.rows());
+
+        block.clear_column_data(-1);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_EQ(0, block.get_by_position(1).column->size());
+    }
+
+    // Test clear with specific column_size
+    {
+        auto block = create_test_block(3);
+        EXPECT_EQ(3, block.columns());
+
+        block.clear_column_data(2);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_EQ(0, block.get_by_position(1).column->size());
+    }
+
+    // Test clear with column_size larger than actual size
+    {
+        auto block = create_test_block(1);
+        EXPECT_EQ(1, block.columns());
+
+        block.clear_column_data(2);
+        EXPECT_EQ(1, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+    }
+}
+
+// Test with nullable columns
+{
+    auto create_test_block = [](int num_columns) {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+        for (int i = 0; i < num_columns; ++i) {
+            auto col = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+
+            auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col->get_nested_column_ptr().get());
+            auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col->get_null_map_column_ptr().get());
+
+            nested->insert_value(i + 1);
+            null_map->insert_value(i % 2);
+
+            block.insert({col->get_ptr(), nullable_type, "nullable_col" + std::to_string(i + 1)});
+        }
+        return block;
+    };
+
+    // Test clear with column_size == -1
+    {
+        auto block = create_test_block(2);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(1, block.rows());
+
+        block.clear_column_data(-1);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_EQ(0, block.get_by_position(1).column->size());
+    }
+
+    // Test clear with specific column_size
+    {
+        auto block = create_test_block(3);
+        EXPECT_EQ(3, block.columns());
+
+        block.clear_column_data(2);
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_EQ(0, block.get_by_position(1).column->size());
+    }
+
+    // Test clear with column_size larger than actual size
+    {
+        auto block = create_test_block(1);
+        EXPECT_EQ(1, block.columns());
+
+        block.clear_column_data(2);
+        EXPECT_EQ(1, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+    }
+}
 }
 
 TEST(BlockTest, IndexByName) {
