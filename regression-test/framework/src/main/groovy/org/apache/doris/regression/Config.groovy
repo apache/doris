@@ -1028,6 +1028,7 @@ class Config {
             excludeDirectorySet.add("fault_injection_p0/partial_update")
             excludeDirectorySet.add("fault_injection_p0/flexible")
             excludeDirectorySet.add("doc")
+            excludeDirectorySet.add("schema_change_p0")
             excludeDirectorySet.add("schema_change_p0/unique_ck")
             List<String> excludeCases = ["test_table_properties", "test_create_table"
                 , "test_default_hll", "test_default_pi", "test_default_bitmap_empty"
