@@ -1575,6 +1575,15 @@ public class Config extends ConfigBase {
     public static boolean enable_restore_snapshot_rpc_compression = true;
 
     /**
+     * A internal config, to indicate whether to reset the index id when restore olap table.
+     *
+     * The inverted index saves the index id in the file path/header, so the index id between
+     * two clusters must be the same.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean restore_reset_index_id = true;
+
+    /**
      * Control the max num of tablets per backup job involved.
      */
     @ConfField(mutable = true, masterOnly = true, description = {
