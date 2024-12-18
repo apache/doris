@@ -28,6 +28,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -426,6 +427,10 @@ public class HyperGraph {
                 Pair<BitSet, Long> child = this.buildForMv(filter.child());
                 this.addFilter(filter, child);
                 return Pair.of(child.first, child.second);
+            }
+
+            if (StructInfo.isValidLimit(plan)) {
+                return this.buildForMv(plan.child(0));
             }
 
             // process Other Node

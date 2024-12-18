@@ -90,7 +90,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
             case LEFT_OUTER_JOIN:
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left(), true),
                             join.right());
                 }
                 return null;
@@ -98,19 +98,19 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 if (join.right().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
                             join.left(),
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right(), true));
                 }
                 return null;
             case CROSS_JOIN:
 
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left(), true),
                             join.right());
                 } else if (join.right().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
                             join.left(),
-                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right()));
+                            topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.right(), true));
                 } else {
                     return null;
                 }
