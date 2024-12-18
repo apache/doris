@@ -208,7 +208,7 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
-    const ColumnMetaPB* get_column_meta(int32_t unique_id) const;
+    const VariantStatisticsPB* get_stats(int32_t unique_id) const;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -288,8 +288,7 @@ private:
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
     OlapReaderStatistics* _pk_index_load_stats = nullptr;
-    // unique_id -> idx in footer.columns()
-    std::unordered_map<int32_t, uint32_t> _column_id_to_footer_ordinal;
+    std::unordered_map<int32_t, VariantStatisticsPB> _variant_column_stats;
 };
 
 } // namespace segment_v2

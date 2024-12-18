@@ -68,22 +68,19 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                 std::static_pointer_cast<BetaRowset>(reader->rowset()), &segment_cache));
         for (const auto& segment : segment_cache.get_segments()) {
-            const auto* column_meta_pb = segment->get_column_meta(_tablet_column->unique_id());
-            if (!column_meta_pb) {
+            const VariantStatisticsPB* source_statistics =
+                    segment->get_stats(_tablet_column->unique_id());
+            if (!source_statistics) {
                 continue;
             }
-            if (!column_meta_pb->has_variant_statistics()) {
-                continue;
-            }
-            const VariantStatisticsPB& source_statistics = column_meta_pb->variant_statistics();
-            for (const auto& [path, size] : source_statistics.subcolumn_non_null_size()) {
+            for (const auto& [path, size] : source_statistics->subcolumn_non_null_size()) {
                 auto it = path_to_total_number_of_non_null_values.find(path);
                 if (it == path_to_total_number_of_non_null_values.end()) {
                     it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
                 }
                 it->second += size;
             }
-            for (const auto& [path, size] : source_statistics.sparse_column_non_null_size()) {
+            for (const auto& [path, size] : source_statistics->sparse_column_non_null_size()) {
                 auto it = path_to_total_number_of_non_null_values.find(path);
                 if (it == path_to_total_number_of_non_null_values.end()) {
                     it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
@@ -256,7 +253,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 }
 
 void VariantStatistics::to_pb(VariantStatisticsPB* stats) const {
-    for (const auto& [path, value] : _sparse_column_non_null_size) {
+    for (const auto& [path, value] : _subcolumns_non_null_size) {
         stats->mutable_subcolumn_non_null_size()->emplace(path.to_string(), value);
     }
     for (const auto& [path, value] : _sparse_column_non_null_size) {

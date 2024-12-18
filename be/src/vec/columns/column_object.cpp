@@ -2231,12 +2231,6 @@ void ColumnObject::clear() {
     _prev_positions.clear();
 }
 
-void ColumnObject::create_root() {
-    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
-                            : std::make_shared<MostCommonType>();
-    add_sub_column({}, type->create_column(), type);
-}
-
 void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& column) {
     if (num_rows == 0) {
         num_rows = column->size();
@@ -2244,9 +2238,8 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     add_sub_column({}, std::move(column), type);
 }
 
-DataTypePtr ColumnObject::get_most_common_type() const {
-    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
-                            : std::make_shared<MostCommonType>();
+const DataTypePtr& ColumnObject::get_most_common_type() {
+    static auto type = make_nullable(std::make_shared<MostCommonType>());
     return type;
 }
 

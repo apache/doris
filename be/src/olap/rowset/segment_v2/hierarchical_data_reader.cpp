@@ -239,15 +239,17 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
 
     // add root first
     if (_path.get_parts().empty() && _root_reader) {
-        auto& root_var =
-                _root_reader->column->is_nullable()
-                        ? assert_cast<vectorized::ColumnObject&>(
-                                  assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
-                                          .get_nested_column())
-                        : assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
-        auto column = root_var.get_root();
-        auto type = root_var.get_root_type();
-        container_variant.add_sub_column({}, std::move(column), type);
+        // auto& root_var =
+        //         _root_reader->column->is_nullable()
+        //                 ? assert_cast<vectorized::ColumnObject&>(
+        //                           assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
+        //                                   .get_nested_column())
+        //                 : assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
+        // auto column = root_var.get_root();
+        // auto type = root_var.get_root_type();
+        MutableColumnPtr column = _root_reader->column->get_ptr();
+        container_variant.add_sub_column({}, std::move(column),
+                                         ColumnObject::get_most_common_type());
     }
     // parent path -> subcolumns
     std::map<PathInData, PathsWithColumnAndType> nested_subcolumns;
@@ -361,7 +363,9 @@ Status HierarchicalDataReader::_init_null_map_and_clear_columns(
         return Status::OK();
     }));
     container->clear();
-    _sparse_column_reader->column->clear();
+    if (_sparse_column_reader) {
+        _sparse_column_reader->column->clear();
+    }
     if (_root_reader) {
         if (_root_reader->column->is_nullable()) {
             // fill nullmap
@@ -372,13 +376,8 @@ Status HierarchicalDataReader::_init_null_map_and_clear_columns(
             dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
             // clear nullmap and inner data
             src_null_map.clear();
-            assert_cast<ColumnObject&>(
-                    assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
-                    .clear_column_data();
-        } else {
-            auto& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
-            root_column.clear_column_data();
         }
+        _root_reader->column->clear();
     } else {
         if (dst->is_nullable()) {
             // No nullable info exist in hirearchical data, fill nullmap with all none null

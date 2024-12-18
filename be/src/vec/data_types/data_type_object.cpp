@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -84,6 +85,11 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
         size += sizeof(uint32_t);
     }
 
+    // sparse column
+    // TODO make compability with sparse column
+    size += ColumnObject::get_sparse_column_type()->get_uncompressed_serialized_bytes(
+            *column_object.get_sparse_column(), be_exec_version);
+
     return size;
 }
 
@@ -134,6 +140,11 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
         buf += sizeof(uint32_t);
     }
 
+    // serialize sparse column
+    // TODO make compability with sparse column
+    buf = ColumnObject::get_sparse_column_type()->serialize(*column_object.get_sparse_column(), buf,
+                                                            be_exec_version);
+
     return buf;
 }
 
@@ -174,6 +185,12 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
         column_object->set_num_rows(num_rows);
         buf += sizeof(uint32_t);
     }
+
+    // deserialize sparse column
+    // TODO make compability with sparse column
+    MutableColumnPtr sparse_column = ColumnObject::get_sparse_column_type()->create_column();
+    buf = ColumnObject::get_sparse_column_type()->deserialize(buf, &sparse_column, be_exec_version);
+    column_object->set_sparse_column(std::move(sparse_column));
 
     column_object->finalize();
 #ifndef NDEBUG

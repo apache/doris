@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/field.h"

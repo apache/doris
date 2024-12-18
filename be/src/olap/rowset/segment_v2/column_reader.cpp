@@ -282,18 +282,6 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
                                  io::FileReaderSPtr file_reader) {
     // init sub columns
     _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
-    std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
-            column_path_to_footer_ordinal;
-    for (uint32_t ordinal = 0; ordinal < footer.columns().size(); ++ordinal) {
-        const auto& column_pb = footer.columns(ordinal);
-        // column path for accessing subcolumns of variant
-        if (column_pb.has_column_path_info()) {
-            vectorized::PathInData path;
-            path.from_protobuf(column_pb.column_path_info());
-            column_path_to_footer_ordinal.emplace(path, ordinal);
-        }
-    }
-
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
     for (const ColumnMetaPB& column_pb : footer.columns()) {
         if (column_pb.unique_id() != self_column_pb.unique_id()) {
@@ -311,23 +299,25 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
                                                  &_sparse_column_reader));
             continue;
         }
-        // init subcolumns
         auto relative_path = path.copy_pop_front();
+        auto get_data_type_fn = [&]() {
+            if (relative_path.empty()) {
+                return make_nullable(std::make_unique<vectorized::ColumnObject::MostCommonType>());
+            }
+            return vectorized::DataTypeFactory::instance().create_data_type(column_pb);
+        };
+        // init subcolumns
         if (_subcolumn_readers->get_root() == nullptr) {
             _subcolumn_readers->create_root(SubcolumnReader {nullptr, nullptr});
         }
         if (relative_path.empty()) {
             // root column
-            _subcolumn_readers->get_mutable_root()->modify_to_scalar(SubcolumnReader {
-                    std::move(reader),
-                    vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+            _subcolumn_readers->get_mutable_root()->modify_to_scalar(
+                    SubcolumnReader {std::move(reader), get_data_type_fn()});
         } else {
             // check the root is already a leaf node
-            _subcolumn_readers->add(
-                    relative_path,
-                    SubcolumnReader {
-                            std::move(reader),
-                            vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+            _subcolumn_readers->add(relative_path,
+                                    SubcolumnReader {std::move(reader), get_data_type_fn()});
         }
     }
 
@@ -876,7 +866,9 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             return new_map_iterator(iterator);
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-            *iterator = new VariantRootColumnIterator(new FileColumnIterator(this));
+            // read from root data
+            // *iterator = new VariantRootColumnIterator(new FileColumnIterator(this));
+            *iterator = new FileColumnIterator(this);
             return Status::OK();
         }
         default:
@@ -1738,75 +1730,75 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     }
 }
 
-Status VariantRootColumnIterator::_process_root_column(
-        vectorized::MutableColumnPtr& dst, vectorized::MutableColumnPtr& root_column,
-        const vectorized::DataTypePtr& most_common_type) {
-    auto& obj =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnObject&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                    : assert_cast<vectorized::ColumnObject&>(*dst);
-
-    // fill nullmap
-    if (root_column->is_nullable() && dst->is_nullable()) {
-        vectorized::ColumnUInt8& dst_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-        vectorized::ColumnUInt8& src_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
-        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
-    }
-
-    // add root column to a tmp object column
-    auto tmp = vectorized::ColumnObject::create(true, false);
-    auto& tmp_obj = assert_cast<vectorized::ColumnObject&>(*tmp);
-    tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
-
-    // merge tmp object column to dst
-    obj.insert_range_from(*tmp, 0, tmp->size());
-
-    // finalize object if needed
-    if (!obj.is_finalized()) {
-        obj.finalize();
-    }
-
-#ifndef NDEBUG
-    obj.check_consistency();
-#endif
-
-    return Status::OK();
-}
-
-Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                             bool* has_null) {
-    // read root column
-    auto& obj =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnObject&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                    : assert_cast<vectorized::ColumnObject&>(*dst);
-
-    auto most_common_type = obj.get_most_common_type();
-    auto root_column = most_common_type->create_column();
-    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
-
-    return _process_root_column(dst, root_column, most_common_type);
-}
-
-Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                 vectorized::MutableColumnPtr& dst) {
-    // read root column
-    auto& obj =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnObject&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                    : assert_cast<vectorized::ColumnObject&>(*dst);
-
-    auto most_common_type = obj.get_most_common_type();
-    auto root_column = most_common_type->create_column();
-    RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
-
-    return _process_root_column(dst, root_column, most_common_type);
-}
+// Status VariantRootColumnIterator::_process_root_column(
+//         vectorized::MutableColumnPtr& dst, vectorized::MutableColumnPtr& root_column,
+//         const vectorized::DataTypePtr& most_common_type) {
+//     auto& obj =
+//             dst->is_nullable()
+//                     ? assert_cast<vectorized::ColumnObject&>(
+//                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+//                     : assert_cast<vectorized::ColumnObject&>(*dst);
+//
+//     // fill nullmap
+//     if (root_column->is_nullable() && dst->is_nullable()) {
+//         vectorized::ColumnUInt8& dst_null_map =
+//                 assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+//         vectorized::ColumnUInt8& src_null_map =
+//                 assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+//         dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+//     }
+//
+//     // add root column to a tmp object column
+//     auto tmp = vectorized::ColumnObject::create(true, false);
+//     auto& tmp_obj = assert_cast<vectorized::ColumnObject&>(*tmp);
+//     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+//
+//     // merge tmp object column to dst
+//     obj.insert_range_from(*tmp, 0, tmp_obj.rows());
+//
+//     // finalize object if needed
+//     if (!obj.is_finalized()) {
+//         obj.finalize();
+//     }
+//
+// #ifndef NDEBUG
+//     obj.check_consistency();
+// #endif
+//
+//     return Status::OK();
+// }
+//
+// Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+//                                              bool* has_null) {
+//     // read root column
+//     auto& obj =
+//             dst->is_nullable()
+//                     ? assert_cast<vectorized::ColumnObject&>(
+//                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+//                     : assert_cast<vectorized::ColumnObject&>(*dst);
+//
+//     auto most_common_type = obj.get_most_common_type();
+//     auto root_column = most_common_type->create_column();
+//     RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
+//
+//     return _process_root_column(dst, root_column, most_common_type);
+// }
+//
+// Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+//                                                  vectorized::MutableColumnPtr& dst) {
+//     // read root column
+//     auto& obj =
+//             dst->is_nullable()
+//                     ? assert_cast<vectorized::ColumnObject&>(
+//                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+//                     : assert_cast<vectorized::ColumnObject&>(*dst);
+//
+//     auto most_common_type = obj.get_most_common_type();
+//     auto root_column = most_common_type->create_column();
+//     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
+//
+//     return _process_root_column(dst, root_column, most_common_type);
+// }
 
 Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     bool has_null = false;
