@@ -563,7 +563,7 @@ public class SystemInfoService {
         StringBuilder sb = new StringBuilder(" Backends details: ");
         for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
             sb.append("backends with tag ").append(tag).append(" is ");
-            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag() == tag)
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag().equals(tag))
                     .map(Backend::getDetailsForCreateReplica)
                     .collect(Collectors.toList()));
             sb.append(", ");
