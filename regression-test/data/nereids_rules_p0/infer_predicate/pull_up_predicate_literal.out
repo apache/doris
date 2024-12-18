@@ -1616,7 +1616,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_date as DATETIMEV2(0)) = '2024-08-02 10:10:00'))
+--------filter((t2.d_date = '2024-08-02'))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type170 --
