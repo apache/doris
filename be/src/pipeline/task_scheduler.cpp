@@ -51,33 +51,37 @@ TaskScheduler::~TaskScheduler() {
 }
 
 Status TaskScheduler::start() {
-    int cores = _task_queue.cores();
+    int num_queues = _task_queue.num_queues();
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
-                            .set_min_threads(cores)
-                            .set_max_threads(cores)
+                            .set_min_threads(num_queues)
+                            .set_max_threads(num_queues)
                             .set_max_queue_size(0)
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
-    LOG_INFO("TaskScheduler set cores").tag("size", cores);
-    _markers.resize(cores, true);
-    for (int i = 0; i < cores; ++i) {
+    LOG_INFO("TaskScheduler set cores").tag("size", num_queues);
+    _markers.resize(num_queues, true);
+    for (int i = 0; i < num_queues; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
 }
 
-Status TaskScheduler::schedule_task(PipelineTask* task) {
+Status TaskScheduler::schedule_task(TaskHolderSPtr task) {
     return _task_queue.push_back(task);
 }
 
 // after _close_task, task maybe destructed.
-void _close_task(PipelineTask* task, Status exec_status) {
+void _close_task(TaskHolderSPtr holder, Status exec_status) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
+    auto* task = holder->task;
     SCOPED_ATTACH_TASK(task->runtime_state());
     if (task->is_finalized()) {
-        task->set_running(false);
+        {
+            auto expected = TaskState::RUNNING;
+            CHECK(holder->state.compare_exchange_strong(expected, TaskState::VALID));
+        }
         return;
     }
     // close_a_pipeline may delete fragment context and will core in some defer
@@ -94,21 +98,32 @@ void _close_task(PipelineTask* task, Status exec_status) {
     }
     task->finalize();
     task->set_running(false);
+    {
+        auto expected = TaskState::RUNNING;
+        CHECK(holder->state.compare_exchange_strong(expected, TaskState::VALID));
+    }
     task->fragment_context()->close_a_pipeline(task->pipeline_id());
 }
 
 void TaskScheduler::_do_work(int index) {
     while (_markers[index]) {
-        auto* task = _task_queue.take(index);
-        if (!task) {
+        auto holder = _task_queue.take(index);
+        if (!holder) {
             continue;
         }
-        if (task->is_running()) {
-            static_cast<void>(_task_queue.push_back(task, index));
-            continue;
+        {
+            auto expected = TaskState::VALID;
+            if (!holder->state.compare_exchange_strong(expected, TaskState::RUNNING)) {
+                if (expected == TaskState::RUNNING) {
+                    static_cast<void>(_task_queue.push_back(holder, index));
+                } else {
+                    DCHECK(expected == TaskState::INVALID);
+                }
+                continue;
+            }
         }
+        auto* task = holder->task;
         task->log_detail_if_need();
-        task->set_running(true);
         task->set_task_queue(&_task_queue);
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
@@ -122,7 +137,7 @@ void TaskScheduler::_do_work(int index) {
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            _close_task(task, fragment_ctx->get_query_ctx()->exec_status());
+            _close_task(holder, fragment_ctx->get_query_ctx()->exec_status());
             continue;
         }
 
@@ -165,7 +180,7 @@ void TaskScheduler::_do_work(int index) {
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                         print_id(task->query_context()->query_id()),
                                         status.to_string());
-            _close_task(task, status);
+            _close_task(holder, status);
             continue;
         }
         fragment_ctx->trigger_report_if_necessary();
@@ -175,15 +190,21 @@ void TaskScheduler::_do_work(int index) {
             // added to running queue when dependency is ready.
             if (task->is_pending_finish()) {
                 // Only meet eos, should set task to PENDING_FINISH state
-                task->set_running(false);
+                {
+                    auto expected = TaskState::RUNNING;
+                    CHECK(holder->state.compare_exchange_strong(expected, TaskState::VALID));
+                }
             } else {
                 Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-                _close_task(task, exec_status);
+                _close_task(holder, exec_status);
             }
             continue;
         }
 
-        task->set_running(false);
+        {
+            auto expected = TaskState::RUNNING;
+            CHECK(holder->state.compare_exchange_strong(expected, TaskState::VALID));
+        }
     }
 }
 

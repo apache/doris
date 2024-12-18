@@ -227,6 +227,7 @@ private:
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
+    std::vector<TaskHolderSPtr> _task_holders;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context

@@ -27,6 +27,7 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline.h"
+#include "pipeline/task_queue.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -41,8 +42,6 @@ class PipelineFragmentContext;
 
 namespace doris::pipeline {
 
-class MultiCoreTaskQueue;
-class PriorityTaskQueue;
 class Dependency;
 
 class PipelineTask {
@@ -137,28 +136,7 @@ public:
 
     void set_wake_up_early() { _wake_up_early = true; }
 
-    void clear_blocking_state() {
-        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
-        // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!_finalized) {
-            _execution_dep->set_always_ready();
-            for (auto* dep : _filter_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto& deps : _read_dependencies) {
-                for (auto* dep : deps) {
-                    dep->set_always_ready();
-                }
-            }
-            for (auto* dep : _write_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto* dep : _finish_dependencies) {
-                dep->set_always_ready();
-            }
-        }
-    }
+    void clear_blocking_state();
 
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
@@ -238,6 +216,8 @@ public:
     PipelineId pipeline_id() const { return _pipeline->id(); }
 
     bool wake_up_early() const { return _wake_up_early; }
+
+    void set_holder(std::shared_ptr<TaskHolder> holder) { _holder = holder; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -320,6 +300,7 @@ private:
     std::atomic<bool> _running = false;
     std::atomic<bool> _eos = false;
     std::atomic<bool> _wake_up_early = false;
+    std::shared_ptr<TaskHolder> _holder;
 };
 
 } // namespace doris::pipeline

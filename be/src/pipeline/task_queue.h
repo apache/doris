@@ -28,19 +28,35 @@
 #include <queue>
 #include <set>
 
+#include "common/cast_set.h"
 #include "common/status.h"
-#include "pipeline_task.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
+class PipelineTask;
+
+enum class TaskState {
+    VALID = 0,   // Valid task which is not running
+    RUNNING = 1, // Valid task which is executed by a thread
+    INVALID = 2, // Invalid task which already de-constructed.
+};
+
+struct TaskHolder : public std::enable_shared_from_this<TaskHolder> {
+    PipelineTask* task;
+    std::atomic<TaskState> state;
+    TaskHolder(PipelineTask* task_);
+};
+
+using TaskHolderSPtr = std::shared_ptr<TaskHolder>;
 
 class SubTaskQueue {
     friend class PriorityTaskQueue;
 
 public:
-    void push_back(PipelineTask* task) { _queue.emplace(task); }
+    void push_back(TaskHolderSPtr task) { _queue.emplace(task); }
 
-    PipelineTask* try_take(bool is_steal);
+    TaskHolderSPtr try_take(bool is_steal);
 
     void set_level_factor(double level_factor) { _level_factor = level_factor; }
 
@@ -58,7 +74,7 @@ public:
     bool empty() { return _queue.empty(); }
 
 private:
-    std::queue<PipelineTask*> _queue;
+    std::queue<TaskHolderSPtr> _queue;
     // depends on LEVEL_QUEUE_TIME_FACTOR
     double _level_factor = 1;
 
@@ -72,18 +88,18 @@ public:
 
     void close();
 
-    PipelineTask* try_take(bool is_steal);
+    TaskHolderSPtr try_take(bool is_steal);
 
-    PipelineTask* take(uint32_t timeout_ms = 0);
+    TaskHolderSPtr take(uint32_t timeout_ms = 0);
 
-    Status push(PipelineTask* task);
+    Status push(TaskHolderSPtr task);
 
     void inc_sub_queue_runtime(int level, uint64_t runtime) {
         _sub_queues[level].inc_runtime(runtime);
     }
 
 private:
-    PipelineTask* _try_take_unprotected(bool is_steal);
+    TaskHolderSPtr _try_take_unprotected(bool is_steal);
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 2;
     static constexpr size_t SUB_QUEUE_LEVEL = 6;
     SubTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
@@ -112,25 +128,26 @@ public:
     void close();
 
     // Get the task by core id.
-    PipelineTask* take(int core_id);
+    TaskHolderSPtr take(int core_id);
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
-    Status push_back(PipelineTask* task);
+    Status push_back(TaskHolderSPtr task);
 
-    Status push_back(PipelineTask* task, int core_id);
+    Status push_back(TaskHolderSPtr, int core_id);
 
     void update_statistics(PipelineTask* task, int64_t time_spent);
 
-    int cores() const { return _core_size; }
+    int num_queues() const { return cast_set<int>(_prio_task_queues.size()); }
 
 private:
-    PipelineTask* _steal_take(int core_id);
+    TaskHolderSPtr _steal_take(int core_id);
 
     std::vector<PriorityTaskQueue> _prio_task_queues;
     std::atomic<uint32_t> _next_core = 0;
     std::atomic<bool> _closed;
 
-    int _core_size;
+    const int _core_size;
+    const int _urgent_queue_idx;
     static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 #include "common/compile_check_end.h"

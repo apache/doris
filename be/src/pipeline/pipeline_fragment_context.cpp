@@ -140,6 +140,11 @@ PipelineFragmentContext::~PipelineFragmentContext() {
         }
     }
     _tasks.clear();
+    for (auto& holder : _task_holders) {
+        auto expected = TaskState::VALID;
+        CHECK(holder->state.compare_exchange_strong(expected, TaskState::INVALID));
+    }
+    _task_holders.clear();
     for (auto& runtime_states : _task_runtime_states) {
         for (auto& runtime_state : runtime_states) {
             runtime_state.reset();
@@ -453,6 +458,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
+                _task_holders.emplace_back(
+                        std::shared_ptr<TaskHolder>(new TaskHolder(_tasks[i].back().get())));
             }
         }
 
@@ -1677,17 +1684,15 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
-    for (auto& task : _tasks) {
-        for (auto& t : task) {
-            st = scheduler->schedule_task(t.get());
-            if (!st) {
-                cancel(Status::InternalError("submit context to executor fail"));
-                std::lock_guard<std::mutex> l(_task_mutex);
-                _total_tasks = submit_tasks;
-                break;
-            }
-            submit_tasks++;
+    for (auto& holder : _task_holders) {
+        st = scheduler->schedule_task(holder);
+        if (!st) {
+            cancel(Status::InternalError("submit context to executor fail"));
+            std::lock_guard<std::mutex> l(_task_mutex);
+            _total_tasks = submit_tasks;
+            break;
         }
+        submit_tasks++;
     }
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
