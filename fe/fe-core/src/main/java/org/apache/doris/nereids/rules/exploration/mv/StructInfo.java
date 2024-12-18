@@ -655,9 +655,10 @@ public class StructInfo {
     }
 
     /**
-     * Limit, topN or partitionTopN which is pushed down are valid
-     * */
-    public static boolean isValidLimit(Plan plan) {
+     * Limit, topN or partitionTopN which is pushed down doesn't participation in query rewritten by mv
+     * should be valid
+     */
+    public static boolean isValidPushedNode(Plan plan) {
         return plan instanceof CouldPushed && ((CouldPushed) plan).needRemain() == true
                 && ((CouldPushed) plan).isPushed();
     }
@@ -701,7 +702,7 @@ public class StructInfo {
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
                     || plan instanceof GroupPlan
-                    || plan instanceof LogicalRepeat || isValidLimit(plan)) {
+                    || plan instanceof LogicalRepeat || isValidPushedNode(plan)) {
                 return doVisit(plan, checkContext);
             }
             return false;
