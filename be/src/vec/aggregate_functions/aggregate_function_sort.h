@@ -133,8 +133,8 @@ public:
               _arguments(arguments),
               _sort_desc(sort_desc),
               _state(state) {
-        if (auto f = _nested_func->transmit_to_stable(); f) {
-            _nested_func = f;
+        if (auto* f = _nested_func->transmit_to_stable(); f) {
+            _nested_func = AggregateFunctionPtr(f);
         }
         for (const auto& type : _arguments) {
             _block.insert({type, ""});
