@@ -4768,151 +4768,149 @@ TEST(BlockTest, SameBitOperations) {
 
 TEST(BlockTest, CreateSameStructBlock) {
     // Test with empty block
-    {
-        // Test case 1: with default values (is_reserve = false)
-        {
-            vectorized::Block original_block;
-            auto new_block = original_block.create_same_struct_block(5, false);
-            EXPECT_EQ(0, new_block->columns());
-            EXPECT_EQ(0, new_block->rows());
-        }
+    {// Test case 1: with default values (is_reserve = false)
+     {vectorized::Block original_block;
+    auto new_block = original_block.create_same_struct_block(5, false);
+    EXPECT_EQ(0, new_block->columns());
+    EXPECT_EQ(0, new_block->rows());
+}
 
-        // Test case 2: with reserved space (is_reserve = true)
-        {
-            vectorized::Block original_block;
-            auto new_block = original_block.create_same_struct_block(5, true);
-            EXPECT_EQ(0, new_block->columns());
-            EXPECT_EQ(0, new_block->rows());
+// Test case 2: with reserved space (is_reserve = true)
+{
+    vectorized::Block original_block;
+    auto new_block = original_block.create_same_struct_block(5, true);
+    EXPECT_EQ(0, new_block->columns());
+    EXPECT_EQ(0, new_block->rows());
+}
+}
+
+// Test with regular columns
+{
+    vectorized::Block original_block;
+    auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+    // Create original block with data
+    {
+        auto col = vectorized::ColumnVector<Int32>::create();
+        col->insert_value(1);
+        original_block.insert({std::move(col), type, "col1"});
+    }
+
+    // Test case 1: with default values (is_reserve = false)
+    {
+        auto new_block = original_block.create_same_struct_block(5, false);
+        EXPECT_EQ(original_block.columns(), new_block->columns());
+        EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
+        EXPECT_EQ("col1", new_block->get_by_position(0).name);
+        EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+
+        // Verify default values are inserted
+        const auto* col = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                new_block->get_by_position(0).column.get());
+        for (size_t i = 0; i < 5; ++i) {
+            EXPECT_EQ(0, col->get_data()[i]); // Default value for Int32 is 0
         }
     }
 
-    // Test with regular columns
+    // Test case 2: with reserved space (is_reserve = true)
     {
-        vectorized::Block original_block;
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
+        auto new_block = original_block.create_same_struct_block(5, true);
+        EXPECT_EQ(original_block.columns(), new_block->columns());
+        EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
+        EXPECT_EQ("col1", new_block->get_by_position(0).name);
+        EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+    }
+}
 
-        // Create original block with data
-        {
-            auto col = vectorized::ColumnVector<Int32>::create();
-            col->insert_value(1);
-            original_block.insert({std::move(col), type, "col1"});
-        }
+// Test with const columns
+{
+    vectorized::Block original_block;
+    auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-        // Test case 1: with default values (is_reserve = false)
-        {
-            auto new_block = original_block.create_same_struct_block(5, false);
-            EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
-            EXPECT_EQ("col1", new_block->get_by_position(0).name);
-            EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+    // Create original block with data
+    {
+        auto base_col = vectorized::ColumnVector<Int32>::create();
+        base_col->insert_value(42);
+        auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 1);
+        original_block.insert({const_col->get_ptr(), type, "const_col"});
+    }
 
-            // Verify default values are inserted
-            const auto* col = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    new_block->get_by_position(0).column.get());
-            for (size_t i = 0; i < 5; ++i) {
-                EXPECT_EQ(0, col->get_data()[i]); // Default value for Int32 is 0
-            }
-        }
+    // Test case 1: with default values (is_reserve = false)
+    {
+        auto new_block = original_block.create_same_struct_block(5, false);
+        EXPECT_EQ(original_block.columns(), new_block->columns());
+        EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
+        EXPECT_EQ("const_col", new_block->get_by_position(0).name);
+        EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
 
-        // Test case 2: with reserved space (is_reserve = true)
-        {
-            auto new_block = original_block.create_same_struct_block(5, true);
-            EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
-            EXPECT_EQ("col1", new_block->get_by_position(0).name);
-            EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+        // Verify default values are inserted
+        const auto* col = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                new_block->get_by_position(0).column.get());
+        for (size_t i = 0; i < 5; ++i) {
+            EXPECT_EQ(0, col->get_data()[i]); // Default value for Int32 is 0
         }
     }
 
-    // Test with const columns
+    // Test case 2: with reserved space (is_reserve = true)
     {
-        vectorized::Block original_block;
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
+        auto new_block = original_block.create_same_struct_block(5, true);
+        EXPECT_EQ(original_block.columns(), new_block->columns());
+        EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
+        EXPECT_EQ("const_col", new_block->get_by_position(0).name);
+        EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+    }
+}
 
-        // Create original block with data
-        {
-            auto base_col = vectorized::ColumnVector<Int32>::create();
-            base_col->insert_value(42);
-            auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 1);
-            original_block.insert({const_col->get_ptr(), type, "const_col"});
-        }
+// Test with nullable columns
+{
+    vectorized::Block original_block;
+    auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+    auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
 
-        // Test case 1: with default values (is_reserve = false)
-        {
-            auto new_block = original_block.create_same_struct_block(5, false);
-            EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
-            EXPECT_EQ("const_col", new_block->get_by_position(0).name);
-            EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+    // Create original block with data
+    {
+        auto col = vectorized::ColumnNullable::create(
+                vectorized::ColumnVector<Int32>::create(),
+                vectorized::ColumnVector<vectorized::UInt8>::create());
+        auto* nested =
+                assert_cast<vectorized::ColumnVector<Int32>*>(col->get_nested_column_ptr().get());
+        auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                col->get_null_map_column_ptr().get());
+        nested->insert_value(1);
+        null_map->insert_value(0);
+        original_block.insert({col->get_ptr(), nullable_type, "nullable_col"});
+    }
 
-            // Verify default values are inserted
-            const auto* col = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    new_block->get_by_position(0).column.get());
-            for (size_t i = 0; i < 5; ++i) {
-                EXPECT_EQ(0, col->get_data()[i]); // Default value for Int32 is 0
-            }
-        }
+    // Test case 1: with default values (is_reserve = false)
+    {
+        auto new_block = original_block.create_same_struct_block(5, false);
+        EXPECT_EQ(original_block.columns(), new_block->columns());
+        EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
+        EXPECT_EQ("nullable_col", new_block->get_by_position(0).name);
+        EXPECT_TRUE(new_block->get_by_position(0).type->equals(*nullable_type));
 
-        // Test case 2: with reserved space (is_reserve = true)
-        {
-            auto new_block = original_block.create_same_struct_block(5, true);
-            EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
-            EXPECT_EQ("const_col", new_block->get_by_position(0).name);
-            EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
+        // Verify default values are inserted
+        const auto* col = assert_cast<const vectorized::ColumnNullable*>(
+                new_block->get_by_position(0).column.get());
+        const auto* nested = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                col->get_nested_column_ptr().get());
+        const auto* null_map = assert_cast<const vectorized::ColumnVector<vectorized::UInt8>*>(
+                col->get_null_map_column_ptr().get());
+        for (size_t i = 0; i < 5; ++i) {
+            EXPECT_EQ(0, nested->get_data()[i]);   // Default value for Int32 is 0
+            EXPECT_EQ(1, null_map->get_data()[i]); // Default is null
         }
     }
 
-    // Test with nullable columns
+    // Test case 2: with reserved space (is_reserve = true)
     {
-        vectorized::Block original_block;
-        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
-        auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
-
-        // Create original block with data
-        {
-            auto col = vectorized::ColumnNullable::create(
-                    vectorized::ColumnVector<Int32>::create(),
-                    vectorized::ColumnVector<vectorized::UInt8>::create());
-            auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
-                    col->get_nested_column_ptr().get());
-            auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
-                    col->get_null_map_column_ptr().get());
-            nested->insert_value(1);
-            null_map->insert_value(0);
-            original_block.insert({col->get_ptr(), nullable_type, "nullable_col"});
-        }
-
-        // Test case 1: with default values (is_reserve = false)
-        {
-            auto new_block = original_block.create_same_struct_block(5, false);
-            EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
-            EXPECT_EQ("nullable_col", new_block->get_by_position(0).name);
-            EXPECT_TRUE(new_block->get_by_position(0).type->equals(*nullable_type));
-
-            // Verify default values are inserted
-            const auto* col = assert_cast<const vectorized::ColumnNullable*>(
-                    new_block->get_by_position(0).column.get());
-            const auto* nested = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    col->get_nested_column_ptr().get());
-            const auto* null_map = assert_cast<const vectorized::ColumnVector<vectorized::UInt8>*>(
-                    col->get_null_map_column_ptr().get());
-            for (size_t i = 0; i < 5; ++i) {
-                EXPECT_EQ(0, nested->get_data()[i]);   // Default value for Int32 is 0
-                EXPECT_EQ(1, null_map->get_data()[i]); // Default is null
-            }
-        }
-
-        // Test case 2: with reserved space (is_reserve = true)
-        {
-            auto new_block = original_block.create_same_struct_block(5, true);
-            EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
-            EXPECT_EQ("nullable_col", new_block->get_by_position(0).name);
-            EXPECT_TRUE(new_block->get_by_position(0).type->equals(*nullable_type));
-        }
+        auto new_block = original_block.create_same_struct_block(5, true);
+        EXPECT_EQ(original_block.columns(), new_block->columns());
+        EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
+        EXPECT_EQ("nullable_col", new_block->get_by_position(0).name);
+        EXPECT_TRUE(new_block->get_by_position(0).type->equals(*nullable_type));
     }
+}
 }
 
 TEST(BlockTest, EraseTmpColumns) {
