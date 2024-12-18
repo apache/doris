@@ -237,7 +237,8 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s | resource_downgrade=%s | medium=%s",
+        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s |"
+                + "resource_downgrade=%s | medium=%s",
                 preferComputeNode, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
                 resourceTags.stream().map(tag -> tag.toString()).collect(Collectors.joining(",")),
                 this.allowResourceTagDowngrade, storageMedium);
