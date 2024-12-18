@@ -453,6 +453,7 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::DOUBLE, orc::PredicateDataType::FLOAT},
         {orc::TypeKind::STRING, orc::PredicateDataType::STRING},
         {orc::TypeKind::BINARY, orc::PredicateDataType::STRING},
+        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
         // {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::VARCHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::DATE, orc::PredicateDataType::DATE},
@@ -483,6 +484,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
             [[fallthrough]];
         case orc::TypeKind::BINARY:
             [[fallthrough]];
+        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
         // case orc::TypeKind::CHAR:
         //     [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
