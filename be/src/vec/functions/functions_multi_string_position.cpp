@@ -55,6 +55,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -106,10 +107,11 @@ public:
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
-        if (!col_needles_const && !col_needles_vector)
+        if (!col_needles_const && !col_needles_vector) {
             return Status::InvalidArgument(
                     "function '{}' encountered unsupported needles column, found {}", name,
                     needles_column->get_name());
+        }
 
         if (col_haystack_const && col_needles_vector) {
             return Status::InvalidArgument(
@@ -219,9 +221,9 @@ public:
                 const auto* haystack_end =
                         haystack - prev_haystack_offset + haystack_offsets[haystack_index];
 
-                auto ans_now = searcher.search(haystack, haystack_end);
+                const auto* ans_now = searcher.search(haystack, haystack_end);
                 vec_res[res_index] =
-                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
+                        ans_now >= haystack_end ? 0 : (Int32)std::distance(haystack, ans_now) + 1;
                 prev_haystack_offset = haystack_offsets[haystack_index];
             }
         }
@@ -296,7 +298,7 @@ public:
 
                 auto ans_now = searcher.search(haystack, haystack_end);
                 vec_res[ans_row_begin + ans_slot_in_row] =
-                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
+                        ans_now >= haystack_end ? 0 : (Int32)std::distance(haystack, ans_now) + 1;
             }
 
             prev_haystack_offset = haystack_offsets[haystack_index];
@@ -315,4 +317,5 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiSearchAllPositions>();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

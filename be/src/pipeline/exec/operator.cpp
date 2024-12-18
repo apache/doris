@@ -83,6 +83,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 } // namespace doris
@@ -780,4 +781,5 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSink
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

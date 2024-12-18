@@ -192,12 +192,7 @@ public:
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
                            const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
-                           const int producer_size);
-
-    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
-                           const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParamsV2>* target_info,
+                           const std::vector<doris::TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
 
     UniqueId _query_id;

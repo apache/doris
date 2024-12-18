@@ -29,6 +29,7 @@
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -228,7 +229,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key_helper(vectorized::Blo
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -270,7 +271,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key_helper(vectorized::Blo
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             if (_aggregate_evaluators[i]->is_merge() || for_spill) {
-                int col_id = 0;
+                size_t col_id = 0;
                 if constexpr (for_spill) {
                     col_id = _probe_expr_ctxs.size() + i;
                 } else {
@@ -403,7 +404,7 @@ Status StreamingAggLocalState::_execute_with_serialized_key_helper(vectorized::B
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -542,8 +543,8 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
                         // TODO chenhao
                         //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                        double current_reduction =
-                                static_cast<double>(aggregated_input_rows) / ht_rows;
+                        double current_reduction = static_cast<double>(aggregated_input_rows) /
+                                                   static_cast<double>(ht_rows);
 
                         // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
                         // inaccurate, which could lead to a divide by zero below.
@@ -615,7 +616,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
         }
     }
 
-    int rows = in_block->rows();
+    size_t rows = in_block->rows();
     _places.resize(rows);
 
     // Stop expanding hash tables if we're not reducing the input sufficiently. As our
@@ -739,7 +740,7 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
 
     auto columns_with_schema =
             vectorized::VectorizedUtils::create_columns_with_type_and_name(p._row_descriptor);
-    int key_size = _probe_expr_ctxs.size();
+    size_t key_size = _probe_expr_ctxs.size();
 
     vectorized::MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -750,7 +751,7 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
         }
     }
     vectorized::MutableColumns value_columns;
-    for (int i = key_size; i < columns_with_schema.size(); ++i) {
+    for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
         if (!mem_reuse) {
             value_columns.emplace_back(columns_with_schema[i].type->create_column());
         } else {
@@ -852,7 +853,7 @@ Status StreamingAggLocalState::_get_results_without_key(RuntimeState* state,
     block->clear();
 
     DCHECK(_agg_data->without_key != nullptr);
-    int agg_size = _aggregate_evaluators.size();
+    const auto agg_size = _aggregate_evaluators.size();
 
     vectorized::MutableColumns value_columns(agg_size);
     std::vector<vectorized::DataTypePtr> data_types(agg_size);
@@ -888,8 +889,8 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                                                 bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     auto& p = _parent->cast<StreamingAggOperatorX>();
-    int key_size = _probe_expr_ctxs.size();
-    int agg_size = _aggregate_evaluators.size();
+    const auto key_size = _probe_expr_ctxs.size();
+    const auto agg_size = _aggregate_evaluators.size();
     vectorized::MutableColumns value_columns(agg_size);
     vectorized::DataTypes value_data_types(agg_size);
 
@@ -1013,7 +1014,7 @@ Status StreamingAggLocalState::_get_without_key_result(RuntimeState* state,
 
     auto& p = _parent->cast<StreamingAggOperatorX>();
     *block = vectorized::VectorizedUtils::create_empty_columnswithtypename(p._row_descriptor);
-    int agg_size = _aggregate_evaluators.size();
+    const auto agg_size = _aggregate_evaluators.size();
 
     vectorized::MutableColumns columns(agg_size);
     std::vector<vectorized::DataTypePtr> data_types(agg_size);
@@ -1170,8 +1171,8 @@ Status StreamingAggOperatorX::open(RuntimeState* state) {
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -1179,7 +1180,7 @@ Status StreamingAggOperatorX::open(RuntimeState* state) {
             _make_nullable_keys.emplace_back(i);
         }
     }
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
+    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
@@ -1290,4 +1291,5 @@ bool StreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     return local_state._pre_aggregated_block->empty() && !local_state._child_eos;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -92,6 +92,10 @@ PREPARE_TRY_AGAIN:
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             update_cumulative_point();
+            if (!config::enable_sleep_between_delete_cumu_compaction) {
+                st = Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                        "_last_delete_version.first not equal to -1");
+            }
         }
         return st;
     }

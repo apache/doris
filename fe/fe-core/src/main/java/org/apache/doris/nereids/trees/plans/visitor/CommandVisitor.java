@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -84,6 +88,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
@@ -140,6 +145,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
@@ -305,6 +311,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showProcedureStatusCommand, context);
     }
 
+    default R visitCreateCatalogCommand(CreateCatalogCommand createCatalogCommand, C context) {
+        return visitCommand(createCatalogCommand, context);
+    }
+
     default R visitShowWarningErrorsCommand(ShowWarningErrorsCommand showWarningErrorsCommand, C context) {
         return visitCommand(showWarningErrorsCommand, context);
     }
@@ -327,6 +337,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropCatalogCommand(DropCatalogCommand dropCatalogCommand, C context) {
         return visitCommand(dropCatalogCommand, context);
+    }
+
+    default R visitAlterCatalogCommentCommand(AlterCatalogCommentCommand alterCatalogCommentCommand, C context) {
+        return visitCommand(alterCatalogCommentCommand, context);
     }
 
     default R visitDropCatalogRecycleBinCommand(DropCatalogRecycleBinCommand dropCatalogRecycleBinCommand, C context) {
@@ -496,6 +510,14 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showFrontendsCommand, context);
     }
 
+    default R visitAdminRebalanceDiskCommand(AdminRebalanceDiskCommand adminRebalanceDiskCommand, C context) {
+        return visitCommand(adminRebalanceDiskCommand, context);
+    }
+
+    default R visitAdminCancelRebalanceDiskCommand(AdminCancelRebalanceDiskCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
     default R visitShowDynamicPartitionCommand(ShowDynamicPartitionCommand showDynamicPartitionCommand, C context) {
         return visitCommand(showDynamicPartitionCommand, context);
     }
@@ -573,6 +595,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showReplicaDistributedCommand, context);
     }
 
+    default R visitShowCharsetCommand(ShowCharsetCommand showCharsetCommand, C context) {
+        return visitCommand(showCharsetCommand, context);
+    }
+
     default R visitDropWorkloadPolicyCommand(DropWorkloadPolicyCommand dropWorkloadPolicyCommand, C context) {
         return visitCommand(dropWorkloadPolicyCommand, context);
     }
@@ -641,5 +667,9 @@ public interface CommandVisitor<R, C> {
     default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
                                            C context) {
         return visitCommand(showQueryProfileCommand, context);
+    }
+
+    default R visitSwitchCommand(SwitchCommand switchCommand, C context) {
+        return visitCommand(switchCommand, context);
     }
 }
