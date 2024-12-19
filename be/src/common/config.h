@@ -1419,6 +1419,8 @@ DECLARE_mInt32(lz4_compression_block_size);
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
+DECLARE_mInt32(compaction_num_per_round);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

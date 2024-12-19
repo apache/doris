@@ -1348,6 +1348,8 @@ DEFINE_mInt32(lz4_compression_block_size, "262144");
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
+DEFINE_mInt32(compaction_num_per_round, "1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
