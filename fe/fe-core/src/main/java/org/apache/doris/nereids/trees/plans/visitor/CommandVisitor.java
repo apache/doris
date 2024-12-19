@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
@@ -519,6 +520,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCleanAllProfileCommand(CleanAllProfileCommand cleanAllProfileCommand, C context) {
         return visitCommand(cleanAllProfileCommand, context);
+    }
+
+    default R visitShowDataTypesCommand(ShowDataTypesCommand showDataTypesCommand, C context) {
+        return visitCommand(showDataTypesCommand, context);
     }
 
     default R visitShowFrontendsCommand(ShowFrontendsCommand showFrontendsCommand, C context) {
