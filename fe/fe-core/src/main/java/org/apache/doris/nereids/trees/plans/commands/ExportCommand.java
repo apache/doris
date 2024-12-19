@@ -139,6 +139,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
                     tblName.getDb() + ": " + tblName.getTbl());
         }
 
+        if (!Config.enable_outfile_to_local && path.startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
+            throw new AnalysisException("`enable_outfile_to_local` = false, exporting file to local fs is disabled.");
+        }
+
         // check phases
         checkAllParameters(ctx, tblName, fileProperties);
 
