@@ -27,7 +27,9 @@ import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -41,6 +43,7 @@ public class MetaServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
     private final Map<String, MetaServiceClient> serviceMap;
+    private Queue<Long> lastConnTimeMs = new LinkedList<>();
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
@@ -50,6 +53,9 @@ public class MetaServiceProxy {
 
     public MetaServiceProxy() {
         this.serviceMap = Maps.newConcurrentMap();
+        for (int i = 0; i < 3; ++i) {
+            lastConnTimeMs.add(0L);
+        }
     }
 
     private static class SingletonHolder {
@@ -75,6 +81,16 @@ public class MetaServiceProxy {
 
     public static MetaServiceProxy getInstance() {
         return MetaServiceProxy.SingletonHolder.get();
+    }
+
+    public boolean needReconn() {
+        lock.lock();
+        try {
+            long now = System.currentTimeMillis();
+            return (now - lastConnTimeMs.element() > Config.ms_rpc_reconn_interval_ms);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request)
@@ -138,6 +154,8 @@ public class MetaServiceProxy {
             if (service == null) {
                 service = new MetaServiceClient(address);
                 serviceMap.put(address, service);
+                lastConnTimeMs.add(System.currentTimeMillis());
+                lastConnTimeMs.remove();
             }
             return service;
         } finally {
@@ -158,16 +176,26 @@ public class MetaServiceProxy {
         public <Response> Response executeRequest(Function<MetaServiceClient, Response> function) throws RpcException {
             int tried = 0;
             while (tried++ < 3) {
+                MetaServiceClient client = null;
                 try {
-                    MetaServiceClient client = proxy.getProxy();
+                    client = proxy.getProxy();
                     return function.apply(client);
                 } catch (StatusRuntimeException sre) {
                     if (sre.getStatus().getCode() == Status.Code.UNAVAILABLE || tried == 3) {
+                        if (proxy.needReconn() && client != null) {
+                            client.shutdown(true);
+                        }
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (Exception e) {
+                    if (proxy.needReconn() && client != null) {
+                        client.shutdown(true);
+                    }
                     throw new RpcException("", e.getMessage(), e);
                 } catch (Throwable t) {
+                    if (proxy.needReconn() && client != null) {
+                        client.shutdown(true);
+                    }
                     throw new RpcException("", t.getMessage());
                 }
             }

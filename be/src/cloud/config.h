@@ -111,5 +111,9 @@ DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
 
+DECLARE_mInt32(delete_bitmap_rpc_retry_times);
+
+DECLARE_mInt64(ms_rpc_reconn_interval_ms);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
