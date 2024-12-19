@@ -104,6 +104,36 @@ check_prerequest() {
     fi
 }
 
+PROFILE_DIR=${CURDIR}/../profile
+QUERY_LIST=()
+fetch_queryid() {
+    if [[ "${FETCH_PROFILE}" != "ON" ]]; then
+        return 1
+    fi
+    local QueryName="$1"
+    if [[ -z "${QueryName}" ]]; then
+        echo "Usage: fetch_queryid <QueryName>"
+        return 1
+    fi
+    local query_id=$(curl -s -X GET -u "${USER}:${PASSWORD}"  http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/profile/lastqueryid)
+    QUERY_LIST+=("${QueryName}|${query_id}")
+}
+
+fetch_profile() {
+    if [[ "${FETCH_PROFILE}" != "ON" ]]; then
+        return 1
+    fi
+    echo 'Begin Fetch Query Profile'
+    sleep 1s
+    echo "Size of Query Profile : ${#QUERY_LIST[@]}"
+    for entry in "${QUERY_LIST[@]}"; do
+        IFS="|" read -r name queryid <<< "$entry"
+        local profile_name="${name}-${queryid}"
+        curl -s -X GET -u "${USER}:${PASSWORD}" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/profile/text?query_id=${queryid} >> "${PROFILE_DIR}/${profile_name}"
+    done
+    echo 'End Fetch Query Profile'
+}
+
 check_prerequest "mysql --version" "mysql"
 
 source "${CURDIR}/../conf/doris-cluster.conf"
@@ -114,6 +144,18 @@ echo "FE_QUERY_PORT: ${FE_QUERY_PORT:='9030'}"
 echo "USER: ${USER:='root'}"
 echo "DB: ${DB:='tpcds'}"
 echo "Time Unit: ms"
+
+if [[ "${FETCH_PROFILE}" == "ON" ]]; then
+    if [[ -d "${PROFILE_DIR}" ]]; then
+        echo "PROFILE_DIR exists. Clearing contents..."
+        rm -rf "${PROFILE_DIR:?}"/*
+    else
+        echo "PROFILE_DIR does not exist. Creating it..."
+        mkdir -p "${PROFILE_DIR}"
+    fi
+    echo "PROFILE_DIR is ready: ${PROFILE_DIR}"
+fi
+
 
 run_sql() {
     echo "$*"
@@ -152,6 +194,7 @@ for i in ${query_array[@]}; do
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
+    fetch_queryid "tpcds_q${i}_cold_profile"
 
     start=$(date +%s%3N)
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
@@ -162,6 +205,7 @@ for i in ${query_array[@]}; do
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
+    fetch_queryid "tpcds_q${i}_hot1_profile"
 
     start=$(date +%s%3N)
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
@@ -172,6 +216,7 @@ for i in ${query_array[@]}; do
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv
+    fetch_queryid "tpcds_q${i}_hot2_profile"
 
     cold_run_sum=$((cold_run_sum + cold))
     if [[ ${hot1} -lt ${hot2} ]]; then
@@ -188,3 +233,5 @@ done
 echo "Total cold run time: ${cold_run_sum} ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
+
+fetch_profile
