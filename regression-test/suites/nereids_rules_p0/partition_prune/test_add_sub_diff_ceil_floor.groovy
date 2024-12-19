@@ -303,7 +303,7 @@ suite("test_add_sub_diff_ceil_floor") {
             partition p3 values less than ("2019-01-01"),
             partition p4 values less than ("2020-01-01"),
             partition p5 values less than ("2021-01-01"),
-            partition p6 values less than MAX
+            partition p6 values less than MAXVALUE
     ) distributed by hash(a) properties("replication_num"="1");"""
     sql """INSERT INTO max_t SELECT number,
     date_add('2016-01-01 00:00:00', interval number month),
@@ -383,11 +383,25 @@ suite("test_add_sub_diff_ceil_floor") {
     ) distributed by hash(a) properties("replication_num"="1");"""
     sql """INSERT INTO unix_time_t values(1,'1979-01-01','1979-01-01','abc'),(1,'2012-01-01','2012-01-01','abc'),(1,'2020-01-01','2020-01-01','abc'),(1,'2045-01-01','2045-01-01','abc')"""
     sql "INSERT INTO unix_time_t  values(3,null,null,null);"
-    show create table unix_time_t
-    select unix_timestamp('2018-01-02')
     explain {
-        sql """explain select * from unix_time_t where unix_timestamp(dt) > 1514822400 """
+        sql """ select * from unix_time_t where unix_timestamp(dt) > 1514822400 """
         contains("partitions=2/4 (p3,p4)")
+    }
+    explain {
+        sql """select * from unix_time_t where unix_timestamp(dt) < 2147454847;"""
+        contains("partitions=4/4 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from unix_time_t where unix_timestamp(dt) = 2147454847"""
+        contains("partitions=2/4 (p3,p4)")
+    }
+    explain {
+        sql """select * from unix_time_t where unix_timestamp(dt) = 2147454847 and dt<'2038-01-01'"""
+        contains("partitions=1/4 (p3)")
+    }
+    explain {
+        sql """select * from unix_time_t where unix_timestamp(dt) <=0"""
+        contains("partitions=3/4 (p1,p3,p4)")
     }
 
 }
