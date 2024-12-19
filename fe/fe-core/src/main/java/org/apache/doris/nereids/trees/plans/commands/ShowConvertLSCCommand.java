@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnIdFlushDaemon;
 import org.apache.doris.catalog.ColumnIdFlushDaemon.FlushStatus;
@@ -40,7 +41,7 @@ import java.util.Map;
 /**
  * Represents the command for SHOW CONVERT LIGHT SCHEMA CHANGE PROCESS .
  */
-public class ShowConvertLSCCommand extends ShowCommand implements ForwardNoSync {
+public class ShowConvertLSCCommand extends ShowCommand {
 
     private static final int COLUMN_LENGTH = 30;
     private final String dbName;
@@ -107,5 +108,10 @@ public class ShowConvertLSCCommand extends ShowCommand implements ForwardNoSync 
             columnIdFlusher.readUnlock();
         }
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
