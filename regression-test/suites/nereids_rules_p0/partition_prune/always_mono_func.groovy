@@ -30,7 +30,6 @@ suite("always_mono_func") {
     cast(date_add('2022-01-01 00:00:00', interval number month) as date), cast(number as varchar(65533)) FROM numbers('number'='55');"""
     sql "INSERT INTO always_mono_func  values(3,null,null,null);"
 
-    // format 测试满足格式的裁剪，不满足不裁剪
     explain {
         sql """select * from always_mono_func where date_format(dt, "yyyyMMdd") <"20190101" """
         contains("partitions=3/5 (p1,p2,p3)")
@@ -112,19 +111,15 @@ suite("always_mono_func") {
     }
 
     explain {
-        sql """ select * from always_mono_func where last_day(dt) > "2019-01-01" """
-        contains("partitions=3/5 (p3,p4,p5)")
+        sql """select * from always_mono_func where date_format(dt, "yyyyddMM") <"20190101" """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
     }
 
     explain {
-        sql """ select * from always_mono_func where to_date(dt) > "2019-01-01" """
-        contains("partitions=2/5 (p4,p5)")
+        sql """select * from always_mono_func where date_format(dt, "%Y-%d-%m %T") <"2019-01-01" """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
     }
 
-    explain {
-        sql """ select * from always_mono_func where to_monday(dt) >= "2019-01-01" """
-        contains("partitions=2/5 (p4,p5)")
-    }
     // year
     explain {
         sql """ select * from always_mono_func where year(dt) >= 2019 """
@@ -151,6 +146,10 @@ suite("always_mono_func") {
         sql """select * from always_mono_func where to_monday(dt) >='2018-01-01' and to_monday(dt) <'2019-01-01' """
         contains("partitions=3/5 (p2,p3,p4)")
     }
+    explain {
+        sql """ select * from always_mono_func where to_monday(dt) >= "2019-01-01" """
+        contains("partitions=2/5 (p4,p5)")
+    }
     // to_date
     explain {
         sql """select * from always_mono_func where to_date(dt) <'2019-02-01' """
@@ -172,6 +171,10 @@ suite("always_mono_func") {
         sql """select * from always_mono_func where to_date(dt) >='2018-01-01' and to_date(dt) <'2019-01-01' """
         contains("partitions=2/5 (p2,p3)")
     }
+    explain {
+        sql """ select * from always_mono_func where to_date(dt) > "2019-01-01" """
+        contains("partitions=2/5 (p4,p5)")
+    }
     // last_day
     explain {
         sql """select * from always_mono_func where last_day(dt) <='2019-02-01' """
@@ -192,6 +195,10 @@ suite("always_mono_func") {
     explain {
         sql """select * from always_mono_func where last_day(dt) >='2018-01-01' and last_day(dt) <'2019-01-01' """
         contains("partitions=2/5 (p2,p3)")
+    }
+    explain {
+        sql """ select * from always_mono_func where last_day(dt) > "2019-01-01" """
+        contains("partitions=3/5 (p3,p4,p5)")
     }
 
     explain {
