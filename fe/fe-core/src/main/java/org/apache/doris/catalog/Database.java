@@ -416,7 +416,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                    if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                        Env.getCurrentEnv().getEditLog().logCreateMTMV(info);
+                    } else {
+                        Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                    }
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);

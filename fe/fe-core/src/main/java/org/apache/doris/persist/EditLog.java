@@ -1424,6 +1424,12 @@ public class EditLog {
         Env.getCurrentEnv().getBinlogManager().addCreateTableRecord(record);
     }
 
+    public void logCreateMTMV(CreateTableInfo info) {
+        long logId = logEdit(OperationType.OP_CREATE_MTMV_JOB, info);
+        CreateTableRecord record = new CreateTableRecord(logId, info);
+        Env.getCurrentEnv().getBinlogManager().addCreateMTMVRecord(record);
+    }
+
     public void logRefreshExternalTableSchema(RefreshExternalTableInfo info) {
         logEdit(OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA, info);
     }

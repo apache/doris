@@ -203,6 +203,18 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, createTableRecord);
     }
 
+    public void addCreateMTMVRecord(CreateTableRecord createTableRecord) {
+        long dbId = createTableRecord.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(createTableRecord.getTableId());
+        long commitSeq = createTableRecord.getCommitSeq();
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.CREATE_TABLE;
+        String data = createTableRecord.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, createTableRecord);
+    }
+
     public void addDropPartitionRecord(DropPartitionInfo dropPartitionInfo, long commitSeq) {
         long dbId = dropPartitionInfo.getDbId();
         List<Long> tableIds = Lists.newArrayList();
