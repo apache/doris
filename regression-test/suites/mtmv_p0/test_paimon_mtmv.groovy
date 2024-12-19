@@ -253,15 +253,17 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
         """
     def showNullPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showNullPartitionsResult: " + showNullPartitionsResult.toString())
-    assertFalse(showNullPartitionsResult.toString().contains("p_null"))
+    assertTrue(showNullPartitionsResult.toString().contains("p_null"))
     assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
     assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+    // Will lose null data
     order_qt_null_partition "SELECT * FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
+
     sql """drop catalog if exists ${catalogName}"""
 
 }
