@@ -53,7 +53,7 @@ public class DateFormat extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT)
     );
 
-    private static final Set<String> monoFormat = ImmutableSet.of("yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss",
+    private static final Set<String> monoFormat = ImmutableSet.of("yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-ddHH:mm:ss",
             "%Y", "%Y-%m", "%Y-%m-%d", "%Y-%m-%d%H", "%Y-%m-%d%H:%i", "%Y-%m-%d%H:%i:%s", "%Y-%m-%d%H:%i:%S",
             "%Y-%m-%d%T", "%Y%m%d", "%Y%m");
 
