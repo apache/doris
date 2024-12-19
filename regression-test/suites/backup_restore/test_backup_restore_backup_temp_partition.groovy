@@ -62,6 +62,7 @@ suite("test_backup_restore_backup_temp_partition", "backup_restore") {
         ALTER TABLE ${dbName}.${tableName} ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("70")
         """
 
+    sql "ADMIN SET FRONTEND CONFIG ('ignore_backup_tmp_partitions' = 'false')"
     test {
         sql """
             BACKUP SNAPSHOT ${dbName}.${snapshotName}
@@ -71,6 +72,39 @@ suite("test_backup_restore_backup_temp_partition", "backup_restore") {
         exception "Do not support backup table ${tableName} with temp partitions"
     }
 
+    // ignore the tmp partitions
+    sql "ADMIN SET FRONTEND CONFIG ('ignore_backup_tmp_partitions' = 'true')"
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${snapshotName}
+        TO `${repoName}`
+        ON (${tableName})
+    """
+
+    syncer.waitSnapshotFinish(dbName)
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    assertTrue(snapshot != null)
+
+    // The restored table has no tmp partitions
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON (
+            `${tableName}` PARTITION (p1, p2, p3)
+        )
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true"
+        )
+    """
+
+    syncer.waitAllRestoreFinish(dbName)
+    def res = sql "SHOW TEMPORARY PARTITIONS FROM ${dbName}.${tableName}"
+    assertTrue(res.size() == 0);
+
+    sql "ADMIN SET FRONTEND CONFIG ('ignore_backup_tmp_partitions' = 'false')"
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"

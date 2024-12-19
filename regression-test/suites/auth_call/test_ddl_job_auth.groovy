@@ -50,7 +50,7 @@ suite("test_ddl_job_auth","p0,auth_call") {
     sql """create table ${dbName}.${tableNameDst} like ${dbName}.${tableName}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE JOB ${jobName} ON SCHEDULE AT '2020-01-01 00:00:00' DO INSERT INTO ${dbName}.${tableNameDst} SELECT * FROM ${dbName}.${tableName};"""
             exception "denied"
@@ -75,7 +75,7 @@ suite("test_ddl_job_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE JOB ${jobName} ON SCHEDULE AT '2100-01-01 00:00:00' DO INSERT INTO ${dbName}.${tableNameDst} SELECT * FROM ${dbName}.${tableName};"""
         def res = sql """select * from jobs("type"="insert") where Name="${jobName}";"""
         assertTrue(res.size() == 1)

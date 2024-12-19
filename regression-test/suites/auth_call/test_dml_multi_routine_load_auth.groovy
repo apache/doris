@@ -69,7 +69,7 @@ suite("test_dml_multi_routine_load_auth","p0,auth_call") {
         sql new File("""${context.file.parent}/ddl/${tableName1}.sql""").text
         sql new File("""${context.file.parent}/ddl/${tableName2}.sql""").text
 
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """
                 CREATE ROUTINE LOAD ${dbName}.${labelName} 
@@ -92,7 +92,7 @@ suite("test_dml_multi_routine_load_auth","p0,auth_call") {
         }
 
         sql """grant load_priv on ${dbName}.${tableName1} to ${user}"""
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """
                 CREATE ROUTINE LOAD ${dbName}.${labelName} 
@@ -114,7 +114,7 @@ suite("test_dml_multi_routine_load_auth","p0,auth_call") {
             }
         }
         sql """grant load_priv on ${dbName}.${tableName2} to ${user}"""
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """
                 CREATE ROUTINE LOAD ${dbName}.${labelName} 
@@ -136,7 +136,7 @@ suite("test_dml_multi_routine_load_auth","p0,auth_call") {
             }
         }
         sql """grant load_priv on ${dbName}.* to ${user}"""
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """
                 CREATE ROUTINE LOAD ${dbName}.${labelName} 
                 COLUMNS TERMINATED BY "|"

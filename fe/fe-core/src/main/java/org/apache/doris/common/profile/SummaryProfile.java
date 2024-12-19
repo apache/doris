@@ -97,6 +97,7 @@ public class SummaryProfile {
     public static final String GET_TABLE_VERSION_COUNT = "Get Table Version Count";
 
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
+    public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
@@ -136,6 +137,7 @@ public class SummaryProfile {
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
             PARSE_SQL_TIME,
+            NEREIDS_LOCK_TABLE_TIME,
             NEREIDS_ANALYSIS_TIME,
             NEREIDS_REWRITE_TIME,
             NEREIDS_OPTIMIZE_TIME,
@@ -224,6 +226,8 @@ public class SummaryProfile {
     private long parseSqlStartTime = -1;
     @SerializedName(value = "parseSqlFinishTime")
     private long parseSqlFinishTime = -1;
+    @SerializedName(value = "nereidsLockTableFinishTime")
+    private long nereidsLockTableFinishTime = -1;
     @SerializedName(value = "nereidsAnalysisFinishTime")
     private long nereidsAnalysisFinishTime = -1;
     @SerializedName(value = "nereidsRewriteFinishTime")
@@ -410,6 +414,7 @@ public class SummaryProfile {
 
     private void updateExecutionSummaryProfile() {
         executionSummaryProfile.addInfoString(PARSE_SQL_TIME, getPrettyParseSqlTime());
+        executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
@@ -504,6 +509,10 @@ public class SummaryProfile {
 
     public void setParseSqlFinishTime(long parseSqlFinishTime) {
         this.parseSqlFinishTime = parseSqlFinishTime;
+    }
+
+    public void setNereidsLockTableFinishTime() {
+        this.nereidsLockTableFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setNereidsAnalysisTime() {
@@ -766,8 +775,12 @@ public class SummaryProfile {
         return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
 
+    public String getPrettyNereidsLockTableTime() {
+        return getPrettyTime(nereidsLockTableFinishTime, parseSqlStartTime, TUnit.TIME_MS);
+    }
+
     public String getPrettyNereidsAnalysisTime() {
-        return getPrettyTime(nereidsAnalysisFinishTime, queryBeginTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsAnalysisFinishTime, nereidsLockTableFinishTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsRewriteTime() {
