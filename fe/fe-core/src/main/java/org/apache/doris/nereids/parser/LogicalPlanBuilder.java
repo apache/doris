@@ -518,6 +518,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
@@ -993,8 +994,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.buildMode() == null && ctx.refreshMethod() == null && ctx.refreshTrigger() == null
                 && ctx.cols == null && ctx.keys == null
                 && ctx.HASH() == null && ctx.RANDOM() == null && ctx.BUCKETS() == null) {
-            // TODO support create sync mv
-            return new UnsupportedCommand();
+            return visitCreateSyncMvCommand(ctx);
         }
 
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
@@ -1029,6 +1029,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
                 visitMTMVPartitionInfo(ctx.mvPartition())
         ));
+    }
+
+    private Command visitCreateSyncMvCommand(CreateMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
     }
 
     /**

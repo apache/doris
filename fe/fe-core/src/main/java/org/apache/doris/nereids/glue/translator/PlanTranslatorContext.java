@@ -302,7 +302,7 @@ public class PlanTranslatorContext {
             }
         }
         slotRef.setTable(table);
-        slotRef.setLabel(slotReference.getName());
+        slotRef.setLabel("`" + slotReference.getName() + "`");
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());
         }
