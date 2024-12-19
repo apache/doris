@@ -40,12 +40,12 @@ import java.util.Map;
 /**
  * Represents the command for SHOW CONVERT LIGHT SCHEMA CHANGE PROCESS .
  */
-public class ShowConvertLscCommand extends ShowCommand implements ForwardNoSync {
+public class ShowConvertLSCCommand extends ShowCommand implements ForwardNoSync {
 
     private static final int COLUMN_LENGTH = 30;
     private final String dbName;
 
-    public ShowConvertLscCommand(String dbName) {
+    public ShowConvertLSCCommand(String dbName) {
         super(PlanType.SHOW_CONVERT_LSC_COMMAND);
         this.dbName = dbName;
     }
