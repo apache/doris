@@ -155,10 +155,9 @@ public:
                         start_rpc_time);
             }
         } catch (const std::exception& exp) {
-            LOG(FATAL) << "brpc callback error: " << exp.what();
+            throw Exception(Status::FatalError("brpc callback error: {}", exp.what()));
         } catch (...) {
-            LOG(FATAL) << "brpc callback error.";
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("brpc callback error."));
         }
     }
     int64_t start_rpc_time;

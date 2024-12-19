@@ -723,8 +723,7 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
     case ExchangeType::LOCAL_MERGE_SORT:
         return "LOCAL_MERGE_SORT";
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
