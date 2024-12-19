@@ -115,7 +115,7 @@ fetch_queryid() {
         echo "Usage: fetch_queryid <QueryName>"
         return 1
     fi
-    local query_id=$(curl -s -X GET -u "${USER}:${PASSWORD}"  http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/profile/lastqueryid)
+    local query_id=$(curl -s -X GET -u "${USER}:${PASSWORD}" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/profile/lastqueryid)
     QUERY_LIST+=("${QueryName}|${query_id}")
 }
 
@@ -127,9 +127,9 @@ fetch_profile() {
     sleep 1s
     echo "Size of Query Profile : ${#QUERY_LIST[@]}"
     for entry in "${QUERY_LIST[@]}"; do
-        IFS="|" read -r name queryid <<< "$entry"
+        IFS="|" read -r name queryid <<<"$entry"
         local profile_name="${name}-${queryid}"
-        curl -s -X GET -u "${USER}:${PASSWORD}" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/profile/text?query_id=${queryid} >> "${PROFILE_DIR}/${profile_name}"
+        curl -s -X GET -u "${USER}:${PASSWORD}" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/profile/text?query_id=${queryid} >>"${PROFILE_DIR}/${profile_name}"
     done
     echo 'End Fetch Query Profile'
 }
@@ -155,7 +155,6 @@ if [[ "${FETCH_PROFILE}" == "ON" ]]; then
     fi
     echo "PROFILE_DIR is ready: ${PROFILE_DIR}"
 fi
-
 
 run_sql() {
     echo "$*"
