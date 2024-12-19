@@ -395,17 +395,19 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
 
 template <typename T>
 void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
-                                                      ColumnString::Chars& chars,
+                                                      ColumnString* dst_column,
                                                       int64_t row_num) const {
     const uint8_t type = static_cast<uint8_t>(TypeId<T>::value);
     const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
 
+    ColumnString::Chars& chars = dst_column->get_chars();
     const size_t old_size = chars.size();
     const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
     chars.resize(new_size);
 
     memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+    dst_column->get_offsets().push_back(new_size);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

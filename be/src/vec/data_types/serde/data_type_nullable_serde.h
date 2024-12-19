@@ -99,8 +99,8 @@ public:
                                   int64_t row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
-    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
-                                  int64_t row_num) const override;
+    //     void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst_column,
+    //                                   int64_t row_num) const override;
 
     DataTypeSerDeSPtr get_nested_serde() { return nested_serde; }
 
