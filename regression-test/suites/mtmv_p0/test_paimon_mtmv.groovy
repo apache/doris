@@ -35,7 +35,9 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
           `user_id` INT,
           `num` INT
         ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`) ;
+        DUPLICATE KEY(`user_id`)
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
        """
 
     sql """
