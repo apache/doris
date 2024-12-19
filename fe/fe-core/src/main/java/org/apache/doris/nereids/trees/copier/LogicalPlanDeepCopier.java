@@ -214,7 +214,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> new OrderKey(ExpressionDeepCopier.INSTANCE.deepCopy(o.getExpr(), context),
                         o.isAsc(), o.isNullFirst()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child, false);
+        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child, topN.isPushed());
     }
 
     @Override
@@ -241,7 +241,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> (OrderExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
         return new LogicalPartitionTopN<>(partitionTopN.getFunction(), partitionKeys, orderKeys,
-                partitionTopN.hasGlobalLimit(), partitionTopN.getPartitionLimit(), child, false);
+                partitionTopN.hasGlobalLimit(), partitionTopN.getPartitionLimit(), child, partitionTopN.isPushed());
     }
 
     @Override
