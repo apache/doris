@@ -1522,7 +1522,7 @@ public class TabletScheduler extends MasterDaemon {
                 !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
             List<String> backendsInfo = Env.getCurrentSystemInfo().getAllBackends().stream()
-                    .filter(be -> be.getLocationTag() == tag)
+                    .filter(be -> be.getLocationTag().equals(tag))
                     .map(Backend::getDetailsForCreateReplica)
                     .collect(Collectors.toList());
             throw new SchedException(Status.UNRECOVERABLE, String.format("unable to find dest path for new replica"
