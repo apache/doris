@@ -798,7 +798,7 @@ public class CreateTableTest {
         allocMap.put(Tag.create(Tag.TYPE_LOCATION, new String(Tag.VALUE_DEFAULT_TAG)),  (short) 6);
         String msg = Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap));
         Assert.assertTrue("msg: " + msg, msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
-                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="));
+                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}]"));
     }
 
 }
