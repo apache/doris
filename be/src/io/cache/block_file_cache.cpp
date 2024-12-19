@@ -40,6 +40,8 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/uint128.h"
@@ -770,7 +772,13 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
                                             CacheContext& context) {
     FileBlock::Range range(offset, offset + size - 1);
 
-    SCOPED_CACHE_LOCK(_mutex);
+    ReadStatistics* stats = context.stats;
+    DCHECK(stats != nullptr);
+    MonotonicStopWatch sw;
+    sw.start();
+    std::lock_guard cache_lock(_mutex);
+    stats->lock_wait_timer += sw.elapsed_time();
+
     if (auto iter = _key_to_time.find(hash);
         context.cache_type == FileCacheType::INDEX && iter != _key_to_time.end()) {
         context.cache_type = FileCacheType::TTL;
@@ -778,12 +786,18 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     }
 
     /// Get all blocks which intersect with the given range.
-    auto file_blocks = get_impl(hash, context, range, cache_lock);
+    FileBlocks file_blocks;
+    {
+        SCOPED_RAW_TIMER(&stats->get_timer);
+        file_blocks = get_impl(hash, context, range, cache_lock);
+    }
 
     if (file_blocks.empty()) {
+        SCOPED_RAW_TIMER(&stats->set_timer);
         file_blocks = split_range_into_cells(hash, context, offset, size, FileBlock::State::EMPTY,
                                              cache_lock);
     } else {
+        SCOPED_RAW_TIMER(&stats->set_timer);
         fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
     }
     DCHECK(!file_blocks.empty());
@@ -996,7 +1010,6 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     if (!_async_open_done) {
         return try_reserve_during_async_load(size, cache_lock);
     }
-
     // use this strategy in scenarios where there is insufficient disk capacity or insufficient number of inodes remaining
     // directly eliminate 5 times the size of the space
     if (_disk_resource_limit_mode) {
@@ -1055,6 +1068,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
             if (cell->releasable()) {
                 auto& file_block = cell->file_block;
+
                 std::lock_guard block_lock(file_block->_mutex);
                 DCHECK(file_block->_download_state == FileBlock::State::DOWNLOADED);
                 to_evict.push_back(cell);

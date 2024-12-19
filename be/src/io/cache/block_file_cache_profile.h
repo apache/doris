@@ -83,6 +83,11 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
+    RuntimeProfile::Counter* read_cache_file_directly_timer = nullptr;
+    RuntimeProfile::Counter* cache_get_or_set_timer = nullptr;
+    RuntimeProfile::Counter* lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* get_timer = nullptr;
+    RuntimeProfile::Counter* set_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile) {
         static const char* cache_profile = "FileCache";
@@ -105,6 +110,13 @@ struct FileCacheProfileReporter {
                                                                 TUnit::BYTES, cache_profile, 1);
         bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromRemote",
                                                                  TUnit::BYTES, cache_profile, 1);
+        read_cache_file_directly_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReadCacheFileDirectlyTimer", cache_profile, 1);
+        cache_get_or_set_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "CacheGetOrSetTimer", cache_profile, 1);
+        lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
+        get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
+        set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
     }
 
     void update(const FileCacheStatistics* statistics) const {
@@ -119,6 +131,11 @@ struct FileCacheProfileReporter {
         COUNTER_UPDATE(num_skip_cache_io_total, statistics->num_skip_cache_io_total);
         COUNTER_UPDATE(bytes_scanned_from_cache, statistics->bytes_read_from_local);
         COUNTER_UPDATE(bytes_scanned_from_remote, statistics->bytes_read_from_remote);
+        COUNTER_UPDATE(read_cache_file_directly_timer, statistics->read_cache_file_directly_timer);
+        COUNTER_UPDATE(cache_get_or_set_timer, statistics->cache_get_or_set_timer);
+        COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
+        COUNTER_UPDATE(get_timer, statistics->get_timer);
+        COUNTER_UPDATE(set_timer, statistics->set_timer);
     }
 };
 

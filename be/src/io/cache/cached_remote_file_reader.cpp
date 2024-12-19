@@ -134,6 +134,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     stats.bytes_read += bytes_req;
     if (config::enable_read_cache_file_directly) {
         // read directly
+        SCOPED_RAW_TIMER(&stats.read_cache_file_directly_timer);
         size_t need_read_size = bytes_req;
         std::shared_lock lock(_mtx);
         if (!_cache_file_readers.empty()) {
@@ -174,8 +175,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     // read from cache or remote
     auto [align_left, align_size] = s_align_size(offset, bytes_req, size());
     CacheContext cache_context(io_ctx);
+    cache_context.stats = &stats;
+    MonotonicStopWatch sw;
+    sw.start();
     FileBlocksHolder holder =
             _cache->get_or_set(_cache_hash, align_left, align_size, cache_context);
+    stats.cache_get_or_set_timer += sw.elapsed_time();
     std::vector<FileBlockSPtr> empty_blocks;
     for (auto& block : holder.file_blocks) {
         switch (block->state()) {
@@ -332,6 +337,12 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     statis->write_cache_io_timer += read_stats.local_write_timer;
+
+    statis->read_cache_file_directly_timer += read_stats.read_cache_file_directly_timer;
+    statis->cache_get_or_set_timer += read_stats.cache_get_or_set_timer;
+    statis->lock_wait_timer += read_stats.lock_wait_timer;
+    statis->get_timer += read_stats.get_timer;
+    statis->set_timer += read_stats.set_timer;
 
     g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;
