@@ -99,10 +99,10 @@ public:
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
         default:
-            throw Exception(Status::FatalError("not match type of cache policy :{}",
-                                               static_cast<int>(type)));
+            LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
-        throw Exception(Status::FatalError("__builtin_unreachable"));
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
 
     inline static std::unordered_map<std::string, CacheType> StringToType = {

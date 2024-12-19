@@ -327,7 +327,8 @@ protected:
                 return iterator5 == rhs.iterator5;
             }
             }
-            throw doris::Exception(doris::Status::FatalError("__builtin_unreachable"));
+            LOG(FATAL) << "__builtin_unreachable";
+            __builtin_unreachable();
         }
 
         bool operator!=(const iterator_base& rhs) const { return !(*this == rhs); }

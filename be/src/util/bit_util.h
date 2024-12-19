@@ -237,7 +237,9 @@ public:
         } else if constexpr (std::is_same_v<T, uint8_t>) {
             return value;
         } else {
-            throw Exception(Status::FatalError("__builtin_unreachable"));
+            __builtin_unreachable();
+            LOG(FATAL) << "__builtin_unreachable";
+            return value;
         }
     }
 

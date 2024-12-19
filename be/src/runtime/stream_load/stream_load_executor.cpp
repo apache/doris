@@ -390,7 +390,8 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     }
     switch (ctx->load_type) {
     case TLoadType::MINI_LOAD: {
-        throw Exception(Status::FatalError("mini load is not supported any more"));
+        LOG(FATAL) << "mini load is not supported any more";
+        break;
     }
     case TLoadType::ROUTINE_LOAD: {
         attach->loadType = TLoadType::ROUTINE_LOAD;

@@ -665,14 +665,7 @@ struct ConvertImplNumberToJsonb {
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
             } else {
-                static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
-                                      std::is_same_v<ColumnType, ColumnInt8> ||
-                                      std::is_same_v<ColumnType, ColumnInt16> ||
-                                      std::is_same_v<ColumnType, ColumnInt32> ||
-                                      std::is_same_v<ColumnType, ColumnInt64> ||
-                                      std::is_same_v<ColumnType, ColumnInt128> ||
-                                      std::is_same_v<ColumnType, ColumnFloat64>,
-                              "unsupported type");
+                LOG(FATAL) << "unsupported type ";
                 __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
@@ -957,7 +950,8 @@ struct ConvertImplFromJsonb {
                         res[i] = 0;
                     }
                 } else {
-                    throw Exception(Status::FatalError("unsupported type"));
+                    LOG(FATAL) << "unsupported type ";
+                    __builtin_unreachable();
                 }
             }
 

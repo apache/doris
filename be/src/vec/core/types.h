@@ -942,7 +942,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Time";
     }
 
-    throw Exception(Status::FatalError("__builtin_unreachable"));
+    LOG(FATAL) << "__builtin_unreachable";
+    __builtin_unreachable();
 }
 // NOLINTEND(readability-function-size)
 } // namespace vectorized

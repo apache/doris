@@ -303,7 +303,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
-                        throw Exception(Status::FatalError("FATAL: uninited hash table"));
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
+                        return Status::OK();
                     },
                     [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {

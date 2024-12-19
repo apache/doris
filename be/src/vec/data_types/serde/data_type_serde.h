@@ -395,9 +395,8 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
 inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
                              const std::string& format_name) {
     if (!status.ok()) {
-        throw Exception(
-                Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
-                                   format_name, column, status.ToString()));
+        LOG(FATAL) << "arrow serde with arrow: " << format_name << " with column : " << column
+                   << " with error msg: " << status.ToString();
     }
 }
 

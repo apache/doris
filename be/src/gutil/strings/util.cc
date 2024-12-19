@@ -19,8 +19,6 @@
 #include <mutex>
 #include <ostream>
 
-#include "common/exception.h"
-
 using std::copy;
 using std::max;
 using std::min;
@@ -491,7 +489,8 @@ const char* strstr_delimited(const char* haystack, const char* needle, char deli
             ++haystack;
         }
     }
-    throw doris::Exception(doris::Status::FatalError("Unreachable statement"));
+    LOG(FATAL) << "Unreachable statement";
+    return nullptr;
 }
 
 // ----------------------------------------------------------------------

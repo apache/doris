@@ -90,8 +90,7 @@ public:
         case LRUCacheType::NUMBER:
             return "number";
         default:
-            throw Exception(
-                    Status::FatalError("not match type of lru cache:{}", static_cast<int>(type)));
+            LOG(FATAL) << "not match type of lru cache:" << static_cast<int>(type);
         }
     }
 

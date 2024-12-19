@@ -354,7 +354,8 @@ public:
             DCHECK(bthread_context != nullptr);
             bthread_context->thread_local_handle_count--;
         } else {
-            throw Exception(Status::FatalError("__builtin_unreachable"));
+            LOG(FATAL) << "__builtin_unreachable";
+            __builtin_unreachable();
         }
     }
 };
@@ -378,8 +379,8 @@ static ThreadContext* thread_context(bool allow_return_null = false) {
         return nullptr;
     }
     // It means that use thread_context() but this thread not attached a query/load using SCOPED_ATTACH_TASK macro.
-    throw Exception(
-            Status::FatalError("__builtin_unreachable, {}", doris::memory_orphan_check_msg));
+    LOG(FATAL) << "__builtin_unreachable, " << doris::memory_orphan_check_msg;
+    __builtin_unreachable();
 }
 
 // belong to one query object member, not be shared by multiple queries.

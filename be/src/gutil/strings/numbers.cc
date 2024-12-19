@@ -19,8 +19,6 @@
 #include <limits>
 #include <ostream>
 
-#include "common/exception.h"
-
 using std::numeric_limits;
 #include <string>
 
@@ -774,8 +772,8 @@ uint64 atoi_kmgt(const char* s) {
             scale = GG_ULONGLONG(1) << 40;
             break;
         default:
-            throw doris::Exception(doris::Status::FatalError(
-                    "Invalid mnemonic: `{}'; should be one of `K', `M', `G', and `T'.", c));
+            LOG(FATAL) << "Invalid mnemonic: `" << c << "';"
+                       << " should be one of `K', `M', `G', and `T'.";
         }
     }
     return n * scale;

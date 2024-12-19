@@ -40,8 +40,7 @@ public:
 #ifdef BE_TEST
             _caches.erase(it);
 #else
-            throw Exception(Status::FatalError("Repeat register cache {}",
-                                               CachePolicy::type_string(cache->type())));
+            LOG(FATAL) << "Repeat register cache " << CachePolicy::type_string(cache->type());
 #endif // BE_TEST
         }
         _caches.insert({cache->type(), cache});

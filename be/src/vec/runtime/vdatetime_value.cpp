@@ -3434,7 +3434,8 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t s
         date_v2_value_.second_ = second;
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        throw Exception(Status::FatalError("Invalid operation 'set_time' for date!"));
+        LOG(FATAL) << "Invalid operation 'set_time' for date!";
+        __builtin_unreachable();
     }
 }
 
@@ -3443,7 +3444,8 @@ void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        throw Exception(Status::FatalError("Invalid operation 'set_microsecond' for date!"));
+        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
+        __builtin_unreachable();
     }
 }
 

@@ -61,7 +61,7 @@ using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1 && is_segcompaction == false)) {
-        throw Exception(Status::FatalError("version is not set. tablet={}", tablet->tablet_id()));
+        LOG(FATAL) << "version is not set. tablet=" << tablet->tablet_id();
     }
 }
 

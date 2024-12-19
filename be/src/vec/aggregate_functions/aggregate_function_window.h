@@ -563,19 +563,24 @@ public:
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        throw doris::Exception(Status::FatalError("WindowFunctionLeadLagData do not support add"));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support add");
+        __builtin_unreachable();
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        throw doris::Exception(
-                Status::FatalError("WindowFunctionLeadLagData do not support merge"));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support merge");
+        __builtin_unreachable();
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        throw doris::Exception(
-                Status::FatalError("WindowFunctionLeadLagData do not support serialize"));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support serialize");
+        __builtin_unreachable();
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        throw doris::Exception(
-                Status::FatalError("WindowFunctionLeadLagData do not support deserialize"));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support deserialize");
+        __builtin_unreachable();
     }
 
 private:

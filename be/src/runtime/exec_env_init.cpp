@@ -421,9 +421,9 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     std::unordered_set<std::string> cache_path_set;
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
-        throw Exception(
-                Status::FatalError("parse config file cache path failed, path={}, reason={}",
-                                   doris::config::file_cache_path, rest.msg()));
+        LOG(FATAL) << "parse config file cache path failed, path=" << doris::config::file_cache_path
+                   << ", reason=" << rest.msg();
+        exit(-1);
     }
 
     doris::Status cache_status;
@@ -437,8 +437,8 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 cache_path.path, cache_path.init_settings());
         if (!cache_status.ok()) {
             if (!doris::config::ignore_broken_disk) {
-                throw Exception(
-                        Status::FatalError("failed to init file cache, err: {}", cache_status));
+                LOG(FATAL) << "failed to init file cache, err: " << cache_status;
+                exit(-1);
             }
             LOG(WARNING) << "failed to init file cache, err: " << cache_status;
         }

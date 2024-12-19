@@ -233,8 +233,7 @@ public:
     HadoopLz4BlockCompression() {
         Status st = Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor);
         if (!st.ok()) {
-            throw Exception(Status::FatalError(
-                    "HadoopLz4BlockCompression construction failed. status = {}", st));
+            LOG(FATAL) << "HadoopLz4BlockCompression construction failed. status = " << st << "\n";
         }
     }
 

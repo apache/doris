@@ -55,7 +55,8 @@ public:
     //evaluate predicate on Bitmap
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
-        throw Exception(Status::FatalError("Not Implemented MatchPredicate::evaluate"));
+        LOG(FATAL) << "Not Implemented MatchPredicate::evaluate";
+        __builtin_unreachable();
     }
 
     //evaluate predicate on inverted

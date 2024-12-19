@@ -36,7 +36,6 @@
 #include <utility>
 
 #include "common/config.h"
-#include "common/exception.h"
 #include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
@@ -420,8 +419,7 @@ struct RowsetId {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
                     high = next_rowset_id().hi;
                 } else {
-                    throw Exception(
-                            Status::FatalError("failed to init rowset id: {}", rowset_id_str));
+                    LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
                 }
             }
             init(1, high, 0, 0);
@@ -442,7 +440,7 @@ struct RowsetId {
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
-            throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
+            LOG(FATAL) << "inc rowsetid is too large:" << high;
         }
         hi = (id_version << 56) + (high & LOW_56_BITS);
         mi = middle;
