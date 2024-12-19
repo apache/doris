@@ -40,3 +40,19 @@ insert into two_partition values(2,'2020-01-01','sh');
 insert into two_partition values(3,'2038-01-01','bj');
 insert into two_partition values(4,'2038-01-01','sh');
 insert into two_partition values(5,'2038-01-02','bj');
+
+drop table if exists null_partition;
+CREATE TABLE null_partition (
+   id BIGINT,
+   region STRING
+) PARTITIONED BY (region) TBLPROPERTIES (
+    'primary-key' = 'region,id',
+    'bucket'=10,
+    'file.format'='orc'
+);
+-- null NULL "null" all will be in partition [null]
+insert into null_partition values(1,'bj');
+insert into null_partition values(2,null);
+insert into null_partition values(3,NULL);
+insert into null_partition values(4,'null');
+insert into null_partition values(5,'NULL');
