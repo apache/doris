@@ -77,7 +77,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
 
     // refresh one partitions
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName} auto;
+            REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
