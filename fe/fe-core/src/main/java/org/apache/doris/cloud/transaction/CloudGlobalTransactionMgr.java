@@ -535,6 +535,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void executeCommitTxnRequest(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
             TxnCommitAttachment txnCommitAttachment) throws UserException {
+        if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
+            LOG.info("debug point FE.mow.commit.exception, throw e");
+            throw new UserException("debug point FE.mow.commit.exception");
+        }
         boolean txnOperated = false;
         TransactionState txnState = null;
         TxnStateChangeCallback cb = null;
@@ -679,15 +683,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
                 backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
                 cumulativePoints, partitionToSubTxnIds);
-        try {
-            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
-                    subTransactionStates == null ? Config.calculate_delete_bitmap_task_timeout_seconds
-                            : Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
-        } catch (UserException e) {
-            LOG.warn("failed to sendCalcDeleteBitmaptask for txn=" + transactionId + ",exception=" + e.getMessage());
-            removeDeleteBitmapUpdateLock(tableToPartitions, transactionId);
-            throw e;
-        }
+        sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+                subTransactionStates == null ? Config.calculate_delete_bitmap_task_timeout_seconds
+                        : Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
     }
 
     private Map<Long, List<Long>> getPartitionSubTxnIds(List<SubTransactionState> subTransactionStates,
@@ -948,10 +946,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void removeDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId) {
-        for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
+    private void removeDeleteBitmapUpdateLock(List<Table> tableList, long transactionId) {
+        for (Table table : tableList) {
             RemoveDeleteBitmapUpdateLockRequest.Builder builder = RemoveDeleteBitmapUpdateLockRequest.newBuilder();
-            builder.setTableId(entry.getKey())
+            builder.setTableId(table.getId())
                     .setLockId(transactionId)
                     .setInitiator(-1);
             final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
@@ -1102,6 +1100,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates);
+        } catch (Exception e) {
+            LOG.info("release delete bitmap lock,commit txn=" + transactionId + ",catch exception=" + e.getMessage());
+            removeDeleteBitmapUpdateLock(tableList, transactionId);
+            throw e;
         } finally {
             afterCommitTransaction(tableList);
         }
@@ -1187,6 +1189,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+        } catch (Exception e) {
+            LOG.info("release delete bitmap lock,commit txn=" + transactionId + ",catch exception=" + e.getMessage());
+            removeDeleteBitmapUpdateLock(tableList, transactionId);
+            throw e;
         } finally {
             afterCommitTransaction(tableList);
         }
