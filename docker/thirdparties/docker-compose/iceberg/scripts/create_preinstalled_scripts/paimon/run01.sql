@@ -24,13 +24,15 @@ insert into test_tb_mix_format values (1,2,'b'),(2,2,'b'),(3,2,'b'),(4,2,'b'),(5
 -- delete foramt in table properties, doris should get format by file name
 alter table test_tb_mix_format unset TBLPROPERTIES ('file.format');
 
+drop table if exists two_partition;
 CREATE TABLE two_partition (
    id BIGINT,
    create_date STRING,
    region STRING
-) USING paimon
-PARTITIONED BY (create_date,region) TBLPROPERTIES (
-    'primary-key' = 'create_date,region,id'
+) PARTITIONED BY (create_date,region) TBLPROPERTIES (
+    'primary-key' = 'create_date,region,id',
+    'bucket'=10,
+    'file.format'='orc'
 );
 
 insert into two_partition values(1,'2020-01-01','bj');
