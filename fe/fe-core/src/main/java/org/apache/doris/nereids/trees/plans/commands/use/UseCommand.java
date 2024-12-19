@@ -74,12 +74,12 @@ public class UseCommand extends Command implements NoForward {
         if (Strings.isNullOrEmpty(databaseName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
+        String currentCatalogName = catalogName == null ? ConnectContext.get().getDefaultCatalog() : catalogName;
 
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), ConnectContext.get().getDefaultCatalog(), databaseName,
-                        PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    context.getQualifiedUser(), databaseName);
+                .checkDbPriv(ConnectContext.get(), currentCatalogName, databaseName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, context.getQualifiedUser(),
+                    databaseName);
         }
     }
 
