@@ -1073,6 +1073,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                              "task, tablet_id="
                           << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
                 _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                if (!force) {
+                  _permit_limiter.release(permits);
+                }
                 return;
             }
             tablet->compaction_stage = CompactionStage::EXECUTING;
