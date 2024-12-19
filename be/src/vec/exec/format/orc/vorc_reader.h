@@ -133,8 +133,7 @@ public:
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-              io::IOContext* io_ctx, bool enable_lazy_mat = true,
-              std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr);
+              io::IOContext* io_ctx, bool enable_lazy_mat = true);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
@@ -619,7 +618,6 @@ private:
     std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     bool _dict_cols_has_converted = false;
     bool _has_complex_type = false;
-    std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 
     // resolve schema change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;

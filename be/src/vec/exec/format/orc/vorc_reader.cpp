@@ -143,7 +143,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
+                     bool enable_lazy_mat)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -156,8 +156,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
-          _dict_cols_has_converted(false),
-          _unsupported_pushdown_types(unsupported_pushdown_types) {
+          _dict_cols_has_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -453,7 +452,8 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::DOUBLE, orc::PredicateDataType::FLOAT},
         {orc::TypeKind::STRING, orc::PredicateDataType::STRING},
         {orc::TypeKind::BINARY, orc::PredicateDataType::STRING},
-        {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
+        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
+        // {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::VARCHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::DATE, orc::PredicateDataType::DATE},
         {orc::TypeKind::DECIMAL, orc::PredicateDataType::DECIMAL},
@@ -483,8 +483,9 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
             [[fallthrough]];
         case orc::TypeKind::BINARY:
             [[fallthrough]];
-        case orc::TypeKind::CHAR:
-            [[fallthrough]];
+        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
+        // case orc::TypeKind::CHAR:
+        //     [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             StringRef* string_value = (StringRef*)value;
             return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
@@ -560,8 +561,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 
 template <PrimitiveType primitive_type>
 std::vector<OrcPredicate> value_range_to_predicate(
-        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type,
-        std::vector<orc::TypeKind>* unsupported_pushdown_types) {
+        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
     std::vector<OrcPredicate> predicates;
 
     PrimitiveType src_type = OrcReader::convert_to_doris_type(type).type;
@@ -569,16 +569,6 @@ std::vector<OrcPredicate> value_range_to_predicate(
         if (!(is_string_type(src_type) && is_string_type(primitive_type))) {
             // not support schema change
             return predicates;
-        }
-    }
-
-    if (unsupported_pushdown_types != nullptr) {
-        for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
-             it != unsupported_pushdown_types->end(); ++it) {
-            if (*it == type->getKind()) {
-                // Unsupported type
-                return predicates;
-            }
         }
     }
 
@@ -723,8 +713,8 @@ bool OrcReader::_init_search_argument(
         }
         std::visit(
                 [&](auto& range) {
-                    std::vector<OrcPredicate> value_predicates = value_range_to_predicate(
-                            range, type_it->second, _unsupported_pushdown_types);
+                    std::vector<OrcPredicate> value_predicates =
+                            value_range_to_predicate(range, type_it->second);
                     for (auto& range_predicate : value_predicates) {
                         predicates.emplace_back(range_predicate);
                     }
