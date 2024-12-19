@@ -278,7 +278,7 @@ public:
     explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
     // create without root, num_rows = size
-    explicit ColumnObject(size_t size);
+    explicit ColumnObject(size_t size = 0);
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
