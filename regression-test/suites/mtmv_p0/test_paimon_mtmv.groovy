@@ -75,7 +75,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
 
     // refresh one partitions
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
@@ -175,7 +175,6 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     assertTrue(showPartitionsResult.toString().contains("p_a"))
     assertTrue(showPartitionsResult.toString().contains("p_b"))
 
-    // refresh one partitions
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
@@ -183,6 +182,27 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     order_qt_join_one_partition "SELECT * FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`create_date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
+        """
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20380102"))
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_two_partition "SELECT * FROM ${mvName} "
+
+    sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 
 }
