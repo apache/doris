@@ -75,7 +75,7 @@ public:
     void _check_file_cache_ttl_block_valid();
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
-        LOG(INFO) << "Getting storage resource for vault_id: " << vault_id;
+        LOG(DEBUG) << "Getting storage resource for vault_id: " << vault_id;
 
         bool synced = false;
         do {
