@@ -60,9 +60,14 @@ public class RangePartitionItem extends PartitionItem {
 
     @Override
     public PartitionKeyDesc toPartitionKeyDesc() {
-        return PartitionKeyDesc.createFixed(
+        if (partitionKeyRange.hasLowerBound()) {
+            return PartitionKeyDesc.createFixed(
                 PartitionInfo.toPartitionValue(partitionKeyRange.lowerEndpoint()),
                 PartitionInfo.toPartitionValue(partitionKeyRange.upperEndpoint()));
+        } else {
+            // For null partition value.
+            return PartitionKeyDesc.createLessThan(PartitionInfo.toPartitionValue(partitionKeyRange.upperEndpoint()));
+        }
     }
 
     @Override

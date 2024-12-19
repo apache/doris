@@ -47,6 +47,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
@@ -576,4 +577,5 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
 }
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -87,7 +87,7 @@ suite("test_assistant_command_auth","p0,auth_call") {
     }
 
     sql """grant select_PRIV on ${catalogName}.*.* to ${user}"""
-    connect(user, password="${pwd}", context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """REFRESH CATALOG ${catalogName};"""
     }
 
