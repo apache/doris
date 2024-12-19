@@ -117,13 +117,13 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
 
         // 1. query with inverted index
         sql """ set enable_match_without_inverted_index = false """
-        def res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "10" """
+        def res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "10" """
         assertTrue(res.size() > 0)
 
         // 2. add partition and query
         sql """ ALTER TABLE ${dbName}.${tableName} ADD PARTITION p8 VALUES LESS THAN ("80") """
         sql """ INSERT INTO ${dbName}.${tableName} VALUES (75, "75 750", "76 77") """
-        res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "75" """
+        res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "75" """
         assertTrue(res.size() > 0)
 
         // 3. add new index
@@ -159,7 +159,7 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
             logger.info("the build index status: ${build_status}")
             assertTrue(false)
         }
-        res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0) */ * FROM ${dbName}.${tableName} WHERE value1 MATCH_ANY "12321" """
+        res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_common_expr_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value1 MATCH_ANY "12321" """
         assertTrue(res.size() > 0)
 
     } finally {
