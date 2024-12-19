@@ -28,8 +28,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -37,6 +39,7 @@ import org.junit.Test;
 
 import java.io.File;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -783,4 +786,19 @@ public class CreateTableTest {
         Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
         Assert.assertEquals(1, tb.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
     }
+
+    @Test
+    public void testCreateTableDetailMsg() throws Exception {
+        Map<Tag, Short> allocMap = Maps.newHashMap();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "group_a"),  (short) 6);
+        Assert.assertEquals(" Backends details: backends with tag {\"location\" : \"group_a\"} is [], ",
+                Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)));
+
+        allocMap.clear();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, new String(Tag.VALUE_DEFAULT_TAG)),  (short) 6);
+        String msg = Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap));
+        Assert.assertTrue("msg: " + msg, msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
+                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="));
+    }
+
 }
