@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
@@ -54,7 +55,6 @@ import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
@@ -74,12 +74,10 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.utils.FileUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -100,10 +98,6 @@ import java.util.stream.Collectors;
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
-    // After hive 3, transactional table's will have file '_orc_acid_version' with value >= '2'.
-    public static final String HIVE_ORC_ACID_VERSION_FILE = "_orc_acid_version";
-
-    private static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
 
     private final HMSExternalCatalog catalog;
     private JobConf jobConf;
@@ -741,31 +735,26 @@ public class HiveMetaStoreCache {
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, Map<String, String> txnValidIds,
             boolean isFullAcid, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
-
         try {
             if (partitions.isEmpty()) {
                 return fileCacheValues;
             }
 
             for (HivePartition partition : partitions) {
-                //Get filesystem multiple times, reason: https://github.com/apache/doris/pull/23409.
+                //Get filesystem multiple times, Reason: https://github.com/apache/doris/pull/23409.
                 RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                         new FileSystemCache.FileSystemCacheKey(
                                 LocationPath.getFSIdentity(partition.getPath(), bindBrokerName),
                                 catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
 
-                if (!Strings.isNullOrEmpty(remoteUser)) {
-                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
-                    fileCacheValues.add(
-                            ugi.doAs((PrivilegedExceptionAction<FileCacheValue>) () -> AcidUtil.getAcidState(
-                            fileSystem, partition, txnValidIds, catalog.getProperties()))
-                    );
-                } else {
-                    fileCacheValues.add(AcidUtil.getAcidState(
-                            fileSystem, partition, txnValidIds, catalog.getProperties())
-                    );
-                }
+                AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(jobConf);
+                HadoopAuthenticator hadoopAuthenticator =
+                        HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+
+                fileCacheValues.add(
+                        hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
+                        fileSystem, partition, txnValidIds, catalog.getProperties(), isFullAcid))
+                );
             }
         } catch (Exception e) {
             throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());

@@ -49,6 +49,7 @@ public class AcidUtil {
     public static final String VALID_WRITEIDS_KEY = "hive.txn.valid.writeids";
 
     private static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
+    private static final String DELTA_SIDE_FILE_SUFFIX = "_flush_length";
 
     // An `_orc_acid_version` file is written to each base/delta/delete_delta dir written by a full acid write
     // or compaction.  This is the primary mechanism for versioning acid data.
@@ -215,11 +216,30 @@ public class AcidUtil {
         return new ParsedDelta(min, max, path, statementId, deleteDelta, visibilityId);
     }
 
+    public interface FileFilter {
+        public boolean accept(String fileName);
+    }
+
+    public static final class  FullAcidFileFilter implements FileFilter {
+        @Override
+        public boolean accept(String fileName) {
+            return fileName.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)
+                    && !fileName.endsWith(DELTA_SIDE_FILE_SUFFIX);
+        }
+    }
+
+    public static final class InsertOnlyFileFilter implements FileFilter {
+        @Override
+        public boolean accept(String fileName) {
+            return true;
+        }
+    }
+
     //Since the hive3 library cannot read the hive4 transaction table normally, and there are many problems
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
     public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
-            Map<String, String> txnValidIds, Map<String, String> catalogProps) throws Exception {
+            Map<String, String> txnValidIds, Map<String, String> catalogProps, boolean isFullAcid) throws Exception {
 
         // Ref: https://issues.apache.org/jira/browse/HIVE-18192
         // Readers should use the combination of ValidTxnList and ValidWriteIdList(Table) for snapshot isolation.
@@ -383,6 +403,8 @@ public class AcidUtil {
         FileCacheValue fileCacheValue = new FileCacheValue();
         List<DeleteDeltaInfo> deleteDeltas = new ArrayList<>();
 
+        FileFilter fileFilter = isFullAcid ? new FullAcidFileFilter() : new InsertOnlyFileFilter();
+
         // delta directories
         for (ParsedDelta delta : deltas) {
             String location = delta.getPath();
@@ -391,17 +413,16 @@ public class AcidUtil {
             status = fileSystem.listFiles(location, false, remoteFiles);
             if (status.ok()) {
                 if (delta.isDeleteDelta()) {
-                    List<String> deleteDeltaFileNames = remoteFiles.stream().map(f -> f.getName()).filter(
-                                    name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                    List<String> deleteDeltaFileNames = remoteFiles.stream()
+                            .map(RemoteFile::getName).filter(fileFilter::accept)
                             .collect(Collectors.toList());
                     deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
                     continue;
                 }
-                remoteFiles.stream().filter(
-                        f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)).forEach(file -> {
-                            LocationPath path = new LocationPath(file.getPath().toString(), catalogProps);
-                            fileCacheValue.addFile(file, path);
-                        });
+                remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
+                    LocationPath path = new LocationPath(file.getPath().toString(), catalogProps);
+                    fileCacheValue.addFile(file, path);
+                });
             } else {
                 throw new RuntimeException(status.getErrMsg());
             }
@@ -412,8 +433,7 @@ public class AcidUtil {
             List<RemoteFile> remoteFiles = new ArrayList<>();
             status = fileSystem.listFiles(bestBasePath, false, remoteFiles);
             if (status.ok()) {
-                remoteFiles.stream().filter(
-                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
                         .forEach(file -> {
                             LocationPath path = new LocationPath(file.getPath().toString(), catalogProps);
                             fileCacheValue.addFile(file, path);
@@ -422,7 +442,12 @@ public class AcidUtil {
                 throw new RuntimeException(status.getErrMsg());
             }
         }
-        fileCacheValue.setAcidInfo(new AcidInfo(partition.getPath(), deleteDeltas));
+
+        if (isFullAcid) {
+            fileCacheValue.setAcidInfo(new AcidInfo(partition.getPath(), deleteDeltas));
+        } else if (!deleteDeltas.isEmpty()) {
+            throw new RuntimeException("No Hive Full Acid Table have delete_delta_* Dir.");
+        }
         return fileCacheValue;
     }
 }
