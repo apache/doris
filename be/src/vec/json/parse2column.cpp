@@ -191,6 +191,13 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
     }
     column_object.incr_num_rows();
+    auto sparse_column = column_object.get_sparse_column();
+    if (sparse_column->size() == old_num_rows) {
+        sparse_column->assume_mutable()->insert_default();
+    }
+#ifndef NDEBUG
+    column_object.check_consistency();
+#endif
 }
 
 // exposed interfaces

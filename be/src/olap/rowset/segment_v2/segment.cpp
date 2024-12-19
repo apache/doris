@@ -812,7 +812,11 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-ColumnReader* Segment::get_column_reader(int32_t col_unique_id) {
+Result<ColumnReader*> Segment::get_column_reader(int32_t col_unique_id) {
+    auto status = _create_column_readers_once();
+    if (!status) {
+        return ResultError(std::move(status));
+    }
     if (_column_readers.contains(col_unique_id)) {
         return _column_readers[col_unique_id].get();
     }
