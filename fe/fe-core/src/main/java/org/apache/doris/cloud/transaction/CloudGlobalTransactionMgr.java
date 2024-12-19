@@ -1211,6 +1211,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
             RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
             callbackId = rlTaskTxnCommitAttachment.getJobId();
+            txnState.setTransactionId(transactionId);
         }
 
         cb = callbackFactory.getCallback(callbackId);
