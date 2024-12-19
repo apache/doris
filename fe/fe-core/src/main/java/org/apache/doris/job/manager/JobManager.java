@@ -199,9 +199,13 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
+                    if (jobStatus.equals(a.getJobStatus())) {
+                        throw new JobException("Can't change job status to the same status");
+                    }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
-                    throw new JobException("unregister job error, jobName:" + jobName);
+                    throw new JobException("Alter job status error, jobName is %s, errorMsg is %s",
+                            jobName, e.getMessage());
                 }
             }
         }
