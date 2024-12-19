@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
@@ -343,6 +344,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterViewCommand(AlterViewCommand alterViewCommand, C context) {
         return visitCommand(alterViewCommand, context);
+    }
+
+    default R visitDropCatalogCommand(DropCatalogCommand dropCatalogCommand, C context) {
+        return visitCommand(dropCatalogCommand, context);
     }
 
     default R visitAlterCatalogCommentCommand(AlterCatalogCommentCommand alterCatalogCommentCommand, C context) {
