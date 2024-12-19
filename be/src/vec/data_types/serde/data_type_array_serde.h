@@ -101,7 +101,7 @@ public:
         nested_serde->set_return_object_as_string(value);
     }
 
-    void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst_column,
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
 private:
