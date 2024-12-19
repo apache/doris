@@ -66,6 +66,7 @@ class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
+struct VariantStatistics;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -208,7 +209,7 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
-    const VariantStatisticsPB* get_stats(int32_t unique_id) const;
+    ColumnReader* get_column_reader(int32_t col_unique_id);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -288,7 +289,6 @@ private:
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
     OlapReaderStatistics* _pk_index_load_stats = nullptr;
-    std::unordered_map<int32_t, VariantStatisticsPB> _variant_column_stats;
 };
 
 } // namespace segment_v2

@@ -38,8 +38,8 @@ class ScalarColumnWriter;
 struct VariantStatistics {
     // If reached the size of this, we should stop writing statistics for sparse data
     constexpr static size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10000;
-    std::map<StringRef, size_t> _subcolumns_non_null_size;
-    std::map<StringRef, size_t> _sparse_column_non_null_size;
+    std::unordered_map<std::string, size_t> subcolumns_non_null_size;
+    std::unordered_map<std::string, size_t> sparse_column_non_null_size;
 
     void to_pb(VariantStatisticsPB* stats) const;
     void from_pb(const VariantStatisticsPB& stats);

@@ -1362,7 +1362,6 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
         size_t sorted_src_subcolumn_for_sparse_column_idx = 0;
         size_t sorted_src_subcolumn_for_sparse_column_size =
                 sorted_src_subcolumn_for_sparse_column.size();
-        int null_count = 0;
 
         size_t offset = src_serialized_sparse_column_offsets[row - 1];
         size_t end = src_serialized_sparse_column_offsets[row];
@@ -1379,7 +1378,7 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
                 subcolumn->insert(data.first, data.second);
             } else {
                 // Before inserting this path into sparse column check if we need to
-                // insert suibcolumns from sorted_src_subcolumn_for_sparse_column before.
+                // insert subcolumns from sorted_src_subcolumn_for_sparse_column before.
                 while (sorted_src_subcolumn_for_sparse_column_idx <
                                sorted_src_subcolumn_for_sparse_column_size &&
                        sorted_src_subcolumn_for_sparse_column
@@ -1390,9 +1389,6 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
                     bool is_null = false;
                     src_subcolumn.serialize_to_sparse_column(sparse_column_path, src_path,
                                                              sparse_column_values, row, is_null);
-                    if (is_null) {
-                        ++null_count;
-                    }
                 }
 
                 /// Insert path and value from src sparse column to our sparse column.
@@ -1409,17 +1405,10 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
             bool is_null = false;
             src_subcolumn.serialize_to_sparse_column(sparse_column_path, src_path,
                                                      sparse_column_values, row, is_null);
-            if (is_null) {
-                ++null_count;
-            }
         }
 
         // All the sparse columns in this row are null.
-        if (null_count == sorted_src_subcolumn_for_sparse_column.size()) {
-            serialized_sparse_column->insert_default();
-        } else {
-            sparse_column_offsets.push_back(sparse_column_path->size());
-        }
+        sparse_column_offsets.push_back(sparse_column_path->size());
 
         // Insert default values in all remaining dense columns.
         for (const auto& entry : subcolumns) {
@@ -2041,6 +2030,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         new_subcolumns.get_mutable_root()->data.finalize(mode);
     } else if (mode == FinalizeMode::WRITE_MODE) {
         new_subcolumns.create_root(Subcolumn(num_rows, is_nullable, true));
+        new_subcolumns.get_mutable_root()->data.finalize(mode);
     }
 
     const bool need_pick_subcolumn_to_sparse_column =
@@ -2493,15 +2483,19 @@ size_t ColumnObject::find_path_lower_bound_in_sparse_data(StringRef path,
     return it.index;
 }
 
-void ColumnObject::fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, StringRef path,
-                                                    const ColumnPtr& sparse_data_column,
-                                                    size_t start, size_t end) {
+void ColumnObject::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
+                                                     StringRef path,
+                                                     const ColumnPtr& sparse_data_column,
+                                                     size_t start, size_t end) {
     const auto& sparse_data_map = assert_cast<const ColumnMap&>(*sparse_data_column);
     const auto& sparse_data_offsets = sparse_data_map.get_offsets();
     size_t first_offset = sparse_data_offsets[static_cast<ssize_t>(start) - 1];
     size_t last_offset = sparse_data_offsets[static_cast<ssize_t>(end) - 1];
     // Check if we have at least one row with data.
     if (first_offset == last_offset) {
+        if (null_map) {
+            null_map->resize_fill(end - start, 1);
+        }
         subcolumn.insert_many_defaults(end - start);
         return;
     }
@@ -2513,6 +2507,7 @@ void ColumnObject::fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, String
         size_t paths_end = sparse_data_offsets[static_cast<ssize_t>(i)];
         auto lower_bound_path_index = ColumnObject::find_path_lower_bound_in_sparse_data(
                 path, sparse_data_paths, paths_start, paths_end);
+        bool is_null = false;
         if (lower_bound_path_index != paths_end &&
             sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
             // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
@@ -2521,8 +2516,13 @@ void ColumnObject::fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, String
             const auto& data = ColumnObject::deserialize_from_sparse_column(&sparse_data_values,
                                                                             lower_bound_path_index);
             subcolumn.insert(data.first, data.second);
+            is_null = false;
         } else {
             subcolumn.insert_default();
+            is_null = true;
+        }
+        if (null_map) {
+            null_map->push_back(is_null);
         }
     }
 }

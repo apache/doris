@@ -79,8 +79,7 @@ class InvertedIndexFileReader;
 class PageDecoder;
 class RowRanges;
 class ZoneMapIndexReader;
-// struct SubcolumnReader;
-// using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
+struct VariantStatistics;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -311,13 +310,12 @@ public:
 
     FieldType get_meta_type() override { return FieldType::OLAP_FIELD_TYPE_VARIANT; }
 
+    const VariantStatistics* get_stats() const { return _statistics.get(); }
+
 private:
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
-    // Some sparse column record in stats, use StringRef to reduce memory usage,
-    // notice: make sure the ref is not released before the ColumnReader is destructed,
-    // used to decide whether to read from sparse column
-    std::unordered_set<StringRef> _sparse_column_set_in_stats;
+    std::unique_ptr<VariantStatistics> _statistics;
 };
 
 // Base iterator to read one column data

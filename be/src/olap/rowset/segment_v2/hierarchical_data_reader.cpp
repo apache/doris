@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
@@ -81,6 +82,10 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
     if (_root_reader && !_root_reader->inited) {
         RETURN_IF_ERROR(_root_reader->iterator->init(opts));
         _root_reader->inited = true;
+    }
+    if (_sparse_column_reader && !_sparse_column_reader->inited) {
+        RETURN_IF_ERROR(_sparse_column_reader->iterator->init(opts));
+        _sparse_column_reader->inited = true;
     }
     return Status::OK();
 }
@@ -402,15 +407,23 @@ Status SparseColumnExtractReader::seek_to_ordinal(ordinal_t ord) {
 }
 
 void SparseColumnExtractReader::_fill_path_column(vectorized::MutableColumnPtr& dst) {
+    vectorized::ColumnNullable* nullable_column = nullptr;
+    if (dst->is_nullable()) {
+        nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+    }
     vectorized::ColumnObject& var =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnObject&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+            nullable_column != nullptr
+                    ? assert_cast<vectorized::ColumnObject&>(nullable_column->get_nested_column())
                     : assert_cast<vectorized::ColumnObject&>(*dst);
-    DCHECK(!var.is_null_root());
-    vectorized::ColumnObject::fill_path_olumn_from_sparse_data(
-            *var.get_subcolumn({}) /*root*/, StringRef {_path.data(), _path.size()},
+    if (var.is_null_root()) {
+        var.add_sub_column({}, dst->size());
+    }
+    vectorized::NullMap* null_map =
+            nullable_column ? &nullable_column->get_null_map_data() : nullptr;
+    vectorized::ColumnObject::fill_path_column_from_sparse_data(
+            *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
             _sparse_column->get_ptr(), 0, _sparse_column->size());
+    var.incr_num_rows(_sparse_column->size());
     _sparse_column->clear();
 }
 
