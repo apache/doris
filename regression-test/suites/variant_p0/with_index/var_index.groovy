@@ -82,6 +82,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     }
 
     sql """ set disable_inverted_index_v1_for_variant = false """
+    sql "DROP TABLE IF EXISTS var_index"
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
