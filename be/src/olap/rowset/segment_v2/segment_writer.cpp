@@ -1151,6 +1151,7 @@ Status SegmentWriter::_write_footer() {
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
+    VLOG_DEBUG << "footer " << _footer.DebugString();
     if (!_footer.SerializeToString(&footer_buf)) {
         return Status::InternalError("failed to serialize segment footer");
     }

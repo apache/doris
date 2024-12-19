@@ -363,9 +363,7 @@ public:
 
     Subcolumns& get_subcolumns() { return subcolumns; }
 
-    ColumnPtr get_sparse_column() const {
-        return serialized_sparse_column->convert_to_full_column_if_const();
-    }
+    ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_sparse_column_fn() {

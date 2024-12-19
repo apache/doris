@@ -104,6 +104,10 @@ Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
         DCHECK(_root_reader->inited);
         RETURN_IF_ERROR(_root_reader->iterator->seek_to_ordinal(ord));
     }
+    if (_sparse_column_reader) {
+        DCHECK(_sparse_column_reader->inited);
+        RETURN_IF_ERROR(_sparse_column_reader->iterator->seek_to_ordinal(ord));
+    }
     return Status::OK();
 }
 
@@ -424,6 +428,10 @@ void SparseColumnExtractReader::_fill_path_column(vectorized::MutableColumnPtr& 
             *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
             _sparse_column->get_ptr(), 0, _sparse_column->size());
     var.incr_num_rows(_sparse_column->size());
+    var.get_sparse_column()->assume_mutable()->insert_many_defaults(_sparse_column->size());
+#ifndef NDEBUG
+    var.check_consistency();
+#endif
     _sparse_column->clear();
 }
 

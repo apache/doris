@@ -30,6 +30,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/schema_util.h"
+#include "vec/json/path_in_data.h"
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris::segment_v2 {
@@ -47,12 +48,12 @@ Status VariantColumnWriterImpl::init() {
     if (dynamic_paths.empty()) {
         _column = vectorized::ColumnObject::create(true, false);
     } else {
-        vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
-        for (const auto& path : dynamic_paths) {
-            dynamic_subcolumns.add(vectorized::PathInData(path),
-                                   vectorized::ColumnObject::Subcolumn {0, true});
+        // create root
+        auto col = vectorized::ColumnObject::create(true, true);
+        for (const auto& str_path : dynamic_paths) {
+            DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
         }
-        _column = vectorized::ColumnObject::create(std::move(dynamic_subcolumns), true);
+        _column = std::move(col);
     }
     if (_tablet_column->is_nullable()) {
         _null_column = vectorized::ColumnUInt8::create(0);
@@ -69,7 +70,8 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                 std::static_pointer_cast<BetaRowset>(reader->rowset()), &segment_cache));
         for (const auto& segment : segment_cache.get_segments()) {
-            ColumnReader* column_reader = segment->get_column_reader(_tablet_column->unique_id());
+            ColumnReader* column_reader =
+                    DORIS_TRY(segment->get_column_reader(_tablet_column->unique_id()));
             if (!column_reader) {
                 continue;
             }
@@ -104,10 +106,10 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
             paths_with_sizes.emplace_back(size, path);
         }
         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
-
         // Fill dynamic_paths with first max_dynamic_paths paths in sorted list.
+        // reserve 1 for root column
         for (const auto& [size, path] : paths_with_sizes) {
-            if (paths.size() < vectorized::ColumnObject::MAX_SUBCOLUMNS) {
+            if (paths.size() < vectorized::ColumnObject::MAX_SUBCOLUMNS - 1) {
                 paths.emplace(path);
             }
             // // todo : Add all remaining paths into shared data statistics until we reach its max size;
@@ -141,6 +143,7 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnObject* p
     ptr->ensure_root_node_type(expected_root_type);
 
     converter->add_column_data_convertor(*_tablet_column);
+    DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
             {ptr->get_root()->get_ptr(), nullptr, ""}, 0, num_rows, column_id));
     auto [status, column] = converter->convert_column_data(column_id);
@@ -228,12 +231,17 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 
     // convert root column data from engine format to storage layer format
     converter->add_column_data_convertor(sparse_column);
+    DCHECK_EQ(ptr->get_sparse_column()->size(), num_rows);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
-            {ptr->get_sparse_column()->get_ptr(), nullptr, ""}, 0, num_rows, column_id));
+            {ptr->get_sparse_column(), nullptr, ""}, 0, num_rows, column_id));
     auto [status, column] = converter->convert_column_data(column_id);
     if (!status.ok()) {
         return status;
     }
+    VLOG_DEBUG << "dump sparse "
+               << vectorized::schema_util::dump_column(
+                          vectorized::ColumnObject::get_sparse_column_type(),
+                          ptr->get_sparse_column());
     RETURN_IF_ERROR(
             _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
     ++column_id;
@@ -253,7 +261,6 @@ Status VariantColumnWriterImpl::_process_sparse_column(
             _statistics.sparse_column_non_null_size.emplace(path, 1);
         }
     }
-
     sparse_writer_opts.meta->set_num_rows(num_rows);
     return Status::OK();
 }
@@ -294,6 +301,10 @@ Status VariantColumnWriterImpl::finalize() {
         ptr->create_root(root_type, std::move(root_col));
     }
 
+#ifndef NDEBUG
+    ptr->check_consistency();
+#endif
+
     size_t num_rows = _column->size();
     int column_id = 0;
 
@@ -333,10 +344,10 @@ uint64_t VariantColumnWriterImpl::estimate_buffer_size() {
         return _column->byte_size();
     }
     uint64_t size = 0;
+    size += _root_writer->estimate_buffer_size();
     for (auto& column_writer : _subcolumn_writers) {
         size += column_writer->estimate_buffer_size();
     }
-    size += _root_writer->estimate_buffer_size();
     size += _sparse_column_writer->estimate_buffer_size();
     return size;
 }
@@ -346,10 +357,10 @@ Status VariantColumnWriterImpl::finish() {
         RETURN_IF_ERROR(finalize());
     }
     RETURN_IF_ERROR(_root_writer->finish());
-    RETURN_IF_ERROR(_sparse_column_writer->finish());
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
+    RETURN_IF_ERROR(_sparse_column_writer->finish());
     return Status::OK();
 }
 Status VariantColumnWriterImpl::write_data() {
@@ -357,10 +368,10 @@ Status VariantColumnWriterImpl::write_data() {
         RETURN_IF_ERROR(finalize());
     }
     RETURN_IF_ERROR(_root_writer->write_data());
-    RETURN_IF_ERROR(_sparse_column_writer->write_data());
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
     }
+    RETURN_IF_ERROR(_sparse_column_writer->write_data());
     return Status::OK();
 }
 Status VariantColumnWriterImpl::write_ordinal_index() {
@@ -368,10 +379,10 @@ Status VariantColumnWriterImpl::write_ordinal_index() {
         RETURN_IF_ERROR(finalize());
     }
     RETURN_IF_ERROR(_root_writer->write_ordinal_index());
-    RETURN_IF_ERROR(_sparse_column_writer->write_ordinal_index());
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
+    RETURN_IF_ERROR(_sparse_column_writer->write_ordinal_index());
     return Status::OK();
 }
 

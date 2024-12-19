@@ -701,6 +701,7 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
     }
     data = {std::move(result_column)};
     data_types = {std::move(to_type)};
+    data_serdes = {data_types[0]->get_serde()};
     num_of_defaults_in_prefix = 0;
 }
 
@@ -1253,10 +1254,11 @@ bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
+    const auto& src_object = assert_cast<const ColumnObject&>(src);
 #ifndef NDEBUG
     check_consistency();
+    src_object.check_consistency();
 #endif
-    const auto& src_object = assert_cast<const ColumnObject&>(src);
 
     // First, insert src subcolumns
     // We can reach the limit of subcolumns, and in this case
@@ -2224,6 +2226,9 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
         num_rows = column->size();
     }
     add_sub_column({}, std::move(column), type);
+    if (serialized_sparse_column->empty()) {
+        serialized_sparse_column->insert_many_defaults(num_rows);
+    }
 }
 
 const DataTypePtr& ColumnObject::get_most_common_type() {

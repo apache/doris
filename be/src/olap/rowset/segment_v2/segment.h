@@ -209,7 +209,7 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
-    ColumnReader* get_column_reader(int32_t col_unique_id);
+    Result<ColumnReader*> get_column_reader(int32_t col_unique_id);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
