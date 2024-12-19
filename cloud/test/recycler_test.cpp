@@ -121,6 +121,23 @@ static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, in
     return rowset;
 }
 
+static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, int64_t tablet_id,
+                                              int64_t index_id, int num_segments,
+                                              const doris::TabletSchemaCloudPB& schema,
+                                              RowsetStatePB rowset_state, int64_t txn_id = 0) {
+    doris::RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2(next_rowset_id());
+    rowset.set_txn_id(txn_id);
+    rowset.set_num_segments(num_segments);
+    rowset.set_tablet_id(tablet_id);
+    rowset.set_index_id(index_id);
+    rowset.set_resource_id(resource_id);
+    rowset.set_schema_version(schema.schema_version());
+    rowset.mutable_tablet_schema()->CopyFrom(schema);
+    return rowset;
+}
+
 static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                  const doris::RowsetMetaCloudPB& rowset, RecycleRowsetPB::Type type,
                                  bool write_schema_kv) {
@@ -922,6 +939,73 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     // Check InvertedIndexIdCache
     EXPECT_EQ(insert_inverted_index, 16);
     EXPECT_EQ(insert_no_inverted_index, 4);
+}
+
+TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tmp_rowsets_partial_update");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tmp_rowsets_partial_update");
+
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->enable_processing();
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    doris::TabletSchemaCloudPB schema;
+
+    auto accessor = recycler.accessor_map_.begin()->second;
+    int64_t tablet_id = 10015;
+    int64_t index_id = 1000;
+    int64_t txn_id = 293039;
+    for (int j = 0; j < 20; ++j) {
+        if (j < 15) {
+            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
+                                        5, schema, txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false);
+        } else {
+            int segment_num = 5;
+            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
+                                        5, schema, txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false);
+
+            // partial update may write new segment to an existing tmp rowsets
+            // we simulate that partial update load fails after it writes a segment
+            // and before it updates the segments num in tmp rowset meta
+            int extra_segment_id = segment_num;
+            auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), extra_segment_id);
+            accessor->put_file(path, path);
+        }
+    }
+
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+
+    // check rowset does not exist on obj store
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
+    ASSERT_FALSE(list_iter->has_next());
+    // check all tmp rowset kv have been deleted
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
+    auto end_key = meta_rowset_tmp_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
 }
 
 TEST(RecyclerTest, recycle_tablet) {
