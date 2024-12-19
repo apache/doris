@@ -135,6 +135,7 @@ static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, in
     rowset.set_resource_id(resource_id);
     rowset.set_schema_version(schema.schema_version());
     rowset.mutable_tablet_schema()->CopyFrom(schema);
+    rowset.set_rowset_state(rowset_state);
     return rowset;
 }
 
@@ -957,11 +958,6 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_tmp_rowsets_partial_update");
 
-    auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->enable_processing();
-
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
@@ -971,16 +967,18 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     auto accessor = recycler.accessor_map_.begin()->second;
     int64_t tablet_id = 10015;
     int64_t index_id = 1000;
-    int64_t txn_id = 293039;
+    int64_t txn_id_base = 293039;
     for (int j = 0; j < 20; ++j) {
+        int64_t txn_id = txn_id_base + j;
+        int segment_num = 5;
         if (j < 15) {
-            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
-                                        5, schema, txn_id);
+            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, index_id,
+                                        segment_num, schema, RowsetStatePB::VISIBLE, txn_id);
             create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false);
         } else {
-            int segment_num = 5;
-            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
-                                        5, schema, txn_id);
+            auto rowset =
+                    create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
+                                  segment_num, schema, RowsetStatePB::BEGIN_PARTIAL_UPDATE, txn_id);
             create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false);
 
             // partial update may write new segment to an existing tmp rowsets
@@ -993,7 +991,6 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     }
 
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
-
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));

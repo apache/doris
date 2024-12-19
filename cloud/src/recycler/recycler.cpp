@@ -1522,8 +1522,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             index_ids = std::move(index_info.second);
         }
         if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
-            // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the num of segments may be bigger than num_segments
-            // so we need to delete the rowset's data by prefix
+            // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
+            // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
             rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
             continue;
         }
