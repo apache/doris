@@ -284,6 +284,9 @@ public:
 
     bool get_ignored();
 
+    void set_disabled();
+    bool get_disabled() const;
+
     RuntimeFilterType get_real_type();
 
     bool need_sync_filter_size();
