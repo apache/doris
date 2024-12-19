@@ -203,8 +203,47 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_two_partition "SELECT * FROM ${mvName} "
-
     sql """drop materialized view if exists ${mvName};"""
+
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`create_date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1','partition_sync_limit'='2','partition_date_format'='%Y-%m-%d',
+                        'partition_sync_time_unit'='MONTH')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
+        """
+    def showLimitPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showLimitPartitionsResult: " + showLimitPartitionsResult.toString())
+    assertFalse(showLimitPartitionsResult.toString().contains("p_20200101"))
+    assertTrue(showLimitPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showLimitPartitionsResult.toString().contains("p_20380102"))
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_limit_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
+
+    // not allow date trunc
+    test {
+         sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (date_trunc(`create_date`,'month'))
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1','partition_sync_limit'='2','partition_date_format'='%Y-%m-%d',
+                            'partition_sync_time_unit'='MONTH')
+                AS
+                SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
+            """
+          exception "only support"
+      }
+
+
     sql """drop catalog if exists ${catalogName}"""
 
 }
