@@ -300,3 +300,70 @@ Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowset
 }
 
 logger.info("Added 'check_nested_index_file' function to Suite")
+
+Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type ->
+    if (!(compaction_type in ["cumulative", "base", "full"])) {
+        throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
+    }
+
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    def tablets = sql_return_maparray """show tablets from ${table_name}"""
+    def exit_code, stdout, stderr
+
+    // 1. cache compaction status
+    def be_tablet_compaction_status = [:]
+    for (tablet in tablets) {
+        def be_host = backendId_to_backendIP["${tablet.BackendId}"]
+        def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
+        (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
+        assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+
+        def tabletStatus = parseJson(stdout.trim())
+        be_tablet_compaction_status.put("${be_host}-${tablet.TabletId}", tabletStatus)
+    }
+    // 2. trigger compaction
+    for (tablet in tablets) {
+        def be_host = backendId_to_backendIP["${tablet.BackendId}"]
+        def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
+        switch (compaction_type) {
+            case "cumulative":
+                (exit_code, stdout, stderr) = be_run_cumulative_compaction(be_host, be_port, tablet.TabletId)
+                break
+            case "base":
+                (exit_code, stdout, stderr) = be_run_base_compaction(be_host, be_port, tablet.TabletId)
+                break
+            case "full":
+                (exit_code, stdout, stderr) = be_run_full_compaction(be_host, be_port, tablet.TabletId)
+                break
+        }
+        assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+    }
+    // 3. wait all compaction finished
+    def running = true
+    while (running) {
+        Thread.sleep(500)
+        for (tablet in tablets) {
+            def be_host = backendId_to_backendIP["${tablet.BackendId}"]
+            def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
+
+            (exit_code, stdout, stderr) = be_get_compaction_status(be_host, be_port, tablet.TabletId)
+            assert exit_code == 0: "get compaction status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+            def compactionStatus = parseJson(stdout.trim())
+            assert compactionStatus.status.toLowerCase() == "success": "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${compactionStatus.status}"
+            // running is true means compaction is still running
+            running = compactionStatus.run_status
+
+            (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
+            assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+            def tabletStatus = parseJson(stdout.trim())
+            def oldStatus = be_tablet_compaction_status["${be_host}-${tablet.TabletId}"]
+            // last compaction success time isn't updated, indicates compaction is not started(so we treat it as running and wait)
+            running = running || (oldStatus["last ${compaction_type} success time"] != tabletStatus["last ${compaction_type} success time"])
+            if (running) {
+                break
+            }
+        }
+    }
+}
