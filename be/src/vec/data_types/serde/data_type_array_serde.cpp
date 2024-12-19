@@ -436,9 +436,9 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
 }
 
 void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
-                                                  ColumnString* dst_column, int64_t row_num) const {
+                                                  ColumnString::Chars& chars,
+                                                  int64_t row_num) const {
     const uint8_t type = static_cast<uint8_t>(TypeIndex::Array);
-    ColumnString::Chars& chars = dst_column->get_chars();
     const size_t old_size = chars.size();
     const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t);
     chars.resize(new_size);
@@ -453,9 +453,8 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&size),
            sizeof(size_t));
     for (size_t offset = start; offset != end; ++offset) {
-        nested_serde->write_one_cell_to_binary(nested_column, dst_column, offset);
+        nested_serde->write_one_cell_to_binary(nested_column, chars, offset);
     }
-    dst_column->get_offsets().push_back(chars.size());
 }
 
 } // namespace vectorized

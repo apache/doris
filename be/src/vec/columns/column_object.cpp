@@ -1053,8 +1053,10 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
                 auto& nullable_col = assert_cast<const ColumnNullable&>(*part);
 
                 // insert value
+                ColumnString::Chars& chars = value->get_chars();
                 nullable_serde->get_nested_serde()->write_one_cell_to_binary(
-                        nullable_col.get_nested_column(), value, row);
+                        nullable_col.get_nested_column(), chars, row);
+                value->get_offsets().push_back(chars.size());
             }
             return;
         }
@@ -1114,6 +1116,11 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         end = data + size;
         break;
     }
+    case TypeIndex::Nothing: {
+        res = Null();
+        end = data;
+        break;
+    }
     case TypeIndex::Array: {
         const size_t size = *reinterpret_cast<const size_t*>(data);
         data += sizeof(size_t);
@@ -1123,9 +1130,9 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         for (size_t i = 0; i < size; ++i) {
             Field nested_field;
             const auto nested_type =
-                    assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+                    static_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
             data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
-            array.emplace_back(std::move(nested_field));
+            array[i] = std::move(nested_field);
         }
         end = data;
         break;

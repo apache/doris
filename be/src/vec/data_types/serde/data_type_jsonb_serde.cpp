@@ -279,13 +279,13 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
 }
 
 void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
-                                                  ColumnString* dst_column, int64_t row_num) const {
+                                                  ColumnString::Chars& chars,
+                                                  int64_t row_num) const {
     const uint8_t type = static_cast<uint8_t>(TypeIndex::JSONB);
     const auto& col = assert_cast<const ColumnString&>(src_column);
     const auto& data_ref = col.get_data_at(row_num);
     size_t data_size = data_ref.size;
 
-    ColumnString::Chars& chars = dst_column->get_chars();
     const size_t old_size = chars.size();
     const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t) + data_ref.size;
     chars.resize(new_size);
@@ -294,7 +294,6 @@ void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
            sizeof(size_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
-    dst_column->get_offsets().push_back(new_size);
 }
 } // namespace vectorized
 } // namespace doris

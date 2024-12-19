@@ -393,20 +393,21 @@ Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
     return Status::OK();
 }
 
-// void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
-//                                                      ColumnString* dst_column,
-//                                                      int64_t row_num) const {
-//     auto& col = assert_cast<const ColumnNullable&>(src_column);
-//     uint8_t is_null = 0;
-//     if (col.is_null_at(row_num)) [[unlikely]] {
-//         is_null = 1;
-//         dst_column->insert_data(reinterpret_cast<const char*>(is_null), sizeof(uint8_t));
-//     } else {
-//         dst_column->insert_data(reinterpret_cast<const char*>(is_null), sizeof(uint8_t));
-//         auto& nested_col = col.get_nested_column();
-//         nested_serde->write_one_cell_to_binary(nested_col, dst_column, row_num);
-//     }
-// }
+void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                     ColumnString::Chars& chars,
+                                                     int64_t row_num) const {
+    auto& col = assert_cast<const ColumnNullable&>(src_column);
+    if (col.is_null_at(row_num)) [[unlikely]] {
+        const uint8_t type = static_cast<uint8_t>(TypeIndex::Nothing);
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + sizeof(uint8_t);
+        chars.resize(new_size);
+        memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    } else {
+        auto& nested_col = col.get_nested_column();
+        nested_serde->write_one_cell_to_binary(nested_col, chars, row_num);
+    }
+}
 
 } // namespace vectorized
 } // namespace doris
