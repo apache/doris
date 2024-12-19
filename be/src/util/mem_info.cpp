@@ -74,9 +74,9 @@ std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
-int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
-int64_t MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
-bool MemInfo::_s_cgroup_mem_refresh_state = false;
+std::atomic<int64_t> MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+std::atomic<int64_t> MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
+std::atomic<bool> MemInfo::_s_cgroup_mem_refresh_state = false;
 int64_t MemInfo::_s_cgroup_mem_refresh_wait_times = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
@@ -94,7 +94,7 @@ void MemInfo::refresh_allocator_mem() {
 #elif defined(USE_JEMALLOC)
     // jemalloc mallctl refer to : https://jemalloc.net/jemalloc.3.html
     // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
-    //  Check the Doris BE web page `http://ip:webserver_port/memz` to get the Jemalloc Profile.
+    //  Check the Doris BE web page `http://ip:webserver_port/memory` to get the Jemalloc Profile.
 
     // 'epoch' is a special mallctl -- it updates the statistics. Without it, all
     // the following calls will return stale values. It increments and returns
@@ -189,40 +189,47 @@ void MemInfo::refresh_proc_meminfo() {
     }
 
     // refresh cgroup memory
-    if (_s_cgroup_mem_refresh_wait_times >= 0 && config::enable_use_cgroup_memory_info) {
-        int64_t cgroup_mem_limit = -1;
-        int64_t cgroup_mem_usage = -1;
-        std::string cgroup_mem_info_file_path;
-        _s_cgroup_mem_refresh_state = true;
-        Status status = CGroupMemoryCtl::find_cgroup_mem_limit(&cgroup_mem_limit);
-        if (!status.ok()) {
-            _s_cgroup_mem_refresh_state = false;
-        }
-        status = CGroupMemoryCtl::find_cgroup_mem_usage(&cgroup_mem_usage);
-        if (!status.ok()) {
-            _s_cgroup_mem_refresh_state = false;
+    if (config::enable_use_cgroup_memory_info) {
+        if (_s_cgroup_mem_refresh_wait_times >= 0) {
+            int64_t cgroup_mem_limit;
+            auto status = CGroupMemoryCtl::find_cgroup_mem_limit(&cgroup_mem_limit);
+            if (!status.ok()) {
+                _s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
+                // find cgroup limit failed, wait 300s, 1000 * 100ms.
+                _s_cgroup_mem_refresh_wait_times = -3000;
+                LOG(WARNING)
+                        << "Refresh cgroup memory limit failed, refresh again after 300s, cgroup "
+                           "mem limit: "
+                        << _s_cgroup_mem_limit << ", " << status;
+            } else {
+                _s_cgroup_mem_limit = cgroup_mem_limit;
+                // wait 10s, 100 * 100ms, avoid too frequently.
+                _s_cgroup_mem_refresh_wait_times = -100;
+            }
+        } else {
+            _s_cgroup_mem_refresh_wait_times++;
         }
 
-        if (_s_cgroup_mem_refresh_state) {
-            _s_cgroup_mem_limit = cgroup_mem_limit;
-            _s_cgroup_mem_usage = cgroup_mem_usage;
-            // wait 10s, 100 * 100ms, avoid too frequently.
-            _s_cgroup_mem_refresh_wait_times = -100;
-            LOG(INFO) << "Refresh cgroup memory win, refresh again after 10s, cgroup mem limit: "
-                      << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
-        } else {
-            // find cgroup failed, wait 300s, 1000 * 100ms.
-            _s_cgroup_mem_refresh_wait_times = -3000;
-            LOG(INFO)
-                    << "Refresh cgroup memory failed, refresh again after 300s, cgroup mem limit: "
-                    << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage;
-        }
-    } else {
-        if (config::enable_use_cgroup_memory_info) {
-            _s_cgroup_mem_refresh_wait_times++;
+        // cgroup mem limit is refreshed every 10 seconds,
+        // cgroup mem usage is refreshed together with memInfo every time, which is very frequent.
+        if (_s_cgroup_mem_limit != std::numeric_limits<int64_t>::max()) {
+            int64_t cgroup_mem_usage;
+            auto status = CGroupMemoryCtl::find_cgroup_mem_usage(&cgroup_mem_usage);
+            if (!status.ok()) {
+                _s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
+                _s_cgroup_mem_refresh_state = false;
+                LOG_EVERY_N(WARNING, 500)
+                        << "Refresh cgroup memory usage failed, cgroup mem limit: "
+                        << _s_cgroup_mem_limit << ", " << status;
+            } else {
+                _s_cgroup_mem_usage = cgroup_mem_usage;
+                _s_cgroup_mem_refresh_state = true;
+            }
         } else {
             _s_cgroup_mem_refresh_state = false;
         }
+    } else {
+        _s_cgroup_mem_refresh_state = false;
     }
 
     // 1. calculate physical_mem
@@ -234,7 +241,8 @@ void MemInfo::refresh_proc_meminfo() {
         if (physical_mem < 0) {
             physical_mem = _s_cgroup_mem_limit;
         } else {
-            physical_mem = std::min(physical_mem, _s_cgroup_mem_limit);
+            physical_mem =
+                    std::min(physical_mem, _s_cgroup_mem_limit.load(std::memory_order_relaxed));
         }
     }
 
@@ -277,6 +285,12 @@ void MemInfo::refresh_proc_meminfo() {
         mem_available = _mem_info_bytes["MemAvailable"];
     }
     if (_s_cgroup_mem_refresh_state) {
+        // Note, CgroupV2 MemAvailable is usually a little smaller than Process MemAvailable.
+        // Process `MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))`,
+        // from `MemAvailable` in `/proc/meminfo`, calculated by OS.
+        // CgroupV2 `MemAvailable = cgroup_mem_limit - cgroup_mem_usage`,
+        // `cgroup_mem_usage = memory.current - inactive_file - slab_reclaimable`, in fact,
+        // there seems to be some memory that can be reused in `cgroup_mem_usage`.
         if (mem_available < 0) {
             mem_available = _s_cgroup_mem_limit - _s_cgroup_mem_usage;
         } else {

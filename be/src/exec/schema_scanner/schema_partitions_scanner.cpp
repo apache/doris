@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include "exec/schema_scanner/schema_helper.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -99,7 +98,7 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
@@ -147,22 +146,9 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
 
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
-
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            if ((_s_tbls_columns[j].type == TYPE_BIGINT) || _s_tbls_columns[j].type == TYPE_INT) {
-                SchemaScannerHelper::insert_int_value(j, row.column_value[j].longVal,
-                                                      _partitions_block.get());
-            } else if (_s_tbls_columns[j].type == TYPE_DATETIME) {
-                std::vector<void*> datas(1);
-                VecDateTimeValue src[1];
-                src[0].from_date_str(row.column_value[j].stringVal.data(),
-                                     row.column_value[j].stringVal.size());
-                datas[0] = src;
-                SchemaScannerHelper::insert_datetime_value(j, datas, _partitions_block.get());
-            } else {
-                SchemaScannerHelper::insert_string_value(j, row.column_value[j].stringVal,
-                                                         _partitions_block.get());
-            }
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _partitions_block.get(),
+                                                _s_tbls_columns[j].type));
         }
     }
     return Status::OK();

@@ -18,10 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_compaction_uniq_keys_ck") {
-    if (isCloudMode()) {
-        logger.info("cloud does not support mow cluster key")
-        return
-    }
     def tableName = "compaction_uniq_keys_ck"
 
     try {

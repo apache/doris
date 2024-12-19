@@ -69,7 +69,7 @@ public class CatalogsProcDir implements ProcDirInterface {
 
         CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogId);
         if (catalog == null) {
-            throw new AnalysisException("Catalog " + catalogIdStr + " does not exist");
+            throw new AnalysisException("Catalog " + catalogIdStr + " does not exist. Id " + catalogId);
         }
 
         return new DbsProcDir(env, catalog);

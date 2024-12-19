@@ -177,12 +177,14 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql08 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test_v1;"""
             order_qt_sql09 """select test1 from test_v1;"""
             order_qt_sql10 """select test2 from test_v1;"""
+            order_qt_sql11 """select test6 from test_v1;"""
             
             order_qt_sql20 """select * from test_v2 where test2='text#1'"""
             order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
             order_qt_sql22 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
             order_qt_sql23 """select * from test_v2 where esquery(c_long, '{"term":{"c_long":"-1"}}');"""
             order_qt_sql24 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test_v2;"""
+            order_qt_sql25 """select test6 from test_v2;"""
 
             sql """switch test_es_query_es5"""
             order_qt_sql_5_02 """select * from test1 where test2='text#1'"""
@@ -208,13 +210,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_22 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 12' limit 4;"""
             order_qt_sql_5_23 """select test1 from test1;"""
             order_qt_sql_5_24 """select test2 from test1;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                logger.error(e.getMessage())
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_5_25 """select test6 from test1;"""
+            order_qt_sql_5_26 """select test6 from test2;"""
+            order_qt_sql_5_27 """select * from composite_type_array order by name;"""
+            order_qt_sql_5_28 """select * from test3_20231005;"""
+            order_qt_sql_5_29 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_5_30 """select test1, test2 from test1 where test2 like 'text%';"""
 
             sql """switch test_es_query_es6"""
             // order_qt_sql_6_01 """show tables"""
@@ -241,12 +242,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_22 """select test6, substring(test6, 1, 13) from test2 where substring(test6, 1, 13) = '2022-08-08 12' limit 4;"""
             order_qt_sql_6_23 """select test1 from test1;"""
             order_qt_sql_6_24 """select test2 from test1;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_6_25 """select test6 from test1;"""
+            order_qt_sql_6_26 """select test6 from test2;"""
+            order_qt_sql_6_27 """select * from composite_type_array order by name;"""
+            order_qt_sql_6_28 """select * from test3_20231005;"""
+            order_qt_sql_6_29 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_6_30 """select test1, test2 from test1 where test2 like 'text%';"""
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
@@ -299,12 +300,11 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_29 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-11' limit 2;"""
             order_qt_sql_7_30 """select test1 from test1;"""
             order_qt_sql_7_31 """select test2 from test1;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
+            order_qt_sql_7_32 """select test6 from test1;"""
+            order_qt_sql_7_33 """select test6 from test2;"""
+            order_qt_sql_7_34 """select * from composite_type_array order by name;"""
+            order_qt_sql_7_35 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_7_36 """select test1, test2 from test1 where test2 like 'text%';"""
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true
@@ -357,13 +357,12 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_27 """select test7,substring(test7, 1, 10) from test2 where substring(test7, 1, 10)='2022-08-11' limit 2;"""
             order_qt_sql_8_28 """select test1 from test1;"""
             order_qt_sql_8_29 """select test2 from test1;"""
-            try {
-                sql """select * from composite_type_array;"""
-                fail("Should not reach here")
-            } catch (Exception e) {
-                assertTrue(e.getMessage().contains("Expected value of type: ARRAY; but found type: Varchar/Char; Document slice is : \"soccer\""))
-            }
-        
+            order_qt_sql_8_30 """select test6 from test1;"""
+            order_qt_sql_8_31 """select test6 from test2;"""
+            order_qt_sql_8_32 """select * from composite_type_array order by name;"""
+            order_qt_sql_8_33 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_8_34 """select test1, test2 from test1 where test2 like 'text%';"""
+
         }
 
         sql """set enable_es_parallel_scroll=true"""

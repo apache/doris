@@ -30,6 +30,47 @@ import time
 LOG = utils.get_logger()
 
 
+def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
+
+    def is_fe_ready_service(ip):
+        return utils.is_socket_avail(ip, CLUSTER.FE_QUERY_PORT)
+
+    def is_be_ready_service(ip):
+        return utils.is_socket_avail(ip, CLUSTER.BE_HEARTBEAT_PORT)
+
+    if wait_timeout == 0:
+        return
+    if wait_timeout == -1:
+        wait_timeout = 1000000000
+    expire_ts = time.time() + wait_timeout
+    while True:
+        db_mgr = database.get_db_mgr(cluster.name, False)
+        dead_frontends = []
+        for id in fe_ids:
+            fe = cluster.get_node(CLUSTER.Node.TYPE_FE, id)
+            fe_state = db_mgr.get_fe(id)
+            if not fe_state or not fe_state.alive or not is_fe_ready_service(
+                    fe.get_ip()):
+                dead_frontends.append(id)
+        dead_backends = []
+        for id in be_ids:
+            be = cluster.get_node(CLUSTER.Node.TYPE_BE, id)
+            be_state = db_mgr.get_be(id)
+            if not be_state or not be_state.alive or not is_be_ready_service(
+                    be.get_ip()):
+                dead_backends.append(id)
+        if not dead_frontends and not dead_backends:
+            break
+        if time.time() >= expire_ts:
+            err = ""
+            if dead_frontends:
+                err += "dead fe: " + str(dead_frontends) + ". "
+            if dead_backends:
+                err += "dead be: " + str(dead_backends) + ". "
+            raise Exception(err)
+        time.sleep(1)
+
+
 # return for_all, related_nodes, related_node_num
 def get_ids_related_nodes(cluster,
                           fe_ids,
@@ -92,7 +133,12 @@ class Command(object):
     def run(self, args):
         raise Exception("No implemented")
 
-    def _add_parser_output_json(self, parser):
+    def _add_parser_common_args(self, parser):
+        parser.add_argument("-v",
+                            "--verbose",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="verbose logging.")
         parser.add_argument("--output-json",
                             default=False,
                             action=self._get_parser_bool_action(True),
@@ -136,6 +182,18 @@ class Command(object):
     def _support_boolean_action(self):
         return sys.version_info.major == 3 and sys.version_info.minor >= 9
 
+    def _print_table(self, header, datas):
+        if utils.is_log_stdout():
+            table = prettytable.PrettyTable(
+                [utils.render_green(field) for field in header])
+            for row in datas:
+                table.add_row(row)
+            print(table)
+            return ""
+        else:
+            datas.insert(0, header)
+            return datas
+
 
 class SimpleCommand(Command):
 
@@ -150,11 +208,12 @@ class SimpleCommand(Command):
         parser = args_parsers.add_parser(self.command, help=help)
         parser.add_argument("NAME", help="Specify cluster name.")
         self._add_parser_ids_args(parser)
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
+        return parser
 
     def run(self, args):
         cluster = CLUSTER.Cluster.load(args.NAME)
-        _, related_nodes, related_node_num = get_ids_related_nodes(
+        for_all, related_nodes, related_node_num = get_ids_related_nodes(
             cluster, args.fe_id, args.be_id, args.ms_id, args.recycle_id,
             args.fdb_id)
         utils.exec_docker_compose_command(cluster.get_compose_file(),
@@ -164,6 +223,31 @@ class SimpleCommand(Command):
         LOG.info(
             utils.render_green("{} succ, total related node num {}".format(
                 show_cmd, related_node_num)))
+
+        if for_all:
+            related_nodes = cluster.get_all_nodes()
+        return cluster, related_nodes
+
+
+class NeedStartCommand(SimpleCommand):
+
+    def add_parser(self, args_parsers):
+        parser = super().add_parser(args_parsers)
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help=
+            "Specify wait seconds for fe/be ready for service: 0 not wait (default), "\
+            "> 0 max wait seconds, -1 wait unlimited."
+        )
+        return parser
+
+    def run(self, args):
+        cluster, related_nodes = super().run(args)
+        fe_ids = [node.id for node in related_nodes if node.is_fe()]
+        be_ids = [node.id for node in related_nodes if node.is_be()]
+        wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
 
 
 class UpCommand(Command):
@@ -180,12 +264,20 @@ class UpCommand(Command):
                             nargs="?",
                             help="Specify docker image.")
 
+        self._add_parser_common_args(parser)
         parser.add_argument(
             "--cloud",
             default=False,
             action=self._get_parser_bool_action(True),
             help=
             "Create cloud cluster, default is false. Only use when creating new cluster."
+        )
+        parser.add_argument(
+            "--root",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help=
+            "Run cluster as root user, default is false, it will run as host user."
         )
 
         parser.add_argument(
@@ -196,8 +288,6 @@ class UpCommand(Command):
             "Specify wait seconds for fe/be ready for service: 0 not wait (default), "\
             "> 0 max wait seconds, -1 wait unlimited."
         )
-
-        self._add_parser_output_json(parser)
 
         group1 = parser.add_argument_group("add new nodes",
                                            "add cluster nodes.")
@@ -290,12 +380,49 @@ class UpCommand(Command):
         group2.add_argument("--force-recreate",
                            default=False,
                            action=self._get_parser_bool_action(True),
-                           help="Recreate containers even if their configuration" \
+                           help="Recreate containers even if their configuration " \
                                 "and image haven't changed. ")
 
         parser.add_argument("--coverage-dir",
                             default="",
                             help="Set code coverage output directory")
+
+        parser.add_argument("--sql-mode-node-mgr",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Manager fe be via sql instead of http")
+
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--be-metaservice-endpoint",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help=
+                "Do not set BE meta service endpoint in conf. Default is False."
+            )
+        else:
+            parser.add_argument(
+                "--no-be-metaservice-endpoint",
+                dest='be_metaservice_endpoint',
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help=
+                "Do not set BE meta service endpoint in conf. Default is False."
+            )
+
+        if self._support_boolean_action():
+            parser.add_argument(
+                "--be-cluster-id",
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Do not set BE cluster ID in conf. Default is False.")
+        else:
+            parser.add_argument(
+                "--no-be-cluster-id",
+                dest='be_cluster_id',
+                default=True,
+                action=self._get_parser_bool_action(False),
+                help="Do not set BE cluser ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -391,10 +518,11 @@ class UpCommand(Command):
                 args.add_recycle_num = 0
 
             cluster = CLUSTER.Cluster.new(
-                args.NAME, args.IMAGE, args.cloud, args.fe_config,
+                args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
-                args.coverage_dir, cloud_store_config)
+                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
+                args.be_metaservice_endpoint, args.be_cluster_id)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -470,50 +598,74 @@ class UpCommand(Command):
                                           related_nodes,
                                           output_real_time=output_real_time)
 
-        ls_cmd = "python docker/runtime/doris-compose/doris-compose.py ls " + cluster.name
-        LOG.info("Inspect command: " + utils.render_green(ls_cmd) + "\n")
-        LOG.info(
-            "Master fe query address: " +
-            utils.render_green(CLUSTER.get_master_fe_endpoint(cluster.name)) +
-            "\n")
-
         if not args.start:
             LOG.info(
                 utils.render_green(
                     "Not up cluster cause specific --no-start, related node num {}"
                     .format(related_node_num)))
         else:
-            if args.wait_timeout != 0:
-                if args.wait_timeout == -1:
-                    args.wait_timeout = 1000000000
-                expire_ts = time.time() + args.wait_timeout
-                while True:
-                    db_mgr = database.get_db_mgr(args.NAME, False)
-                    dead_frontends = []
-                    for id in add_fe_ids:
-                        fe_state = db_mgr.get_fe(id)
-                        if not fe_state or not fe_state.alive:
-                            dead_frontends.append(id)
-                    dead_backends = []
-                    for id in add_be_ids:
-                        be_state = db_mgr.get_be(id)
-                        if not be_state or not be_state.alive:
-                            dead_backends.append(id)
-                    if not dead_frontends and not dead_backends:
+            LOG.info("Using SQL mode for node management ? {}".format(
+                args.sql_mode_node_mgr))
+
+            # Wait for FE master to be elected
+            LOG.info("Waiting for FE master to be elected...")
+            expire_ts = time.time() + 30
+            while expire_ts > time.time():
+                ready = False
+                db_mgr = database.get_db_mgr(args.NAME, False)
+                for id in add_fe_ids:
+                    fe_state = db_mgr.get_fe(id)
+                    if fe_state is not None and fe_state.alive:
+                        ready = True
                         break
-                    if time.time() >= expire_ts:
-                        err = ""
-                        if dead_frontends:
-                            err += "dead fe: " + str(dead_frontends) + ". "
-                        if dead_backends:
-                            err += "dead be: " + str(dead_backends) + ". "
-                        raise Exception(err)
-                    time.sleep(1)
+                if ready:
+                    break
+                LOG.info("there is no fe ready")
+                time.sleep(1)
+            LOG.info("after Waiting for FE master to be elected...")
+            if cluster.is_cloud and args.sql_mode_node_mgr:
+                db_mgr = database.get_db_mgr(args.NAME, False)
+                master_fe_endpoint = CLUSTER.get_master_fe_endpoint(
+                    cluster.name)
+                # Add FEs except master_fe
+                for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
+                    fe_endpoint = f"{fe.get_ip()}:{CLUSTER.FE_EDITLOG_PORT}"
+                    if fe_endpoint != master_fe_endpoint:
+                        try:
+                            db_mgr.add_fe(
+                                fe_endpoint, "FOLLOWER"
+                                if cluster.fe_follower else "OBSERVER")
+                            LOG.info(f"Added FE {fe_endpoint} successfully.")
+                        except Exception as e:
+                            LOG.error(
+                                f"Failed to add FE {fe_endpoint}: {str(e)}")
+
+                # Add BEs
+                for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE):
+                    be_endpoint = f"{be.get_ip()}:{CLUSTER.BE_HEARTBEAT_PORT}"
+                    try:
+                        db_mgr.add_be(be_endpoint)
+                        LOG.info(f"Added BE {be_endpoint} successfully.")
+                    except Exception as e:
+                        LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
+
+                cloud_store_config = self._get_cloud_store_config()
+
+                db_mgr.create_default_storage_vault(cloud_store_config)
+
+            wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
+                               add_be_ids)
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
                         args.NAME, related_node_num)))
 
+        ls_cmd = "python docker/runtime/doris-compose/doris-compose.py ls " + cluster.name
+        LOG.info("Inspect command: " + utils.render_green(ls_cmd) + "\n")
+        LOG.info(
+            "Master fe query address: " +
+            utils.render_green(CLUSTER.get_master_fe_endpoint(cluster.name)) +
+            "\n")
         return {
             "fe": {
                 "add_list": add_fe_ids,
@@ -585,7 +737,7 @@ class DownCommand(Command):
                                            "then apply to all containers.")
         parser.add_argument("NAME", help="Specify cluster name")
         self._add_parser_ids_args(parser)
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument(
             "--clean",
             default=False,
@@ -614,6 +766,8 @@ class DownCommand(Command):
             args.recycle_id,
             args.fdb_id,
             ignore_not_exists=True)
+
+        LOG.info("down cluster " + args.NAME + " for all " + str(for_all))
 
         if for_all:
             if os.path.exists(cluster.get_compose_file()):
@@ -696,7 +850,6 @@ class ListNode(object):
         self.created = ""
         self.alive = ""
         self.is_master = ""
-        self.query_port = ""
         self.tablet_num = ""
         self.last_heartbeat = ""
         self.err_msg = ""
@@ -711,21 +864,23 @@ class ListNode(object):
         if detail:
             query_port = ""
             http_port = ""
+            heartbeat_port = ""
+            edit_log_port = ""
             node_path = CLUSTER.get_node_path(self.cluster_name,
                                               self.node_type, self.id)
             if self.node_type == CLUSTER.Node.TYPE_FE:
                 query_port = CLUSTER.FE_QUERY_PORT
                 http_port = CLUSTER.FE_HTTP_PORT
+                edit_log_port = CLUSTER.FE_EDITLOG_PORT
             elif self.node_type == CLUSTER.Node.TYPE_BE:
                 http_port = CLUSTER.BE_WEBSVR_PORT
+                heartbeat_port = CLUSTER.BE_HEARTBEAT_PORT
             elif self.node_type == CLUSTER.Node.TYPE_MS or self.node_type == CLUSTER.Node.TYPE_RECYCLE:
                 http_port = CLUSTER.MS_PORT
             else:
                 pass
             result += [
-                query_port,
-                http_port,
-                node_path,
+                query_port, http_port, node_path, edit_log_port, heartbeat_port
             ]
         return result
 
@@ -735,7 +890,6 @@ class ListNode(object):
             if fe:
                 self.alive = str(fe.alive).lower()
                 self.is_master = str(fe.is_master).lower()
-                self.query_port = fe.query_port
                 self.last_heartbeat = fe.last_heartbeat
                 self.err_msg = fe.err_msg
         elif self.node_type == CLUSTER.Node.TYPE_BE:
@@ -788,8 +942,8 @@ feCloudHttpAddress = "{fe_ip}:18030"
 metaServiceHttpAddress = "{ms_endpoint}"
 metaServiceToken = "greedisgood9999"
 recycleServiceHttpAddress = "{recycle_endpoint}"
-instanceId = "default_instance_id"
-multiClusterInstance = "default_instance_id"
+instanceId = "12345678"
+multiClusterInstance = "12345678"
 multiClusterBes = "{multi_cluster_bes}"
 cloudUniqueId= "{fe_cloud_unique_id}"
 '''
@@ -826,7 +980,16 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                 print("\nNo write regression custom file.")
                 return
 
+        annotation_start = "//---------- Start auto generate by doris-compose.py---------"
+        annotation_end = "//---------- End auto generate by doris-compose.py---------"
+
+        old_contents = []
+        if os.path.exists(regression_conf_custom):
+            with open(regression_conf_custom, "r") as f:
+                old_contents = f.readlines()
         with open(regression_conf_custom, "w") as f:
+            # write auto gen config
+            f.write(annotation_start)
             f.write(base_conf.format(fe_ip=fe_ip))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
@@ -845,6 +1008,23 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                         multi_cluster_bes=multi_cluster_bes,
                         fe_cloud_unique_id=cluster.get_node(
                             CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
+            f.write(annotation_end + "\n\n")
+            annotation_end_line_count = -1
+
+            # write not-auto gen config
+            in_annotation = False
+            annotation_end_line_idx = -100
+            for line_idx, line in enumerate(old_contents):
+                line = line.rstrip()
+                if line == annotation_start:
+                    in_annotation = True
+                elif line == annotation_end:
+                    in_annotation = False
+                    annotation_end_line_idx = line_idx
+                elif not in_annotation:
+                    if line or line_idx != annotation_end_line_idx + 1:
+                        f.write(line + "\n")
+
         print("\nWrite succ: " + regression_conf_custom)
 
 
@@ -859,23 +1039,11 @@ class ListCommand(Command):
             help=
             "Specify multiple clusters, if specific, show all their containers."
         )
-        self._add_parser_output_json(parser)
+        self._add_parser_common_args(parser)
         parser.add_argument("--detail",
                             default=False,
                             action=self._get_parser_bool_action(True),
                             help="Print more detail fields.")
-
-    def _handle_data(self, header, datas):
-        if utils.is_enable_log():
-            table = prettytable.PrettyTable(
-                [utils.render_green(field) for field in header])
-            for row in datas:
-                table.add_row(row)
-            print(table)
-            return ""
-        else:
-            datas.insert(0, header)
-            return datas
 
     def run(self, args):
         COMPOSE_MISSING = "(missing)"
@@ -903,8 +1071,7 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service:
-                    ComposeService(
+                    service: ComposeService(
                         service,
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])
@@ -968,7 +1135,7 @@ class ListCommand(Command):
                              CLUSTER.get_master_fe_endpoint(name), is_cloud,
                              "{}{}".format(compose_file,
                                            cluster_info["status"])))
-            return self._handle_data(header, rows)
+            return self._print_table(header, rows)
 
         header = [
             "CLUSTER", "NAME", "IP", "STATUS", "CONTAINER ID", "IMAGE",
@@ -980,6 +1147,8 @@ class ListCommand(Command):
                 "query_port",
                 "http_port",
                 "path",
+                "edit_log_port",
+                "heartbeat_port",
             ]
 
         rows = []
@@ -1053,17 +1222,68 @@ class ListCommand(Command):
             for node in sorted(nodes, key=get_node_seq):
                 rows.append(node.info(args.detail))
 
-        return self._handle_data(header, rows)
+        return self._print_table(header, rows)
+
+
+class InfoCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "info", help="Show info like cloud.ini, port, path, etc")
+        self._add_parser_common_args(parser)
+
+    def run(self, args):
+
+        header = ["key", "value", "scope"]
+        cloud_cfg_file_env = os.getenv("DORIS_CLOUD_CFG_FILE")
+        cloud_cfg_file = cloud_cfg_file_env if cloud_cfg_file_env else "${LOCAL_DORIS_PATH}/cloud.ini"
+        rows = [
+            ("LOCAL_DORIS_PATH", CLUSTER.LOCAL_DORIS_PATH, "env variable"),
+            ("DORIS_CLOUD_CFG_FILE", cloud_cfg_file, "env variable"),
+            ("FE_QUERY_PORT", CLUSTER.FE_QUERY_PORT, "constant"),
+            ("FE_HTTP_PORT", CLUSTER.FE_HTTP_PORT, "constant"),
+            ("FE_EDITLOG_PORT", CLUSTER.FE_EDITLOG_PORT, "constant"),
+            ("FE_JAVA_DBG_PORT", CLUSTER.FE_JAVA_DBG_PORT, "constant"),
+            ("BE_HEARTBEAT_PORT", CLUSTER.BE_HEARTBEAT_PORT, "constant"),
+            ("BE_WEBSVR_PORT", CLUSTER.BE_WEBSVR_PORT, "constant"),
+            ("MS_PORT", CLUSTER.MS_PORT, "constant"),
+            ("RECYCLER_PORT", CLUSTER.MS_PORT, "constant"),
+        ]
+
+        with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    rows.append((key.strip(), value.strip(), "cloud.ini"))
+
+        return self._print_table(header, rows)
+
+
+class AddRWPermCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "add-rw-perm",
+            help="Add read and write permissions to the cluster files")
+        parser.add_argument("NAME", help="Specify cluster name.")
+        self._add_parser_common_args(parser)
+
+    def run(self, args):
+        utils.enable_dir_with_rw_perm(CLUSTER.get_cluster_path(args.NAME))
+        return ""
 
 
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
-    SimpleCommand("start", "Start the doris containers. "),
+    NeedStartCommand("start", "Start the doris containers. "),
     SimpleCommand("stop", "Stop the doris containers. "),
-    SimpleCommand("restart", "Restart the doris containers. "),
+    NeedStartCommand("restart", "Restart the doris containers. "),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
     GenConfCommand("config"),
+    InfoCommand("info"),
     ListCommand("ls"),
+    AddRWPermCommand("add-rw-perm"),
 ]

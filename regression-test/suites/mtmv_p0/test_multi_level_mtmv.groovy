@@ -87,6 +87,22 @@ suite("test_multi_level_mtmv") {
     waitingMTMVTaskFinishedByMvName(mv2)
     order_qt_mv2_should_one_partition "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv2}' order by CreateTime desc limit 1"
 
+    // insert into p2 again, check partition version if change
+    sql """
+            INSERT INTO ${tableName} VALUES(2,3);
+        """
+    sql """
+           REFRESH MATERIALIZED VIEW ${mv1} AUTO
+       """
+    waitingMTMVTaskFinishedByMvName(mv1)
+    order_qt_mv1_should_one_partition_again "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv1}' order by CreateTime desc limit 1"
+    sql """
+           REFRESH MATERIALIZED VIEW ${mv2} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mv2)
+    order_qt_mv2_should_one_partition_again "select NeedRefreshPartitions from tasks('type'='mv') where MvName = '${mv2}' order by CreateTime desc limit 1"
+    order_qt_mv2_again "select * from ${mv2}"
+
     // drop table
     sql """
         drop table ${tableName}

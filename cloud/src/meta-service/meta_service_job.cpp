@@ -701,6 +701,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
         stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
+        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
         stats->set_last_cumu_compaction_time_ms(now * 1000);
         // clang-format on
     } else if (compaction.type() == TabletCompactionJobPB::BASE) {
@@ -710,6 +712,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
         stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
+        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
         stats->set_last_base_compaction_time_ms(now * 1000);
         // clang-format on
     } else if (compaction.type() == TabletCompactionJobPB::FULL) {
@@ -724,6 +728,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
         stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
+        stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
         stats->set_last_full_compaction_time_ms(now * 1000);
         // clang-format on
     } else {
@@ -733,16 +739,41 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     }
     auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     auto stats_val = stats->SerializeAsString();
+
+    VLOG_DEBUG << "data size, tablet_id=" << tablet_id << " stats.num_rows=" << stats->num_rows()
+               << " stats.data_size=" << stats->data_size()
+               << " stats.num_rowsets=" << stats->num_rowsets()
+               << " stats.num_segments=" << stats->num_segments()
+               << " stats.index_size=" << stats->index_size()
+               << " stats.segment_size=" << stats->segment_size()
+               << " detached_stats.num_rows=" << detached_stats.num_rows
+               << " detached_stats.data_size=" << detached_stats.data_size
+               << " detached_stats.num_rowset=" << detached_stats.num_rowsets
+               << " detached_stats.num_segments=" << detached_stats.num_segs
+               << " detached_stats.index_size=" << detached_stats.index_size
+               << " detached_stats.segment_size=" << detached_stats.segment_size
+               << " compaction.size_output_rowsets=" << compaction.size_output_rowsets()
+               << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
     txn->put(stats_key, stats_val);
-    merge_tablet_stats(*stats, detached_stats);
+    merge_tablet_stats(*stats, detached_stats); // this is to check
     if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
         INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
+                            << " stats.num_rows=" << stats->num_rows()
                             << " stats.data_size=" << stats->data_size()
+                            << " stats.num_rowsets=" << stats->num_rowsets()
+                            << " stats.num_segments=" << stats->num_segments()
+                            << " stats.index_size=" << stats->index_size()
+                            << " stats.segment_size=" << stats->segment_size()
+                            << " detached_stats.num_rows=" << detached_stats.num_rows
+                            << " detached_stats.data_size=" << detached_stats.data_size
+                            << " detached_stats.num_rowset=" << detached_stats.num_rowsets
+                            << " detached_stats.num_segments=" << detached_stats.num_segs
+                            << " detached_stats.index_size=" << detached_stats.index_size
+                            << " detached_stats.segment_size=" << detached_stats.segment_size
                             << " compaction.size_output_rowsets="
                             << compaction.size_output_rowsets()
-                            << " compaction.size_input_rowsets= "
-                            << compaction.size_input_rowsets();
-        DCHECK(false) << "buggy data size";
+                            << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
+        DCHECK(false) << "buggy data size, tablet_id=" << tablet_id;
     }
 
     VLOG_DEBUG << "update tablet stats tablet_id=" << tablet_id << " key=" << hex(stats_key)
@@ -1116,6 +1147,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     int64_t size_remove_rowsets = 0;
     int64_t num_remove_rowsets = 0;
     int64_t num_remove_segments = 0;
+    int64_t index_size_remove_rowsets = 0;
+    int64_t segment_size_remove_rowsets = 0;
 
     auto rs_start = meta_rowset_key({instance_id, new_tablet_id, 2});
     auto rs_end = meta_rowset_key({instance_id, new_tablet_id, schema_change.alter_version() + 1});
@@ -1145,9 +1178,11 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             }
 
             num_remove_rows += rs.num_rows();
-            size_remove_rowsets += rs.data_disk_size();
+            size_remove_rowsets += rs.total_disk_size();
             ++num_remove_rowsets;
             num_remove_segments += rs.num_segments();
+            index_size_remove_rowsets += rs.index_disk_size();
+            segment_size_remove_rowsets += rs.data_disk_size();
 
             auto recycle_key = recycle_rowset_key({instance_id, new_tablet_id, rs.rowset_id_v2()});
             RecycleRowsetPB recycle_rowset;
@@ -1182,6 +1217,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     stats->set_data_size(stats->data_size() + (schema_change.size_output_rowsets() - size_remove_rowsets));
     stats->set_num_rowsets(stats->num_rowsets() + (schema_change.num_output_rowsets() - num_remove_rowsets));
     stats->set_num_segments(stats->num_segments() + (schema_change.num_output_segments() - num_remove_segments));
+    stats->set_index_size(stats->index_size() + (schema_change.index_size_output_rowsets() - index_size_remove_rowsets));
+    stats->set_segment_size(stats->segment_size() + (schema_change.segment_size_output_rowsets() - segment_size_remove_rowsets));
     // clang-format on
     auto stats_key = stats_tablet_key(
             {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});

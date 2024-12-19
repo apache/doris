@@ -17,7 +17,6 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 
-#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -52,7 +51,7 @@ Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
@@ -101,27 +100,10 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
 
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
-
-        SchemaScannerHelper::insert_string_value(0, row.column_value[0].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(1, row.column_value[1].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_int_value(2, row.column_value[2].longVal,
-                                              _active_query_block.get());
-        SchemaScannerHelper::insert_int_value(3, row.column_value[3].longVal,
-                                              _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(4, row.column_value[4].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(5, row.column_value[5].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(6, row.column_value[6].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(7, row.column_value[7].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(8, row.column_value[8].stringVal,
-                                                 _active_query_block.get());
-        SchemaScannerHelper::insert_string_value(9, row.column_value[9].stringVal,
-                                                 _active_query_block.get());
+        for (int j = 0; j < _s_tbls_columns.size(); j++) {
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _active_query_block.get(),
+                                                _s_tbls_columns[j].type));
+        }
     }
     return Status::OK();
 }

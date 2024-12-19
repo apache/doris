@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_runtimefilter_on_decimal", "nereids_p0") {
+    sql "set enable_runtime_filter_prune=false;"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 

@@ -42,11 +42,17 @@ public class IndexDef {
     private Map<String, String> properties;
     private boolean isBuildDeferred = false;
     private PartitionNames partitionNames;
+    private List<Integer> columnUniqueIds = Lists.newArrayList();
+    private static final int MIN_NGRAM_SIZE = 1;
+    private static final int MAX_NGRAM_SIZE = 255;
+    private static final int MIN_BF_SIZE = 64;
+    private static final int MAX_BF_SIZE = 65535;
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
     public static final String DEFAULT_NGRAM_SIZE = "2";
     public static final String DEFAULT_NGRAM_BF_SIZE = "256";
+
 
     public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType,
                     Map<String, String> properties, String comment) {
@@ -117,7 +123,7 @@ public class IndexDef {
 
     public String toSql(String tableName) {
         StringBuilder sb = new StringBuilder("INDEX ");
-        sb.append(indexName);
+        sb.append("`" + indexName + "`");
         if (tableName != null && !tableName.isEmpty()) {
             sb.append(" ON ").append(tableName);
         }
@@ -196,6 +202,10 @@ public class IndexDef {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
     }
 
+    public List<Integer> getColumnUniqueIds() {
+        return columnUniqueIds;
+    }
+
     public enum IndexType {
         BITMAP,
         INVERTED,
@@ -207,8 +217,8 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
-    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite)
-            throws AnalysisException {
+    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
+                boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -220,13 +230,21 @@ public class IndexDef {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
             }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
+            }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
                     throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
                         + " or key columns of AGG_KEYS table. invalid index: " + indexName);
                 } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
-                               && indexType == IndexType.INVERTED && properties != null
-                               && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                        && indexType == IndexType.INVERTED && properties != null
+                        && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
                     throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
                         + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + indexName);
                 }
@@ -243,21 +261,29 @@ public class IndexDef {
                 if (properties.size() != 2) {
                     throw new AnalysisException("ngram_bf index should have gram_size and bf_size properties");
                 }
-                try {
-                    int ngramSize = Integer.parseInt(properties.get(NGRAM_SIZE_KEY));
-                    int bfSize = Integer.parseInt(properties.get(NGRAM_BF_SIZE_KEY));
-                    if (ngramSize > 256 || ngramSize < 1) {
-                        throw new AnalysisException("gram_size should be integer and less than 256");
-                    }
-                    if (bfSize > 65536 || bfSize < 64) {
-                        throw new AnalysisException("bf_size should be integer and between 64 and 65536");
-                    }
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
-                }
+
+                parseAndValidateProperty(properties, NGRAM_SIZE_KEY, MIN_NGRAM_SIZE, MAX_NGRAM_SIZE);
+                parseAndValidateProperty(properties, NGRAM_BF_SIZE_KEY, MIN_BF_SIZE, MAX_BF_SIZE);
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
+        }
+    }
+
+    private void parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
+            throws AnalysisException {
+        String valueStr = properties.get(key);
+        if (valueStr == null) {
+            throw new AnalysisException("Property '" + key + "' is missing.");
+        }
+        try {
+            int value = Integer.parseInt(valueStr);
+            if (value < minValue || value > maxValue) {
+                throw new AnalysisException("'" + key + "' should be an integer between "
+                                                + minValue + " and " + maxValue + ".");
+            }
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
     }
 }

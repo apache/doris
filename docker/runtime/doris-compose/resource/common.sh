@@ -23,7 +23,7 @@ export LOG_FILE=$DORIS_HOME/log/health.out
 export LOCK_FILE=$DORIS_HOME/status/token
 
 health_log() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" >>$LOG_FILE
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" | tee -a $LOG_FILE
 }
 
 # concurrent write meta service server will failed due to fdb txn conflict.
@@ -120,10 +120,11 @@ wait_pid() {
     health_log ""
     health_log "ps -elf\n$(ps -elf)\n"
     if [ -z $pid ]; then
-        health_log "pid not exist"
+        health_log "pid $pid not exist"
         exit 1
     fi
 
+    health_log "pid $pid exist"
     health_log "wait process $pid"
     while true; do
         ps -p $pid >/dev/null
@@ -132,5 +133,13 @@ wait_pid() {
         fi
         sleep 1s
     done
+
+    health_log "show dmesg -T: "
+    dmesg -T | tail -n 50 | tee -a $LOG_FILE
+
+    health_log "show ps -elf"
+    health_log "ps -elf\n$(ps -elf)\n"
+    health_log "pid $pid not exist"
+
     health_log "wait end"
 }

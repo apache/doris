@@ -19,6 +19,7 @@
 
 #include <hs/hs.h>
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
@@ -51,6 +52,10 @@ Status FunctionMatchBase::evaluate_inverted_index(
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     Field param_value;
     arguments[0].column->get(0, param_value);
+    if (param_value.is_null()) {
+        // if query value is null, skip evaluate inverted index
+        return Status::OK();
+    }
     auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
@@ -82,7 +87,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
     return Status::OK();
 }
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
-                                       const ColumnNumbers& arguments, size_t result,
+                                       const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
@@ -102,19 +107,13 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
     if (source_col->is_column_array()) {
-        if (source_col->is_nullable()) {
-            auto* nullable = check_and_get_column<ColumnNullable>(source_col.get());
-            array_col = check_and_get_column<ColumnArray>(*nullable->get_nested_column_ptr());
-        } else {
-            array_col = check_and_get_column<ColumnArray>(source_col.get());
-        }
+        array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
-            return Status::NotSupported(
-                    fmt::format("unsupported nested array of type {} for function {}",
-                                is_column_nullable(array_col->get_data())
-                                        ? array_col->get_data().get_name()
-                                        : array_col->get_data().get_family_name(),
-                                get_name()));
+            return Status::NotSupported(fmt::format(
+                    "unsupported nested array of type {} for function {}",
+                    is_column_nullable(array_col->get_data()) ? array_col->get_data().get_name()
+                                                              : array_col->get_data().get_name(),
+                    get_name()));
         }
 
         if (is_column_nullable(array_col->get_data())) {
@@ -127,15 +126,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
         }
     } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
-        // match null
-        if (type_ptr->is_nullable()) {
-            if (column_ptr->only_null()) {
-                block.get_by_position(result).column = nullable->get_null_map_column_ptr();
-                return Status::OK();
-            }
-        } else {
-            values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
-        }
+        values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
     }
 
     if (!values) {
@@ -174,21 +165,25 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
     return doris::segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
-void FunctionMatchBase::analyse_query_str_token(std::vector<std::string>* query_tokens,
-                                                InvertedIndexCtx* inverted_index_ctx,
-                                                const std::string& match_query_str,
-                                                const std::string& column_name) const {
+std::vector<std::string> FunctionMatchBase::analyse_query_str_token(
+        InvertedIndexCtx* inverted_index_ctx, const std::string& match_query_str,
+        const std::string& column_name) const {
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
-    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
-        query_tokens->emplace_back(match_query_str);
-        return;
+    std::vector<std::string> query_tokens;
+    if (inverted_index_ctx == nullptr) {
+        return query_tokens;
     }
-    auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
-                                                                        match_query_str);
-    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-            *query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            get_query_type_from_fn_name());
+    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+        query_tokens.emplace_back(match_query_str);
+        return query_tokens;
+    }
+    auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+            inverted_index_ctx->char_filter_map);
+    reader->init(match_query_str.data(), match_query_str.size(), true);
+    query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            reader.get(), inverted_index_ctx->analyzer, column_name, get_query_type_from_fn_name());
+    return query_tokens;
 }
 
 inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
@@ -205,14 +200,14 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
-            auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
-                    inverted_index_ctx, str_ref.to_string());
+            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(str_ref.data, str_ref.size, true);
 
-            std::vector<std::string> element_tokens;
-
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    element_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-                    query_type, false);
+            std::vector<std::string> element_tokens =
+                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
+                            false);
             data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
         }
     } else {
@@ -220,11 +215,13 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
-            auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
-                    inverted_index_ctx, str_ref.to_string());
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    data_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-                    query_type, false);
+            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
+                    inverted_index_ctx->char_filter_map);
+            reader->init(str_ref.data, str_ref.size, true);
+            data_tokens =
+                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
+                            false);
         }
     }
     return data_tokens;
@@ -252,8 +249,8 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens;
-    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -290,8 +287,8 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens;
-    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -334,8 +331,8 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens;
-    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -393,8 +390,8 @@ Status FunctionMatchPhrasePrefix::execute_match(
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens;
-    analyse_query_str_token(&query_tokens, inverted_index_ctx, match_query_str, column_name);
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -462,10 +459,11 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
 
     if (hs_compile(pattern.data(), HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
                    HS_MODE_BLOCK, nullptr, &database, &compile_err) != HS_SUCCESS) {
-        LOG(ERROR) << "hyperscan compilation failed: " << compile_err->message;
+        std::string err_message = "hyperscan compilation failed: ";
+        err_message.append(compile_err->message);
+        LOG(ERROR) << err_message;
         hs_free_compile_error(compile_err);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                std::string("hyperscan compilation failed:") + compile_err->message);
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(err_message);
     }
 
     if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
@@ -507,6 +505,72 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
         hs_free_scratch(scratch);
         hs_free_database(database);
     })
+
+    return Status::OK();
+}
+
+Status FunctionMatchPhraseEdge::execute_match(
+        FunctionContext* context, const std::string& column_name,
+        const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
+        InvertedIndexCtx* inverted_index_ctx, const ColumnArray::Offsets64* array_offsets,
+        ColumnUInt8::Container& result) const {
+    RETURN_IF_ERROR(check(context, name));
+
+    std::vector<std::string> query_tokens =
+            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    if (query_tokens.empty()) {
+        VLOG_DEBUG << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str,
+                inverted_index_parser_type_to_string(inverted_index_ctx->parser_type));
+        return Status::OK();
+    }
+
+    int32_t current_src_array_offset = 0;
+    for (size_t i = 0; i < input_rows_count; i++) {
+        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                              array_offsets, current_src_array_offset);
+
+        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        if (dis_count < 0) {
+            continue;
+        }
+
+        for (size_t j = 0; j < dis_count + 1; j++) {
+            bool match = true;
+            if (query_tokens.size() == 1) {
+                if (data_tokens[j].find(query_tokens[0]) == std::string::npos) {
+                    match = false;
+                }
+            } else {
+                for (size_t k = 0; k < query_tokens.size(); k++) {
+                    const std::string& data_token = data_tokens[j + k];
+                    const std::string& query_token = query_tokens[k];
+                    if (k == 0) {
+                        if (!data_token.ends_with(query_token)) {
+                            match = false;
+                            break;
+                        }
+                    } else if (k == query_tokens.size() - 1) {
+                        if (!data_token.starts_with(query_token)) {
+                            match = false;
+                            break;
+                        }
+                    } else {
+                        if (data_token != query_token) {
+                            match = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (match) {
+                result[i] = true;
+                break;
+            }
+        }
+    }
 
     return Status::OK();
 }

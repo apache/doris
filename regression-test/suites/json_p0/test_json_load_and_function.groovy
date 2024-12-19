@@ -57,7 +57,7 @@ suite("test_json_load_and_function", "p0") {
             assertEquals("fail", json.Status.toLowerCase())
             assertTrue(json.Message.contains("too many filtered rows"))
             assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
             log.info("url: " + json.ErrorURL)

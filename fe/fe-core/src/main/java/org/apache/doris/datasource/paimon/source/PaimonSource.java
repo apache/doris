@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.thrift.TFileAttributes;
@@ -36,7 +37,7 @@ public class PaimonSource {
     public PaimonSource(TupleDescriptor desc) {
         this.desc = desc;
         this.paimonExtTable = (PaimonExternalTable) desc.getTable();
-        this.originTable = paimonExtTable.getPaimonTable();
+        this.originTable = paimonExtTable.getPaimonTable(MvccUtil.getSnapshotFromContext(paimonExtTable));
     }
 
     public TupleDescriptor getDesc() {
@@ -59,7 +60,7 @@ public class PaimonSource {
         return paimonExtTable.getCatalog();
     }
 
-    public String getFileFormat() {
-        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "orc");
+    public String getFileFormatFromTableProperties() {
+        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "parquet");
     }
 }

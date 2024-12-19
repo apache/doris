@@ -650,6 +650,13 @@ build_lzo2() {
     strip_lib liblzo2.a
 }
 
+# brotli
+build_brotli() {
+    check_if_source_exist "${BROTLI_SOURCE}"
+    # brotli has been builded in build_arrow, so just copy headers
+    cp -r "${TP_SOURCE_DIR}/${BROTLI_SOURCE}/c/include/brotli" "${TP_INCLUDE_DIR}/"
+}
+
 # curl
 build_curl() {
     check_if_source_exist "${CURL_SOURCE}"
@@ -1522,6 +1529,9 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
+    # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
+    # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
+    # Maybe can use alias instead of overwrite.
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
         --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
@@ -1894,6 +1904,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         base64
         azure
         dragonbox
+        brotli
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

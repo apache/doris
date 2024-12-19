@@ -33,6 +33,9 @@ using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<UInt32>
 using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<UInt64>>;
 using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<UInt64>>;
 
+using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<UInt32>>;
+using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<UInt64>>;
+
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayName>();
     factory.register_function<FunctionMonthName>();
@@ -40,6 +43,8 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMonthNameV2>();
     factory.register_function<FunctionDateTimeV2DayName>();
     factory.register_function<FunctionDateTimeV2MonthName>();
+    factory.register_function<FunctionDateIso8601>();
+    factory.register_function<FunctionDateTimeIso8601>();
 }
 
 } // namespace doris::vectorized

@@ -39,6 +39,7 @@ VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_stat
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
     _total_rf_num = _local_state->runtime_filter_num();
+    DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
 Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
@@ -112,8 +113,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             // 1. Get input block from scanner
             {
                 // get block time
-                auto* timer = _local_state->_scan_timer;
-                SCOPED_TIMER(timer);
+                SCOPED_TIMER(_local_state->_scan_timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
@@ -127,8 +127,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                auto* timer = _local_state->_filter_timer;
-                SCOPED_TIMER(timer);
+                SCOPED_TIMER(_local_state->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
             // record rows return (after filter) for _limit check
@@ -143,6 +142,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     }
 
     if (state->is_cancelled()) {
+        // TODO: Should return the specific ErrorStatus instead of just Cancelled.
         return Status::Cancelled("cancelled");
     }
     *eof = *eof || _should_stop;
@@ -262,7 +262,7 @@ void VScanner::update_scan_cpu_timer() {
     _scan_cpu_timer += cpu_time;
     _query_statistics->add_cpu_nanos(cpu_time);
     if (_state && _state->get_query_ctx()) {
-        _state->get_query_ctx()->update_wg_cpu_adder(cpu_time);
+        _state->get_query_ctx()->update_cpu_time(cpu_time);
     }
 }
 

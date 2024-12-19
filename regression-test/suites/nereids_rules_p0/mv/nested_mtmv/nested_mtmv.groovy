@@ -40,7 +40,6 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -70,7 +69,6 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -98,12 +96,20 @@ suite("nested_mtmv") {
     insert into orders_1 values 
     (null, 1, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'o', 109.2, 'c','d',2, 'mm', '2023-10-17'),
+    (1, null, 'o', 109.2, 'c','d',2, 'mm', '2023-10-17'),
+    (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
     (1, 2, 'o', null, 'a', 'b', 1, 'yy', '2023-10-20'),
+    (1, 2, 'o', null, 'a', 'b', 1, 'yy', '2023-10-20'),
+    (2, 3, 'k', 109.2, null,'d',2, 'mm', '2023-10-21'),
     (2, 3, 'k', 109.2, null,'d',2, 'mm', '2023-10-21'),
     (3, 1, 'k', 99.5, 'a', null, 1, 'yy', '2023-10-22'),
+    (3, 1, 'k', 99.5, 'a', null, 1, 'yy', '2023-10-22'),
+    (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
     (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
     (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19'); 
     """
@@ -111,13 +117,17 @@ suite("nested_mtmv") {
     sql """
     insert into lineitem_1 values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
+    (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, 1, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, 3, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
+    (3, 3, 3, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 2, 3, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
+    (2, 1, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
     (2, 1, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
     (3, 1, 3, 1, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 2, 1, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (2, 2, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
+    (3, 3, 3, 3, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (3, 3, 3, 3, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 1, 1, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
@@ -125,7 +135,10 @@ suite("nested_mtmv") {
     sql"""
     insert into partsupp_1 values 
     (1, 1, 1, 99.5, 'yy'),
+    (1, 1, 1, 99.5, 'yy'),
     (2, 2, 2, 109.2, 'mm'),
+    (2, 2, 2, 109.2, 'mm'),
+    (3, 3, 1, 99.5, 'yy'),
     (3, 3, 1, 99.5, 'yy'),
     (3, null, 1, 99.5, 'yy'); 
     """
@@ -134,18 +147,9 @@ suite("nested_mtmv") {
     sql """analyze table lineitem_1 with sync;"""
     sql """analyze table partsupp_1 with sync;"""
 
-    def create_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
+    sql """alter table orders_1 modify column o_orderdate set stats ('row_count'='17');"""
+    sql """alter table lineitem_1 modify column l_shipdate set stats ('row_count'='14');"""
+    sql """alter table partsupp_1 modify column ps_comment set stats ('row_count'='7');"""
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -184,17 +188,11 @@ suite("nested_mtmv") {
         FROM ${mv_name_2}
         GROUP BY l_orderkey;"""
     def mv_name_3 = "join_agg_mv3"
-    create_mv(mv_name_1, mv_stmt_1)
-    def job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_1, mv_stmt_1)
 
-    create_mv(mv_name_2, mv_stmt_2)
-    job_name_1 = getJobName(db, mv_name_2)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_2, mv_stmt_2)
 
-    create_mv(mv_name_3, mv_stmt_3)
-    job_name_1 = getJobName(db, mv_name_3)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_name_3, mv_stmt_3)
 
     def query_stmt_1 = """SELECT 
           l_orderkey, 
@@ -203,10 +201,7 @@ suite("nested_mtmv") {
         FROM lineitem_1 INNER JOIN orders_1
         ON l_orderkey = o_orderkey
         GROUP BY l_orderkey"""
-    explain {
-        sql("${query_stmt_1}")
-        contains "${mv_name_3}(${mv_name_3})"
-    }
+    mv_rewrite_success(query_stmt_1, mv_name_3)
     compare_res(query_stmt_1 + " order by 1,2,3")
 
     // user
@@ -239,21 +234,13 @@ suite("nested_mtmv") {
         """
     def mv_level4_name = "mv_level4_name"
 
-    create_mv(mv_level1_name, mv_stmt_4)
-    job_name_1 = getJobName(db, mv_level1_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level1_name, mv_stmt_4)
 
-    create_mv(mv_level2_name, mv_stmt_5)
-    job_name_1 = getJobName(db, mv_level2_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level2_name, mv_stmt_5)
 
-    create_mv(mv_level3_name, mv_stmt_6)
-    job_name_1 = getJobName(db, mv_level3_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level3_name, mv_stmt_6)
 
-    create_mv(mv_level4_name, mv_stmt_7)
-    job_name_1 = getJobName(db, mv_level4_name)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_level4_name, mv_stmt_7)
 
     def query_stmt_2 = """
         select t1.l_orderkey, t2.l_linenumber, t1.l_partkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.col1
@@ -276,14 +263,8 @@ suite("nested_mtmv") {
                 ) as t1 
             ) as t2 on t1.l_orderkey = t2.l_orderkey
         """
-    explain {
-        sql("${query_stmt_2}")
-        check {result ->
-            // both mv_level4_name and mv_level3_name can be rewritten successfully
-            result.contains("${mv_level4_name}(${mv_level4_name})")
-                    || result.contains("${mv_level3_name}(${mv_level3_name})")
-        }
-    }
+    mv_rewrite_any_success(query_stmt_2, [mv_level4_name, mv_level3_name])
+
     compare_res(query_stmt_2 + " order by 1,2,3,4,5,6,7")
 
     // five level
@@ -344,25 +325,15 @@ suite("nested_mtmv") {
         group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
         """
 
-    create_mv(mv_1, join_mv_1)
-    job_name_1 = getJobName(db, mv_1)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_1, join_mv_1)
 
-    create_mv(mv_2, join_mv_2)
-    job_name_1 = getJobName(db, mv_2)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_2, join_mv_2)
 
-    create_mv(mv_3, join_mv_3)
-    job_name_1 = getJobName(db, mv_3)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_3, join_mv_3)
 
-    create_mv(mv_4, join_mv_4)
-    job_name_1 = getJobName(db, mv_4)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_4, join_mv_4)
 
-    create_mv(mv_5, join_mv_5)
-    job_name_1 = getJobName(db, mv_5)
-    waitingMTMVTaskFinished(job_name_1)
+    create_async_mv(db, mv_5, join_mv_5)
 
 
     def sql_2 = """
@@ -707,154 +678,77 @@ suite("nested_mtmv") {
         left join (
             select t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6 
             from (
-                select t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6 
+                select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
+                t.agg1 as agg1, 
+                t.sum_total as agg3,
+                t.max_total as agg4,
+                t.min_total as agg5,
+                t.count_all as agg6,
+                cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
                 from (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t1
-                left join (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t2
-                on t1.l_orderkey = t2.l_orderkey
-                where t1.l_orderkey > 1
-                group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
+                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
+                    sum(o_totalprice) as sum_total, 
+                    max(o_totalprice) as max_total, 
+                    min(o_totalprice) as min_total, 
+                    count(*) as count_all, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+                    from lineitem_1
+                    inner join orders_1
+                    on lineitem_1.l_orderkey = orders_1.o_orderkey
+                    where lineitem_1.l_shipdate >= "2023-10-17"
+                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
+                ) as t
+                inner join partsupp_1
+                on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
+                where partsupp_1.ps_suppkey > 1
+                group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
             ) as t1
             left join (
-                select t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6 
+                select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
+                t.agg1 as agg1, 
+                t.sum_total as agg3,
+                t.max_total as agg4,
+                t.min_total as agg5,
+                t.count_all as agg6,
+                cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
                 from (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t1
-                left join (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t2
-                on t1.l_orderkey = t2.l_orderkey
-                where t1.l_orderkey > 1
-                group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
+                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
+                    sum(o_totalprice) as sum_total, 
+                    max(o_totalprice) as max_total, 
+                    min(o_totalprice) as min_total, 
+                    count(*) as count_all, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+                    from lineitem_1
+                    inner join orders_1
+                    on lineitem_1.l_orderkey = orders_1.o_orderkey
+                    where lineitem_1.l_shipdate >= "2023-10-17"
+                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
+                ) as t
+                inner join partsupp_1
+                on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
+                where partsupp_1.ps_suppkey > 1
+                group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
             ) as t2
             on t1.l_orderkey = t2.l_orderkey
+            where t1.l_orderkey > 1
             group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
         ) as t2
         on t1.l_orderkey = t2.l_orderkey
         group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
         """
 
-    explain {
-        sql("${sql_2}")
-        contains "${mv_2}(${mv_2})"
-    }
+    mv_rewrite_any_success(sql_2, [mv_1, mv_2])
     compare_res(sql_2 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-    explain {
-        sql("${sql_3}")
-        contains "${mv_3}(${mv_3})"
-    }
+    mv_rewrite_any_success(sql_3, [mv_3, mv_4])
     compare_res(sql_3 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-    explain {
-        sql("${sql_4}")
-        contains "${mv_4}(${mv_4})"
-    }
+    mv_rewrite_any_success(sql_4, [mv_3, mv_4])
     compare_res(sql_4 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-    explain {
-        sql("${sql_5}")
-        contains "${mv_5}(${mv_5})"
-    }
+    mv_rewrite_any_success(sql_5, [mv_3, mv_4, mv_5])
     compare_res(sql_5 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
 }

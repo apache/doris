@@ -39,7 +39,6 @@ suite("dimension_2_join_agg_replenish") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -69,7 +68,6 @@ suite("dimension_2_join_agg_replenish") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -103,46 +101,8 @@ suite("dimension_2_join_agg_replenish") {
     sql """analyze table orders with sync;"""
     sql """analyze table lineitem with sync;"""
 
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_all_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
+    sql """alter table orders modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='7');"""
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -692,19 +652,19 @@ suite("dimension_2_join_agg_replenish") {
             """
     def right_semi_mv_stmt_8 = """select t1.l_orderkey, t1.l_shipdate, t1.l_partkey 
             from orders 
-            right semi join (select l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate, sum(l_quantity) as col1 from lineitem where l_orderkey > 1 + 1 group by l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate) as t1 
+            right semi join (select l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate, sum(l_quantity) as col1 from lineitem where l_shipdate >= "2023-10-17" group by l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate) as t1 
             on t1.l_orderkey = orders.o_orderkey
             group by
             t1.l_orderkey, t1.l_shipdate, t1.l_partkey 
             """
     def right_semi_mv_stmt_9 = """select t1.l_orderkey, t1.l_shipdate, t1.l_partkey 
             from orders 
-            right semi join (select l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate, sum(l_quantity) as col1, count(*) as col2 from lineitem where l_orderkey > 1 + 1 group by l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate) as t1 
+            right semi join (select l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate, sum(l_quantity) as col1, count(*) as col2 from lineitem where l_shipdate >= "2023-10-17" group by l_orderkey, l_partkey, l_suppkey, l_quantity, l_shipdate) as t1 
             on t1.l_orderkey = orders.o_orderkey
             group by
             t1.l_orderkey, t1.l_shipdate, t1.l_partkey 
             """
-    def right_semi_mv_stmt_10 = """select t1.l_orderkey 
+    def right_semi_mv_stmt_10 = """select t1.sum_total, max_total+min_total as col3, count_all  
             from orders 
             right semi join (select l_orderkey, sum(l_quantity) as sum_total,
             max(l_quantity) as max_total,
@@ -713,10 +673,10 @@ suite("dimension_2_join_agg_replenish") {
             sum(l_quantity) + count(*) as col5, 
             bitmap_union(to_bitmap(case when l_quantity > 1 and l_orderkey IN (1, 3) then l_partkey else null end)) as cnt_1,
             bitmap_union(to_bitmap(case when l_quantity > 2 and l_orderkey IN (2) then l_partkey else null end)) as cnt_2  
-            from lineitem where l_orderkey > 1 + 1 group by l_orderkey) as t1 
+            from lineitem where l_shipdate >= "2023-10-17" group by l_orderkey) as t1 
             on t1.l_orderkey = orders.o_orderkey
             group by
-            t1.l_orderkey
+            t1.sum_total, col3, count_all 
             """
 
     def left_anti_mv_stmt_1 = """select t1.o_orderdate, t1.o_shippriority, t1.o_orderkey 
@@ -833,7 +793,7 @@ suite("dimension_2_join_agg_replenish") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders where o_orderkey >= 1 + 1 group by o_orderkey) as t1
             right anti join lineitem on lineitem.l_orderkey = t1.o_orderkey 
-            group by l_orderkey, l_shipdate, l_partkey
+            group by l_orderkey, l_shipdate, l_partkey 
             """
 
     def right_anti_mv_stmt_6 = """select t1.l_shipdate, t1.l_quantity, t1.l_orderkey 
@@ -904,14 +864,9 @@ suite("dimension_2_join_agg_replenish") {
 
         def mv_name = "mv_" + (i + 1)
 
-        create_all_mv(mv_name, sql_list[i])
-        def job_name = getJobName(db, mv_name)
-        waitingMTMVTaskFinished(job_name)
+        create_async_mv(db, mv_name, sql_list[i])
 
-        explain {
-            sql("${sql_list[i]}")
-            contains "${mv_name}(${mv_name})"
-        }
+        mv_rewrite_success(sql_list[i], mv_name)
 
         compare_res(sql_list[i] + " order by 1,2,3")
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""

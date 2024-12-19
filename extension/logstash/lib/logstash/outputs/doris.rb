@@ -21,9 +21,8 @@ under the License.
 require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
-require "logstash/util/shortname_resolver"
+require 'logstash/util/formater'
 require "uri"
-require "logstash/plugin_mixins/http_client"
 require "securerandom"
 require "json"
 require "base64"
@@ -67,19 +66,17 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    config :save_file, :validate => :string, :default => "failed.data"
 
-   config :host_resolve_ttl_sec, :validate => :number, :default => 120
+   config :max_retries, :validate => :number, :default => -1
 
-   config :retry_count, :validate => :number, :default => -1
+   config :log_request, :validate => :boolean, :default => true
 
-   config :log_request, :validate => :boolean, :default => false
-
-   config :log_speed_interval, :validate => :number, :default => 10
+   config :log_progress_interval, :validate => :number, :default => 10
 
 
    def print_plugin_info()
-      @@plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
-      @plugin_name = @@plugins[0].name
-      @plugin_version = @@plugins[0].version
+      @plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
+      @plugin_name = @plugins[0].name
+      @plugin_version = @plugins[0].version
       @logger.debug("Running #{@plugin_name} version #{@plugin_version}")
 
       @logger.info("Initialized doris output with settings",
@@ -90,14 +87,16 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    def register
-      @http_query = "/api/#{db}/#{table}/_stream_load"
-
-      @hostnames_pool =
-      parse_http_hosts(http_hosts,
-      ShortNameResolver.new(ttl: @host_resolve_ttl_sec, logger: @logger))
+      @http_query = "/api/#{@db}/#{@table}/_stream_load"
 
       @request_headers = make_request_headers
       @logger.info("request headers: ", @request_headers)
+
+      @group_commit = false
+      if @request_headers.has_key?("group_commit") && @request_headers["group_commit"] != "off_mode"
+         @group_commit = true
+      end
+      @logger.info("group_commit: ", @group_commit)
 
       @init_time = Time.now.to_i # seconds
       @total_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
@@ -107,9 +106,9 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          last_time = @init_time
          last_bytes = @total_bytes.get
          last_rows = @total_rows.get
-         @logger.info("will report speed every #{@log_speed_interval} seconds")
-         while @log_speed_interval > 0
-            sleep(@log_speed_interval)
+         @logger.info("will report speed every #{@log_progress_interval} seconds")
+         while @log_progress_interval > 0
+            sleep(@log_progress_interval)
 
             cur_time = Time.now.to_i # seconds
             cur_bytes = @total_bytes.get
@@ -135,39 +134,6 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       print_plugin_info()
    end # def register
 
-   private
-
-   def parse_http_hosts(hosts, resolver)
-      ip_re = /^[\d]+\.[\d]+\.[\d]+\.[\d]+$/
-
-      lambda {
-         hosts.flat_map { |h|
-            scheme = URI(h).scheme
-            host = URI(h).host
-            port = URI(h).port
-            path = URI(h).path
-
-            if ip_re !~ host
-               resolver.get_addresses(host).map { |ip|
-                  "#{scheme}://#{ip}:#{port}#{path}"
-               }
-            else
-               [h]
-            end
-         }
-      }
-   end
-
-   private
-
-   def get_host_addresses()
-      begin
-         @hostnames_pool.call
-      rescue Exception => ex
-         @logger.error('Error while resolving host', :error => ex.to_s)
-      end
-   end
-
    def multi_receive(events)
       return if events.empty?
       send_events(events)
@@ -185,16 +151,16 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       # @logger.info("get event num: #{event_num}")
       @logger.debug("get documents: #{documents}")
 
-      hosts = get_host_addresses()
-
       http_headers = @request_headers.dup
-      http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+      if !@group_commit
+         # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
+         http_headers["label"] = @label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+      end
 
-      # @request_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d%H%M%S_%L')
       req_count = 0
       sleep_for = 1
       while true
-         response = make_request(documents, http_headers, hosts, @http_query, hosts.sample)
+         response = make_request(documents, http_headers, @http_query, @http_hosts.sample)
 
          req_count += 1
          response_json = {}
@@ -203,17 +169,25 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          rescue => e
             @logger.warn("doris stream load response: #{response} is not a valid JSON")
          end
-         if response_json["Status"] == "Success"
+
+         status = response_json["Status"]
+
+         if status == 'Label Already Exists'
+           @logger.warn("Label already exists: #{response_json['Label']}, skip #{event_num} records.")
+           break
+         end
+
+         if status == "Success" || status == "Publish Timeout"
             @total_bytes.addAndGet(documents.size)
             @total_rows.addAndGet(event_num)
             break
          else
             @logger.warn("FAILED doris stream load response:\n#{response}")
 
-            if @retry_count >= 0 && req_count > @retry_count
+            if @max_retries >= 0 && req_count > @max_retries
                @logger.warn("DROP this batch after failed #{req_count} times.")
                if @save_on_failure
-                  @logger.warn("Try save to disk.Disk file path : #{save_dir}/#{table}_#{save_file}")
+                  @logger.warn("Try save to disk.Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
                   save_to_disk(documents)
                end
                break
@@ -230,11 +204,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    private
-   def make_request(documents, http_headers, hosts, query, host = "")
-      if host == ""
-         host = hosts.pop
-      end
-
+   def make_request(documents, http_headers, query, host)
       url = host + query
 
       if @log_request or @logger.debug?
@@ -244,13 +214,13 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
       response = ""
       begin
-         response = RestClient.put(url, documents, http_headers) { |response, request, result|
-                case response.code
+         response = RestClient.put(url, documents, http_headers) { |res, request, result|
+                case res.code
                 when 301, 302, 307
-                    @logger.debug("redirect to: #{response.headers[:location]}")
-                    response.follow_redirection
+                    @logger.debug("redirect to: #{res.headers[:location]}")
+                    res.follow_redirection
                 else
-                    response.return!
+                  res.return!
                 end
          }
       rescue => e
@@ -296,14 +266,14 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       elsif mapping.is_a?(Array)
         mapping.map { |elem| convert_mapping(elem, event) }
       else
-        event.sprintf(mapping)
+        Formater.sprintf(event, mapping)
       end
    end
 
    private
    def save_to_disk(documents)
       begin
-         file = File.open("#{save_dir}/#{db}_#{table}_#{save_file}", "a")
+         file = File.open("#{@save_dir}/#{@db}_#{@table}_#{@save_file}", "a")
          file.write(documents)
       rescue IOError => e
          log_failure("An error occurred while saving file to disk: #{e}",
@@ -322,7 +292,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       headers = @headers || {}
       headers["Expect"] ||= "100-continue"
       headers["Content-Type"] ||= "text/plain;charset=utf-8"
-      headers["Authorization"] = "Basic " + Base64.strict_encode64("#{user}:#{password.value}")
+      headers["Authorization"] = "Basic " + Base64.strict_encode64("#{@user}:#{@password.value}")
   
       headers
    end

@@ -19,247 +19,361 @@ suite("test_broker_load_p2", "p2") {
     def s3BucketName = getS3BucketName()
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
-    def tables = ["part",
-                  "upper_case",
-                  "reverse",
-                  "set1",
-                  "set2",
-                  "set3",
-                  "set4",
-                  "set5",
-                  "set6",
-                  "set7",
-                  "null_default",
-                  "filter",
-                  "path_column",
-                  "parquet_s3_case1", // col1 not in file but in table, will load default value for it.
-                  "parquet_s3_case2", // x1 not in file, not in table, will throw "col not found" error.
-                  "parquet_s3_case3", // p_comment not in table but in file, load normally.
-                  "parquet_s3_case4", // all columns are in table but not in file, will fill default values.
-                  "parquet_s3_case5", // x1 not in file, not in table, will throw "col not found" error.
-                  "parquet_s3_case6", // normal
-                  "parquet_s3_case7", // col5 will be ignored, load normally
-                  "parquet_s3_case8", // first column in table is not specified, will load default value for it.
-                  "orc_s3_case1", // table column capitalize firsrt
-                  "orc_s3_case2", // table column lowercase * load column lowercase * orc file lowercase
-                  "orc_s3_case3", // table column lowercase * load column uppercase * orc file lowercase
-                  "orc_s3_case4", // table column lowercase * load column lowercase * orc file uppercase
-                  "orc_s3_case5", // table column lowercase * load column uppercase * orc file uppercase
-                  "orc_s3_case6", // table column uppercase * load column uppercase * orc file lowercase
-                  "orc_s3_case7", // table column uppercase * load column lowercase * orc file lowercase
-                  "orc_s3_case8", // table column uppercase * load column uppercase * orc file uppercase
-                  "orc_s3_case9", // table column uppercase * load column lowercase * orc file uppercase
-                  "csv_s3_case_line_delimiter" // csv format table with special line delimiter
+    def tables = ["part",             // case 0
+                  "upper_case",       // case 1
+                  "reverse",          // case 2
+                  "set1",             // case 3
+                  "set2",             // case 4
+                  "set3",             // case 5
+                  "set4",             // case 6
+                  "set5",             // case 7
+                  "set6",             // case 8
+                  "set7",             // case 9
+                  "null_default",     // case 10
+                  "filter",           // case 11
+                  "path_column",      // case 12
+                  "parquet_s3_case1", // case 13, col1 not in file but in table, will load default value for it.
+                  "parquet_s3_case2", // case 14, x1 not in file, not in table, will throw "col not found" error.
+                  "parquet_s3_case3", // case 15, p_comment not in table but in file, load normally.
+                  "parquet_s3_case4", // case 16, all columns are in table but not in file, will fill default values.
+                  "parquet_s3_case5", // case 17, x1 not in file, not in table, will throw "col not found" error.
+                  "parquet_s3_case6", // case 18, normal
+                  "parquet_s3_case7", // case 19, col5 will be ignored, load normally
+                  "parquet_s3_case8", // case 20, first column in table is not specified, will load default value for it.
+                  "orc_s3_case1", // case 21, table column capitalize * load column lowercase * orc file lowercase
+                  "orc_s3_case2", // case 22, table column lowercase * load column lowercase * orc file lowercase
+                  "orc_s3_case3", // case 23, table column lowercase * load column uppercase * orc file lowercase
+                  "orc_s3_case4", // case 24, table column lowercase * load column lowercase * orc file uppercase
+                  "orc_s3_case5", // case 25, table column lowercase * load column uppercase * orc file uppercase
+                  "orc_s3_case6", // case 26, table column uppercase * load column uppercase * orc file lowercase
+                  "orc_s3_case7", // case 27, table column uppercase * load column lowercase * orc file lowercase
+                  "orc_s3_case8", // case 28, table column uppercase * load column uppercase * orc file uppercase
+                  "orc_s3_case9", // case 29, table column uppercase * load column lowercase * orc file uppercase
+                  "csv_s3_case_line_delimiter" // case 30, csv format table with special line delimiter
                  ]
-    def paths = ["s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/path/*/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/part*",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_100k_rows.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://${s3BucketName}/regression/line_delimiter/lineitem_0x7.csv.gz"
+    def paths = ["s3://${s3BucketName}/regression/load/data/part*",                              // case 0
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 1
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 2
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 3
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 4
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 5
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 6
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 7
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 8
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 9
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 10
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 11
+                 "s3://${s3BucketName}/regression/load/data/path/*/part*",                       // case 12
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 13
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 14
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 15
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 16
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 17
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 18
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 19
+                 "s3://${s3BucketName}/regression/load/data/part*",                              // case 20
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_100k_rows.orc",             // case 21
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",    // case 22
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",    // case 23
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",    // case 24
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",    // case 25
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",    // case 26
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",    // case 27
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",    // case 28
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",    // case 29
+                 "s3://${s3BucketName}/regression/line_delimiter/lineitem_0x7.csv.gz"            // case 30
     ]
-    def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_size""",
-                   """p_partkey""",
-                   """p_partkey""",
-                   """p_partkey,  p_size""",
-                   """p_partkey""",
-                   """p_partkey,  p_size""",
-                   """p_partkey,  p_size""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, col1""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, x1""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """col1, col2, col3, col4""",
-                   """p_partkey, p_name, p_mfgr, x1""",
-                   """p_partkey, p_name, p_mfgr, p_brand""",
-                   """p_partkey, p_name, p_mfgr, p_brand""",
-                   """p_name, p_mfgr""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                //TODO: comment blow 8 rows after jibing fix
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                   """"""
-                //TODO: uncomment blow 8 rows after jibing fix
-                //    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                //    """WATCHID,JAVAENABLE,TITLE,GOODEVENT,EVENTTIME,EVENTDATE,COUNTERID,CLIENTIP,REGIONID,USERID,COUNTERCLASS,OS,USERAGENT,URL,REFERER,ISREFRESH,REFERERCATEGORYID,REFERERREGIONID,URLCATEGORYID,URLREGIONID,RESOLUTIONWIDTH,RESOLUTIONHEIGHT,RESOLUTIONDEPTH,FLASHMAJOR,FLASHMINOR,FLASHMINOR2,NETMAJOR,NETMINOR,USERAGENTMAJOR,USERAGENTMINOR,COOKIEENABLE,JAVASCRIPTENABLE,ISMOBILE,MOBILEPHONE,MOBILEPHONEMODEL,PARAMS,IPNETWORKID,TRAFICSOURCEID,SEARCHENGINEID,SEARCHPHRASE,ADVENGINEID,ISARTIFICAL,WINDOWCLIENTWIDTH,WINDOWCLIENTHEIGHT,CLIENTTIMEZONE,CLIENTEVENTTIME,SILVERLIGHTVERSION1,SILVERLIGHTVERSION2,SILVERLIGHTVERSION3,SILVERLIGHTVERSION4,PAGECHARSET,CODEVERSION,ISLINK,ISDOWNLOAD,ISNOTBOUNCE,FUNIQID,ORIGINALURL,HID,ISOLDCOUNTER,ISEVENT,ISPARAMETER,DONTCOUNTHITS,WITHHASH,HITCOLOR,LOCALEVENTTIME,AGE,SEX,INCOME,INTERESTS,ROBOTNESS,REMOTEIP,WINDOWNAME,OPENERNAME,HISTORYLENGTH,BROWSERLANGUAGE,BROWSERCOUNTRY,SOCIALNETWORK,SOCIALACTION,HTTPERROR,SENDTIMING,DNSTIMING,CONNECTTIMING,RESPONSESTARTTIMING,RESPONSEENDTIMING,FETCHTIMING,SOCIALSOURCENETWORKID,SOCIALSOURCEPAGE,PARAMPRICE,PARAMORDERID,PARAMCURRENCY,PARAMCURRENCYID,OPENSTATSERVICENAME,OPENSTATCAMPAIGNID,OPENSTATADID,OPENSTATSOURCEID,UTMSOURCE,UTMMEDIUM,UTMCAMPAIGN,UTMCONTENT,UTMTERM,FROMTAG,HASGCLID,REFERERHASH,URLHASH,CLID""",
-                //    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                //    """WATCHID,JAVAENABLE,TITLE,GOODEVENT,EVENTTIME,EVENTDATE,COUNTERID,CLIENTIP,REGIONID,USERID,COUNTERCLASS,OS,USERAGENT,URL,REFERER,ISREFRESH,REFERERCATEGORYID,REFERERREGIONID,URLCATEGORYID,URLREGIONID,RESOLUTIONWIDTH,RESOLUTIONHEIGHT,RESOLUTIONDEPTH,FLASHMAJOR,FLASHMINOR,FLASHMINOR2,NETMAJOR,NETMINOR,USERAGENTMAJOR,USERAGENTMINOR,COOKIEENABLE,JAVASCRIPTENABLE,ISMOBILE,MOBILEPHONE,MOBILEPHONEMODEL,PARAMS,IPNETWORKID,TRAFICSOURCEID,SEARCHENGINEID,SEARCHPHRASE,ADVENGINEID,ISARTIFICAL,WINDOWCLIENTWIDTH,WINDOWCLIENTHEIGHT,CLIENTTIMEZONE,CLIENTEVENTTIME,SILVERLIGHTVERSION1,SILVERLIGHTVERSION2,SILVERLIGHTVERSION3,SILVERLIGHTVERSION4,PAGECHARSET,CODEVERSION,ISLINK,ISDOWNLOAD,ISNOTBOUNCE,FUNIQID,ORIGINALURL,HID,ISOLDCOUNTER,ISEVENT,ISPARAMETER,DONTCOUNTHITS,WITHHASH,HITCOLOR,LOCALEVENTTIME,AGE,SEX,INCOME,INTERESTS,ROBOTNESS,REMOTEIP,WINDOWNAME,OPENERNAME,HISTORYLENGTH,BROWSERLANGUAGE,BROWSERCOUNTRY,SOCIALNETWORK,SOCIALACTION,HTTPERROR,SENDTIMING,DNSTIMING,CONNECTTIMING,RESPONSESTARTTIMING,RESPONSEENDTIMING,FETCHTIMING,SOCIALSOURCENETWORKID,SOCIALSOURCEPAGE,PARAMPRICE,PARAMORDERID,PARAMCURRENCY,PARAMCURRENCYID,OPENSTATSERVICENAME,OPENSTATCAMPAIGNID,OPENSTATADID,OPENSTATSOURCEID,UTMSOURCE,UTMMEDIUM,UTMCAMPAIGN,UTMCONTENT,UTMTERM,FROMTAG,HASGCLID,REFERERHASH,URLHASH,CLID""",
-                //    """WATCHID,JAVAENABLE,TITLE,GOODEVENT,EVENTTIME,EVENTDATE,COUNTERID,CLIENTIP,REGIONID,USERID,COUNTERCLASS,OS,USERAGENT,URL,REFERER,ISREFRESH,REFERERCATEGORYID,REFERERREGIONID,URLCATEGORYID,URLREGIONID,RESOLUTIONWIDTH,RESOLUTIONHEIGHT,RESOLUTIONDEPTH,FLASHMAJOR,FLASHMINOR,FLASHMINOR2,NETMAJOR,NETMINOR,USERAGENTMAJOR,USERAGENTMINOR,COOKIEENABLE,JAVASCRIPTENABLE,ISMOBILE,MOBILEPHONE,MOBILEPHONEMODEL,PARAMS,IPNETWORKID,TRAFICSOURCEID,SEARCHENGINEID,SEARCHPHRASE,ADVENGINEID,ISARTIFICAL,WINDOWCLIENTWIDTH,WINDOWCLIENTHEIGHT,CLIENTTIMEZONE,CLIENTEVENTTIME,SILVERLIGHTVERSION1,SILVERLIGHTVERSION2,SILVERLIGHTVERSION3,SILVERLIGHTVERSION4,PAGECHARSET,CODEVERSION,ISLINK,ISDOWNLOAD,ISNOTBOUNCE,FUNIQID,ORIGINALURL,HID,ISOLDCOUNTER,ISEVENT,ISPARAMETER,DONTCOUNTHITS,WITHHASH,HITCOLOR,LOCALEVENTTIME,AGE,SEX,INCOME,INTERESTS,ROBOTNESS,REMOTEIP,WINDOWNAME,OPENERNAME,HISTORYLENGTH,BROWSERLANGUAGE,BROWSERCOUNTRY,SOCIALNETWORK,SOCIALACTION,HTTPERROR,SENDTIMING,DNSTIMING,CONNECTTIMING,RESPONSESTARTTIMING,RESPONSEENDTIMING,FETCHTIMING,SOCIALSOURCENETWORKID,SOCIALSOURCEPAGE,PARAMPRICE,PARAMORDERID,PARAMCURRENCY,PARAMCURRENCYID,OPENSTATSERVICENAME,OPENSTATCAMPAIGNID,OPENSTATADID,OPENSTATSOURCEID,UTMSOURCE,UTMMEDIUM,UTMCAMPAIGN,UTMCONTENT,UTMTERM,FROMTAG,HASGCLID,REFERERHASH,URLHASH,CLID""",
-                //    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
-                //    """WATCHID,JAVAENABLE,TITLE,GOODEVENT,EVENTTIME,EVENTDATE,COUNTERID,CLIENTIP,REGIONID,USERID,COUNTERCLASS,OS,USERAGENT,URL,REFERER,ISREFRESH,REFERERCATEGORYID,REFERERREGIONID,URLCATEGORYID,URLREGIONID,RESOLUTIONWIDTH,RESOLUTIONHEIGHT,RESOLUTIONDEPTH,FLASHMAJOR,FLASHMINOR,FLASHMINOR2,NETMAJOR,NETMINOR,USERAGENTMAJOR,USERAGENTMINOR,COOKIEENABLE,JAVASCRIPTENABLE,ISMOBILE,MOBILEPHONE,MOBILEPHONEMODEL,PARAMS,IPNETWORKID,TRAFICSOURCEID,SEARCHENGINEID,SEARCHPHRASE,ADVENGINEID,ISARTIFICAL,WINDOWCLIENTWIDTH,WINDOWCLIENTHEIGHT,CLIENTTIMEZONE,CLIENTEVENTTIME,SILVERLIGHTVERSION1,SILVERLIGHTVERSION2,SILVERLIGHTVERSION3,SILVERLIGHTVERSION4,PAGECHARSET,CODEVERSION,ISLINK,ISDOWNLOAD,ISNOTBOUNCE,FUNIQID,ORIGINALURL,HID,ISOLDCOUNTER,ISEVENT,ISPARAMETER,DONTCOUNTHITS,WITHHASH,HITCOLOR,LOCALEVENTTIME,AGE,SEX,INCOME,INTERESTS,ROBOTNESS,REMOTEIP,WINDOWNAME,OPENERNAME,HISTORYLENGTH,BROWSERLANGUAGE,BROWSERCOUNTRY,SOCIALNETWORK,SOCIALACTION,HTTPERROR,SENDTIMING,DNSTIMING,CONNECTTIMING,RESPONSESTARTTIMING,RESPONSEENDTIMING,FETCHTIMING,SOCIALSOURCENETWORKID,SOCIALSOURCEPAGE,PARAMPRICE,PARAMORDERID,PARAMCURRENCY,PARAMCURRENCYID,OPENSTATSERVICENAME,OPENSTATCAMPAIGNID,OPENSTATADID,OPENSTATSOURCEID,UTMSOURCE,UTMMEDIUM,UTMCAMPAIGN,UTMCONTENT,UTMTERM,FROMTAG,HASGCLID,REFERERHASH,URLHASH,CLID""",
-                //    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
+    def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",  // case 0
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",       // case 1
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",       // case 2
+                   """p_partkey, p_name, p_size""",                                                                       // case 3
+                   """p_partkey""",                                                                                       // case 4
+                   """p_partkey""",                                                                                       // case 5
+                   """p_partkey,  p_size""",                                                                              // case 6
+                   """p_partkey""",                                                                                       // case 7
+                   """p_partkey,  p_size""",                                                                              // case 8
+                   """p_partkey,  p_size""",                                                                              // case 9
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",       // case 10
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",       // case 11
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",       // case 12
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, col1""", // case 13
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, x1""",   // case 14
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",       // case 15
+                   """col1, col2, col3, col4""",                                                                          // case 16
+                   """p_partkey, p_name, p_mfgr, x1""",                                                                   // case 17
+                   """p_partkey, p_name, p_mfgr, p_brand""",                                                              // case 18
+                   """p_partkey, p_name, p_mfgr, p_brand""",                                                              // case 19
+                   """p_name, p_mfgr""",                                                                                  // case 20
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 21
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 22
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 23
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 24
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 25
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 26
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 27
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 28
+                   """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",  // case 29
+                   """""" // case 30
                    ]
-    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-    def set_values = ["",
-                      "",
-                      "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)",
-                      "set(p_name=upper(p_name),p_greatest=greatest(cast(p_partkey as int), cast(p_size as int)))",
-                      "set(p_partkey = p_partkey + 100)",
-                      "set(partkey = p_partkey + 100)",
-                      "set(partkey = p_partkey + p_size)",
-                      "set(tmpk = p_partkey + 1, partkey = tmpk*2)",
-                      "set(partkey = p_partkey + 1, partsize = p_size*2)",
-                      "set(partsize = p_partkey + p_size)",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "set(col4 = x1)",
-                      "set(col4 = p_brand)",
-                      "set(col5 = p_brand)",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      "",
-                      ""
+    def column_in_paths = ["",   // case 0
+                           "",   // case 1
+                           "",   // case 2
+                           "",   // case 3  
+                           "",   // case 4
+                           "",   // case 5
+                           "",   // case 6
+                           "",   // case 7
+                           "",   // case 8
+                           "",   // case 9
+                           "",   // case 10
+                           "",   // case 11
+                           "COLUMNS FROM PATH AS (city)",   // case 12
+                           "",   // case 13
+                           "",   // case 14
+                           "",   // case 15
+                           "",   // case 16
+                           "",   // case 17
+                           "",   // case 18
+                           "",   // case 19
+                           "",   // case 20
+                           "",   // case 21
+                           "",   // case 22
+                           "",   // case 23
+                           "",   // case 24
+                           "",   // case 25
+                           "",   // case 26
+                           "",   // case 27
+                           "",   // case 28
+                           "",   // case 29
+                           ""   // case 30
+                          ]
+    def preceding_filters = ["",   // case 0
+                            "",   // case 1
+                            "",   // case 2
+                            "",   // case 3
+                            "",   // case 4
+                            "",   // case 5
+                            "",   // case 6
+                            "",   // case 7
+                            "",   // case 8
+                            "",   // case 9
+                            "",   // case 10
+                            "preceding filter p_size < 10",   // case 11
+                            "",   // case 12
+                            "",   // case 13
+                            "",   // case 14
+                            "",   // case 15
+                            "",   // case 16
+                            "",   // case 17
+                            "",   // case 18
+                            "",   // case 19
+                            "",   // case 20
+                            "",   // case 21
+                            "",   // case 22
+                            "",   // case 23
+                            "",   // case 24
+                            "",   // case 25
+                            "",   // case 26
+                            "",   // case 27
+                            "",   // case 28
+                            "",   // case 29
+                            ""    // case 30
+                           ]
+    def set_values = ["",     // case 0
+                      "",     // case 1
+                      "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)", // case 2
+                      "set(p_name=upper(p_name),p_greatest=greatest(cast(p_partkey as int), cast(p_size as int)))", // case 3
+                      "set(p_partkey = p_partkey + 100)", // case 4
+                      "set(partkey = p_partkey + 100)", // case 5
+                      "set(partkey = p_partkey + p_size)", // case 6
+                      "set(tmpk = p_partkey + 1, partkey = tmpk*2)", // case 7
+                      "set(partkey = p_partkey + 1, partsize = p_size*2)", // case 8
+                      "set(partsize = p_partkey + p_size)", // case 9
+                      "", // case 10
+                      "", // case 11
+                      "", // case 12
+                      "", // case 13
+                      "", // case 14
+                      "", // case 15
+                      "", // case 16
+                      "set(col4 = x1)", // case 17
+                      "set(col4 = p_brand)", // case 18
+                      "set(col5 = p_brand)", // case 19
+                      "", // case 20
+                      "", // case 21
+                      "", // case 22
+                      "", // case 23
+                      "", // case 24
+                      "", // case 25
+                      "", // case 26
+                      "", // case 27
+                      "", // case 28
+                      "", // case 29
+                      ""  // case 30
     ]
-    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    def where_exprs = ["",   // case 0
+                       "",   // case 1
+                       "",   // case 2
+                       "",   // case 3
+                       "",   // case 4
+                       "",   // case 5
+                       "",   // case 6
+                       "",   // case 7
+                       "",   // case 8
+                       "",   // case 9
+                       "",   // case 10
+                       "where p_partkey>10",   // case 11
+                       "",   // case 12
+                       "",   // case 13
+                       "",   // case 14
+                       "",   // case 15
+                       "",   // case 16
+                       "",   // case 17
+                       "",   // case 18
+                       "",   // case 19
+                       "",   // case 20
+                       "",   // case 21
+                       "",   // case 22
+                       "",   // case 23
+                       "",   // case 24
+                       "",   // case 25
+                       "",   // case 26
+                       "",   // case 27
+                       "",   // case 28
+                       "",   // case 29
+                       ""    // case 30
+                      ]
 
-    def line_delimiters = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "\u0007"]
+    def line_delimiters = ["",   // case 0
+                           "",   // case 1
+                           "",   // case 2
+                           "",   // case 3
+                           "",   // case 4
+                           "",   // case 5
+                           "",   // case 6
+                           "",   // case 7
+                           "",   // case 8
+                           "",   // case 9
+                           "",   // case 10
+                           "",   // case 11
+                           "",   // case 12
+                           "",   // case 13
+                           "",   // case 14
+                           "",   // case 15
+                           "",   // case 16
+                           "",   // case 17
+                           "",   // case 18
+                           "",   // case 19
+                           "",   // case 20
+                           "",   // case 21
+                           "",   // case 22
+                           "",   // case 23
+                           "",   // case 24
+                           "",   // case 25
+                           "",   // case 26
+                           "",   // case 27
+                           "",   // case 28
+                           "",   // case 29
+                           "\u0007"   // case 30
+                          ]
 
-    def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=163706; dpp.abnorm.ALL=0; dpp.norm.ALL=36294",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "\\N",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "\\N",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=100000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
-                    "\\N"
+    def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 0
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 1
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 2
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 3
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 4
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 5
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 6
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 7
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 8
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 9
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 10
+                    "unselected.rows=163706; dpp.abnorm.ALL=0; dpp.norm.ALL=36294",  // case 11
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 12
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 13
+                    "\\N",  // case 14
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 15
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 16
+                    "\\N",  // case 17
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 18
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 19
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",  // case 20
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=100000",  // case 21
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 22
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 23
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 24
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 25
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 26
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 27
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 28
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",   // case 29
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000"    // case 30
                     ]
 
-    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"
+    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 0
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 1
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 2
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 3
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 4
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 5
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 6
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 7
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 8
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 9
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 10
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 11
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 12
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 13
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 14
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 15
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 16
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 17
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 18
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 19
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 20
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 21
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 22
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 23
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 24
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 25
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 26
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 27
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 28
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 29
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"   // case 30
     ]
 
-    def error_msg = ["",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "failed to find default value expr for slot: x1",
-                    "",
-                    "",
-                    "failed to find default value expr for slot: x1",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    ""
+    def error_msg = ["",                                                         // case 0
+                    "",                                                          // case 1
+                    "",                                                          // case 2
+                    "",                                                          // case 3
+                    "",                                                          // case 4
+                    "",                                                          // case 5
+                    "",                                                          // case 6
+                    "",                                                          // case 7
+                    "",                                                          // case 8
+                    "",                                                          // case 9
+                    "",                                                          // case 10
+                    "",                                                          // case 11
+                    "",                                                          // case 12
+                    "",                                                          // case 13
+                    "failed to find default value expr for slot: x1",            // case 14
+                    "",                                                          // case 15
+                    "failed to find default value expr for slot: x1",            // case 16
+                    "",                                                          // case 17
+                    "",                                                          // case 18
+                    "",                                                          // case 19
+                    "",                                                          // case 20
+                    "",                                                          // case 21
+                    "",                                                          // case 22
+                    "",                                                          // case 23
+                    "",                                                          // case 24
+                    "",                                                          // case 25
+                    "",                                                          // case 26
+                    "",                                                          // case 27
+                    "",                                                          // case 28
+                    "",                                                          // case 29
+                    "",                                                          // case 30
                     ]
 
     String ak = getS3AK()
@@ -296,9 +410,6 @@ suite("test_broker_load_p2", "p2") {
                 "AWS_ENDPOINT" = "${s3Endpoint}",
                 "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
-            )
-            properties(
-                "use_new_load_scan_node" = "true"
             )
             """
         logger.info("submit sql: ${sql_str}");
@@ -338,12 +449,16 @@ suite("test_broker_load_p2", "p2") {
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
+                        load_counters = etl_info[i].split('; ');
+                        for (String counter : load_counters) {
+                            assertTrue(result[0][5].contains(counter), "expected: " + counter + ", actual: " + result[0][5] + ", label: $label")
+                        }
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
+                        logger.info("Load result: " + result[0])
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(result[0][7].contains(error_msg[i]))
+                        assertTrue(result[0][7].contains(error_msg[i]), "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }
                     Thread.sleep(1000)

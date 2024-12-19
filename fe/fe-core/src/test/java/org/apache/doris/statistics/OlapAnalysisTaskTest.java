@@ -118,7 +118,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+            public ResultRow collectBasicStat() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
@@ -137,9 +137,11 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`,"
                         + " SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(t1.count) * 4 * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`null` as `column_key`, COUNT(1) "
-                        + "as `count`     FROM     (SELECT `null` FROM `catalogName`.`${dbName}`.`null`"
-                        + "       limit 100) as `t0`     GROUP BY `t0`.`null` ) as `t1` ", sql);
+                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) "
+                        + "as `count`, SUM(`len`) as `column_length`     FROM         "
+                        + "(SELECT `null` AS `colValue`, LENGTH(`null`) as `len`         "
+                        + "FROM `catalogName`.`${dbName}`.`null`"
+                        + "   limit 100) as `t0`     GROUP BY `t0`.`colValue` ) as `t1` ", sql);
                 return;
             }
         };
@@ -196,7 +198,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+            public ResultRow collectBasicStat() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
@@ -277,7 +279,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public ResultRow collectBasicStat(AutoCloseConnectContext context) {
+            public ResultRow collectBasicStat() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
@@ -296,10 +298,11 @@ public class OlapAnalysisTaskTest {
                         + "IS NULL, `t1`.`count`, 0)), 0) * 5.0 as `null_count`, "
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`     FROM     "
-                        + "(SELECT SUBSTRING(CAST(`null` AS STRING), 1, 1024) AS `colValue`          "
-                        + "FROM `catalogName`.`${dbName}`.`null`       limit 100) as `t0`     "
+                        + "SUM(`column_length`) * 5.0 AS `data_size`, NOW() "
+                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`, SUM(`len`) as "
+                        + "`column_length`     FROM         (SELECT xxhash_64(SUBSTRING(CAST(`null` AS STRING), 1, 1024)) "
+                        + "AS `colValue`, LENGTH(`null`) as `len`"
+                        + "         FROM `catalogName`.`${dbName}`.`null`   limit 100) as `t0`     "
                         + "GROUP BY `t0`.`colValue` ) as `t1` ", sql);
                 return;
             }

@@ -68,8 +68,6 @@ public:
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);
     DataTypePtr create_data_type(const segment_v2::ColumnMetaPB& pcolumn);
 
-    DataTypePtr create_data_type(const arrow::DataType* type, bool is_nullable);
-
     DataTypePtr create_data_type(const TTypeDesc& raw_type) {
         return create_data_type(TypeDescriptor::from_thrift(raw_type), raw_type.is_nullable);
     }

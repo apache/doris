@@ -116,6 +116,7 @@ public class JdbcTable extends Table {
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
         tempMap.put("db2", TOdbcTableType.DB2);
+        tempMap.put("gbase", TOdbcTableType.GBASE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -464,6 +465,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case GBASE:
                 return formatName(name, "`", "`", false, false);
             case SQLSERVER:
                 return formatName(name, "[", "]", false, false);
@@ -486,6 +488,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case GBASE:
                 return formatNameWithRemoteName(remoteName, "`", "`");
             case SQLSERVER:
                 return formatNameWithRemoteName(remoteName, "[", "]");

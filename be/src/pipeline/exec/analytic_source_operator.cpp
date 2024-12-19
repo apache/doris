@@ -24,6 +24,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
@@ -38,7 +39,7 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                          BlockRowPos end, bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
@@ -121,13 +122,15 @@ BlockRowPos AnalyticLocalState::_get_partition_by_end() {
         return shared_state.partition_by_end;
     }
 
-    if (shared_state.partition_by_eq_expr_ctxs.empty() ||
+    const auto partition_exprs_size =
+            _parent->cast<AnalyticSourceOperatorX>()._partition_exprs_size;
+    if (partition_exprs_size == 0 ||
         (shared_state.input_total_rows == 0)) { //no partition_by, the all block is end
         return shared_state.all_block_end;
     }
 
     BlockRowPos cal_end = shared_state.all_block_end;
-    for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
+    for (size_t i = 0; i < partition_exprs_size;
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
                                            shared_state.partition_by_end, cal_end);
@@ -143,12 +146,13 @@ bool AnalyticLocalState::_whether_need_next_partition(BlockRowPos& found_partiti
          shared_state.partition_by_end.pos)) { //now still have partition data
         return false;
     }
-    if ((shared_state.partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
+    const auto partition_exprs_size =
+            _parent->cast<AnalyticSourceOperatorX>()._partition_exprs_size;
+    if ((partition_exprs_size == 0 && !shared_state.input_eos) ||
         (found_partition_end.pos == 0)) { //no partition, get until fetch to EOS
         return true;
     }
-    if (!shared_state.partition_by_eq_expr_ctxs.empty() &&
-        found_partition_end.pos == shared_state.all_block_end.pos &&
+    if (partition_exprs_size != 0 && found_partition_end.pos == shared_state.all_block_end.pos &&
         !shared_state.input_eos) { //current partition data calculate done
         return true;
     }
@@ -160,8 +164,11 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+            profile()->AddHighWaterMarkCounter("MemoryUsageBlocks", TUnit::BYTES, "", 1);
+    _evaluation_timer = ADD_TIMER(profile(), "GetPartitionBoundTime");
+    _execute_timer = ADD_TIMER(profile(), "ExecuteTime");
+    _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
+    _get_result_timer = ADD_TIMER(profile(), "GetResultsTime");
     return Status::OK();
 }
 
@@ -232,12 +239,6 @@ Status AnalyticLocalState::open(RuntimeState* state) {
                                                    std::placeholders::_1);
         }
     }
-    _executor.insert_result =
-            std::bind<void>(&AnalyticLocalState::_insert_result_info, this, std::placeholders::_1);
-    _executor.execute =
-            std::bind<void>(&AnalyticLocalState::_execute_for_win_func, this, std::placeholders::_1,
-                            std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
-
     _create_agg_status();
     return Status::OK();
 }
@@ -281,6 +282,7 @@ void AnalyticLocalState::_destroy_agg_status() {
 
 void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
                                                int64_t frame_start, int64_t frame_end) {
+    SCOPED_TIMER(_execute_timer);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _shared_state->agg_input_columns[i].size(); ++j) {
@@ -299,6 +301,7 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
 }
 
 void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
+    SCOPED_TIMER(_get_result_timer);
     int64_t current_block_row_pos =
             _shared_state->input_block_first_row_positions[_output_block_index];
     int64_t get_result_start = _shared_state->current_row_position - current_block_row_pos;
@@ -320,8 +323,8 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
 
     const auto& offsets_of_aggregate_states =
             _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
-    for (int i = 0; i < _agg_functions_size; ++i) {
-        for (int j = get_result_start; j < _window_end_position; ++j) {
+    for (size_t i = 0; i < _agg_functions_size; ++i) {
+        for (size_t j = get_result_start; j < _window_end_position; ++j) {
             if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
                 _result_window_columns[i]->is_nullable()) {
                 if (_current_window_empty) {
@@ -343,52 +346,57 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
 }
 
 Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
+    SCOPED_TIMER(_get_next_timer);
     while (_shared_state->current_row_position < _shared_state->partition_by_end.pos &&
            _window_end_position < current_block_rows) {
         int64_t range_start, range_end;
         if (!_parent->cast<AnalyticSourceOperatorX>()._window.__isset.window_start &&
             _parent->cast<AnalyticSourceOperatorX>()._window.window_end.type ==
-                    TAnalyticWindowBoundaryType::
-                            CURRENT_ROW) { //[preceding, current_row],[current_row, following]
+                    TAnalyticWindowBoundaryType::CURRENT_ROW) {
+            // [preceding, current_row], [current_row, following] rewrite it's same
+            // as could reuse the previous calculate result, so don't call _reset_agg_status function
+            // going on calculate, add up data, no need to reset state
             range_start = _shared_state->current_row_position;
-            range_end = _shared_state->current_row_position +
-                        1; //going on calculate,add up data, no need to reset state
+            range_end = _shared_state->current_row_position + 1;
         } else {
             _reset_agg_status();
-            if (!_parent->cast<AnalyticSourceOperatorX>()
-                         ._window.__isset
-                         .window_start) { //[preceding, offset]        --unbound: [preceding, following]
+            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
+            //[preceding, offset]        --unbound: [preceding, following]
+            if (!_parent->cast<AnalyticSourceOperatorX>()._window.__isset.window_start) {
                 range_start = _partition_by_start.pos;
             } else {
                 range_start = _shared_state->current_row_position + _rows_start_offset;
             }
-            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
+            // Make sure range_start <= range_end
+            range_start = std::min(range_start, range_end);
         }
-        _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos, range_start,
-                          range_end);
-        _executor.insert_result(current_block_rows);
+        _execute_for_win_func(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                              range_start, range_end);
+        _insert_result_info(current_block_rows);
     }
     return Status::OK();
 }
 
 Status AnalyticLocalState::_get_next_for_partition(size_t current_block_rows) {
+    SCOPED_TIMER(_get_next_timer);
     if (_next_partition) {
-        _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos,
-                          _partition_by_start.pos, _shared_state->partition_by_end.pos);
+        _execute_for_win_func(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                              _partition_by_start.pos, _shared_state->partition_by_end.pos);
     }
-    _executor.insert_result(current_block_rows);
+    _insert_result_info(current_block_rows);
     return Status::OK();
 }
 
 Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
+    SCOPED_TIMER(_get_next_timer);
     while (_shared_state->current_row_position < _shared_state->partition_by_end.pos &&
            _window_end_position < current_block_rows) {
         if (_shared_state->current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos,
-                              _order_by_start.pos, _order_by_end.pos);
+            _execute_for_win_func(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                                  _order_by_start.pos, _order_by_end.pos);
         }
-        _executor.insert_result(current_block_rows);
+        _insert_result_info(current_block_rows);
     }
     return Status::OK();
 }
@@ -396,7 +404,7 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
 void AnalyticLocalState::_update_order_by_range() {
     _order_by_start = _order_by_end;
     _order_by_end = _shared_state->partition_by_end;
-    for (size_t i = 0; i < _shared_state->order_by_eq_expr_ctxs.size(); ++i) {
+    for (size_t i = 0; i < _parent->cast<AnalyticSourceOperatorX>()._order_by_exprs_size; ++i) {
         _order_by_end = _compare_row_to_find_end(_shared_state->ordey_by_column_idxs[i],
                                                  _order_by_start, _order_by_end, true);
     }
@@ -440,7 +448,6 @@ bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
 Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     block->swap(std::move(_shared_state->input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker()->consume(-block->allocated_bytes());
     if (_shared_state->origin_cols.size() < block->columns()) {
         block->erase_not_in(_shared_state->origin_cols);
     }
@@ -472,7 +479,10 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
           _has_window(tnode.analytic_node.__isset.window),
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),
           _has_window_start(tnode.analytic_node.window.__isset.window_start),
-          _has_window_end(tnode.analytic_node.window.__isset.window_end) {
+          _has_window_end(tnode.analytic_node.window.__isset.window_end),
+          _partition_exprs_size(tnode.analytic_node.partition_exprs.size()),
+          _order_by_exprs_size(tnode.analytic_node.order_by_exprs.size()) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _fn_scope = AnalyticFnScope::PARTITION;
     if (tnode.analytic_node.__isset.window &&
         tnode.analytic_node.window.type == TAnalyticWindowType::RANGE) {
@@ -497,11 +507,13 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::init(tnode, state));
     const TAnalyticNode& analytic_node = tnode.analytic_node;
     size_t agg_size = analytic_node.analytic_functions.size();
-
     for (int i = 0; i < agg_size; ++i) {
         vectorized::AggFnEvaluator* evaluator = nullptr;
+        // Window function treats all NullableAggregateFunction as AlwaysNullable.
+        // Its behavior is same with executed without group by key.
+        // https://github.com/apache/doris/pull/40693
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
-                _pool, analytic_node.analytic_functions[i], {}, &evaluator));
+                _pool, analytic_node.analytic_functions[i], {}, /*wihout_key*/ true, &evaluator));
         _agg_functions.emplace_back(evaluator);
     }
 
@@ -533,7 +545,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         local_state.init_result_columns();
         size_t current_block_rows =
                 local_state._shared_state->input_blocks[local_state._output_block_index].rows();
-        static_cast<void>(local_state._executor.get_next(current_block_rows));
+        RETURN_IF_ERROR(local_state._executor.get_next(current_block_rows));
         if (local_state._window_end_position == current_block_rows) {
             break;
         }
@@ -562,13 +574,13 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
 Status AnalyticSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
-    DCHECK(_child_x->row_desc().is_prefix_of(_row_descriptor));
+    DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     for (size_t i = 0; i < _agg_functions.size(); ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&

@@ -82,6 +82,7 @@
 #endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 namespace {
 
 DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
@@ -428,8 +429,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
-            LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
-                                   << getTypeName(least_common_type.get_type_id());
+            VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
+                       << getTypeName(least_common_type.get_type_id());
             DataTypePtr base_data_type;
             TypeIndex base_data_type_id;
             get_least_supertype_jsonb(
@@ -644,8 +645,8 @@ void ColumnObject::resize(size_t n) {
     num_rows = n;
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
+bool ColumnObject::Subcolumn::check_if_sparse_column(size_t arg_num_rows) {
+    if (arg_num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -653,7 +654,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
         defaults_ratio.push_back(data[i]->get_ratio_of_default_rows());
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
-                           defaults_ratio.size();
+                           static_cast<double>(defaults_ratio.size());
     return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
@@ -1071,6 +1072,8 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             if (entry->path.has_nested_part()) {
                 FieldInfo field_info {
                         .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+                        .have_nulls = false,
+                        .need_convert = false,
                         .num_dimensions = entry->data.get_dimensions()};
                 add_nested_subcolumn(entry->path, field_info, num_rows);
             } else {
@@ -1292,7 +1295,11 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     if (!json.IsObject()) {
         return nullptr;
     }
-    rapidjson::Value name(current_key.data(), current_key.size());
+    /*! RapidJSON uses 32-bit array/string indices even on 64-bit platforms,
+    instead of using \c size_t. Users may override the SizeType by defining
+    \ref RAPIDJSON_NO_SIZETYPEDEFINE.
+    */
+    rapidjson::Value name(current_key.data(), cast_set<unsigned>(current_key.size()));
     auto it = json.FindMember(name);
     if (it == json.MemberEnd()) {
         return nullptr;
@@ -1309,14 +1316,14 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 // 2. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
 // 3. empty root jsonb value(not null)
 // 4. type is nothing
-bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, int row,
-                     const PathInData& path) {
+bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
+                     TypeIndex base_type_id, size_t row, const PathInData& path) {
     // skip nulls
     if (nullable && nullable->is_null_at(row)) {
         return true;
     }
     // check if it is empty nested json array, then skip
-    if (type->equals(*ColumnObject::NESTED_TYPE)) {
+    if (base_type_id == TypeIndex::VARIANT && type->equals(*ColumnObject::NESTED_TYPE)) {
         Field field = (*nullable)[row];
         if (field.get_type() == Field::Types::Array) {
             const auto& array = field.get<Array>();
@@ -1336,7 +1343,7 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, in
         return true;
     }
     // skip nothing type
-    if (WhichDataType(remove_nullable(get_base_type_of_array(type))).is_nothing()) {
+    if (base_type_id == TypeIndex::Nothing) {
         return true;
     }
     return false;
@@ -1344,17 +1351,19 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, in
 
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
-                                rapidjson::Value& root,
+                                TypeIndex base_type_index, rapidjson::Value& root,
                                 rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                int row) {
+                                size_t row) {
+#ifndef NDEBUG
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
         return Status::InternalError(
                 "failed to set value for path {}, expected type {}, but got {} at row {}",
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
+#endif
     const auto* nullable = check_and_get_column<ColumnNullable>(column);
-    if (skip_empty_json(nullable, type, row, path)) {
+    if (skip_empty_json(nullable, type, base_type_index, row, path)) {
         return Status::OK();
     }
     // TODO could cache the result of leaf nodes with it's path info
@@ -1412,7 +1421,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1428,7 +1437,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) c
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1443,7 +1452,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::StringBuffer* output,
                                                       bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {
@@ -1474,11 +1483,12 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        RETURN_IF_ERROR(find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(),
-                                                 subcolumn->path,
-                                                 subcolumn->data.get_least_common_type_serde(),
-                                                 subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), mem_pool, row));
+        RETURN_IF_ERROR(find_and_set_leave_value(
+                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_least_common_type_serde(),
+                subcolumn->data.get_least_common_type(),
+                subcolumn->data.least_common_type.get_base_type_id(), root,
+                doc_structure->GetAllocator(), mem_pool, row));
         if (subcolumn->path.empty() && !root.IsObject()) {
             // root was modified, only handle root node
             break;
@@ -1547,10 +1557,11 @@ Status ColumnObject::merge_sparse_to_root_column() {
                 ++null_count;
                 continue;
             }
-            bool succ = find_and_set_leave_value(column, subcolumn->path,
-                                                 subcolumn->data.get_least_common_type_serde(),
-                                                 subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), mem_pool, i);
+            bool succ = find_and_set_leave_value(
+                    column, subcolumn->path, subcolumn->data.get_least_common_type_serde(),
+                    subcolumn->data.get_least_common_type(),
+                    subcolumn->data.least_common_type.get_base_type_id(), root,
+                    doc_structure->GetAllocator(), mem_pool, i);
             if (succ && subcolumn->path.empty() && !root.IsObject()) {
                 // root was modified, only handle root node
                 break;
@@ -1592,7 +1603,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
     return Status::OK();
 }
 
-void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
@@ -1623,7 +1634,7 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) co
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-        subcolumns.add(path_builder.build(), subcolumn);
+        arg_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
 
@@ -1803,6 +1814,12 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     add_sub_column({}, std::move(column), type);
 }
 
+DataTypePtr ColumnObject::get_most_common_type() const {
+    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
+                            : std::make_shared<MostCommonType>();
+    return type;
+}
+
 bool ColumnObject::is_null_root() const {
     auto* root = subcolumns.get_root();
     if (root == nullptr) {
@@ -1923,7 +1940,7 @@ void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& has
 
 std::string ColumnObject::debug_string() const {
     std::stringstream res;
-    res << get_family_name() << "(num_row = " << num_rows;
+    res << get_name() << "(num_row = " << num_rows;
     for (auto& entry : subcolumns) {
         if (entry->data.is_finalized()) {
             res << "[column:" << entry->data.data[0]->dump_structure()
@@ -1940,8 +1957,8 @@ Status ColumnObject::sanitize() const {
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_family_name();
-            std::string expected = column->get_family_name();
+            std::string original = subcolumn->data.get_finalized_column().get_name();
+            std::string expected = column->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());
@@ -1979,6 +1996,8 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
     size_t old_size = entry->data.size();
     FieldInfo field_info = {
             .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+            .have_nulls = false,
+            .need_convert = false,
             .num_dimensions = entry->data.get_dimensions(),
     };
 

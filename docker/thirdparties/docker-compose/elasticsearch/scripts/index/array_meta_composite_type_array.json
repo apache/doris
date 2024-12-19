@@ -2,7 +2,8 @@
   "_meta": {
     "doris":{
       "array_fields":[
-        "sports"
+        "sports",
+        "scores"
       ]
     }
   }

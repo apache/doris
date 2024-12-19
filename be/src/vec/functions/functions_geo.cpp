@@ -249,15 +249,21 @@ struct StDistanceSphere {
         DCHECK_EQ(arguments.size(), 4);
         auto return_type = block.get_data_type(result);
 
-        const auto* x_lng = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
-        const auto* x_lat = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const());
-        const auto* y_lng = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const());
-        const auto* y_lat = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const());
+        ColumnPtr x_lng_origin =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr x_lat_origin =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        ColumnPtr y_lng_origin =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        ColumnPtr y_lat_origin =
+                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+
+        const auto* x_lng = check_and_get_column<ColumnFloat64>(x_lng_origin);
+        const auto* x_lat = check_and_get_column<ColumnFloat64>(x_lat_origin);
+        const auto* y_lng = check_and_get_column<ColumnFloat64>(y_lng_origin);
+        const auto* y_lat = check_and_get_column<ColumnFloat64>(y_lat_origin);
         CHECK(x_lng && x_lat && y_lng && y_lat);
+
         const auto size = x_lng->size();
         auto res = ColumnFloat64::create();
         res->reserve(size);
@@ -290,14 +296,19 @@ struct StAngleSphere {
         DCHECK_EQ(arguments.size(), 4);
         auto return_type = block.get_data_type(result);
 
-        const auto* x_lng = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
-        const auto* x_lat = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const());
-        const auto* y_lng = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const());
-        const auto* y_lat = check_and_get_column<ColumnFloat64>(
-                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const());
+        ColumnPtr x_lng_origin =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr x_lat_origin =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        ColumnPtr y_lng_origin =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        ColumnPtr y_lat_origin =
+                block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+
+        const auto* x_lng = check_and_get_column<ColumnFloat64>(x_lng_origin);
+        const auto* x_lat = check_and_get_column<ColumnFloat64>(x_lat_origin);
+        const auto* y_lng = check_and_get_column<ColumnFloat64>(y_lng_origin);
+        const auto* y_lat = check_and_get_column<ColumnFloat64>(y_lat_origin);
         CHECK(x_lng && x_lat && y_lng && y_lat);
 
         const auto size = x_lng->size();

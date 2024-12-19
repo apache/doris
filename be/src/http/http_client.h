@@ -24,8 +24,10 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
+#include "http/http_headers.h"
 #include "http/http_method.h"
 
 namespace doris {
@@ -55,6 +57,13 @@ public:
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
     }
 
+    // Auth-Token: xxxx
+    void set_auth_token(const std::string& token) {
+        std::string scratch_str = HttpHeaders::AUTH_TOKEN + ": " + token;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
+
     // content_type such as "application/json"
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
@@ -72,6 +81,8 @@ public:
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+
+    void set_speed_limit();
 
     // TODO(zc): support set header
     // void set_header(const std::string& key, const std::string& value) {
@@ -133,6 +144,8 @@ public:
     // helper function to download a file, you can call this function to download
     // a file to local_path
     Status download(const std::string& local_path);
+    Status download_multi_files(const std::string& local_dir,
+                                const std::unordered_set<std::string>& expected_files);
 
     Status execute_post_request(const std::string& payload, std::string* response);
 
@@ -156,7 +169,8 @@ public:
     Status _escape_url(const std::string& url, std::string* escaped_url);
 
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;

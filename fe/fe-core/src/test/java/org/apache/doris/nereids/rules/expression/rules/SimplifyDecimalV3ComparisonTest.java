@@ -17,42 +17,54 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.math.BigDecimal;
 
 class SimplifyDecimalV3ComparisonTest extends ExpressionRewriteTestHelper {
 
     @Test
-    public void testSimplifyDecimalV3Comparison() {
-        Config.enable_decimal_conversion = false;
-        Map<String, Slot> nameToSlot = new HashMap<>();
-        nameToSlot.put("col1", new SlotReference("col1", DecimalV3Type.createDecimalV3Type(15, 2)));
+    void testChildScaleLargerThanCast() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(SimplifyDecimalV3Comparison.INSTANCE)
         ));
-        assertRewriteAfterSimplify("cast(col1 as decimalv3(27, 9)) > 0.6", "cast(col1 as decimalv3(27, 9)) > 0.6", nameToSlot);
+
+        Expression leftChild = new DecimalV3Literal(new BigDecimal("1.23456"));
+        Expression left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(3, 2));
+        Expression right = new DecimalV3Literal(new BigDecimal("1.20"));
+        Expression expression = new EqualTo(left, right);
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertInstanceOf(Cast.class, rewrittenExpression.child(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(3, 2),
+                rewrittenExpression.child(0).getDataType());
     }
 
-    private void assertRewriteAfterSimplify(String expr, String expected, Map<String, Slot> slotNameToSlot) {
-        Expression needRewriteExpression = PARSER.parseExpression(expr);
-        if (slotNameToSlot != null) {
-            needRewriteExpression = replaceUnboundSlot(needRewriteExpression, slotNameToSlot);
-        }
-        Expression rewritten = executor.rewrite(needRewriteExpression, context);
-        Expression expectedExpression = PARSER.parseExpression(expected);
-        Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
-    }
+    @Test
+    void testChildScaleSmallerThanCast() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyDecimalV3Comparison.INSTANCE)
+        ));
 
+        Expression leftChild = new DecimalV3Literal(new BigDecimal("1.23456"));
+        Expression left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(10, 9));
+        Expression right = new DecimalV3Literal(new BigDecimal("1.200000000"));
+        Expression expression = new EqualTo(left, right);
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 5),
+                rewrittenExpression.child(0).getDataType());
+        Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
+        Assertions.assertEquals(new BigDecimal("1.20000"),
+                ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
+    }
 }

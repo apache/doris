@@ -37,6 +37,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.InternalCatalog;
@@ -431,7 +432,7 @@ public class FunctionCallExpr extends Expr {
 
     protected FunctionCallExpr(FunctionCallExpr other) {
         super(other);
-        fnName = other.fnName;
+        fnName = other.fnName != null ? other.fnName.clone() : null;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
         // aggOp = other.aggOp;
@@ -648,6 +649,7 @@ public class FunctionCallExpr extends Expr {
                             || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                             || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 sb.append("\'***\'");
+                continue;
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
                 sb.append("ORDER BY ");
             }
@@ -1921,7 +1923,8 @@ public class FunctionCallExpr extends Expr {
 
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
-                        || fnName.getFunction().equalsIgnoreCase("hist"))
+                        || fnName.getFunction().equalsIgnoreCase("hist")
+                        || fnName.getFunction().equalsIgnoreCase("linear_histogram"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
@@ -2454,7 +2457,11 @@ public class FunctionCallExpr extends Expr {
         }
 
         Function fn = null;
-        String dbName = fnName.analyzeDb(analyzer);
+        String dbName = null;
+        // when enable_udf_in_load == true, and db is null, maybe it's load, should find global function
+        if (!(Config.enable_udf_in_load && fnName.getDb() == null)) {
+            dbName = fnName.analyzeDb(analyzer);
+        }
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
             if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),

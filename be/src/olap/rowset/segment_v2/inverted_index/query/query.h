@@ -27,6 +27,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "io/io_common.h"
 #include "roaring/roaring.hh"
 
 CL_NS_USE(index)
@@ -38,8 +39,18 @@ namespace doris::segment_v2 {
 struct InvertedIndexQueryInfo {
     std::wstring field_name;
     std::vector<std::string> terms;
+    std::vector<std::vector<std::string>> additional_terms;
     int32_t slop = 0;
     bool ordered = false;
+
+    std::string to_string() {
+        std::string s;
+        s += std::to_string(terms.size()) + ", ";
+        s += std::to_string(additional_terms.size()) + ", ";
+        s += std::to_string(slop) + ", ";
+        s += std::to_string(ordered);
+        return s;
+    }
 };
 
 class Query {

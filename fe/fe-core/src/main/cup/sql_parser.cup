@@ -285,6 +285,7 @@ terminal String
     KW_BIN,
     KW_BINLOG,
     KW_BITMAP,
+    KW_BITMAP_EMPTY,
     KW_BITMAP_UNION,
     KW_BLOB,
     KW_BOOLEAN,
@@ -319,6 +320,7 @@ terminal String
     KW_COMPACT,
     KW_COMPLETE,
     KW_COMPRESS_TYPE,
+    KW_COMPUTE,
     KW_CONFIG,
     KW_CONNECTION,
     KW_CONNECTION_ID,
@@ -691,7 +693,8 @@ terminal String
     KW_LINES,
     KW_IGNORE,
     KW_CONVERT_LSC,
-    KW_VAULT;
+    KW_VAULT,
+    KW_VAULTS;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -973,6 +976,7 @@ nonterminal List<Map<String, String>> opt_with_analysis_properties;
 
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_comment_null, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
+nonterminal Boolean opt_or_replace;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 nonterminal Boolean opt_force;
@@ -1009,6 +1013,8 @@ nonterminal List<Expr> copy_select_expr_list;
 
 //genearted column
 nonterminal Boolean opt_generated_always;
+
+nonterminal Boolean opt_detailed;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1481,6 +1487,14 @@ warm_up_stmt ::=
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+    :}
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
+    {:
+        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
+    :}
     ;
 
 warm_up_item ::=
@@ -1691,9 +1705,9 @@ alter_table_clause ::=
     {:
         RESULT = new ReplacePartitionClause(partitions, tempPartitions, isForce, properties);
     :}
-    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties
+    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties opt_force:force
     {:
-        RESULT = new ReplaceTableClause(tblName, properties);
+        RESULT = new ReplaceTableClause(tblName, properties, force);
     :}
     | KW_RENAME ident:newTableName
     {:
@@ -1968,10 +1982,10 @@ create_stmt ::=
     {:
         RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
     :}
-    | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
+    | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
-        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
+        RESULT = new CreateViewStmt(ifNotExists, orReplace, viewName, columns, comment, view_def);
     :}
     | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
@@ -3050,6 +3064,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
     | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
@@ -3151,6 +3173,14 @@ revoke_stmt ::=
         RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
     | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
     :}
@@ -3945,6 +3975,10 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
     :}
+    | KW_DEFAULT KW_BITMAP_EMPTY
+    {:
+        RESULT = ColumnDef.DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
+    :}
     | KW_DEFAULT INTEGER_LITERAL:value
     {:
         RESULT = new ColumnDef.DefaultValue(true, value);
@@ -4090,6 +4124,16 @@ opt_index_type ::=
     :}
     ;
 
+opt_or_replace ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_OR KW_REPLACE
+    {:
+        RESULT = true;
+    :}
+    ;
+
 opt_if_exists ::=
     {:
         RESULT = false;
@@ -4187,6 +4231,10 @@ show_stmt ::=
         RESULT = new ShowStageStmt();
     :}
     | KW_SHOW KW_STORAGE KW_VAULT
+    {:
+        RESULT = new ShowStorageVaultStmt();
+    :}
+    | KW_SHOW KW_STORAGE KW_VAULTS
     {:
         RESULT = new ShowStorageVaultStmt();
     :}
@@ -4428,6 +4476,10 @@ show_param ::=
     {:
         RESULT = new ShowExportStmt(db, parser.where, orderByClause, limitClause);
     :}
+    | KW_EXPORT from_or_in ident:ctl DOT ident:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowExportStmt(ctl, db, parser.where, orderByClause, limitClause);
+    :}
     /* Show delete statement */
     | KW_DELETE opt_db:db
     {:
@@ -4443,13 +4495,13 @@ show_param ::=
         RESULT = new ShowDataSkewStmt(table_ref);
     :}
     /* Show data statement: used to show data size of specified range */
-     | KW_DATA order_by_clause:orderByClause opt_properties:prop
+     | KW_DATA opt_detailed:detailed order_by_clause:orderByClause opt_properties:prop
     {:
-        RESULT = new ShowDataStmt(null, orderByClause, prop);
+        RESULT = new ShowDataStmt(null, orderByClause, prop, detailed);
     :}
-    | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
+    | KW_DATA opt_detailed:detailed KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName, orderByClause, null);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause, null, detailed);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -4693,7 +4745,12 @@ show_param ::=
     /* Cloud Cluster */
     | KW_CLUSTERS
     {:
-        RESULT = new ShowClusterStmt();
+        RESULT = new ShowClusterStmt(false);
+    :}
+    /* Compute Group */
+    | KW_COMPUTE KW_GROUPS
+    {:
+        RESULT = new ShowClusterStmt(true);
     :}
     | KW_CONVERT_LSC opt_db:db
     {:
@@ -5005,6 +5062,17 @@ cancel_param ::=
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
         RESULT = new CancelCloudWarmUpStmt(parser.where);
+    :}
+    ;
+
+opt_detailed ::=
+     /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_ALL
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -7921,9 +7989,9 @@ admin_stmt ::=
     ;
 
 truncate_stmt ::=
-    KW_TRUNCATE KW_TABLE base_table_ref:tblRef
+    KW_TRUNCATE KW_TABLE base_table_ref:tblRef opt_force:force
     {:
-        RESULT = new TruncateTableStmt(tblRef);
+        RESULT = new TruncateTableStmt(tblRef, force);
     :}
     ;
 
@@ -8051,6 +8119,8 @@ keyword ::=
     | KW_BIN:id
     {: RESULT = id; :}
     | KW_BITMAP:id
+    {: RESULT = id; :}
+    | KW_BITMAP_EMPTY:id
     {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}
@@ -8422,6 +8492,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CLUSTERS:id
     {: RESULT = id; :}
+    | KW_COMPUTE:id
+    {: RESULT = id; :}
     | KW_LINK:id
     {: RESULT = id; :}
     | KW_MIGRATE:id
@@ -8517,6 +8589,8 @@ keyword ::=
     | KW_STAGE:id
     {: RESULT = id; :}
     | KW_VAULT:id
+    {: RESULT = id; :}
+    | KW_VAULTS:id
     {: RESULT = id; :}
     | KW_VARIANT:id
     {: RESULT = id; :}

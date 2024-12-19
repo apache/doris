@@ -150,4 +150,10 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     public void visitCloudTableStats() {
         return;
     }
+
+    @Override
+    public void visitWorkloadGroup() {
+        return;
+    }
+
 }

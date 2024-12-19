@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct StringRef;
 } // namespace doris
 
@@ -35,7 +36,8 @@ template <template <typename> class Impl>
 AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& name,
                                                           const DataTypes& argument_types,
 
-                                                          const bool result_is_nullable) {
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
     if (argument_types.empty()) {
         LOG(WARNING) << "Incorrect number of arguments for aggregate function " << name;
         return nullptr;

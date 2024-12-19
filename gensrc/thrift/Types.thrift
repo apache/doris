@@ -122,9 +122,10 @@ enum TStorageBackendType {
 // This enum is used to distinguish between different organizational methods
 // of inverted index data, affecting how the index is stored and accessed.
 enum TInvertedIndexFileStorageFormat {
-    DEFAULT, // Default format, unspecified storage method.
-    V1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    DEFAULT = 0, // Default format, unspecified storage method.
+    V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    V3 = 3       // Position and dictionary compression
 }
 
 struct TScalarType {
@@ -419,7 +420,8 @@ enum TOdbcTableType {
     OCEANBASE,
     OCEANBASE_ORACLE,
     NEBULA, // Deprecated
-    DB2
+    DB2,
+    GBASE
 }
 
 struct TJdbcExecutorCtorParams {
@@ -717,6 +719,12 @@ enum TMergeType {
   DELETE
 }
 
+enum TUniqueKeyUpdateMode {
+  UPSERT,
+  UPDATE_FIXED_COLUMNS,
+  UPDATE_FLEXIBLE_COLUMNS
+}
+
 enum TSortType {
     LEXICAL,
     ZORDER,
@@ -732,7 +740,8 @@ enum TMetadataType {
   JOBS,
   TASKS,
   WORKLOAD_SCHED_POLICY,
-  PARTITIONS;
+  PARTITIONS,
+  PARTITION_VALUES;
 }
 
 enum TIcebergQueryType {

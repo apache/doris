@@ -1,5 +1,3 @@
-
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,6 +17,7 @@
 
 suite("test_auto_dynamic", "nonConcurrent") {
     // PROHIBIT different timeunit of interval when use both auto & dynamic partition
+    sql " drop table if exists tbl3 "
     test{
         sql """
             CREATE TABLE tbl3
@@ -117,9 +116,25 @@ suite("test_auto_dynamic", "nonConcurrent") {
     part_result = sql " show partitions from auto_dynamic "
     assertEquals(part_result.size, 1)
 
-    sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
+    def skip_test = false
+    test {
+        sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                // the partition of 1900-01-01 directly been recovered before the insert txn finished. let it success
+                part_result = sql " show partitions from auto_dynamic "
+                log.info("${part_result}".toString())
+                assertTrue(exception.getMessage().contains("get partition p19000101000000 failed"))
+                skip_test = true
+            }
+        }
+    }
+    if (skip_test) {
+        return true
+    }
+
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
-    sleep(2000)
+    sleep(10000)
     part_result = sql " show partitions from auto_dynamic "
     log.info("${part_result}".toString())
     assertEquals(part_result.size, 3)

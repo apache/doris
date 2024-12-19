@@ -283,6 +283,9 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     qt_select20 "select id,percentile(level,0.5) from ${tableName_13} group by id order by id"
     qt_select21 "select id,percentile(level,0.55) from ${tableName_13} group by id order by id"
     qt_select22 "select id,percentile(level,0.805) from ${tableName_13} group by id order by id"
+    qt_select20_1 "select id,percentile(level + 0.1,0.5) from ${tableName_13} group by id order by id"
+    qt_select21_1 "select id,percentile(level + 0.1,0.55) from ${tableName_13} group by id order by id"
+    qt_select22_1 "select id,percentile(level + 0.1,0.805) from ${tableName_13} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_13}"
 

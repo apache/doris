@@ -31,8 +31,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -301,7 +299,9 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     @Override
     public void cancelAllTasks() throws JobException {
         try {
-            checkAuth("CANCEL LOAD");
+            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+                checkAuth("CANCEL LOAD");
+            }
             super.cancelAllTasks();
             this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
         } catch (DdlException e) {
@@ -440,7 +440,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
 
             // progress
-            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
+            String progress = Env.getCurrentProgressManager()
+                    .getProgressInfo(String.valueOf(getJobId()), getJobStatus() == JobStatus.FINISHED);
             switch (getJobStatus()) {
                 case RUNNING:
                     if (isPending()) {
@@ -520,6 +521,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public String formatMsgWhenExecuteQueueFull(Long taskId) {
+        return commonFormatMsgWhenExecuteQueueFull(taskId, "insert_task_queue_size",
+                "job_insert_task_consumer_thread_num");
     }
 
     private String getPriority() {
@@ -647,23 +654,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
 
     @Override
     public void onReplayCreate() throws JobException {
-        JobExecutionConfiguration jobConfig = new JobExecutionConfiguration();
-        jobConfig.setExecuteType(JobExecuteType.INSTANT);
-        setJobConfig(jobConfig);
         onRegister();
-        checkJobParams();
-        log.info(new LogBuilder(LogKey.LOAD_JOB, getJobId()).add("msg", "replay create load job").build());
-    }
-
-    @Override
-    public void onReplayEnd(AbstractJob<?, Map<Object, Object>> replayJob) throws JobException {
-        if (!(replayJob instanceof InsertJob)) {
-            return;
-        }
-        InsertJob insertJob = (InsertJob) replayJob;
-        unprotectReadEndOperation(insertJob);
-        log.info(new LogBuilder(LogKey.LOAD_JOB,
-                insertJob.getJobId()).add("operation", insertJob).add("msg", "replay end load job").build());
+        super.onReplayCreate();
     }
 
     public int getProgress() {

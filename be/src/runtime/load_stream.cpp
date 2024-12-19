@@ -31,11 +31,14 @@
 #include <sstream>
 
 #include "bvar/bvar.h"
+#include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
@@ -62,7 +65,6 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
           _txn_id(txn_id),
           _load_stream_mgr(load_stream_mgr) {
     load_stream_mgr->create_tokens(_flush_tokens);
-    _status = Status::OK();
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
@@ -71,7 +73,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
     ostr << "load_id=" << tablet_stream._load_id << ", txn_id=" << tablet_stream._txn_id
-         << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status;
+         << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status.status();
     return ostr;
 }
 
@@ -90,19 +92,19 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
     DBUG_EXECUTE_IF("TabletStream.init.uninited_writer", {
-        _status = Status::Uninitialized("fault injection");
-        return _status;
+        _status.update(Status::Uninitialized("fault injection"));
+        return _status.status();
     });
-    _status = _load_stream_writer->init();
+    _status.update(_load_stream_writer->init());
     if (!_status.ok()) {
         LOG(INFO) << "failed to init rowset builder due to " << *this;
     }
-    return _status;
+    return _status.status();
 }
 
 Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
     if (!_status.ok()) {
-        return _status;
+        return _status.status();
     }
 
     // dispatch add_segment request
@@ -149,6 +151,14 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
+        if (!st.ok() && !config::is_cloud_mode()) {
+            auto res = ExecEnv::get_tablet(_id);
+            TabletSharedPtr tablet =
+                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            if (tablet) {
+                tablet->report_error(st);
+            }
+        }
         if (eos && st.ok()) {
             DBUG_EXECUTE_IF("TabletStream.append_data.unknown_file_type",
                             { file_type = static_cast<FileType>(-1); });
@@ -163,8 +173,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         }
         DBUG_EXECUTE_IF("TabletStream.append_data.append_failed",
                         { st = Status::InternalError("fault injection"); });
-        if (!st.ok() && _status.ok()) {
-            _status = st;
+        if (!st.ok()) {
+            _status.update(st);
             LOG(WARNING) << "write data failed " << st << ", " << *this;
         }
     };
@@ -180,11 +190,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     timer.start();
     while (flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
         if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
-            _status = Status::Error<true>(
-                    "wait flush token back pressure time is more than "
-                    "load_stream_max_wait_flush_token_time {}",
-                    load_stream_max_wait_flush_token_time_ms);
-            return _status;
+            _status.update(
+                    Status::Error<true>("wait flush token back pressure time is more than "
+                                        "load_stream_max_wait_flush_token_time {}",
+                                        load_stream_max_wait_flush_token_time_ms));
+            return _status.status();
         }
         bthread_usleep(2 * 1000); // 2ms
     }
@@ -199,14 +209,14 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         st = flush_token->submit_func(flush_func);
     }
     if (!st.ok()) {
-        _status = st;
+        _status.update(st);
     }
-    return _status;
+    return _status.status();
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
     if (!_status.ok()) {
-        return _status;
+        return _status.status();
     }
 
     SCOPED_TIMER(_add_segment_timer);
@@ -225,19 +235,19 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
-            _status = Status::InternalError(
+            _status.update(Status::InternalError(
                     "add segment failed, no segment written by this src be yet, src_id={}, "
                     "segment_id={}",
-                    src_id, segid);
-            return _status;
+                    src_id, segid));
+            return _status.status();
         }
         DBUG_EXECUTE_IF("TabletStream.add_segment.segid_never_written",
                         { segid = _segids_mapping[src_id]->size(); });
         if (segid >= _segids_mapping[src_id]->size()) {
-            _status = Status::InternalError(
+            _status.update(Status::InternalError(
                     "add segment failed, segment is never written, src_id={}, segment_id={}",
-                    src_id, segid);
-            return _status;
+                    src_id, segid));
+            return _status.status();
         }
         new_segid = _segids_mapping[src_id]->at(segid);
     }
@@ -248,8 +258,8 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
         auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
-        if (!st.ok() && _status.ok()) {
-            _status = st;
+        if (!st.ok()) {
+            _status.update(st);
             LOG(INFO) << "add segment failed " << *this;
         }
     };
@@ -261,69 +271,69 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
         st = flush_token->submit_func(add_segment_func);
     }
     if (!st.ok()) {
-        _status = st;
+        _status.update(st);
     }
-    return _status;
+    return _status.status();
 }
 
-Status TabletStream::close() {
-    if (!_status.ok()) {
-        return _status;
-    }
-
-    SCOPED_TIMER(_close_wait_timer);
+Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     bthread::Mutex mu;
     std::unique_lock<bthread::Mutex> lock(mu);
     bthread::ConditionVariable cv;
-    auto wait_func = [this, &mu, &cv] {
+    auto st = Status::OK();
+    auto func = [this, &mu, &cv, &st, &fn] {
         signal::set_signal_task_id(_load_id);
-        for (auto& token : _flush_tokens) {
-            token->wait();
-        }
+        st = fn();
         std::lock_guard<bthread::Mutex> lock(mu);
         cv.notify_one();
     };
-    bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(wait_func);
-    if (ret) {
-        cv.wait(lock);
-    } else {
-        _status = Status::Error<ErrorCode::INTERNAL_ERROR>(
+    bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(func);
+    if (!ret) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "there is not enough thread resource for close load");
-        return _status;
+    }
+    cv.wait(lock);
+    return st;
+}
+
+void TabletStream::pre_close() {
+    if (!_status.ok()) {
+        return;
     }
 
-    DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
-    if (_next_segid.load() != _num_segments) {
-        _status = Status::Corruption(
-                "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
-                _num_segments, _next_segid.load(), print_id(_load_id));
-        return _status;
-    }
-
+    SCOPED_TIMER(_close_wait_timer);
+    _status.update(_run_in_heavy_work_pool([this]() {
+        for (auto& token : _flush_tokens) {
+            token->wait();
+        }
+        return Status::OK();
+    }));
     // it is necessary to check status after wait_func,
     // for create_rowset could fail during add_segment when loading to MOW table,
     // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
     if (!_status.ok()) {
-        return _status;
+        return;
     }
 
-    auto close_func = [this, &mu, &cv]() {
-        signal::set_signal_task_id(_load_id);
-        auto st = _load_stream_writer->close();
-        if (!st.ok() && _status.ok()) {
-            _status = st;
-        }
-        std::lock_guard<bthread::Mutex> lock(mu);
-        cv.notify_one();
-    };
-    ret = _load_stream_mgr->heavy_work_pool()->try_offer(close_func);
-    if (ret) {
-        cv.wait(lock);
-    } else {
-        _status = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "there is not enough thread resource for close load");
+    DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
+    if (_check_num_segments && (_next_segid.load() != _num_segments)) {
+        _status.update(Status::Corruption(
+                "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
+                _num_segments, _next_segid.load(), print_id(_load_id)));
+        return;
     }
-    return _status;
+
+    _status.update(_run_in_heavy_work_pool([this]() { return _load_stream_writer->pre_close(); }));
+}
+
+Status TabletStream::close() {
+    if (!_status.ok()) {
+        return _status.status();
+    }
+
+    SCOPED_TIMER(_close_wait_timer);
+    _status.update(_run_in_heavy_work_pool([this]() { return _load_stream_writer->close(); }));
+    return _status.status();
 }
 
 IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
@@ -380,10 +390,19 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         auto it = _tablet_streams_map.find(tablet.tablet_id());
         if (it == _tablet_streams_map.end()) {
             _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id());
+        } else {
+            tablet_stream = it->second;
+        }
+        if (tablet.has_num_segments()) {
             tablet_stream->add_num_segments(tablet.num_segments());
         } else {
-            it->second->add_num_segments(tablet.num_segments());
+            // for compatibility reasons (sink from old version BE)
+            tablet_stream->disable_num_segments_check();
         }
+    }
+
+    for (auto& [_, tablet_stream] : _tablet_streams_map) {
+        tablet_stream->pre_close();
     }
 
     for (auto& [_, tablet_stream] : _tablet_streams_map) {
@@ -409,7 +428,7 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
 #ifndef BE_TEST
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(load_tid);
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(load_tid);
     if (query_context != nullptr) {
         _query_thread_context = {load_tid, query_context->query_mem_tracker,
                                  query_context->workload_group()};

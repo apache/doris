@@ -148,8 +148,13 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
-    if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
-        GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+    bool injection = false;
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { injection = true; });
+    if (injection) {
+        // do not return if injection
+    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
     //trigger compaction
@@ -165,7 +170,8 @@ Status RowsetBuilder::check_tablet_version_count() {
     if (version_count > config::max_tablet_version_num) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 version_count, config::max_tablet_version_num, _tablet->tablet_id());
     }
     return Status::OK();
@@ -200,7 +206,8 @@ Status RowsetBuilder::init() {
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 tablet()->avg_rs_meta_serialize_size() * version_count,
                 config::tablet_meta_serialize_size_limit, _tablet->tablet_id());
     }
@@ -256,6 +263,17 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
+    if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
+        if (_rowset->num_segments() > 1) {
+            // in flexible partial update, when there are more one segment in one load,
+            // we need to do alignment process for same keys between segments, we haven't
+            // implemented it yet and just report an error when encouter this situation
+            return Status::NotSupported(
+                    "too large input data in flexible partial update, Please "
+                    "reduce the amount of data imported in a single load.");
+        }
+    }
+
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
@@ -275,15 +293,15 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     // For partial update, we need to fill in the entire row of data, during the calculation
     // of the delete bitmap. This operation is resource-intensive, and we need to minimize
     // the number of times it occurs. Therefore, we skip this operation here.
-    if (_partial_update_info->is_partial_update) {
+    if (_partial_update_info->is_partial_update()) {
         // for partial update, the delete bitmap calculation is done while append_block()
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
-                "partial update calc delete bitmap summary before commit: tablet({}), txn_id({}), "
+                "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
                 "rowset_ids({}), cur max_version({}), bitmap num({}), num rows updated({}), num "
                 "rows new added({}), num rows deleted({}), total rows({})",
-                tablet()->tablet_id(), _req.txn_id, _rowset_ids.size(),
-                rowset_writer()->context().mow_context->max_version,
+                _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
+                _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
                 _delete_bitmap->delete_bitmap.size(), rowset_writer()->num_rows_updated(),
                 rowset_writer()->num_rows_new_added(), rowset_writer()->num_rows_deleted(),
                 rowset_writer()->num_rows());
@@ -298,7 +316,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
 }
 
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
-    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update()) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -418,12 +436,13 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
-                               table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
-                               table_schema_param->auto_increment_coulumn(),
-                               _max_version_in_flush_phase);
+    _partial_update_info->init(
+            *_tablet_schema, table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_input_columns(),
+            table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
+            table_schema_param->nano_seconds(), table_schema_param->timezone(),
+            table_schema_param->auto_increment_coulumn(),
+            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase);
 }
 
 } // namespace doris

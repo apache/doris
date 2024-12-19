@@ -21,10 +21,10 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -90,14 +90,14 @@ public class AliasUdfBuilder extends UdfBuilder {
 
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
-        Map<String, SlotReference> slots = Maps.newLinkedHashMap();
+        Map<String, UnboundSlot> slots = Maps.newLinkedHashMap();
         aliasUdf.getUnboundFunction().foreachUp(child -> {
-            if (child instanceof SlotReference) {
-                slots.put(((SlotReference) child).getName(), (SlotReference) child);
+            if (child instanceof UnboundSlot) {
+                slots.put(((UnboundSlot) child).getName(), (UnboundSlot) child);
             }
         });
 
-        Map<SlotReference, Expression> paramSlotToRealInput = Maps.newHashMap();
+        Map<UnboundSlot, Expression> paramSlotToRealInput = Maps.newHashMap();
         for (int i = 0; i < inputs.size(); ++i) {
             String parameter = aliasUdf.getParameters().get(i);
             Preconditions.checkArgument(slots.containsKey(parameter));
@@ -107,8 +107,8 @@ public class AliasUdfBuilder extends UdfBuilder {
         ExpressionAnalyzer udfAnalyzer = new ExpressionAnalyzer(
                 null, new Scope(ImmutableList.of()), null, false, false) {
             @Override
-            public Expression visitSlotReference(SlotReference slotReference, ExpressionRewriteContext context) {
-                return paramSlotToRealInput.get(slotReference);
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+                return paramSlotToRealInput.get(unboundSlot);
             }
         };
 

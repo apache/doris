@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeState* state,
                                                                        OperatorXBase* parent)
@@ -525,15 +526,15 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
 }
 
 Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
-    // to avoid open _child_x twice
-    auto child_x = std::move(_child_x);
+    // to avoid open _child twice
+    auto child = std::move(_child);
     RETURN_IF_ERROR(JoinProbeOperatorX::open(state));
-    RETURN_IF_ERROR(_inner_probe_operator->set_child(child_x));
+    RETURN_IF_ERROR(_inner_probe_operator->set_child(child));
     DCHECK(_build_side_child != nullptr);
     _inner_probe_operator->set_build_side_child(_build_side_child);
     RETURN_IF_ERROR(_inner_probe_operator->open(state));
-    _child_x = std::move(child_x);
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+    _child = std::move(child);
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return Status::OK();
 }
@@ -557,8 +558,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
     }
     {
         SCOPED_TIMER(local_state._partition_timer);
-        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, input_block,
-                                                                  local_state._mem_tracker.get()));
+        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, input_block));
     }
 
     std::vector<std::vector<uint32_t>> partition_indexes(_partition_count);
@@ -607,7 +607,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
     }
 
     local_state._runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
 
     local_state._runtime_state->set_task_execution_context(
@@ -820,8 +820,8 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
             return _revoke_memory(state);
         }
 
-        RETURN_IF_ERROR(_child_x->get_block_after_projects(state, local_state._child_block.get(),
-                                                           &local_state._child_eos));
+        RETURN_IF_ERROR(_child->get_block_after_projects(state, local_state._child_block.get(),
+                                                         &local_state._child_eos));
 
         if (need_to_spill && local_state._child_eos) {
             RETURN_IF_ERROR(local_state.finish_spilling(0));
@@ -867,4 +867,5 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

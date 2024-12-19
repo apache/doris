@@ -104,18 +104,18 @@ public class Alter {
 
     private AlterHandler schemaChangeHandler;
     private AlterHandler materializedViewHandler;
-    private SystemHandler clusterHandler;
+    private SystemHandler systemHandler;
 
     public Alter() {
         schemaChangeHandler = Config.isCloudMode() ? new CloudSchemaChangeHandler() : new SchemaChangeHandler();
         materializedViewHandler = new MaterializedViewHandler();
-        clusterHandler = new SystemHandler();
+        systemHandler = new SystemHandler();
     }
 
     public void start() {
         schemaChangeHandler.start();
         materializedViewHandler.start();
-        clusterHandler.start();
+        systemHandler.start();
     }
 
     public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
@@ -582,10 +582,12 @@ public class Alter {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
         boolean swapTable = clause.isSwapTable();
-        processReplaceTable(db, origTable, newTblName, swapTable);
+        boolean isForce = clause.isForce();
+        processReplaceTable(db, origTable, newTblName, swapTable, isForce);
     }
 
-    public void processReplaceTable(Database db, OlapTable origTable, String newTblName, boolean swapTable)
+    public void processReplaceTable(Database db, OlapTable origTable, String newTblName,
+                                    boolean swapTable, boolean isForce)
             throws UserException {
         db.writeLockOrDdlException();
         try {
@@ -602,10 +604,10 @@ public class Alter {
                 if (swapTable) {
                     origTable.checkAndSetName(newTblName, true);
                 }
-                replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
+                replaceTableInternal(db, origTable, olapNewTbl, swapTable, false, isForce);
                 // write edit log
                 ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
-                        origTable.getId(), olapNewTbl.getId(), swapTable);
+                        origTable.getId(), oldTblName, olapNewTbl.getId(), newTblName, swapTable, isForce);
                 Env.getCurrentEnv().getEditLog().logReplaceTable(log);
                 LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
             } finally {
@@ -629,7 +631,7 @@ public class Alter {
         tableList.sort((Comparator.comparing(Table::getId)));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
-            replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true);
+            replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true, log.isForce());
         } catch (DdlException e) {
             LOG.warn("should not happen", e);
         } finally {
@@ -653,11 +655,10 @@ public class Alter {
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
     private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
-                                      boolean isReplay)
+                                      boolean isReplay, boolean isForce)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
-
         // drop origin table and new table
         db.unregisterTable(oldTblName);
         db.unregisterTable(newTblName);
@@ -671,8 +672,15 @@ public class Alter {
             origTable.checkAndSetName(newTblName, false);
             db.registerTable(origTable);
         } else {
+
             // not swap, the origin table is not used anymore, need to drop all its tablets.
-            Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+            // put original table to recycle bin.
+            if (isForce) {
+                Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+            } else {
+                Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
+            }
+
             if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
                 Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
             }
@@ -697,11 +705,6 @@ public class Alter {
             view.writeLockOrDdlException();
             try {
                 view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
-                try {
-                    view.init();
-                } catch (UserException e) {
-                    throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-                }
                 view.setNewFullSchema(newFullSchema);
                 String viewName = view.getName();
                 db.unregisterTable(viewName);
@@ -733,12 +736,11 @@ public class Alter {
         try {
             String viewName = view.getName();
             view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-            }
             view.setNewFullSchema(newFullSchema);
+
+            // We do not need to init view here.
+            // During the `init` phase, some `Alter-View` statements will access the remote file system,
+            // but they should not access it during the metadata replay phase.
 
             db.unregisterTable(viewName);
             db.registerTable(view);
@@ -750,8 +752,8 @@ public class Alter {
         }
     }
 
-    public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
-        clusterHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
+    public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
+        systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
@@ -998,8 +1000,8 @@ public class Alter {
         return materializedViewHandler;
     }
 
-    public AlterHandler getClusterHandler() {
-        return clusterHandler;
+    public AlterHandler getSystemHandler() {
+        return systemHandler;
     }
 
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
@@ -1008,8 +1010,6 @@ public class Alter {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
-
-            mtmv.writeMvLock();
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
@@ -1021,9 +1021,8 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots());
-                    Env.getCurrentEnv().getMtmvService()
-                            .refreshComplete(mtmv, alterMTMV.getRelation(), alterMTMV.getTask());
+                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
+                            isReplay);
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
@@ -1036,10 +1035,6 @@ public class Alter {
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
-        } finally {
-            if (mtmv != null) {
-                mtmv.writeMvUnlock();
-            }
         }
     }
 }

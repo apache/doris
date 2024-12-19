@@ -182,7 +182,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
     fi
 done
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+start_es() {
     # elasticsearch
     cp "${ROOT}"/docker-compose/elasticsearch/es.yaml.tpl "${ROOT}"/docker-compose/elasticsearch/es.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
@@ -205,9 +205,9 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
         sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/config
         sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
     fi
-fi
+}
 
-if [[ "${RUN_MYSQL}" -eq 1 ]]; then
+start_mysql() {
     # mysql 5.7
     cp "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml.tpl "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
@@ -217,9 +217,9 @@ if [[ "${RUN_MYSQL}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_PG}" -eq 1 ]]; then
+start_pg() {
     # pg 14
     cp "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml.tpl "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
@@ -229,9 +229,9 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_ORACLE}" -eq 1 ]]; then
+start_oracle() {
     # oracle
     cp "${ROOT}"/docker-compose/oracle/oracle-11.yaml.tpl "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
@@ -241,9 +241,9 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_DB2}" -eq 1 ]]; then
+start_db2() {
     # db2
     cp "${ROOT}"/docker-compose/db2/db2.yaml.tpl "${ROOT}"/docker-compose/db2/db2.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/db2/db2.yaml
@@ -253,9 +253,9 @@ if [[ "${RUN_DB2}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
         sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
+start_oceanbase() {
     # oceanbase
     cp "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml.tpl "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml
@@ -265,9 +265,9 @@ if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/oceanbase/data/
         sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
+start_sqlserver() {
     # sqlserver
     cp "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml.tpl "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
@@ -277,9 +277,9 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
+start_clickhouse() {
     # clickhouse
     cp "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml.tpl "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
@@ -289,9 +289,9 @@ if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_KAFKA}" -eq 1 ]]; then
+start_kafka() {
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
     eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
@@ -320,9 +320,9 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         sleep 10s
         create_kafka_topics "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
     fi
-fi
+}
 
-if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+start_hive2() {
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
@@ -354,14 +354,15 @@ if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
-    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive.env
-    sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
+    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive-2x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
+    sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env up --build --remove-orphans -d
     fi
-fi
+}
 
-if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+start_hive3() {
     # hive3
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
@@ -392,21 +393,22 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
-    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive.env
-    sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
+    envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
+    sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d
     fi
-fi
+}
 
-if [[ "${RUN_SPARK}" -eq 1 ]]; then
+start_spark() {
     sudo docker compose -f "${ROOT}"/docker-compose/spark/spark.yaml down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/spark/spark.yaml up --build --remove-orphans -d
     fi
-fi
+}
 
-if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
+start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
@@ -431,9 +433,9 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
 
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_HUDI}" -eq 1 ]]; then
+start_hudi() {
     # hudi
     cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
@@ -444,7 +446,7 @@ if [[ "${RUN_HUDI}" -eq 1 ]]; then
         sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
         sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
         if [[ ! -d "${ROOT}/docker-compose/hudi/scripts/hudi_docker_compose_attached_file" ]]; then
-            echo "Attached files does not exist, please download the https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
+            echo "Attached files does not exist, please download the https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
             exit 1
         fi
         sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
@@ -453,9 +455,9 @@ if [[ "${RUN_HUDI}" -eq 1 ]]; then
         docker exec -it adhoc-1 /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
         docker exec -it adhoc-2 /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
     fi
-fi
+}
 
-if [[ "${RUN_TRINO}" -eq 1 ]]; then
+start_trino() {
     # trino
     trino_docker="${ROOT}"/docker-compose/trino
     TRINO_CONTAINER_ID="${CONTAINER_UID}trino"
@@ -528,9 +530,9 @@ if [[ "${RUN_TRINO}" -eq 1 ]]; then
         # execute create table sql
         docker exec -it ${TRINO_CONTAINER_ID} /bin/bash -c 'trino -f /scripts/create_trino_table.sql'
     fi
-fi
+}
 
-if [[ "${RUN_MARIADB}" -eq 1 ]]; then
+start_mariadb() {
     # mariadb
     cp "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
@@ -540,9 +542,9 @@ if [[ "${RUN_MARIADB}" -eq 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
     fi
-fi
+}
 
-if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
+start_lakesoul() {
     echo "RUN_LAKESOUL"
     cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
@@ -573,9 +575,9 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
         cd LakeSoul/rust
         cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
     fi
-fi
+}
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+start_kerberos() {
     echo "RUN_KERBEROS"
     cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kerberos/kerberos.yaml
@@ -597,4 +599,114 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
         echo '172.31.71.26 hadoop-master-2' >> /etc/hosts
         sleep 2
     fi
+}
+
+echo "starting dockers in parrallel"
+
+declare -A pids
+
+if [[ "${RUN_ES}" -eq 1 ]]; then
+    start_es > start_es.log  2>&1 &
+    pids["es"]=$!
 fi
+
+if [[ "${RUN_MYSQL}" -eq 1 ]]; then
+    start_mysql > start_mysql.log 2>&1 &
+    pids["mysql"]=$!
+fi
+
+if [[ "${RUN_PG}" -eq 1 ]]; then
+    start_pg > start_pg.log 2>&1 &
+    pids["pg"]=$!
+fi
+
+if [[ "${RUN_ORACLE}" -eq 1 ]]; then
+    start_oracle > start_oracle.log 2>&1 &
+    pids["oracle"]=$!
+fi
+
+if [[ "${RUN_DB2}" -eq 1 ]]; then
+    start_db2 > start_db2.log 2>&1 &
+    pids["db2"]=$!
+fi
+
+if [[ "${RUN_OCEANBASE}" -eq 1 ]]; then
+    start_oceanbase > start_oceanbase.log 2>&1 &
+    pids["oceanbase"]=$!
+fi
+
+if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
+    start_sqlserver > start_sqlserver.log 2>&1 &
+    pids["sqlserver"]=$!
+fi
+
+if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
+    start_clickhouse > start_clickhouse.log 2>&1 &
+    pids["clickhouse"]=$!
+fi
+
+if [[ "${RUN_KAFKA}" -eq 1 ]]; then
+    start_kafka > start_kafka.log 2>&1 &
+    pids["kafka"]=$!
+fi
+
+if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+    start_hive2 > start_hive2.log 2>&1 &
+    pids["hive2"]=$!
+fi
+
+if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+    start_hive3 > start_hive3.log 2>&1 &
+    pids["hive3"]=$!
+fi
+
+if [[ "${RUN_SPARK}" -eq 1 ]]; then
+    start_spark > start_spark.log 2>&1 &
+    pids["spark"]=$!
+fi
+
+if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
+    start_iceberg > start_icerberg.log 2>&1 &
+    pids["iceberg"]=$!
+fi
+
+if [[ "${RUN_HUDI}" -eq 1 ]]; then
+    start_hudi > start_hudi.log 2>&1 &
+    pids["hudi"]=$!
+fi
+
+if [[ "${RUN_TRINO}" -eq 1 ]]; then
+    start_trino > start_trino.log 2>&1 &
+    pids["trino"]=$!
+fi
+
+if [[ "${RUN_MARIADB}" -eq 1 ]]; then
+    start_mariadb > start_mariadb.log 2>&1 &
+    pids["mariadb"]=$!
+fi
+
+if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
+    start_lakesoul > start_lakesoule.log 2>&1 &
+    pids["lakesoul"]=$!
+fi
+
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    start_kerberos > start_kerberos.log 2>&1 &
+    pids["kerberos"]=$!
+fi
+
+echo "waiting all dockers starting done"
+
+for compose in "${!pids[@]}"; do
+    # prevent wait return 1 make the script exit
+    status=0
+    wait "${pids[$compose]}" || status=$?
+    if [ $status -ne 0 ] && [ $compose != "db2" ]; then
+        echo "docker $compose started failed with status $status"
+        echo "print start_${compose}.log"
+        cat start_${compose}.log
+        exit 1
+    fi
+done
+
+echo "all dockers started successfully"

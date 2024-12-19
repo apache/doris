@@ -131,7 +131,7 @@ suite ("test_uniq_rollup_schema_change") {
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
 
-    max_try_time = 300
+    def max_try_time = 300
     Awaitility.await().atMost(max_try_time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tableName)
         if (result == "FINISHED") {
@@ -173,7 +173,7 @@ suite ("test_uniq_rollup_schema_change") {
             String tablet_id = tablet[0]
             backend_id = tablet[2]
             logger.info("run compaction:" + tablet_id)
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             //assertEquals(code, 0)
     }
@@ -183,7 +183,7 @@ suite ("test_uniq_rollup_schema_change") {
             Awaitility.await().untilAsserted(() -> {
                 String tablet_id = tablet[0]
                 backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())

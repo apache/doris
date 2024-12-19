@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 
 #include "common/status.h"
@@ -26,13 +25,10 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 
-namespace doris {
-namespace vectorized {
-class Block;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+class Block;
 
 class VExplodeBitmapTableFunction final : public TableFunction {
     ENABLE_FACTORY_CREATOR(VExplodeBitmapTableFunction);
@@ -60,4 +56,5 @@ private:
     ColumnPtr _value_column;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

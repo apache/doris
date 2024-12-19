@@ -44,8 +44,6 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
-
         // Create database `db1`.
         createDatabase("db1");
 
@@ -114,7 +112,6 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
         createTables(nonPart, part1, part2, multiLeveParts);
 
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 

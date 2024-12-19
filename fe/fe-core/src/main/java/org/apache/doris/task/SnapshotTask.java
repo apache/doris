@@ -29,6 +29,7 @@ public class SnapshotTask extends AgentTask {
     private int schemaHash;
     private long timeoutMs;
     private boolean isRestoreTask;
+    private Long refTabletId;
 
     // Set to true if this task for AdminCopyTablet.
     // Otherwise, it is for Backup/Restore operation.
@@ -98,13 +99,23 @@ public class SnapshotTask extends AgentTask {
         return resultSnapshotPath;
     }
 
+    public void setRefTabletId(long refTabletId) {
+        assert refTabletId > 0;
+        this.refTabletId = refTabletId;
+    }
+
     public TSnapshotRequest toThrift() {
         TSnapshotRequest request = new TSnapshotRequest(tabletId, schemaHash);
-        request.setVersion(version);
         request.setListFiles(true);
         request.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
         request.setTimeout(timeoutMs / 1000);
         request.setIsCopyTabletTask(isCopyTabletTask);
+        if (refTabletId != null) {
+            request.setRefTabletId(refTabletId);
+        }
+        if (version > 0L) {
+            request.setVersion(version);
+        }
         return request;
     }
 }

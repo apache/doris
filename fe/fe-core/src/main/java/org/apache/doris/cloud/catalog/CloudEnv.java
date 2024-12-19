@@ -38,17 +38,20 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,6 +72,8 @@ public class CloudEnv extends Env {
 
     private CleanCopyJobScheduler cleanCopyJobScheduler;
 
+    private String cloudInstanceId;
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
@@ -87,6 +92,36 @@ public class CloudEnv extends Env {
 
     public CloudUpgradeMgr getCloudUpgradeMgr() {
         return this.upgradeMgr;
+    }
+
+    public String getCloudInstanceId() {
+        return cloudInstanceId;
+    }
+
+    private void setCloudInstanceId(String cloudInstanceId) {
+        this.cloudInstanceId = cloudInstanceId;
+    }
+
+    @Override
+    public void initialize(String[] args) throws Exception {
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id) && Config.cluster_id == -1) {
+            throw new UserException("cluster_id must be specified in fe.conf if deployed "
+                                    + "in cloud mode, because FE should known to which it belongs");
+        }
+
+        if (Config.cluster_id != -1) {
+            setCloudInstanceId(String.valueOf(Config.cluster_id));
+        }
+
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id) && !Strings.isNullOrEmpty(cloudInstanceId)) {
+            Config.cloud_unique_id = "1:" + cloudInstanceId + ":fe";
+            LOG.info("cloud_unique_id is empty, setting it to: {}", Config.cloud_unique_id);
+        }
+
+        LOG.info("Initializing CloudEnv with cloud_unique_id: {}, cluster_id: {}, cloudInstanceId: {}",
+                Config.cloud_unique_id, Config.cluster_id, cloudInstanceId);
+
+        super.initialize(args);
     }
 
     @Override
@@ -117,9 +152,13 @@ public class CloudEnv extends Env {
         return cacheHotspotMgr;
     }
 
+    private CloudSystemInfoService getCloudSystemInfoService() {
+        return (CloudSystemInfoService) systemInfo;
+    }
+
     private Cloud.NodeInfoPB getLocalTypeFromMetaService() {
         // get helperNodes from ms
-        Cloud.GetClusterResponse response = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+        Cloud.GetClusterResponse response = getCloudSystemInfoService()
                 .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
@@ -141,23 +180,12 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        if (allNodes.stream().anyMatch(n -> n.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)) {
-            // multi followers mode, select first
-            Optional<HostInfo> helperNode = allNodes.stream()
-                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_FOLLOWER)
-                    .map(nodeInfoPB -> new HostInfo(
-                    Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
-                    .min(Comparator.comparing(HostInfo::getHost));
-            helperNode.ifPresent(hostInfo -> helperNodes.add(hostInfo));
-        } else {
-            // master observers mode
-            // helper node select follower's first, just one
-            helperNodes.addAll(allNodes.stream()
-                    .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_MASTER)
-                    .map(nodeInfoPB -> new HostInfo(
-                    Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
-                    .collect(Collectors.toList()));
-            // check only have one master node.
+        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream().findFirst();
+        if (firstNonObserverNode.isPresent()) {
+            helperNodes.add(new HostInfo(
+                    Config.enable_fqdn_mode ? firstNonObserverNode.get().getHost()
+                            : firstNonObserverNode.get().getIp(),
+                    firstNonObserverNode.get().getEditLogPort()));
         }
         Preconditions.checkState(helperNodes.size() == 1);
 
@@ -166,6 +194,19 @@ public class CloudEnv extends Env {
         return local.orElse(null);
     }
 
+    private void tryAddMyselfToMS() {
+        try {
+            try {
+                getCloudSystemInfoService().tryCreateInstance(getCloudInstanceId(),
+                        getCloudInstanceId(), false);
+            } catch (Exception e) {
+                return;
+            }
+            addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());
+        } catch (DdlException e) {
+            LOG.warn("get ddl exception ", e);
+        }
+    }
 
     protected void getClusterIdAndRole() throws IOException {
         NodeInfoPB.NodeType type = NodeInfoPB.NodeType.UNKNOWN;
@@ -175,19 +216,34 @@ public class CloudEnv extends Env {
             try {
                 nodeInfoPB = getLocalTypeFromMetaService();
             } catch (Exception e) {
-                LOG.warn("failed to get local fe's type, sleep 5 s, try again. exception: {}", e.getMessage());
+                LOG.warn("failed to get local fe's type, sleep {} s, try again. exception: {}",
+                        Config.resource_not_ready_sleep_seconds, e.getMessage());
             }
             if (nodeInfoPB == null) {
-                LOG.warn("failed to get local fe's type, sleep 5 s, try again.");
+                LOG.warn("failed to get local fe's type, sleep {} s, try again.",
+                        Config.resource_not_ready_sleep_seconds);
+                if (isStartFromEmpty()) {
+                    tryAddMyselfToMS();
+                }
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 } catch (InterruptedException e) {
-                    LOG.warn("thread sleep Exception", e);
+                    LOG.info("interrupted by {}", e);
                 }
                 continue;
             }
+
             type = nodeInfoPB.getNodeType();
             break;
+        }
+
+        try {
+            String instanceId;
+            instanceId = getCloudSystemInfoService().getInstanceId(Config.cloud_unique_id);
+            setCloudInstanceId(instanceId);
+        } catch (IOException e) {
+            LOG.error("Failed to get instance ID from cloud_unique_id: {}", Config.cloud_unique_id, e);
+            throw e;
         }
 
         LOG.info("current fe's role is {}", type == NodeInfoPB.NodeType.FE_MASTER ? "MASTER" :
@@ -221,20 +277,20 @@ public class CloudEnv extends Env {
                 + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
         }
 
-        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(clusterName)) {
+        if (!getCloudSystemInfoService().getCloudClusterNames().contains(clusterName)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("current instance does not have a cluster name :{}", clusterName);
             }
-            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+            throw new DdlException(String.format("Compute Group %s not exist", clusterName),
                 ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
         }
     }
 
     public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
         checkCloudClusterPriv(clusterName);
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(clusterName);
+        getCloudSystemInfoService().waitForAutoStart(clusterName);
         try {
-            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");
+            getCloudSystemInfoService().addCloudCluster(clusterName, "");
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         }
@@ -343,5 +399,40 @@ public class CloudEnv extends Env {
 
     public void cancelCloudWarmUp(CancelCloudWarmUpStmt stmt) throws DdlException {
         getCacheHotspotMgr().cancel(stmt);
+    }
+
+    @Override
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        getCloudSystemInfoService().addFrontend(role, host, editLogPort);
+    }
+
+    @Override
+    public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
+        if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
+                && selfNode.getHost().equals(host)) {
+            throw new DdlException("can not drop current master node.");
+        }
+
+        Frontend frontend = checkFeExist(host, port);
+        if (frontend == null) {
+            throw new DdlException("frontend does not exist[" + NetUtils
+                .getHostPortInAccessibleFormat(host, port) + "]");
+        }
+
+        if (frontend.getRole() != role) {
+            throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, port) + "]");
+        }
+
+        if (Strings.isNullOrEmpty(frontend.getCloudUniqueId())) {
+            throw new DdlException("Frontend does not have a cloudUniqueId, wait for a minute.");
+        }
+
+        getCloudSystemInfoService().dropFrontend(frontend);
+    }
+
+    @Override
+    public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
+        throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
     }
 }

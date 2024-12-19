@@ -86,6 +86,8 @@ private:
                                          TFetchSchemaTableDataRequest* request);
     Status _build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
                                            TFetchSchemaTableDataRequest* request);
+    Status _build_partition_values_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                    TFetchSchemaTableDataRequest* request);
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;

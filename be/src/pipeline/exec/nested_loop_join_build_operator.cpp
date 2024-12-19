@@ -23,7 +23,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 struct RuntimeFilterBuild {
     RuntimeFilterBuild(NestedLoopJoinBuildSinkLocalState* parent) : _parent(parent) {}
     Status operator()(RuntimeState* state) {
@@ -43,7 +43,7 @@ struct RuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_parent->publish_runtime_filter_timer());
-            RETURN_IF_ERROR(runtime_filter_slots.publish());
+            RETURN_IF_ERROR(runtime_filter_slots.publish(state));
         }
 
         return Status::OK();
@@ -66,8 +66,8 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     _shared_state->join_op_variants = p._join_op_variants;
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
+                                                                &_runtime_filters[i]));
     }
     return Status::OK();
 }
@@ -87,11 +87,9 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
                                                                    int operator_id,
                                                                    const TPlanNode& tnode,
-                                                                   const DescriptorTbl& descs,
-                                                                   bool need_local_merge)
+                                                                   const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
-          _need_local_merge(need_local_merge),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
@@ -109,14 +107,14 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 
 Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::open(state));
-    int num_build_tuples = _child_x->row_desc().tuple_descriptors().size();
+    size_t num_build_tuples = _child->row_desc().tuple_descriptors().size();
 
-    for (int i = 0; i < num_build_tuples; ++i) {
-        TupleDescriptor* build_tuple_desc = _child_x->row_desc().tuple_descriptors()[i];
+    for (size_t i = 0; i < num_build_tuples; ++i) {
+        TupleDescriptor* build_tuple_desc = _child->row_desc().tuple_descriptors()[i];
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_filter_src_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_filter_src_expr_ctxs, state, _child->row_desc()));
     return vectorized::VExpr::open(_filter_src_expr_ctxs, state);
 }
 
@@ -139,7 +137,6 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     }
 
     if (eos) {
-        COUNTER_UPDATE(local_state._build_rows_counter, local_state._build_rows);
         RuntimeFilterBuild rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));
 

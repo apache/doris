@@ -21,12 +21,10 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.thrift.TFileAttributes;
 
 import org.apache.iceberg.Table;
 
@@ -72,11 +70,6 @@ public class IcebergApiSource implements IcebergSource {
     @Override
     public TableIf getTargetTable() {
         return icebergExtTable;
-    }
-
-    @Override
-    public TFileAttributes getFileAttributes() throws UserException {
-        return new TFileAttributes();
     }
 
     @Override

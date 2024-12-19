@@ -18,10 +18,12 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -31,6 +33,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 
 VDataStreamMgr::VDataStreamMgr() {
@@ -61,16 +64,17 @@ inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instanc
 }
 
 std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
-        RuntimeState* state, const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging) {
+        RuntimeState* state, pipeline::ExchangeLocalState* parent, const RowDescriptor& row_desc,
+        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+        RuntimeProfile* profile, bool is_merging) {
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << print_id(fragment_instance_id)
               << ", node=" << dest_node_id;
-    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, state, row_desc,
+    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, parent, state, row_desc,
                                                                  fragment_instance_id, dest_node_id,
                                                                  num_senders, is_merging, profile));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
-    std::lock_guard<std::mutex> l(_lock);
+    std::unique_lock l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
     _receiver_map.insert(std::make_pair(hash_value, recvr));
     return recvr;
@@ -80,9 +84,9 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
                                   std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock) {
     VLOG_ROW << "looking up fragment_instance_id=" << print_id(fragment_instance_id)
              << ", node=" << node_id;
-    size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
     // Create lock guard and not own lock currently and will lock conditionally
-    std::unique_lock recvr_lock(_lock, std::defer_lock);
+    std::shared_lock recvr_lock(_lock, std::defer_lock);
     if (acquire_lock) {
         recvr_lock.lock();
     }
@@ -109,6 +113,8 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     t_finst_id.hi = finst_id.hi();
     t_finst_id.lo = finst_id.lo();
     std::shared_ptr<VDataStreamRecvr> recvr = nullptr;
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     static_cast<void>(find_recvr(t_finst_id, request->node_id(), &recvr));
     if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
@@ -122,7 +128,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         //
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
         // errors from receiver-initiated teardowns.
-        return Status::OK(); // local data stream receiver closed
+        return Status::EndOfFile("data stream receiver closed");
     }
 
     // Lock the fragment context to ensure the runtime state and other objects are not
@@ -132,14 +138,17 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         // Do not return internal error, because when query finished, the downstream node
         // may finish before upstream node. And the object maybe deconstructed. If return error
         // then the upstream node may report error status to FE, the query is failed.
-        return Status::OK(); // data stream receiver is deconstructed
+        return Status::EndOfFile("data stream receiver is deconstructed");
     }
 
     bool eos = request->eos();
     if (request->has_block()) {
-        RETURN_IF_ERROR(recvr->add_block(request->block(), request->sender_id(),
+        std::unique_ptr<PBlock> pblock_ptr {
+                const_cast<PTransmitDataParams*>(request)->release_block()};
+        RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
                                          request->be_number(), request->packet_seq(),
-                                         eos ? nullptr : done, wait_for_worker));
+                                         eos ? nullptr : done, wait_for_worker,
+                                         cpu_time_stop_watch.elapsed_time()));
     }
 
     if (eos) {
@@ -154,9 +163,9 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
     std::shared_ptr<VDataStreamRecvr> targert_recvr;
     VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << print_id(fragment_instance_id)
                << ", node=" << node_id;
-    size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
     {
-        std::lock_guard<std::mutex> l(_lock);
+        std::unique_lock l(_lock);
         auto range = _receiver_map.equal_range(hash_value);
         while (range.first != range.second) {
             const std::shared_ptr<VDataStreamRecvr>& recvr = range.first->second;
@@ -190,7 +199,7 @@ void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_s
     VLOG_QUERY << "cancelling all streams for fragment=" << print_id(fragment_instance_id);
     std::vector<std::shared_ptr<VDataStreamRecvr>> recvrs;
     {
-        std::lock_guard<std::mutex> l(_lock);
+        std::shared_lock l(_lock);
         FragmentStreamSet::iterator i =
                 _fragment_stream_set.lower_bound(std::make_pair(fragment_instance_id, 0));
         while (i != _fragment_stream_set.end() && i->first == fragment_instance_id) {

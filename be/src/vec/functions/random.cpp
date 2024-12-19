@@ -90,7 +90,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         if (arguments.size() == 2) {
             return _execute_int_range(context, block, arguments, result, input_rows_count);
         }
@@ -103,7 +103,7 @@ public:
 
 private:
     static Status _execute_int_range(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& arguments, size_t result,
+                                     const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto res_column = ColumnInt64::create(input_rows_count);
         auto& res_data = static_cast<ColumnInt64&>(*res_column).get_data();
@@ -141,7 +141,7 @@ private:
     }
 
     static Status _execute_float(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) {
         static const double min = 0.0;
         static const double max = 1.0;

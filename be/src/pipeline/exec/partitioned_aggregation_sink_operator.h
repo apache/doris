@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 class PartitionedAggSinkOperatorX;
 class PartitionedAggSinkLocalState
         : public PipelineXSpillSinkLocalState<PartitionedAggSharedState> {
@@ -259,7 +260,6 @@ public:
 
     std::unique_ptr<RuntimeState> _runtime_state;
 
-    bool _eos = false;
     std::shared_ptr<Dependency> _finish_dependency;
 
     // temp structures during spilling
@@ -310,9 +310,6 @@ public:
     bool require_data_distribution() const override {
         return _agg_sink_operator->require_data_distribution();
     }
-    bool require_shuffled_data_distribution() const override {
-        return _agg_sink_operator->require_shuffled_data_distribution();
-    }
 
     Status set_child(OperatorPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<PartitionedAggSinkLocalState>::set_child(child));
@@ -328,4 +325,5 @@ private:
 
     size_t _spill_partition_count_bits = 4;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

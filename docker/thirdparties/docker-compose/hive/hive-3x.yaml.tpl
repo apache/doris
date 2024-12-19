@@ -24,7 +24,7 @@ services:
     environment:
       - CLUSTER_NAME=test
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-3x.env
     container_name: ${CONTAINER_UID}hadoop3-namenode
     expose:
       - "9870"
@@ -39,7 +39,7 @@ services:
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-3x.env
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:9870"
     container_name: ${CONTAINER_UID}hadoop3-datanode
@@ -55,7 +55,7 @@ services:
   hive-server:
     image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-3x.env
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${IP_HOST}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${IP_HOST}:${HMS_PORT}"
@@ -76,7 +76,7 @@ services:
   hive-metastore:
     image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-3x.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:9870 ${IP_HOST}:9864 ${IP_HOST}:${PG_PORT}"

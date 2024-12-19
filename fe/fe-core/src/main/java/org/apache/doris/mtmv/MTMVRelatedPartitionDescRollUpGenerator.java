@@ -21,6 +21,7 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -45,7 +46,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
             return;
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType();
+        PartitionType partitionType = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
         if (partitionType == PartitionType.RANGE) {
             lastResult.setDescs(rollUpRange(lastResult.getDescs(), mvPartitionInfo));
         } else if (partitionType == PartitionType.LIST) {

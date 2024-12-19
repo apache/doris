@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -48,14 +49,18 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -70,6 +75,7 @@ import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TQueryCacheParam;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -79,6 +85,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -184,6 +192,7 @@ public class NereidsPlanner extends Planner {
                 ExplainLevel explainLevel, boolean showPlanProcess,
                 Consumer<Plan> lockCallback) {
         try {
+            long beforePlanGcTime = getGarbageCollectionTime();
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
@@ -207,10 +216,14 @@ public class NereidsPlanner extends Planner {
             plan = preprocess(plan);
 
             initCascadesContext(plan, requireProperties);
-
+            statementContext.loadSnapshots(cascadesContext.getOrExtractTables(plan));
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
+                if (statementContext.getConnectContext().getExecutor() != null) {
+                    statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                            .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
+                }
                 return resultPlan;
             }
         } finally {
@@ -218,7 +231,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private Plan planWithoutLock(
+    protected Plan planWithoutLock(
             LogicalPlan plan, ExplainLevel explainLevel,
             boolean showPlanProcess, PhysicalProperties requireProperties) {
         // resolve column, table and function
@@ -256,6 +269,21 @@ public class NereidsPlanner extends Planner {
             }
         }
 
+        // if we cannot get table row count, skip join reorder
+        // except:
+        //   1. user set leading hint
+        //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
+                && !cascadesContext.isLeadingDisableJoinReorder()) {
+            List<CatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(CatalogRelation.class::isInstance);
+            Optional<String> disableJoinReorderReason = StatsCalculator
+                    .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
+        }
+
+        setRuntimeFilterWaitTimeByTableRowCountAndType();
+
         optimize();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
@@ -288,18 +316,57 @@ public class NereidsPlanner extends Planner {
         return physicalPlan;
     }
 
-    private LogicalPlan preprocess(LogicalPlan logicalPlan) {
+    protected LogicalPlan preprocess(LogicalPlan logicalPlan) {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
+    }
+
+    /**
+     * compute rf wait time according to max table row count, if wait time is not default value
+     *     olap:
+     *     row < 1G: 1 sec
+     *     1G <= row < 10G: 5 sec
+     *     10G < row: 20 sec
+     *     external:
+     *     row < 1G: 5 sec
+     *     1G <= row < 10G: 10 sec
+     *     10G < row: 50 sec
+     */
+    private void setRuntimeFilterWaitTimeByTableRowCountAndType() {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
+                != VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
+            List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(LogicalCatalogRelation.class::isInstance);
+            double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
+            boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
+            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+            if (hasExternalTable) {
+                if (maxRow < 1_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                } else if (maxRow < 10_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                } else {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
+                }
+            } else {
+                if (maxRow < 1_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
+                } else if (maxRow < 10_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                } else {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                }
+            }
+        }
     }
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
         cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
-        if (statementContext.getConnectContext().getTables() != null) {
-            cascadesContext.setTables(statementContext.getConnectContext().getTables());
+        if (statementContext.getTables() != null) {
+            cascadesContext.setTables(statementContext.getTables());
         }
     }
 
-    private void analyze(boolean showPlanProcess) {
+    protected void analyze(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
@@ -314,7 +381,7 @@ public class NereidsPlanner extends Planner {
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
-    private void rewrite(boolean showPlanProcess) {
+    protected void rewrite(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start rewrite plan");
         }
@@ -326,7 +393,7 @@ public class NereidsPlanner extends Planner {
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
-    private void optimize() {
+    protected void optimize() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
@@ -337,7 +404,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void splitFragments(PhysicalPlan resultPlan) {
+    protected void splitFragments(PhysicalPlan resultPlan) {
         if (resultPlan instanceof PhysicalSqlCache) {
             return;
         }
@@ -432,7 +499,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) {
+    protected void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) {
         boolean canUseNereidsDistributePlanner = SessionVariable.canUseNereidsDistributePlanner();
         if ((!canUseNereidsDistributePlanner && explainLevel.isPlanLevel)) {
             return;
@@ -442,18 +509,21 @@ public class NereidsPlanner extends Planner {
         }
 
         splitFragments(physicalPlan);
+        doDistribute(canUseNereidsDistributePlanner);
+    }
 
+    protected void doDistribute(boolean canUseNereidsDistributePlanner) {
         if (!canUseNereidsDistributePlanner) {
             return;
         }
 
-        distributedPlans = new DistributePlanner(fragments).plan();
+        distributedPlans = new DistributePlanner(statementContext, fragments).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
         }
     }
 
-    private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
+    protected PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
         return new PlanPostProcessors(cascadesContext).process(physicalPlan);
     }
 
@@ -522,6 +592,15 @@ public class NereidsPlanner extends Planner {
         }
     }
 
+    private long getGarbageCollectionTime() {
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        long initialGCTime = 0;
+        for (GarbageCollectorMXBean gcBean : gcMxBeans) {
+            initialGCTime += gcBean.getCollectionTime();
+        }
+        return initialGCTime;
+    }
+
     /**
      * getting hints explain string, which specified by enumerate and show in lists
      * @param hints hint map recorded in statement context
@@ -531,7 +610,7 @@ public class NereidsPlanner extends Planner {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        int distributeHintIndex = 1;
+        int distributeHintIndex = 0;
         for (Hint hint : hints) {
             String distributeIndex = "";
             if (hint instanceof DistributeHint) {
@@ -563,10 +642,11 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
         String mvSummary = "";
-        if (this.getPhysicalPlan() != null && cascadesContext != null) {
-            mvSummary = "\n\n========== MATERIALIZATIONS ==========\n"
-                    + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                    this.getPhysicalPlan());
+        if ((this.getPhysicalPlan() != null || this.getOptimizedPlan() != null) && cascadesContext != null) {
+            mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
+                    "\n\n========== MATERIALIZATIONS ==========\n"
+                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            this.getPhysicalPlan() == null ? this.getOptimizedPlan() : this.getPhysicalPlan());
         }
         switch (explainLevel) {
             case PARSED_PLAN:
@@ -625,9 +705,10 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
                 plan += mvSummary;
+                plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                        plan += "planed with unknown column statistics\n";
                     }
                 }
         }
@@ -639,11 +720,6 @@ public class NereidsPlanner extends Planner {
             }
         }
         return plan;
-    }
-
-    @Override
-    public boolean isBlockQuery() {
-        return true;
     }
 
     @Override
@@ -671,7 +747,7 @@ public class NereidsPlanner extends Planner {
         if (physicalPlan instanceof ComputeResultSet) {
             Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext);
+                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 return resultSet;
             }
@@ -699,6 +775,10 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public CascadesContext getCascadesContext() {
         return cascadesContext;
+    }
+
+    public ConnectContext getConnectContext() {
+        return cascadesContext.getConnectContext();
     }
 
     public static PhysicalProperties buildInitRequireProperties() {

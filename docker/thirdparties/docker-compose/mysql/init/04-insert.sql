@@ -1049,6 +1049,7 @@ insert into doris_test.test1 values
 (false, 'abc', 'efg', '2022-10-01', 4.5, 1, 2, 1024, 100000, 1.2, '2022-10-02 12:59:01', 24.000);
 
 insert into doris_test.ex_tb0 values (111, 'abc'), (112, 'abd'), (113, 'abe'),(114, 'abf'),(115, 'abg');
+analyze table doris_test.ex_tb0;
 
 insert into doris_test.ex_tb1 values ('{"k1":"v1", "k2":"v2"}');
 
@@ -1168,3 +1169,42 @@ insert into Doris.doris values ('doris');
 insert into doris_test.compoundpredicate_test(pk,col_int_undef_signed,col_int_undef_signed2) values (0,null,23868),(1,68,-18),(2,19030,-125),(3,16539,null),(4,null,null),(5,null,-127),(6,14680,-26424),(7,-22270,12722),(8,null,null),(9,null,null),(10,null,7744),(11,null,-94),(12,16970,95),(13,null,7023),(14,null,1),(15,3679,-11),(16,null,-1079),(17,-22,null),(18,30995,null),(19,null,-79);
 
 insert into doris_test.text_push values('a'),('aa'),('aaa');
+
+insert into doris_test.all_types_nullable
+values(0,0,0,0,0, 0, 0.00, 0.00000, 0.0000000000, 0.000000000000000000000000000000,0,0,false,-128,-32768,-8388608,-2147483648,-9223372036854775808,-1.7976931348623157E+308,-3.4028234E+38,-9999999999,-9999999.99,-9999999999999.99999,-9999999999999999999999999999.9999999999,-99999999999999999999999999999999999.999999999999999999999999999999,1901,'-838:59:59','-838:59:59.000','-838:59:59.000000','1000-01-01','1000-01-01 00:00:00','1970-01-01 00:00:01','1970-01-01 00:00:01.000','1970-01-01 00:00:01.000000','','','', '',  '{}', '',  b'000000',  '',  '', 'Value1'),
+(255,65535,16777215,4294967295,18446744073709551615,9999999999, 9999999.99, 9999999999999.99999, 9999999999999999999999999999.9999999999, 99999999999999999999999999999999999.999999999999999999999999999999,1.7976931348623157E+308,3.4028234E+38,true,127,32767,8388607,2147483647,9223372036854775807,1.7976931348623157E+308,3.4028234E+38,9999999999,9999999.99,9999999999999.99999,9999999999999999999999999999.9999999999,99999999999999999999999999999999999.999999999999999999999999999999,2155,'838:59:59.000','838:59:59.000','838:59:59.000000','9999-12-31','9999-12-31 23:59:59','2038-01-19 03:14:07','2038-01-19 03:14:07.499','2038-01-19 03:14:07.499999','zzzz','abcdefgh','max', 'maxBLOB', '{"key": "maxJSON"}', 'Option1,Option2,Option3', b'111111', 'maxBIN', 'maxVARBIN', 'Value3'),
+(0,0,0,0,0, 0, 0.00, 0.00000, 0.0000000000, 0.000000000000000000000000000000, 0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1901, '00:00:00', '00:00:00.000', '00:00:00.000000','1000-01-01','1000-01-01 00:00:00','1970-01-01 00:00:01','1970-01-01 00:00:01.000','1970-01-01 00:00:01.000000', '', '', '', '', '{}', '', b'', '', '', 'Value1'),
+(NULL,NULL,NULL,NULL,NULL, NULL, NULL, NULL, NULL, NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+
+insert into doris_test.all_types_non_nullable
+values(0,0,0,0,0, 0, 0.00, 0.00000, 0.0000000000, 0.000000000000000000000000000000,0,0,false,-128,-32768,-8388608,-2147483648,-9223372036854775808,-1.7976931348623157E+308,-3.4028234E+38,-9999999999,-9999999.99,-9999999999999.99999,-9999999999999999999999999999.9999999999,-99999999999999999999999999999999999.999999999999999999999999999999,1901,'-838:59:59','-838:59:59.000','-838:59:59.000000','1000-01-01','1000-01-01 00:00:00','1970-01-01 00:00:01','1970-01-01 00:00:01.000','1970-01-01 00:00:01.000000','','','', '',  '{}', '',  b'000000',  '',  '', 'Value1'),
+(255,65535,16777215,4294967295,18446744073709551615,9999999999, 9999999.99, 9999999999999.99999, 9999999999999999999999999999.9999999999, 99999999999999999999999999999999999.999999999999999999999999999999,1.7976931348623157E+308,3.4028234E+38,true,127,32767,8388607,2147483647,9223372036854775807,1.7976931348623157E+308,3.4028234E+38,9999999999,9999999.99,9999999999999.99999,9999999999999999999999999999.9999999999,99999999999999999999999999999999999.999999999999999999999999999999,2155,'838:59:59.000','838:59:59.000','838:59:59.000000','9999-12-31','9999-12-31 23:59:59','2038-01-19 03:14:07','2038-01-19 03:14:07.499','2038-01-19 03:14:07.499999','zzzz','abcdefgh','max', 'maxBLOB', '{"key": "maxJSON"}', 'Option1,Option2,Option3', b'111111', 'maxBIN', 'maxVARBIN', 'Value3'),
+(0,0,0,0,0, 0, 0.00, 0.00000, 0.0000000000, 0.000000000000000000000000000000, 0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1901, '00:00:00', '00:00:00.000', '00:00:00.000000','1000-01-01','1000-01-01 00:00:00','1970-01-01 00:00:01','1970-01-01 00:00:01.000','1970-01-01 00:00:01.000000', '', '', '', '', '{}', '', b'', '', '', 'Value1');
+
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_nullable;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_multi_block;
+insert into doris_test.all_types_multi_block select * from doris_test.all_types_nullable;
+
+INSERT INTO doris_test.t_varchar (varchar_col) VALUES ('a');
+
+INSERT INTO doris_test.t_varchar (varchar_col) VALUES ('中');
+
+INSERT INTO doris_test.t_varchar (varchar_col) VALUES (REPEAT('a', 21844));
+
+INSERT INTO doris_test.t_varchar (varchar_col) VALUES (REPEAT('中', 21844));
+
+INSERT INTO doris_test.t_char (char_col) VALUES (REPEAT('a', 255));
+
+INSERT INTO doris_test.t_char (char_col) VALUES (REPEAT('中', 255));
+
+INSERT INTO doris_test.`test_cast` VALUES (1, '1', '2022-01-01', '2022-01-01 00:00:01');
+INSERT INTO doris_test.`test_cast` VALUES (2, '2', '2022-01-02', '2022-01-02 00:00:01');

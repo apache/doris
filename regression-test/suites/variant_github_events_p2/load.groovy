@@ -215,6 +215,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     }
 
     sql """set enable_match_without_inverted_index = false""" 
+    sql """ set enable_common_expr_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""

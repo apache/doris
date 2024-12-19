@@ -403,7 +403,7 @@ std::string decimal_to_string(const T& value, UInt32 scale) {
     }
     if constexpr (std::is_same_v<T, wide::Int256>) {
         std::string num_str {wide::to_string(whole_part)};
-        auto end = fmt::format_to(str.data() + pos, "{}", num_str);
+        auto* end = fmt::format_to(str.data() + pos, "{}", num_str);
         pos = end - str.data();
     } else {
         auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
@@ -555,6 +555,15 @@ struct Decimal {
     }
 
     static Decimal from_int_frac(T integer, T fraction, int scale) {
+        if constexpr (std::is_same_v<T, Int32>) {
+            return Decimal(integer * common::exp10_i32(scale) + fraction);
+        } else if constexpr (std::is_same_v<T, Int64>) {
+            return Decimal(integer * common::exp10_i64(scale) + fraction);
+        } else if constexpr (std::is_same_v<T, Int128>) {
+            return Decimal(integer * common::exp10_i128(scale) + fraction);
+        } else if constexpr (std::is_same_v<T, wide::Int256>) {
+            return Decimal(integer * common::exp10_i256(scale) + fraction);
+        }
         return Decimal(integer * int_exp10(scale) + fraction);
     }
 
@@ -830,6 +839,7 @@ struct NativeType<Decimal256> {
     using Type = wide::Int256;
 };
 
+// NOLINTBEGIN(readability-function-size)
 inline const char* getTypeName(TypeIndex idx) {
     switch (idx) {
     case TypeIndex::Nothing:
@@ -935,6 +945,7 @@ inline const char* getTypeName(TypeIndex idx) {
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
+// NOLINTEND(readability-function-size)
 } // namespace vectorized
 } // namespace doris
 

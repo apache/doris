@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -63,7 +64,9 @@ public:
     using Base = OperatorX<UnionSourceLocalState>;
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
+            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {
+        _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+    }
     ~UnionSourceOperatorX() override = default;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
@@ -95,6 +98,11 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     bool _has_data(RuntimeState* state) const {
@@ -116,4 +124,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

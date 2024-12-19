@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -41,6 +42,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
 const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -57,7 +59,7 @@ const char* UDAF_EXECUTOR_RESET_SIGNATURE = "(J)V";
 struct AggregateJavaUdafData {
 public:
     AggregateJavaUdafData() = default;
-    AggregateJavaUdafData(int64_t num_args) { argument_size = num_args; }
+    AggregateJavaUdafData(int64_t num_args) { cast_set(argument_size, num_args); }
 
     ~AggregateJavaUdafData() = default;
 
@@ -115,8 +117,8 @@ public:
     }
 
     Status add(int64_t places_address, bool is_single_place, const IColumn** columns,
-               int row_num_start, int row_num_end, const DataTypes& argument_types,
-               int place_offset) {
+               int64_t row_num_start, int64_t row_num_end, const DataTypes& argument_types,
+               int64_t place_offset) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf add function");
 
@@ -134,8 +136,10 @@ public:
                 {"columns_types", input_table_schema.second}};
         jobject input_map = JniUtil::convert_to_java_map(env, input_params);
         // invoke add batch
-        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place, row_num_start,
-                              row_num_end, places_address, place_offset, input_map);
+        // Keep consistent with the function signature of executor_add_batch_id.
+        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place,
+                              cast_set<int>(row_num_start), cast_set<int>(row_num_end),
+                              places_address, cast_set<int>(place_offset), input_map);
         env->DeleteLocalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
@@ -144,10 +148,11 @@ public:
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf merge function");
         serialize_data = rhs.serialize_data;
-        long len = serialize_data.length();
+        jsize len = cast_set<jsize>(serialize_data.length()); // jsize needs to be used.
         jbyteArray arr = env->NewByteArray(len);
         env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, place, arr);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
         env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
         env->DeleteLocalRef(arr);
@@ -332,7 +337,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena*, bool /*agg_many*/) const override {
         int64_t places_address = reinterpret_cast<int64_t>(places);
         Status st = this->data(_exec_place)
                             .add(places_address, false, columns, 0, batch_size, argument_types,
@@ -343,7 +348,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* /*arena*/) const override {
+                                Arena*) const override {
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, 0, batch_size, argument_types, 0);
@@ -354,7 +359,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         int64_t places_address = reinterpret_cast<int64_t>(place);
@@ -416,3 +421,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

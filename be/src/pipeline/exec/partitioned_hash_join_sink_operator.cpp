@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::pipeline::LocalSinkStateInfo& info) {
@@ -80,7 +81,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
             if (inner_sink_state_) {
                 auto inner_sink_state =
                         assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
-                return inner_sink_state->_build_side_mem_used;
+                return inner_sink_state->_build_blocks_memory_usage->value();
             }
         }
         return 0;
@@ -102,7 +103,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
 Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeState* state) {
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->inner_shared_state->hash_table_variants.reset();
-    auto row_desc = p._child_x->row_desc();
+    auto row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
     auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
@@ -161,7 +162,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
             {
                 SCOPED_TIMER(_partition_timer);
-                (void)_partitioner->do_partitioning(state, &sub_block, _mem_tracker.get());
+                (void)_partitioner->do_partitioning(state, &sub_block);
             }
 
             const auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
@@ -246,11 +247,11 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         return _revoke_unpartitioned_block(state);
     }
 
-    _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
+    _spilling_streams_count = cast_set<int>(_shared_state->partitioned_build_blocks.size());
 
     auto query_id = state->query_id();
 
-    for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
+    for (int i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 
@@ -294,7 +295,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                         return Status::OK();
                     }();
 
-                    if (!status.OK()) {
+                    if (!status.ok()) {
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _dependency->set_ready();
                         _spill_status_ok = false;
@@ -334,7 +335,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     {
         /// TODO: DO NOT execute build exprs twice(when partition and building hash table)
         SCOPED_TIMER(_partition_timer);
-        RETURN_IF_ERROR(_partitioner->do_partitioning(state, in_block, _mem_tracker.get()));
+        RETURN_IF_ERROR(_partitioner->do_partitioning(state, in_block));
     }
 
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
@@ -393,9 +394,11 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
     }
 }
 
-PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(
-        ObjectPool* pool, int operator_id, const TPlanNode& tnode, const DescriptorTbl& descs,
-        bool use_global_rf, uint32_t partition_count)
+PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* pool,
+                                                                   int operator_id,
+                                                                   const TPlanNode& tnode,
+                                                                   const DescriptorTbl& descs,
+                                                                   uint32_t partition_count)
         : JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
@@ -426,8 +429,8 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 
 Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::open(state));
-    RETURN_IF_ERROR(_inner_sink_operator->set_child(_child_x));
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+    RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->open(state);
 }
@@ -436,7 +439,7 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
     auto& local_state = get_local_state(state);
 
     local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     local_state._shared_state->inner_runtime_state->set_task_execution_context(
             state->get_task_execution_context().lock());
@@ -553,4 +556,5 @@ Status PartitionedHashJoinSinkOperatorX::revoke_memory(RuntimeState* state) {
     return local_state.revoke_memory(state);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

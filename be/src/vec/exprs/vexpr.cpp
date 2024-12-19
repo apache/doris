@@ -25,12 +25,14 @@
 #include <algorithm>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <memory>
 #include <stack>
 
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -58,6 +60,8 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RowDescriptor;
 class RuntimeState;
 
@@ -563,7 +567,7 @@ void VExpr::register_function_context(RuntimeState* state, VExprContext* context
     _fn_context_index = context->register_function_context(state, _type, arg_types);
 }
 
-Status VExpr::init_function_context(VExprContext* context,
+Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
                                     FunctionContext::FunctionStateScope scope,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
@@ -575,6 +579,12 @@ Status VExpr::init_function_context(VExprContext* context,
             constant_cols.push_back(const_col);
         }
         fn_ctx->set_constant_cols(constant_cols);
+    } else {
+        if (function->is_udf_function()) {
+            auto* timer = ADD_TIMER(state->get_task()->get_task_profile(),
+                                    "UDF[" + function->get_name() + "]");
+            fn_ctx->set_udf_execute_timer(timer);
+        }
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -613,18 +623,29 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
+    // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::InvertedIndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;
     VExprSPtrs children_exprs;
-    for (auto child : children()) {
-        // if child is cast expr, we need to ensure target data type is the same with storage data type.
-        // or they are all string type
-        // and if data type is array, we need to get the nested data type to ensure that.
+
+    // Reserve space to avoid multiple reallocations
+    const size_t estimated_size = get_num_children();
+    iterators.reserve(estimated_size);
+    data_type_with_names.reserve(estimated_size);
+    column_ids.reserve(estimated_size);
+    children_exprs.reserve(estimated_size);
+
+    auto index_context = context->get_inverted_index_context();
+
+    // if child is cast expr, we need to ensure target data type is the same with storage data type.
+    // or they are all string type
+    // and if data type is array, we need to get the nested data type to ensure that.
+    for (const auto& child : children()) {
         if (child->node_type() == TExprNodeType::CAST_EXPR) {
             auto* cast_expr = assert_cast<VCastExpr*>(child.get());
-            DCHECK_EQ(cast_expr->children().size(), 1);
+            DCHECK_EQ(cast_expr->get_num_children(), 1);
             if (cast_expr->get_child(0)->is_slot_ref()) {
                 auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
                 auto column_id = column_slot_ref->column_id();
@@ -663,7 +684,11 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         }
     }
 
-    for (auto child : children_exprs) {
+    if (children_exprs.empty()) {
+        return Status::OK(); // Early exit if no children to process
+    }
+
+    for (const auto& child : children_exprs) {
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             auto column_id = column_slot_ref->column_id();
@@ -694,28 +719,22 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                                    column_literal->get_data_type(), column_literal->expr_name());
         }
     }
+
+    if (iterators.empty() || arguments.empty()) {
+        return Status::OK(); // Nothing to evaluate or no literals to compare against
+    }
+
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
-    if (iterators.empty()) {
-        return Status::OK();
-    }
-    // If arguments are empty, it means the left value in the expression is not a literal.
-    if (arguments.empty()) {
-        return Status::OK();
-    }
     auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
                                                  segment_num_rows, result_bitmap);
     if (!res.ok()) {
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        context->get_inverted_index_context()->set_inverted_index_result_for_expr(this,
-                                                                                  result_bitmap);
-        for (auto column_id : column_ids) {
-            context->get_inverted_index_context()->set_true_for_inverted_index_status(this,
-                                                                                      column_id);
+        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+        for (int column_id : column_ids) {
+            index_context->set_true_for_inverted_index_status(this, column_id);
         }
-        // set fast_execute when expr evaluated by inverted index correctly
-        _can_fast_execute = true;
     }
     return Status::OK();
 }
@@ -724,7 +743,7 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
                          int* result_column_id) {
     if (context->get_inverted_index_context() &&
         context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
+        uint32_t num_columns_without_result = block->columns();
         // prepare a column to save result
         auto result_column =
                 context->get_inverted_index_context()->get_inverted_index_result_column()[this];
@@ -745,4 +764,5 @@ bool VExpr::equals(const VExpr& other) {
     return false;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

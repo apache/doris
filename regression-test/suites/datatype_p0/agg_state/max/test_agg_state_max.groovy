@@ -30,7 +30,7 @@ suite("test_agg_state_max") {
 
     test {
         sql "insert into a_table values(100,max_state(null));"
-        exception "can not cast from origin type agg_state"
+        exception "illegal for non_nullable"
     }
 
     sql """insert into a_table

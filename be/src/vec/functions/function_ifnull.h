@@ -27,6 +27,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -77,7 +78,7 @@ public:
 
     // ifnull(col_left, col_right) == if(isnull(col_left), col_right, col_left)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         if (col_left.column->only_null()) {
             block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
@@ -117,7 +118,8 @@ public:
         });
 
         auto func_if = SimpleFunctionFactory::instance().get_function(
-                "if", if_columns, block.get_by_position(result).type);
+                "if", if_columns, block.get_by_position(result).type,
+                {.enable_decimal256 = context->state()->enable_decimal256()});
         RETURN_IF_ERROR(func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count));
         block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         return Status::OK();

@@ -39,11 +39,6 @@ suite("agg_variety") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -86,10 +81,6 @@ suite("agg_variety") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -103,6 +94,8 @@ suite("agg_variety") {
     (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
+
+
 
     sql """
     drop table if exists partsupp
@@ -132,6 +125,10 @@ suite("agg_variety") {
     sql """analyze table orders with sync;"""
     sql """analyze table lineitem with sync;"""
     sql """analyze table partsupp with sync;"""
+
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
 

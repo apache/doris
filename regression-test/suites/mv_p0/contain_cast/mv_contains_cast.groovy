@@ -91,6 +91,8 @@ suite("mv_contains_cast") {
 
     order_qt_query_before "${query_sql}"
 
+    sql """alter table test modify column event_type set stats ('row_count'='10');"""
+
     createMV("""
     CREATE MATERIALIZED VIEW sync_mv
     AS
@@ -119,10 +121,6 @@ suite("mv_contains_cast") {
       cast(FLOOR(MINUTE(`time`) / 15) as decimal(9, 0));
     """)
 
-    explain {
-        sql("""${query_sql}""")
-        contains "(sync_mv)"
-    }
-
+    mv_rewrite_success(query_sql, "sync_mv")
     order_qt_query_after "${query_sql}"
 }

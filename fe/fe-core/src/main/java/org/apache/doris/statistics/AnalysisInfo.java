@@ -183,6 +183,9 @@ public class AnalysisInfo implements Writable {
     @SerializedName("updateRows")
     public final long updateRows;
 
+    @SerializedName("tv")
+    public final long tableVersion;
+
     public final Map<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
 
     @SerializedName("tblUpdateTime")
@@ -198,7 +201,6 @@ public class AnalysisInfo implements Writable {
     public final boolean enablePartition;
 
     public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
-    public final ConcurrentMap<Long, Long> indexesRowCountUpdateTime = new ConcurrentHashMap<>();
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
@@ -207,8 +209,8 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject,
-            long updateRows, JobPriority priority, Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
+            boolean usingSqlForExternalTable, long tblUpdateTime, long rowCount, boolean userInject, long updateRows,
+            long tableVersion, JobPriority priority, Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -245,6 +247,7 @@ public class AnalysisInfo implements Writable {
         this.rowCount = rowCount;
         this.userInject = userInject;
         this.updateRows = updateRows;
+        this.tableVersion = tableVersion;
         this.priority = priority;
         if (partitionUpdateRows != null) {
             this.partitionUpdateRows.putAll(partitionUpdateRows);
@@ -293,6 +296,7 @@ public class AnalysisInfo implements Writable {
         sj.add("rowCount: " + rowCount);
         sj.add("userInject: " + userInject);
         sj.add("updateRows: " + updateRows);
+        sj.add("tableVersion: " + tableVersion);
         sj.add("priority: " + priority.name());
         sj.add("enablePartition: " + enablePartition);
         return sj.toString();
@@ -357,9 +361,5 @@ public class AnalysisInfo implements Writable {
 
     public void addIndexRowCount(long indexId, long rowCount) {
         indexesRowCount.put(indexId, rowCount);
-    }
-
-    public void addIndexUpdateRowCountTime(long indexId, long time) {
-        indexesRowCountUpdateTime.put(indexId, time);
     }
 }

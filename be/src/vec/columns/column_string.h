@@ -47,6 +47,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
@@ -85,10 +86,11 @@ private:
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
 
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
+    // Start position of i-th element.
+    T ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
     /// Size of i-th element, including terminating zero.
-    size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
+    T ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
 
     template <bool positive>
     struct less;
@@ -105,7 +107,7 @@ public:
     bool is_variable_length() const override { return true; }
     // used in string ut testd
     void sanity_check() const;
-    const char* get_family_name() const override { return "String"; }
+    std::string get_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
 
@@ -117,12 +119,11 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override { return true; }
+    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(&chars[offset_at(n)], size_at(n));
+        return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     void get(size_t n, Field& res) const override {
@@ -132,7 +133,7 @@ public:
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
             return;
         }
-        res.assign_string(&chars[offset_at(n)], size_at(n));
+        res = Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     StringRef get_data_at(size_t n) const override {
@@ -160,6 +161,8 @@ public:
         memcpy(chars.data() + old_size, s.data, size_to_append);
         offsets.push_back(new_size);
     }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     bool is_column_string64() const override { return sizeof(T) == sizeof(uint64_t); }
 
@@ -218,7 +221,7 @@ public:
 
         const char* ptr = strings[0].data;
         for (size_t i = 0; i != num; i++) {
-            uint32_t len = strings[i].size;
+            size_t len = strings[i].size;
             length += len;
             offset += len;
             offsets.push_back(offset);
@@ -267,29 +270,6 @@ public:
         DCHECK(chars.size() == offsets.back());
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        size_t new_size = 0;
-        for (size_t i = 0; i < num; i++) {
-            new_size += len_array[i];
-        }
-
-        const size_t old_size = chars.size();
-        check_chars_length(old_size + new_size, offsets.size() + num);
-        chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = 0; i < num; i++) {
-            uint32_t len = len_array[i];
-            uint32_t start_offset = start_offset_array[i];
-            // memcpy will deal len == 0, not do it here
-            memcpy(data + offset, data_array + start_offset, len);
-            offset += len;
-            offsets.push_back(offset);
-        }
-    }
-
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
@@ -303,7 +283,7 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
+            size_t len = strings[i].size;
             if (len) {
                 memcpy(data + offset, strings[i].data, len);
                 offset += len;
@@ -326,7 +306,7 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
+            size_t len = strings[i].size;
             if (len) {
                 memcpy(data + offset, strings[i].data, copy_length);
                 offset += len;
@@ -363,9 +343,15 @@ public:
         for (size_t i = 0; i < num; i++) {
             int32_t codeword = data_array[i + start_index];
             new_size += dict[codeword].size;
-            offsets[offset_size + i] = new_size;
+            offsets[offset_size + i] = static_cast<T>(new_size);
         }
 
+        if (new_size > std::numeric_limits<T>::max()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnString insert size out of range type {} [{},{}]",
+                                   typeid(T).name(), std::numeric_limits<T>::min(),
+                                   std::numeric_limits<T>::max());
+        }
         check_chars_length(new_size, offsets.size());
         chars.resize(new_size);
 
@@ -427,13 +413,16 @@ public:
             for (size_t i = start; i < end; ++i) {
                 if (null_data[i] == 0) {
                     auto data_ref = get_data_at(i);
-                    hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                    // If offset is uint32, size will not exceed, check the size when inserting data into ColumnStr<T>.
+                    hash = HashUtil::zlib_crc_hash(data_ref.data,
+                                                   static_cast<uint32_t>(data_ref.size), hash);
                 }
             }
         } else {
             for (size_t i = start; i < end; ++i) {
                 auto data_ref = get_data_at(i);
-                hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                hash = HashUtil::zlib_crc_hash(data_ref.data, static_cast<uint32_t>(data_ref.size),
+                                               hash);
             }
         }
     }
@@ -494,7 +483,7 @@ public:
     void insert_default() override { offsets.push_back(chars.size()); }
 
     void insert_many_defaults(size_t length) override {
-        offsets.resize_fill(offsets.size() + length, chars.size());
+        offsets.resize_fill(offsets.size() + length, static_cast<T>(chars.size()));
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
@@ -508,16 +497,6 @@ public:
                          IColumn::Permutation& res) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector, begin, end);
-    }
 
     void reserve(size_t n) override;
 
@@ -556,3 +535,4 @@ public:
 using ColumnString = ColumnStr<UInt32>;
 using ColumnString64 = ColumnStr<UInt64>;
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

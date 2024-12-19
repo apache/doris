@@ -18,7 +18,6 @@
 suite("test_agg_state_nereids") {
     sql "set enable_agg_state=true"
     sql "set enable_nereids_planner=true;"
-    sql "set enable_fallback_to_original_planner=false;"
 
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """
@@ -62,15 +61,12 @@ suite("test_agg_state_nereids") {
     sql "insert into a_table select 1,max_by_state(1,3);"
     sql "insert into a_table select 1,max_by_state(2,2);"
     sql "insert into a_table select 1,max_by_state(3,1);"
-    sql 'set enable_fallback_to_original_planner=false'
 
     qt_length1 """select k1,length(k2) from a_table order by k1;"""
     qt_group1 """select k1,max_by_merge(k2) from a_table group by k1 order by k1;"""
     qt_merge1 """select max_by_merge(k2) from a_table;"""
 
-    sql 'set enable_fallback_to_original_planner=true'
     sql "insert into a_table select k1+1, max_by_state(k2,k1+10) from d_table;"
-    sql 'set enable_fallback_to_original_planner=false'
 
     qt_length2 """select k1,length(k2) from a_table order by k1;"""
     qt_group2 """select k1,max_by_merge(k2) from a_table group by k1 order by k1;"""

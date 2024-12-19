@@ -61,6 +61,7 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Stuff for comparing numbers.
   * Integer values are compared as usual.
@@ -142,7 +143,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-private:
     ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -152,8 +152,6 @@ private:
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
 public:
-    bool is_numeric() const override { return IsNumber<T>; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -174,13 +172,14 @@ public:
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void insert_range_of_integer(T begin, T end) {
         if constexpr (std::is_integral_v<T>) {
             auto old_size = data.size();
-            data.resize(old_size + (end - begin));
-            for (int i = 0; i < end - begin; i++) {
-                data[old_size + i] = begin + i;
-            }
+            auto new_size = old_size + static_cast<size_t>(end - begin);
+            data.resize(new_size);
+            std::iota(data.begin() + old_size, data.begin() + new_size, begin);
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "double column not support insert_range_of_integer");
@@ -336,7 +335,13 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    const char* get_family_name() const override;
+    std::string get_name() const override {
+        // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
+        if (std::is_same_v<T, IPv4>) {
+            return "IPv4";
+        }
+        return TypeName<T>::get();
+    }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -372,17 +377,6 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
-
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -419,3 +413,4 @@ protected:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

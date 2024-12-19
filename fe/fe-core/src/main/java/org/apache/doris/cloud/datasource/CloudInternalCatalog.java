@@ -72,6 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import doris.segment_v2.SegmentV2;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,8 +102,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -156,6 +156,11 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
+            List<Integer> clusterKeyUids = null;
+            if (indexId == tbl.getBaseIndexId()) {
+                // only base and shadow index need cluster key unique column ids
+                clusterKeyUids = OlapTable.getClusterKeyUids(columns);
+            }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
                     tbl.getTableProperty().getCopiedRowStoreColumns();
@@ -175,7 +180,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested());
+                        tbl.variantEnableFlattenNested(), clusterKeyUids,
+                        tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -184,7 +190,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             requestBuilder.setDbId(dbId);
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}, vault name {}",
+                    + "indexId: {}, vault name: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
             Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
             // If the resp has no vault id set, it means the MS is running with enable_storage_vault false
@@ -225,7 +231,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested) throws DdlException {
+            boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+            long storagePageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -347,12 +354,20 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (invertedIndexFileStorageFormat != null) {
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
-            } else {
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V2) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V3) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+            } else {
+                throw new DdlException("invalid inverted index storage format");
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);
+        schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
+        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+            schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
+        }
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
@@ -1036,7 +1051,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     clusterId = realClusterId;
                 }
 
-                ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeId());
+                ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeId());
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -1062,7 +1077,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
-                    ((CloudReplica) replica).updateClusterToBe(clusterId, info.getBeIds().get(i));
+                    ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeIds().get(i));
                 }
             }
         } catch (Exception e) {

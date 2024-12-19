@@ -35,7 +35,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -76,7 +75,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
@@ -146,8 +145,7 @@ private:
         auto& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
         PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
 
-        using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>,
-                                           INITIAL_SIZE_DEGREE>;
+        using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
         Set set;
 
         size_t prev_src_offset = 0;
@@ -171,7 +169,7 @@ private:
                     continue;
                 }
 
-                if (!set.find(src_datas[j])) {
+                if (!set.contains(src_datas[j])) {
                     set.insert(src_datas[j]);
                     dest_datas.push_back(src_datas[j]);
                     if (dest_null_map) {
@@ -201,7 +199,7 @@ private:
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(src_column.size());
 
-        using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, INITIAL_SIZE_DEGREE>;
+        using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
         Set set;
 
         size_t prev_src_offset = 0;
@@ -225,7 +223,7 @@ private:
                 }
 
                 StringRef src_str_ref = src_data_concrete->get_data_at(j);
-                if (!set.find(src_str_ref)) {
+                if (!set.contains(src_str_ref)) {
                     set.insert(src_str_ref);
                     // copy the src data to column_string_chars
                     const size_t old_size = column_string_chars.size();

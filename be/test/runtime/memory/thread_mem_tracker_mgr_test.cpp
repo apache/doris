@@ -167,8 +167,8 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t1 =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-MultiMemTracker1");
-    std::shared_ptr<MemTracker> t2 = std::make_shared<MemTracker>("UT-MultiMemTracker2", t1.get());
-    std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3", t1.get());
+    std::shared_ptr<MemTracker> t2 = std::make_shared<MemTracker>("UT-MultiMemTracker2");
+    std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3");
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -231,7 +231,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
     thread_context->attach_task(TUniqueId(), t, workload_group);
     thread_context->consume_memory(size1);
@@ -255,7 +255,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     // std::abs(-size1 - size1) < SYNC_PROC_RESERVED_INTERVAL_BYTES, not update process_reserved_memory.
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
-    thread_context->consume_memory(size2 * 1023);
+    thread_context->consume_memory(size2);
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size1 + size1);
 
@@ -325,7 +325,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
 
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
     thread_context->attach_task(TUniqueId(), t, workload_group);
     auto st = thread_context->try_reserve_memory(size3);
@@ -382,7 +382,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
     thread_context->attach_task(TUniqueId(), t1, workload_group);
     auto st = thread_context->try_reserve_memory(size3);

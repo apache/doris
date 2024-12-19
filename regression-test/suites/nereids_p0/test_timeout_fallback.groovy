@@ -17,7 +17,6 @@
 
 suite("test_timeout_fallback") {
     sql "set enable_nereids_planner=true"
-    sql "set enable_fallback_to_original_planner=true"
     sql "set enable_nereids_timeout=true"
     sql "set nereids_timeout_second=-1"
 

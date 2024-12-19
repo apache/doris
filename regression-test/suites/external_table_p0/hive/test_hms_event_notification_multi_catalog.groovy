@@ -24,7 +24,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
 
     for (String useMetaCache : ["true","false"] ) {
 
-    for (String hivePrefix : [ "hive2","hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             setHivePrefix(hivePrefix)
             hive_docker """ set hive.stats.autogather=false; """

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -335,7 +334,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
-        return visitBinaryOperator(compoundPredicate, context);
+        return visit(compoundPredicate, context);
     }
 
     public R visitAnd(And and, C context) {
@@ -536,13 +535,5 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundVariable(UnboundVariable unboundVariable, C context) {
         return visit(unboundVariable, context);
-    }
-
-    /* ********************************************************************************************
-     * Placeholder expressions
-     * ********************************************************************************************/
-
-    public R visitPlaceholderExpression(PlaceholderExpression placeholderExpression, C context) {
-        return visit(placeholderExpression, context);
     }
 }

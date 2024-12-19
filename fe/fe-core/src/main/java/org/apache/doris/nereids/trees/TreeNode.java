@@ -230,6 +230,23 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * iterate top down and test predicate if all matched. Top-down traverse implicitly.
+     * @param predicate predicate
+     * @return true if all predicate return true
+     */
+    default boolean allMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (!predicate.test(this)) {
+            return false;
+        }
+        for (NODE_TYPE child : children()) {
+            if (!child.allMatch(predicate)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Collect the nodes that satisfied the predicate.
      */
     default <T> Set<T> collect(Predicate<TreeNode<NODE_TYPE>> predicate) {

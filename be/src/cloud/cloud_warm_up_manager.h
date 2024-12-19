@@ -74,8 +74,8 @@ private:
     std::condition_variable _cond;
     int64_t _cur_job_id {0};
     int64_t _cur_batch_id {-1};
-    std::deque<JobMeta> _pending_job_metas;
-    std::vector<JobMeta> _finish_job;
+    std::deque<std::shared_ptr<JobMeta>> _pending_job_metas;
+    std::vector<std::shared_ptr<JobMeta>> _finish_job;
     std::thread _download_thread;
     bool _closed {false};
     // the attribute for compile in ut

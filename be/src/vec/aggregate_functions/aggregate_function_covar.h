@@ -17,35 +17,24 @@
 
 #pragma once
 
-#include "agent/be_exec_version_manager.h"
-#define POP true
-#define NOTPOP false
-#define NULLABLE true
-#define NOTNULLABLE false
+#include <glog/logging.h>
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <type_traits>
 
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -53,15 +42,12 @@ template <typename T>
 class ColumnDecimal;
 template <typename>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 template <typename T>
 struct BaseData {
-    BaseData() : sum_x(0.0), sum_y(0.0), sum_xy(0.0), count(0) {}
+    BaseData() = default;
     virtual ~BaseData() = default;
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 
     void write(BufferWritable& buf) const {
         write_binary(sum_x, buf);
@@ -89,11 +75,12 @@ struct BaseData {
         if (count == 1) {
             return 0.0;
         }
-        return sum_xy / count - sum_x * sum_y / (count * count);
+        return sum_xy / (double)count - sum_x * sum_y / ((double)count * (double)count);
     }
 
     double get_samp_result() const {
-        return sum_xy / (count - 1) - sum_x * sum_y / (count * (count - 1));
+        return sum_xy / double(count - 1) -
+               sum_x * sum_y / ((double)(count) * ((double)(count - 1)));
     }
 
     void merge(const BaseData& rhs) {
@@ -109,10 +96,10 @@ struct BaseData {
     void add(const IColumn* column_x, const IColumn* column_y, size_t row_num) {
         const auto& sources_x =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
-        double source_data_x = sources_x.get_data()[row_num];
+        double source_data_x = double(sources_x.get_data()[row_num]);
         const auto& sources_y =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
-        double source_data_y = sources_y.get_data()[row_num];
+        double source_data_y = double(sources_y.get_data()[row_num]);
 
         sum_x += source_data_x;
         sum_y += source_data_y;
@@ -120,38 +107,26 @@ struct BaseData {
         count += 1;
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
-
-    double sum_x;
-    double sum_y;
-    double sum_xy;
-    int64_t count;
+    double sum_x {};
+    double sum_y {};
+    double sum_xy {};
+    int64_t count {};
 };
 
-template <typename T, typename Data>
-struct PopData : Data {
+template <typename T>
+struct PopData : BaseData<T> {
+    static const char* name() { return "covar"; }
+
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColumnFloat64&>(to);
         col.get_data().push_back(this->get_pop_result());
     }
 };
 
-template <typename T, typename Data>
-struct SampData_OLDER : Data {
-    void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(this->get_samp_result());
-            nullable_column.get_null_map_data().push_back(0);
-        }
-    }
-};
+template <typename T>
+struct SampData : BaseData<T> {
+    static const char* name() { return "covar_samp"; }
 
-template <typename T, typename Data>
-struct SampData : Data {
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColumnFloat64&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -163,56 +138,20 @@ struct SampData : Data {
 };
 
 template <typename Data>
-struct CovarName : Data {
-    static const char* name() { return "covar"; }
-};
-
-template <typename Data>
-struct CovarSampName : Data {
-    static const char* name() { return "covar_samp"; }
-};
-
-template <bool is_pop, typename Data, bool is_nullable>
 class AggregateFunctionSampCovariance
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionSampCovariance<is_pop, Data, is_nullable>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>> {
 public:
     AggregateFunctionSampCovariance(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionSampCovariance<is_pop, Data, is_nullable>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>(
                       argument_types_) {}
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override {
-        if constexpr (is_pop) {
-            return Data::get_return_type();
-        } else {
-            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
-                return make_nullable(Data::get_return_type());
-            } else {
-                return Data::get_return_type();
-            }
-        }
-    }
+    DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (is_pop) {
-            this->data(place).add(columns[0], columns[1], row_num);
-        } else {
-            if constexpr (is_nullable) { //this if check could remove with old function
-                const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
-                const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
-                if (!nullable_column_x->is_null_at(row_num) &&
-                    !nullable_column_y->is_null_at(row_num)) {
-                    this->data(place).add(&nullable_column_x->get_nested_column(),
-                                          &nullable_column_y->get_nested_column(), row_num);
-                }
-            } else {
-                this->data(place).add(columns[0], columns[1], row_num);
-            }
-        }
+        this->data(place).add(columns[0], columns[1], row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -234,29 +173,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp_OLDER final
-        : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
-public:
-    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp final
-        : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
-public:
-    AggregateFunctionSamp(const DataTypes& argument_types_)
-            : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionPop final : public AggregateFunctionSampCovariance<POP, Data, is_nullable> {
-public:
-    AggregateFunctionPop(const DataTypes& argument_types_)
-            : AggregateFunctionSampCovariance<POP, Data, is_nullable>(argument_types_) {}
 };
 
 } // namespace doris::vectorized

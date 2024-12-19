@@ -36,6 +36,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -57,6 +58,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -516,7 +518,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
     }
 
-    private void checkAuth(String command) throws DdlException {
+    public void checkAuth(String command) throws DdlException {
         if (authorizationInfo == null) {
             // use the old method to check priv
             checkAuthWithoutAuthInfo(command);
@@ -607,7 +609,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, failMsg.getMsg()));
             }
         }
 
@@ -671,7 +673,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, failMsg.getMsg()));
             }
         }
 
@@ -745,7 +747,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     protected List<Comparable> getShowInfoUnderLock() throws DdlException {
         // check auth
-        checkAuth("SHOW LOAD");
         List<Comparable> jobInfo = Lists.newArrayList();
         // jobId
         jobInfo.add(id);
@@ -756,7 +757,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // progress
         // check null
-        String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(id));
+        String progress = Env.getCurrentProgressManager()
+                .getProgressInfo(String.valueOf(id), state == JobState.FINISHED);
         switch (state) {
             case PENDING:
                 jobInfo.add("0%");
@@ -1224,10 +1226,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     public boolean isSingleTabletLoadPerSink() {
         return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
-    }
-
-    public boolean useNewLoadScanNode() {
-        return (boolean) jobProperties.getOrDefault(LoadStmt.USE_NEW_LOAD_SCAN_NODE, false);
     }
 
     // Return true if this job is finished for a long time

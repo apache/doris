@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -94,11 +95,16 @@ public class PartitionsProcDir implements ProcDirInterface {
         if (filterMap == null) {
             return true;
         }
-        Expr subExpr = filterMap.get(columnName.toLowerCase());
+        Expr subExpr = filterMap.get(columnName.toLowerCase()); // predicate on this column.
         if (subExpr == null) {
             return true;
         }
         if (subExpr instanceof BinaryPredicate) {
+            // show partitions only provide very limited filtering capacity in FE. so restrict here.
+            if (!(subExpr.getChild(1) instanceof LiteralExpr)) {
+                throw new AnalysisException("Not Supported. Use `select * from partitions(...)` instead");
+            }
+
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
             if (subExpr.getChild(1) instanceof StringLiteral
                     && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
@@ -169,6 +175,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             filterPartitionInfos = partitionInfos;
         } else {
             filterPartitionInfos = Lists.newArrayList();
+            // TODO: we should change the order of loops to speed up. use filters to filter column value.
             for (List<Comparable> partitionInfo : partitionInfos) {
                 if (partitionInfo.size() != TITLE_NAMES.size()) {
                     throw new AnalysisException("PartitionInfos.size() " + partitionInfos.size()
@@ -241,6 +248,16 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         // get info
         List<Pair<List<Comparable>, TRow>> partitionInfos = new ArrayList<Pair<List<Comparable>, TRow>>();
+        Map<Long, List<String>> partitionsUnSyncTables = null;
+        String mtmvPartitionSyncErrorMsg = null;
+        if (olapTable instanceof MTMV) {
+            try {
+                partitionsUnSyncTables = MTMVPartitionUtil
+                        .getPartitionsUnSyncTables((MTMV) olapTable);
+            } catch (AnalysisException e) {
+                mtmvPartitionSyncErrorMsg = e.getMessage();
+            }
+        }
         olapTable.readLock();
         try {
             List<Long> partitionIds;
@@ -258,16 +275,6 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
 
             Joiner joiner = Joiner.on(", ");
-            Map<Long, List<String>> partitionsUnSyncTables = null;
-            String mtmvPartitionSyncErrorMsg = null;
-            if (olapTable instanceof MTMV) {
-                try {
-                    partitionsUnSyncTables = MTMVPartitionUtil
-                            .getPartitionsUnSyncTables((MTMV) olapTable, partitionIds);
-                } catch (AnalysisException e) {
-                    mtmvPartitionSyncErrorMsg = e.getMessage();
-                }
-            }
             for (Long partitionId : partitionIds) {
                 Partition partition = olapTable.getPartition(partitionId);
 
@@ -363,11 +370,16 @@ public class PartitionsProcDir implements ProcDirInterface {
                     if (StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
                         List<String> partitionUnSyncTables = partitionsUnSyncTables.getOrDefault(partitionId,
                                 Lists.newArrayList());
-                        boolean isSync = CollectionUtils.isEmpty(partitionUnSyncTables);
+                        boolean isSync = partitionsUnSyncTables.containsKey(partitionId) && CollectionUtils.isEmpty(
+                                partitionUnSyncTables);
                         partitionInfo.add(isSync);
                         trow.addToColumnValue(new TCell().setBoolVal(isSync));
-                        partitionInfo.add(partitionUnSyncTables.toString());
-                        trow.addToColumnValue(new TCell().setStringVal(partitionUnSyncTables.toString()));
+                        // The calculation logic of partitionsUnSyncTables is not protected in the current lock,
+                        // so the obtained partition list may not be consistent with here
+                        String unSyncTables = partitionsUnSyncTables.containsKey(partitionId)
+                                ? partitionUnSyncTables.toString() : "not sure, please try again";
+                        partitionInfo.add(unSyncTables);
+                        trow.addToColumnValue(new TCell().setStringVal(unSyncTables));
                     } else {
                         partitionInfo.add(false);
                         trow.addToColumnValue(new TCell().setBoolVal(false));

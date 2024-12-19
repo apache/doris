@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
@@ -25,6 +26,8 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -121,6 +124,23 @@ public class Replica {
     @SerializedName(value = "lsvh", alternate = {"lastSuccessVersionHash"})
     private long lastSuccessVersionHash = 0L;
 
+    @Setter
+    @Getter
+    @SerializedName(value = "lis", alternate = {"localInvertedIndexSize"})
+    private Long localInvertedIndexSize = 0L;
+    @Setter
+    @Getter
+    @SerializedName(value = "lss", alternate = {"localSegmentSize"})
+    private Long localSegmentSize = 0L;
+    @Setter
+    @Getter
+    @SerializedName(value = "ris", alternate = {"remoteInvertedIndexSize"})
+    private Long remoteInvertedIndexSize = 0L;
+    @Setter
+    @Getter
+    @SerializedName(value = "rss", alternate = {"remoteSegmentSize"})
+    private Long remoteSegmentSize = 0L;
+
     private volatile long totalVersionCount = -1;
     private volatile long visibleVersionCount = -1;
 
@@ -176,6 +196,8 @@ public class Replica {
     private long rowsetCount = 0L;
 
     private long userDropTime = -1;
+
+    private long lastReportVersion = 0;
 
     public Replica() {
     }
@@ -239,7 +261,16 @@ public class Replica {
         return this.id;
     }
 
-    public long getBackendId() {
+    public long getBackendIdWithoutException() {
+        try {
+            return getBackendId();
+        } catch (UserException e) {
+            LOG.warn("getBackendIdWithoutException: ", e);
+            return -1;
+        }
+    }
+
+    public long getBackendId() throws UserException {
         return this.backendId;
     }
 
@@ -838,5 +869,13 @@ public class Replica {
     public boolean isScheduleAvailable() {
         return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
             && !isUserDrop();
+    }
+
+    public void setLastReportVersion(long version) {
+        this.lastReportVersion = version;
+    }
+
+    public long getLastReportVersion() {
+        return lastReportVersion;
     }
 }

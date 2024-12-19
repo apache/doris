@@ -156,6 +156,11 @@ public:
         return _inverted_index_iterators;
     }
 
+    bool has_inverted_index_in_iterators() const {
+        return std::any_of(_inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+                           [](const auto& iterator) { return iterator != nullptr; });
+    }
+
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
@@ -229,6 +234,7 @@ private:
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    void _collect_runtime_filter_predicate();
     void _output_non_pred_columns(vectorized::Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
@@ -362,22 +368,6 @@ private:
         return 0;
     }
 
-    bool _is_match_predicate_and_not_remaining(
-            ColumnPredicate* pred, const std::vector<ColumnPredicate*>& remaining_predicates) {
-        return pred->type() == PredicateType::MATCH &&
-               std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
-                       remaining_predicates.end();
-    }
-
-    void _delete_expr_from_conjunct_roots(const vectorized::VExprSPtr& expr,
-                                          vectorized::VExprSPtrs& conjunct_roots) {
-        conjunct_roots.erase(std::remove(conjunct_roots.begin(), conjunct_roots.end(), expr),
-                             conjunct_roots.end());
-    }
-
-    bool _is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
-                                         const MatchPredicate* match_pred, const Schema* schema);
-
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
     bool _no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
@@ -392,6 +382,8 @@ private:
                                                                 bool default_return = false);
 
     void _calculate_expr_in_remaining_conjunct_root();
+
+    void _clear_iterators();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -442,8 +434,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _first_read_column_ids;
-    std::vector<ColumnId> _second_read_column_ids;
+    std::vector<ColumnId> _predicate_column_ids;
+    std::vector<ColumnId> _non_predicate_column_ids;
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block

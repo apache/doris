@@ -7,55 +7,56 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalProject
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF3 w_warehouse_sk->[ws_warehouse_sk]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF2 t_time_sk->[ws_sold_time_sk]
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF0 sm_ship_mode_sk->[ws_ship_mode_sk]
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
-----------------------------------------PhysicalProject
-------------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
---------------------------------------------PhysicalOlapScan[ship_mode]
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_year = 1998))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalProject
-----------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
-------------------------------------PhysicalOlapScan[time_dim]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[warehouse]
-----------------PhysicalProject
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF7 w_warehouse_sk->[cs_warehouse_sk]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF6 t_time_sk->[cs_sold_time_sk]
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[cs_sold_date_sk]
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF4 sm_ship_mode_sk->[cs_ship_mode_sk]
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
-----------------------------------------PhysicalProject
-------------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
---------------------------------------------PhysicalOlapScan[ship_mode]
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_year = 1998))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalProject
-----------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
-------------------------------------PhysicalOlapScan[time_dim]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[warehouse]
+--------------PhysicalProject
+----------------PhysicalUnion
+------------------PhysicalProject
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF3 w_warehouse_sk->[ws_warehouse_sk]
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF2 t_time_sk->[ws_sold_time_sk]
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF0 sm_ship_mode_sk->[ws_ship_mode_sk]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
+------------------------------------------PhysicalProject
+--------------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+----------------------------------------------PhysicalOlapScan[ship_mode]
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_year = 1998))
+------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalProject
+------------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+--------------------------------------PhysicalOlapScan[time_dim]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[warehouse]
+------------------PhysicalProject
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF7 w_warehouse_sk->[cs_warehouse_sk]
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF6 t_time_sk->[cs_sold_time_sk]
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[cs_sold_date_sk]
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF4 sm_ship_mode_sk->[cs_ship_mode_sk]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
+------------------------------------------PhysicalProject
+--------------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+----------------------------------------------PhysicalOlapScan[ship_mode]
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_year = 1998))
+------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalProject
+------------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+--------------------------------------PhysicalOlapScan[time_dim]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[warehouse]
 

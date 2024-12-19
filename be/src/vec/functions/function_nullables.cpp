@@ -52,7 +52,7 @@ public:
 
     // trans nullable column to non-nullable column. If argument is already non-nullable, raise error.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr& col = block.get_by_position(arguments[0]).column;
         if (const auto* col_null = check_and_get_column<ColumnNullable>(col); col_null == nullptr) {
             // not null
@@ -83,7 +83,7 @@ public:
 
     // trans nullable column to non-nullable column. If argument is already non-nullable, raise error.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto& data = block.get_by_position(arguments[0]);
         if (const auto* col_null = check_and_get_column<ColumnNullable>(data.column);
             col_null == nullptr) // raise error if input is not nullable.
@@ -96,7 +96,7 @@ public:
             if (col_null->has_null()) [[unlikely]] {
                 return Status::InvalidArgument(
                         "There's NULL value in column {} which is illegal for non_nullable",
-                        data.column->get_name());
+                        data.name);
             }
             const ColumnPtr& nest_col = col_null->get_nested_column_ptr();
             block.replace_by_position(result, nest_col->clone_resized(nest_col->size()));

@@ -52,7 +52,7 @@ public:
 
     static Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids);
 
-    static std::unique_ptr<CgroupCpuCtl> create_cgroup_cpu_ctl(uint64_t wg_id);
+    static std::shared_ptr<CgroupCpuCtl> create_cgroup_cpu_ctl(uint64_t wg_id);
 
     static bool is_a_valid_cgroup_path(std::string cg_path);
 

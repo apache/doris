@@ -24,8 +24,28 @@ public class MTMVVersionSnapshot implements MTMVSnapshotIf {
     @SerializedName("v")
     private long version;
 
+    // The partition version after insert overwrite is 1,
+    // which may cause the upper level materialized view to be unaware of changes in the data at the bottom level.
+    // However, the partition ID after overwrite will change, so the partition ID should be added.
+    // only for partition, table will always 0
+    @SerializedName("id")
+    private long id;
+
     public MTMVVersionSnapshot(long version) {
         this.version = version;
+    }
+
+    public MTMVVersionSnapshot(long version, long id) {
+        this.version = version;
+        this.id = id;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public void setId(long id) {
+        this.id = id;
     }
 
     @Override
@@ -37,18 +57,19 @@ public class MTMVVersionSnapshot implements MTMVSnapshotIf {
             return false;
         }
         MTMVVersionSnapshot that = (MTMVVersionSnapshot) o;
-        return version == that.version;
+        return version == that.version && id == that.id;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(version);
+        return Objects.hashCode(version, id);
     }
 
     @Override
     public String toString() {
         return "MTMVVersionSnapshot{"
                 + "version=" + version
+                + ", id=" + id
                 + '}';
     }
 }

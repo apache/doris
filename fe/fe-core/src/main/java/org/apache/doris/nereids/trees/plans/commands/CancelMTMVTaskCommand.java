@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * cancel mtmv task
  */
-public class CancelMTMVTaskCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class CancelMTMVTaskCommand extends Command implements ForwardWithSync {
     private final CancelMTMVTaskInfo cancelMTMVTaskInfo;
 
     public CancelMTMVTaskCommand(CancelMTMVTaskInfo cancelMTMVTaskInfo) {

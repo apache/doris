@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -74,6 +75,9 @@ public class CancelAlterTableStmt extends CancelStmt implements NotFallbackInPar
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
 
+        if (FeConstants.runningUnitTest) {
+            return;
+        }
         // check access
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbTableName.getCtl(), dbTableName.getDb(),

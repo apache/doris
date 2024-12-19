@@ -18,11 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_jsonb_predict_is_null", "p0") {
-    sql """ set experimental_enable_nereids_planner = false """
-    
-    sql """ set experimental_enable_nereids_planner = true """
-    sql """ set enable_fallback_to_original_planner = true """
-
     sql "DROP TABLE IF EXISTS jb_pred"
 
     sql """
