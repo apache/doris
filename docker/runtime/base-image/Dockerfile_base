@@ -28,7 +28,7 @@ ARG TARGETARCH
 
 RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
     apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    patchelf gdb binutils binutils-common mysql-client \
+    patchelf gdb binutils binutils-common mysql-client iperf3\
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
     tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
     bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \

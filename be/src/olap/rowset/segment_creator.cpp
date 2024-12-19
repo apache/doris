@@ -115,8 +115,7 @@ Status SegmentFlusher::close() {
 bool SegmentFlusher::need_buffering() {
     // buffering variants for schema change
     return _context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE &&
-           (_context.tablet_schema->num_variant_columns() > 0 ||
-            !_context.tablet_schema->cluster_key_idxes().empty());
+           _context.tablet_schema->num_variant_columns() > 0;
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,

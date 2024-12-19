@@ -30,9 +30,11 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
@@ -427,6 +429,48 @@ public class BinlogManager {
         String data = indexChangeJob.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, indexChangeJob);
+    }
+
+    public void addDropRollup(DropInfo info, long commitSeq) {
+        if (StringUtils.isEmpty(info.getIndexName())) {
+            LOG.warn("skip drop rollup binlog, because indexName is empty. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.DROP_ROLLUP;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+
+    private boolean supportedRecoverInfo(RecoverInfo info) {
+        //table name and partitionName added together.
+        // recover table case, tablename must exist in newer version
+        // recover partition case also table name must exist.
+        // so checking only table name here.
+        if (StringUtils.isEmpty(info.getTableName())) {
+            LOG.warn("skip recover info binlog, because tableName is empty. info: {}", info);
+            return false;
+        }
+        return true;
+    }
+
+    public void addRecoverTableRecord(RecoverInfo info, long commitSeq) {
+        if (supportedRecoverInfo(info) == false) {
+            return;
+        }
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RECOVER_INFO;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     // get binlog by dbId, return first binlog.version > version

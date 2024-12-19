@@ -24,6 +24,7 @@
 #include "vec/common/hash_table/hash.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
@@ -66,7 +67,7 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _limit(tnode.limit),
-          _partition_exprs_num(tnode.partition_sort_node.partition_exprs.size()),
+          _partition_exprs_num(cast_set<int>(tnode.partition_sort_node.partition_exprs.size())),
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
           _has_global_limit(tnode.partition_sort_node.has_global_limit),
           _top_n_algorithm(tnode.partition_sort_node.top_n_algorithm),
@@ -212,7 +213,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         };
 
                         SCOPED_TIMER(local_state._emplace_key_timer);
-                        int row = num_rows;
+                        int64_t row = num_rows;
                         for (row = row - 1; row >= 0 && !local_state._is_need_passthrough; --row) {
                             auto& mapped = *agg_method.lazy_emplace(state, row, creator,
                                                                     creator_for_null_key);
@@ -274,4 +275,5 @@ bool PartitionSortSinkLocalState::check_whether_need_passthrough() {
 }
 // NOLINTEND(readability-simplify-boolean-expr)
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

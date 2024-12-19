@@ -19,7 +19,7 @@ import org.junit.Assert;
 
 suite("test_nereids_role") {
     def role= 'nereids_account_role_test'
-    def user = 'acount_role_user_test'
+    def user = 'nereids_acount_role_user_test'
     def dbName = 'nereids_account_role_test_db'
     def pwd = 'C123_567p'
 
@@ -28,17 +28,17 @@ suite("test_nereids_role") {
     sql """DROP DATABASE IF EXISTS ${dbName}"""
     sql """CREATE DATABASE ${dbName}"""
 
-    sql """CREATE ROLE ${role}"""
+    checkNereidsExecute("CREATE ROLE ${role}")
     sql """GRANT SELECT_PRIV ON ${context.config.defaultDb} TO ROLE '${role}'"""
     sql """GRANT SELECT_PRIV ON ${dbName} TO ROLE '${role}'"""
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"""
-    def result1 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    def result1 = connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"
     }
     assertEquals(result1.size(), 1)
 
     sql """REVOKE SELECT_PRIV ON ${dbName} FROM ROLE '${role}'"""
-    def result2 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    def result2 = connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"
     }
     assertEquals(result2.size(), 0)

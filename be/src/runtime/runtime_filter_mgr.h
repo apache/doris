@@ -100,19 +100,17 @@ public:
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, std::shared_ptr<IRuntimeFilter>* consumer_filter,
-                                    bool build_bf_exactly = false, bool need_local_merge = false);
+                                    bool need_local_merge = false);
 
     Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
                                                 const TQueryOptions& options,
-                                                std::shared_ptr<IRuntimeFilter> producer_filter,
-                                                bool build_bf_exactly = false);
+                                                std::shared_ptr<IRuntimeFilter> producer_filter);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
     LocalMergeFilters* get_local_merge_producer_filters(int filter_id);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    std::shared_ptr<IRuntimeFilter>* producer_filter,
-                                    bool build_bf_exactly = false);
+                                    std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     // update filter by remote
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
@@ -194,12 +192,7 @@ public:
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
                            const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
-                           const int producer_size);
-
-    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
-                           const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParamsV2>* target_info,
+                           const std::vector<doris::TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
 
     UniqueId _query_id;

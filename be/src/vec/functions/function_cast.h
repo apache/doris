@@ -258,6 +258,21 @@ struct ConvertImpl {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
+    // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
+    // Doris uses `uint8` to represent boolean values internally.
+    // Directly `static_cast` to `uint8` can result in non-0/1 values,
+    // To address this, `static_cast_set` performs an additional check:
+    //  For `uint8` types, it explicitly uses `static_cast<bool>` to ensure
+    //  the result is either 0 or 1.
+    static void static_cast_set(ToFieldType& to, const FromFieldType& from) {
+        // uint8_t now use as boolean in doris
+        if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
+            to = static_cast<bool>(from);
+        } else {
+            to = static_cast<ToFieldType>(from);
+        }
+    }
+
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
@@ -377,8 +392,9 @@ struct ConvertImpl {
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
                         DataTypeDateTimeV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else {
-                        vec_to[i] =
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
+                        static_cast_set(
+                                vec_to[i],
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     }
                 }
             } else if constexpr (IsTimeV2Type<FromDataType>) {
@@ -409,13 +425,16 @@ struct ConvertImpl {
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
-                            vec_to[i] = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
-                                                vec_from[i])
-                                                .to_int64();
+                            static_cast_set(
+                                    vec_to[i],
+                                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                            vec_from[i])
+                                            .to_int64());
                         } else {
-                            vec_to[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
-                                                vec_from[i])
-                                                .to_int64();
+                            static_cast_set(vec_to[i],
+                                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
+                                                    vec_from[i])
+                                                    .to_int64());
                         }
                     }
                 }
@@ -441,14 +460,8 @@ struct ConvertImpl {
                     }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
-                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                        static_cast_set(vec_to[i], vec_from[i]);
                     }
-                }
-            }
-            // TODO: support boolean cast more reasonable
-            if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
-                for (int i = 0; i < size; ++i) {
-                    vec_to[i] = static_cast<bool>(vec_to[i]);
                 }
             }
 
@@ -1858,6 +1871,7 @@ private:
             auto& variant = assert_cast<const ColumnObject&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
+                // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
                 variant.assume_mutable()->finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,
@@ -2388,5 +2402,4 @@ protected:
     bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 };
-
 } // namespace doris::vectorized

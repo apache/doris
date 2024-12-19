@@ -48,7 +48,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
             );"""
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmvName} 
                 BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
@@ -64,7 +64,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
                 PROPERTIES ('replication_num' = '1') 
                 AS select username, sum(id) as sum_id from ${dbName}.${tableName} group by username"""
     sql """grant Create_priv on ${dbName}.${mtmvName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmvName} 
                 BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
@@ -76,7 +76,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
     sql """drop MATERIALIZED VIEW ${dbName}.${mtmvName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmvName} 
             BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
             DISTRIBUTED BY RANDOM BUCKETS 1 
@@ -88,7 +88,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
         assertTrue(tb_res.size() == 2)
     }
     sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """refresh MATERIALIZED VIEW ${mtmvName} auto;"""
 
@@ -122,7 +122,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
     // ddl alter
     // user alter
     sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """ALTER MATERIALIZED VIEW ${mtmvName} rename ${mtmvNameNew};"""
             exception "denied"
@@ -133,7 +133,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
         }
     }
     sql """grant ALTER_PRIV on ${dbName}.${mtmvName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create materialized view ${mtmvName}"""
         sql """ALTER MATERIALIZED VIEW ${mtmvName} rename ${mtmvNameNew};"""
@@ -148,7 +148,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
     // root alter
     sql """use ${dbName}"""
     sql """ALTER MATERIALIZED VIEW ${mtmvNameNew} RENAME ${mtmvName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create materialized view ${mtmvName}"""
         def db_res = sql """show tables;"""
@@ -156,20 +156,20 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
     }
 
     // dml select
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """select username from ${dbName}.${mtmvName}"""
             exception "denied"
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmvName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """select username from ${dbName}.${mtmvName}"""
     }
     sql """revoke select_priv(username) on ${dbName}.${mtmvName} from ${user}"""
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """use ${dbName}"""
             sql """drop materialized view ${mtmvName};"""
@@ -177,7 +177,7 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
         }
     }
     sql """grant DROP_PRIV on ${dbName}.${mtmvName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """drop materialized view ${mtmvName};"""
         def ctl_res = sql """show tables;"""

@@ -129,6 +129,7 @@ public class AnalysisManager implements Writable {
     public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableName, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -381,7 +382,7 @@ public class AnalysisManager implements Writable {
         }
         infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
-        infoBuilder.setTblUpdateTime(System.currentTimeMillis());
+        infoBuilder.setTblUpdateTime(table.getUpdateTime());
         // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
         // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
@@ -389,6 +390,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
+        infoBuilder.setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0);
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
@@ -547,12 +549,15 @@ public class AnalysisManager implements Writable {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
             result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
             result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+            result.addAll(getPendingJobs(veryLowPriorityJobs, JobPriority.VERY_LOW, tblName));
         } else if (priority.equals(JobPriority.HIGH.name())) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
         } else if (priority.equals(JobPriority.MID.name())) {
             result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
         } else if (priority.equals(JobPriority.LOW.name())) {
             result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+        } else if (priority.equals(JobPriority.VERY_LOW.name())) {
+            result.addAll(getPendingJobs(veryLowPriorityJobs, JobPriority.VERY_LOW, tblName));
         }
         return result;
     }

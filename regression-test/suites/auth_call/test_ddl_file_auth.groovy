@@ -42,7 +42,7 @@ suite("test_ddl_file_auth","p0,auth_call") {
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/auth_test.key"
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE FILE "${fileName}" IN ${dbName}
                 PROPERTIES
@@ -62,24 +62,26 @@ suite("test_ddl_file_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv on ${dbName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """SHOW FILE FROM ${dbName};"""
     }
     sql """revoke select_priv on ${dbName} from ${user}"""
 
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-        sql """CREATE FILE "${fileName}" IN ${dbName}
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        checkNereidsExecute("""CREATE FILE "${fileName}" IN ${dbName}
                 PROPERTIES
                 (
                     "url" = "${dataFilePath}",
                     "catalog" = "internal"
-                );"""
+                );""")
         sql """use ${dbName}"""
+        checkNereidsExecute("SHOW FILE;")
+        checkNereidsExecute("SHOW FILE FROM ${dbName};")
         def res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 1)
 
-        sql """DROP FILE "${fileName}" from ${dbName} properties("catalog" = "internal");"""
+        checkNereidsExecute("""DROP FILE "${fileName}" from ${dbName} properties("catalog" = "internal");""")
         res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 0)
     }

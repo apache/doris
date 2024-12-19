@@ -498,12 +498,12 @@ public:
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             if (!_context->hybrid_set) {
-                _context->ignored = true;
+                set_ignored();
                 return Status::OK();
             }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                _context->ignored = true;
+                set_ignored();
                 // release in filter
                 _context->hybrid_set.reset();
             }
@@ -738,6 +738,12 @@ public:
         }
         }
         return Status::OK();
+    }
+
+    void set_enable_fixed_len_to_uint32_v2() {
+        if (is_bloomfilter()) {
+            _context->bloom_filter_func->set_enable_fixed_len_to_uint32_v2();
+        }
     }
 
     // used by shuffle runtime filter
@@ -975,11 +981,10 @@ private:
 
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
-                              int node_id, std::shared_ptr<IRuntimeFilter>* res,
-                              bool build_bf_exactly) {
+                              int node_id, std::shared_ptr<IRuntimeFilter>* res) {
     *res = std::make_shared<IRuntimeFilter>(state, desc);
     (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
+    return (*res)->init_with_desc(desc, query_options, node_id);
 }
 
 RuntimeFilterContextSPtr& IRuntimeFilter::get_shared_context_ref() {
@@ -1114,9 +1119,6 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
-        if (_has_local_target) {
-            set_synced_size(local_filter_size);
-        }
         if (local_merge_filters->merge_size_times) {
             return Status::OK();
         } else {
@@ -1286,6 +1288,13 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+
+    if (!_wrapper->is_ignored() && _wrapper->is_bloomfilter() &&
+        !_wrapper->get_bloomfilter()->inited()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored, rf: {}",
+                        debug_string());
+    }
+
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {
@@ -1328,7 +1337,7 @@ void IRuntimeFilter::set_synced_size(uint64_t global_size) {
 }
 
 void IRuntimeFilter::set_ignored() {
-    _wrapper->_context->ignored = true;
+    _wrapper->set_ignored();
 }
 
 bool IRuntimeFilter::get_ignored() {
@@ -1344,7 +1353,7 @@ std::string IRuntimeFilter::formatted_state() const {
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                                      int node_id, bool build_bf_exactly) {
+                                      int node_id) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -1354,6 +1363,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _expr_order = desc->expr_order;
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    _enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
+                                     options->enable_fixed_len_to_uint32_v2;
 
     RuntimeFilterParams params;
     params.filter_id = _filter_id;
@@ -1366,20 +1377,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
                                                    ? options->runtime_bloom_filter_max_size
                                                    : 0;
-    auto sync_filter_size = desc->__isset.sync_filter_size && desc->sync_filter_size;
-    // We build runtime filter by exact distinct count if all of 3 conditions are met:
-    // 1. Only 1 join key
-    // 2. Bloom filter
-    // 3. Size of all bloom filters will be same (size will be sync or this is a broadcast join).
-    params.build_bf_exactly =
-            build_bf_exactly && (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-                                 _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
 
+    params.build_bf_exactly = desc->__isset.build_bf_exactly && desc->build_bf_exactly;
     params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
-
-    if (!sync_filter_size) {
-        params.build_bf_exactly &= !_is_broadcast_join;
-    }
 
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
@@ -1415,7 +1415,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     }
 
     _wrapper = std::make_shared<RuntimePredicateWrapper>(&params);
-    return _wrapper->init(&params);
+    RETURN_IF_ERROR(_wrapper->init(&params));
+    if (_enable_fixed_len_to_uint32_v2) {
+        _wrapper->set_enable_fixed_len_to_uint32_v2();
+    }
+    return Status::OK();
 }
 
 Status IRuntimeFilter::serialize(PMergeFilterRequest* request, void** data, int* len) {
@@ -1538,10 +1542,13 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, "
-            "build_bf_cardinality: {}, error_msg: {}",
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
+            "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
+            "has_remote_target: {}, error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality(), _wrapper->_context->err_msg);
+            _wrapper->_context->ignored, _wrapper->get_build_bf_cardinality(),
+            _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
+            _has_remote_target, _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
@@ -1594,9 +1601,7 @@ RuntimeFilterType IRuntimeFilter::get_real_type() {
 }
 
 bool IRuntimeFilter::need_sync_filter_size() {
-    return (type() == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
-            type() == RuntimeFilterType::BLOOM_FILTER) &&
-           _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
+    return _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
 }
 
 void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrapper,
@@ -1611,6 +1616,9 @@ void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrap
         wrapper->_column_return_type = _wrapper->_column_return_type;
     }
     _wrapper = wrapper;
+    if (_enable_fixed_len_to_uint32_v2) {
+        _wrapper->set_enable_fixed_len_to_uint32_v2();
+    }
     update_runtime_filter_type_to_profile(local_merge_time);
     signal();
 }

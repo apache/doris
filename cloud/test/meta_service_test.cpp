@@ -216,6 +216,35 @@ static void update_tmp_rowset(MetaServiceProxy* meta_service,
     if (!arena) delete req;
 }
 
+static void get_delete_bitmap_update_lock(MetaServiceProxy* meta_service,
+                                          GetDeleteBitmapUpdateLockResponse& res, int64_t db_id,
+                                          int64_t table_id, int64_t index_id,
+                                          const std::vector<std::array<int64_t, 2>>& tablet_idxes,
+                                          int64_t expiration, int64_t lock_id, int64_t initiator,
+                                          bool require_compaction_stats) {
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    for (const auto& [partition_id, _] : tablet_idxes) {
+        req.add_partition_ids(partition_id);
+    }
+    req.set_expiration(expiration);
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_require_compaction_stats(require_compaction_stats);
+    for (const auto& [partition_id, tablet_id] : tablet_idxes) {
+        TabletIndexPB* idx = req.add_tablet_indexes();
+        idx->set_db_id(db_id);
+        idx->set_table_id(table_id);
+        idx->set_index_id(index_id);
+        idx->set_partition_id(partition_id);
+        idx->set_tablet_id(tablet_id);
+    }
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+}
+
 static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                           int64_t table_id, int64_t partition_id, int64_t tablet_id) {
     int64_t txn_id = 0;
@@ -228,6 +257,26 @@ static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service, rowset, res));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     commit_txn(meta_service, db_id, txn_id, label);
+}
+
+static void add_tablet_stats(MetaServiceProxy* meta_service, std::string instance_id,
+                             int64_t table_id, int64_t index_id,
+                             const std::vector<std::array<int64_t, 2>>& tablet_idxes) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    for (const auto& idx : tablet_idxes) {
+        int64_t partition_id = idx[0];
+        int64_t tablet_id = idx[1];
+        std::string stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        TabletStatsPB stats;
+        stats.set_base_compaction_cnt(10);
+        stats.set_cumulative_compaction_cnt(20);
+        stats.set_cumulative_point(30);
+        txn->put(stats_key, stats.SerializeAsString());
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
 TEST(MetaServiceTest, GetInstanceIdTest) {
@@ -515,7 +564,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         AlterObjStoreInfoResponse res;
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
         get_test_instance(instance);
 
@@ -526,7 +575,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
                   TxnErrorCode::TXN_OK);
         StorageVaultPB get_obj;
         get_obj.ParseFromString(val);
-        ASSERT_EQ(get_obj.obj_info().ak(), "new_ak") << get_obj.obj_info().ak();
+        ASSERT_EQ(get_obj.obj_info().ak(), "ak") << get_obj.obj_info().ak();
     }
 
     {
@@ -578,6 +627,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         vault.set_alter_name(new_vault_name);
         ObjectStoreInfoPB obj;
         obj_info.set_ak("new_ak");
+        obj_info.set_sk("new_sk");
         vault.mutable_obj_info()->MergeFrom(obj);
         vault.set_name(vault_name);
         req.mutable_vault()->CopyFrom(vault);
@@ -4429,6 +4479,8 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
     EXPECT_EQ(res.tablet_stats(0).num_rows(), 0);
     EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 1);
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 0);
+    EXPECT_EQ(res.tablet_stats(0).index_size(), 0);
+    EXPECT_EQ(res.tablet_stats(0).segment_size(), 0);
     // Insert rowset
     config::split_tablet_stats = false;
     ASSERT_NO_FATAL_FAILURE(
@@ -4448,6 +4500,16 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
                                &data_size_key);
     ASSERT_EQ(txn->get(data_size_key, &data_size_val), TxnErrorCode::TXN_OK);
     EXPECT_EQ(*(int64_t*)data_size_val.data(), 22000);
+    std::string index_size_key, index_size_val;
+    stats_tablet_index_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                &index_size_key);
+    ASSERT_EQ(txn->get(index_size_key, &index_size_val), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(*(int64_t*)index_size_val.data(), 2000);
+    std::string segment_size_key, segment_size_val;
+    stats_tablet_segment_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                  &segment_size_key);
+    ASSERT_EQ(txn->get(segment_size_key, &segment_size_val), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(*(int64_t*)segment_size_val.data(), 20000);
     std::string num_rows_key, num_rows_val;
     stats_tablet_num_rows_key({mock_instance, table_id, index_id, partition_id, tablet_id},
                               &num_rows_key);
@@ -4472,9 +4534,11 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
     EXPECT_EQ(res.tablet_stats(0).num_rows(), 400);
     EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 5);
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 4);
+    EXPECT_EQ(res.tablet_stats(0).index_size(), 4000);
+    EXPECT_EQ(res.tablet_stats(0).segment_size(), 40000);
 }
 
-TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
     auto meta_service = get_meta_service();
 
     brpc::Controller cntl;
@@ -4514,6 +4578,231 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
+    auto meta_service = get_meta_service();
+
+    std::string instance_id = "test_get_delete_bitmap_update_lock_normal";
+    [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+    });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t db_id = 1000;
+    int64_t table_id = 2001;
+    int64_t index_id = 3001;
+    // [(partition_id, tablet_id)]
+    std::vector<std::array<int64_t, 2>> tablet_idxes {{70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+    add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+    GetDeleteBitmapUpdateLockResponse res;
+    get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id, tablet_idxes,
+                                  5, 999999, -1, true);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    ASSERT_EQ(res.base_compaction_cnts().size(), tablet_idxes.size());
+    for (const auto& base_compaction_cnt : res.base_compaction_cnts()) {
+        ASSERT_EQ(base_compaction_cnt, 10);
+    }
+    ASSERT_EQ(res.cumulative_compaction_cnts().size(), tablet_idxes.size());
+    for (const auto& cumu_compaction_cnt : res.cumulative_compaction_cnts()) {
+        ASSERT_EQ(cumu_compaction_cnt, 20);
+    }
+    ASSERT_EQ(res.cumulative_points().size(), tablet_idxes.size());
+    for (const auto& cumulative_point : res.cumulative_points()) {
+        ASSERT_EQ(cumulative_point, 30);
+    }
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
+    auto meta_service = get_meta_service();
+
+    {
+        // 2.1 abnormal path, lock has been expired and taken by another load/compaction during
+        // the reading of tablet stats
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal1";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+        sp->set_call_back("check_delete_bitmap_lock.set_lock_info", [&](auto&& args) {
+            auto* lock_info = try_any_cast<DeleteBitmapUpdateLockPB*>(args[0]);
+            // simulate that lock_id has been modified by another load
+            lock_info->set_lock_id(345);
+            LOG(INFO) << "change lock_info.lock_id to 345, lock_info=" << lock_info->DebugString();
+        });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_points().size(), 0);
+    }
+
+    {
+        // 2.2 abnormal path, lock has been taken by another load/compaction and been released during
+        // the reading of tablet stats
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal2";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+        sp->set_call_back("check_delete_bitmap_lock.inject_get_lock_key_err", [&](auto&& args) {
+            auto* err = try_any_cast<TxnErrorCode*>(args[0]);
+            // the lock has been taken by another load and been released,
+            // so the delete bitmap update lock KV will be removed
+            *err = TxnErrorCode::TXN_KEY_NOT_FOUND;
+        });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    }
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
+    auto meta_service = get_meta_service();
+
+    {
+        // 2.3 abnormal path, meeting error when reading tablets' stats
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal3";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        TxnErrorCode injected_error_code {TxnErrorCode::TXN_KEY_NOT_FOUND};
+        sp->set_call_back("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
+                          [&](auto&& args) {
+                              auto* err = try_any_cast<TxnErrorCode*>(args[0]);
+                              *err = injected_error_code;
+                          });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
+    }
+
+    {
+        // 2.4 abnormal path, meeting TXN_TOO_OLD error when reading tablets' stats,
+        // this should not fail if lock is not expired
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        int counter = 0;
+        sp->set_call_back("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
+                          [&](auto&& args) {
+                              if (counter++ % 2 == 0) {
+                                  auto* err = try_any_cast<TxnErrorCode*>(args[0]);
+                                  *err = TxnErrorCode::TXN_TOO_OLD;
+                              }
+                          });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes;
+        for (int i = 0; i < 20; i++) {
+            int64_t partition_id = 70000 + i;
+            int64_t tablet_id = 80000 + i;
+            tablet_idxes.push_back({partition_id, tablet_id});
+        }
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.base_compaction_cnts().size(), tablet_idxes.size());
+        for (const auto& base_compaction_cnt : res.base_compaction_cnts()) {
+            ASSERT_EQ(base_compaction_cnt, 10);
+        }
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), tablet_idxes.size());
+        for (const auto& cumu_compaction_cnt : res.cumulative_compaction_cnts()) {
+            ASSERT_EQ(cumu_compaction_cnt, 20);
+        }
+        ASSERT_EQ(res.cumulative_points().size(), tablet_idxes.size());
+        for (const auto& cumulative_point : res.cumulative_points()) {
+            ASSERT_EQ(cumulative_point, 30);
+        }
+    }
 }
 
 static std::string generate_random_string(int length) {
@@ -7771,6 +8060,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         // simulate that there are new segments added to this rowset
         rowset.set_num_segments(rowset.num_segments() + 3);
         rowset.set_num_rows(rowset.num_rows() + 1000);
+        rowset.set_total_disk_size(rowset.total_disk_size() + 11000);
+        rowset.set_index_disk_size(rowset.index_disk_size() + 1000);
         rowset.set_data_disk_size(rowset.data_disk_size() + 10000);
 
         ASSERT_NO_FATAL_FAILURE(update_tmp_rowset(meta_service.get(), rowset, res));
@@ -7789,6 +8080,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         ASSERT_EQ(doris::BEGIN_PARTIAL_UPDATE, fetchedRowsetMeta.rowset_state());
         ASSERT_EQ(rowset.num_segments(), fetchedRowsetMeta.num_segments());
         ASSERT_EQ(rowset.num_rows(), fetchedRowsetMeta.num_rows());
+        ASSERT_EQ(rowset.total_disk_size(), fetchedRowsetMeta.total_disk_size());
+        ASSERT_EQ(rowset.index_disk_size(), fetchedRowsetMeta.index_disk_size());
         ASSERT_EQ(rowset.data_disk_size(), fetchedRowsetMeta.data_disk_size());
 
         ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service.get(), db_id, txn_id, label));
@@ -7819,6 +8112,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         // simulate that there are new segments added to this rowset
         rowset.set_num_segments(rowset.num_segments() + 3);
         rowset.set_num_rows(rowset.num_rows() + 1000);
+        rowset.set_total_disk_size(rowset.total_disk_size() + 11000);
+        rowset.set_index_disk_size(rowset.index_disk_size() + 1000);
         rowset.set_data_disk_size(rowset.data_disk_size() + 10000);
 
         // repeated calls to update_tmp_rowset will all success
@@ -7844,6 +8139,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         ASSERT_EQ(doris::BEGIN_PARTIAL_UPDATE, fetchedRowsetMeta.rowset_state());
         ASSERT_EQ(rowset.num_segments(), fetchedRowsetMeta.num_segments());
         ASSERT_EQ(rowset.num_rows(), fetchedRowsetMeta.num_rows());
+        ASSERT_EQ(rowset.total_disk_size(), fetchedRowsetMeta.total_disk_size());
+        ASSERT_EQ(rowset.index_disk_size(), fetchedRowsetMeta.index_disk_size());
         ASSERT_EQ(rowset.data_disk_size(), fetchedRowsetMeta.data_disk_size());
 
         ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service.get(), db_id, txn_id, label));
@@ -7869,6 +8166,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         // simulate that there are new segments added to this rowset
         rowset.set_num_segments(rowset.num_segments() + 3);
         rowset.set_num_rows(rowset.num_rows() + 1000);
+        rowset.set_total_disk_size(rowset.total_disk_size() + 11000);
+        rowset.set_index_disk_size(rowset.index_disk_size() + 1000);
         rowset.set_data_disk_size(rowset.data_disk_size() + 10000);
 
         ASSERT_NO_FATAL_FAILURE(update_tmp_rowset(meta_service.get(), rowset, res));

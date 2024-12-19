@@ -33,7 +33,7 @@ PhysicalResultSink
 ------------------------------filter((customer_address.ca_gmt_offset = -6.00))
 --------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
---------------------------filter((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
+--------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
 ----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter((hd_buy_potential like '1001-5000%'))

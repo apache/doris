@@ -35,8 +35,9 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class ScannerDelegate;
-}
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
@@ -108,7 +109,6 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _scanner_peak_memory_usage = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
@@ -437,4 +437,5 @@ protected:
     std::vector<int> topn_filter_source_node_ids;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

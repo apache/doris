@@ -206,7 +206,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
     // not have usage priv, can not select tvf with resource
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         test {
                 sql """
                     SELECT * FROM S3 (
@@ -221,7 +221,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     }
 
     // only have select_priv of view,can select view with resource
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
             sql """SELECT * FROM ${viewName};"""
     }
 

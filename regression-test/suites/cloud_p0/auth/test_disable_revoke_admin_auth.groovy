@@ -22,6 +22,7 @@ suite("test_disable_revoke_admin_auth", "cloud_auth") {
     sql """create user ${user} identified by 'Cloud12345' default role 'admin'"""
 
     sql "sync"
+    def result
 
     try {
         result = sql """revoke 'admin' from 'admin'""";
@@ -30,7 +31,7 @@ suite("test_disable_revoke_admin_auth", "cloud_auth") {
     }
 
     try {
-        result = connect(user = "${user}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+        result = connect("${user}", 'Cloud12345', context.config.jdbcUrl) {
              sql """
                 revoke 'admin' from 'admin'
              """

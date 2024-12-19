@@ -35,6 +35,7 @@
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_) {
     /// Squash Const of Const.
@@ -66,11 +67,9 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_emp
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    return data->replicate(Offsets(1, s));
-}
-
-ColumnPtr ColumnConst::remove_low_cardinality() const {
-    return ColumnConst::create(data->convert_to_full_column_if_low_cardinality(), s);
+    // Assuming the number of replicate rows will not exceed Offset(UInt32),
+    // currently Column::replicate only supports Uint32 Offsets
+    return data->replicate(Offsets(1, cast_set<Offset>(s)));
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {

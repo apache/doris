@@ -713,41 +713,12 @@ class Suite implements GroovyInterceptable {
     }
 
     void checkNereidsExecute(String sqlString) {
-        String tag = UUID.randomUUID().toString();
-        log.info("start check" + tag)
-        String finalSqlString = "--" + tag + "\n" + sqlString
-        ProfileAction profileAction = new ProfileAction(context, tag)
-        profileAction.run {
-            log.info("start profile run" + tag)
-            sql (finalSqlString)
-        }
-        profileAction.check {
-            profileString, exception ->
-                log.info("start profile check" + tag)
-                log.info(profileString)
-                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-        profileAction.run()
+        sql (sqlString)
     }
 
     String checkNereidsExecuteWithResult(String sqlString) {
-        String tag = UUID.randomUUID().toString();
-        String result = null;
-        log.info("start check" + tag)
-        String finalSqlString = "--" + tag + "\n" + sqlString
-        ProfileAction profileAction = new ProfileAction(context, tag)
-        profileAction.run {
-            log.info("start profile run" + tag)
-            result = sql (finalSqlString)
-        }
-        profileAction.check {
-            profileString, exception ->
-                log.info("start profile check" + tag)
-                log.info(profileString)
-                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-        profileAction.run()
-        return result;
+        String result = sql (sqlString);
+        return result
     }
 
     void createMV(String sql) {
@@ -770,6 +741,8 @@ class Suite implements GroovyInterceptable {
         runAction(new WaitForAction(context), actionSupplier)
         if (ObjectUtils.isNotEmpty(insertSql)){
             sql insertSql
+        } else {
+            sql "SYNC"
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
@@ -1641,6 +1614,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    boolean isClusterKeyEnabled() {
+        return getFeConfig("random_add_cluster_keys_for_mow").equals("true")
+    }
+
     boolean enableStoragevault() {
         if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
                 || Strings.isNullOrEmpty(context.config.instanceId)
@@ -1872,6 +1849,22 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${db}.${mv_name} with sync;"
     }
 
+    def create_async_partition_mv = { db, mv_name, mv_sql, partition_col ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${db}.${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${db}.${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL 
+        PARTITION BY ${partition_col} 
+        DISTRIBUTED BY RANDOM BUCKETS 2 
+        PROPERTIES ('replication_num' = '1')  
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        sql "analyze table ${db}.${mv_name} with sync;"
+    }
+
     // mv not part in rewrite process
     void mv_not_part_in(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
@@ -1979,9 +1972,8 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = success && result.contains("${mv_name} chose")
+                    Assert.assertEquals(true, result.contains("${mv_name} chose"))
                 }
-                Assert.assertEquals(true, success)
             }
         }
     }
@@ -2692,5 +2684,14 @@ class Suite implements GroovyInterceptable {
             sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
+    }
+
+    def check_fold_consistency = { test_sql ->
+        def re_fe = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
+        def re_be = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
+        def re_no_fold = order_sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
+        logger.info("check sql: ${test_sql}")
+        assertEquals(re_fe, re_be)
+        assertEquals(re_fe, re_no_fold)
     }
 }
