@@ -1449,6 +1449,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
+    // (resource_id, tablet_id, rowset_id)
+    std::vector<std::tuple<std::string, int64_t, std::string>> rowsets_delete_by_prefix;
 
     for (const auto& rs : rowsets) {
         {
@@ -1519,6 +1521,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             index_format = index_info.first;
             index_ids = std::move(index_info.second);
         }
+        if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+            // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the num of segments may be bigger than num_segments
+            // so we need to delete the rowset's data by prefix
+            rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
+            continue;
+        }
         for (int64_t i = 0; i < num_segments; ++i) {
             file_paths.push_back(segment_path(tablet_id, rowset_id, i));
             if (index_format == InvertedIndexStorageFormatPB::V1) {
@@ -1541,6 +1549,10 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor);
             return accessor->delete_files(*paths);
         });
+    }
+    for (const auto& [resource_id, tablet_id, rowset_id] : rowsets_delete_by_prefix) {
+        concurrent_delete_executor.add(
+                [&]() -> int { return delete_rowset_data(resource_id, tablet_id, rowset_id); });
     }
     bool finished = true;
     std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
