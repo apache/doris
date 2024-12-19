@@ -48,6 +48,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -245,6 +246,7 @@ import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableRef;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -1711,10 +1713,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
                 : Config.try_commit_lock_timeout_seconds * 1000;
         List<Table> tables = queryLoadCommitTables(request, db);
-        return Env.getCurrentGlobalTransactionMgr()
+        boolean ret = Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(db, tables, request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                         TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+        if (Config.isCloudMode()) {
+            String clusterName = request.getCluster();
+            if (ConnectContext.get().getSessionVariable().enableMultiClusterSyncLoad()
+                    && clusterName != null && !clusterName.isEmpty()) {
+                CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+                List<List<Backend>> backendsList = infoService
+                                                        .getCloudClusterNames()
+                                                        .stream()
+                                                        .filter(name -> !name.equals(clusterName))
+                                                        .map(name -> infoService.getBackendsByClusterName(name))
+                                                        .collect(Collectors.toList());
+                List<Long> allTabletIds = request.getCommitInfos().stream()
+                                            .map(TTabletCommitInfo::getTabletId)
+                                            .collect(Collectors.toList());
+                StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
+            }
+        }
+        return ret;
     }
 
     @Override
