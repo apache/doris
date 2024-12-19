@@ -69,10 +69,8 @@ public class MVColumnItem {
         baseColumnNames = new HashSet<>();
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
+
+        if (tableIdToColumnNames.size() == 1) {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
@@ -104,10 +102,8 @@ public class MVColumnItem {
         }
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
+
+        if (tableIdToColumnNames.size() == 1) {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
