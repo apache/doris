@@ -123,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
@@ -297,6 +298,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCallCommand(CallCommand callCommand, C context) {
         return visitCommand(callCommand, context);
+    }
+
+    default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
+        return visitCommand(showSyncJobCommand, context);
     }
 
     default R visitCreateProcedureCommand(CreateProcedureCommand createProcedureCommand, C context) {
