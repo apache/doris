@@ -275,28 +275,36 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Remove the catalog instance by name and write the meta log.
      */
-    public void dropCatalog(DropCatalogStmt stmt) throws UserException {
+    public void dropCatalog(String catalogName, boolean ifExists) throws UserException {
         writeLock();
         try {
-            if (stmt.isSetIfExists() && !nameToCatalog.containsKey(stmt.getCatalogName())) {
-                LOG.warn("Non catalog {} is found.", stmt.getCatalogName());
+            if (ifExists && !nameToCatalog.containsKey(catalogName)) {
+                LOG.warn("Non catalog {} is found.", catalogName);
                 return;
             }
-            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+                throw new DdlException("No catalog found with name: " + catalogName);
             }
-            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            CatalogLog log = new CatalogLog();
+            log.setCatalogId(catalog.getId());
             replayDropCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
 
             if (ConnectContext.get() != null) {
-                ConnectContext.get().removeLastDBOfCatalog(stmt.getCatalogName());
+                ConnectContext.get().removeLastDBOfCatalog(catalogName);
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Remove the catalog instance by name and write the meta log.
+     */
+    public void dropCatalog(DropCatalogStmt stmt) throws UserException {
+        dropCatalog(stmt.getCatalogName(), stmt.isSetIfExists());
     }
 
     /**
