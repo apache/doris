@@ -52,6 +52,8 @@ suite ("k1ap2spa") {
 
     sql """set enable_stats=true;"""
 
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
+
     mv_rewrite_success("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
 
 }

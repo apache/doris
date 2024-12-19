@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::pipeline::LocalSinkStateInfo& info) {
@@ -246,11 +247,11 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
         return _revoke_unpartitioned_block(state);
     }
 
-    _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
+    _spilling_streams_count = cast_set<int>(_shared_state->partitioned_build_blocks.size());
 
     auto query_id = state->query_id();
 
-    for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
+    for (int i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 
@@ -393,9 +394,11 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
     }
 }
 
-PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(
-        ObjectPool* pool, int operator_id, const TPlanNode& tnode, const DescriptorTbl& descs,
-        bool use_global_rf, uint32_t partition_count)
+PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* pool,
+                                                                   int operator_id,
+                                                                   const TPlanNode& tnode,
+                                                                   const DescriptorTbl& descs,
+                                                                   uint32_t partition_count)
         : JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
@@ -436,7 +439,7 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
     auto& local_state = get_local_state(state);
 
     local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     local_state._shared_state->inner_runtime_state->set_task_execution_context(
             state->get_task_execution_context().lock());
@@ -553,4 +556,5 @@ Status PartitionedHashJoinSinkOperatorX::revoke_memory(RuntimeState* state) {
     return local_state.revoke_memory(state);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

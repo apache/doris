@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.thrift.TMCTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -50,6 +52,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -71,6 +74,15 @@ public class MaxComputeExternalTable extends ExternalTable {
         }
     }
 
+    @Override
+    public boolean supportInternalPartitionPruned() {
+        return true;
+    }
+
+    @Override
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        return getPartitionColumns();
+    }
 
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
@@ -79,7 +91,24 @@ public class MaxComputeExternalTable extends ExternalTable {
                 .orElse(Collections.emptyList());
     }
 
-    public TablePartitionValues getPartitionValues() {
+    @Override
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        if (getPartitionColumns().isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        TablePartitionValues tablePartitionValues = getPartitionValues();
+        Map<Long, PartitionItem> idToPartitionItem = tablePartitionValues.getIdToPartitionItem();
+        Map<Long, String> idToNameMap = tablePartitionValues.getPartitionIdToNameMap();
+
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            nameToPartitionItem.put(idToNameMap.get(entry.getKey()), entry.getValue());
+        }
+        return nameToPartitionItem;
+    }
+
+    private TablePartitionValues getPartitionValues() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {
@@ -110,6 +139,8 @@ public class MaxComputeExternalTable extends ExternalTable {
 
     /**
      * parse all values from partitionPath to a single list.
+     * In MaxCompute : Support special characters : _$#.!@
+     * Ref : MaxCompute Error Code: ODPS-0130071  Invalid partition value.
      *
      * @param partitionColumns partitionColumns can contain the part1,part2,part3...
      * @param partitionPath partitionPath format is like the 'part1=123/part2=abc/part3=1bc'

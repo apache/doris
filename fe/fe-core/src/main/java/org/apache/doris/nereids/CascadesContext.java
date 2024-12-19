@@ -70,6 +70,7 @@ import org.apache.doris.statistics.StatisticsBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -462,6 +463,13 @@ public class CascadesContext implements ScheduleContext {
         return tableNames;
     }
 
+    public Map<List<String>, TableIf> getOrExtractTables(LogicalPlan logicalPlan) {
+        if (MapUtils.isEmpty(tables)) {
+            extractTables(logicalPlan);
+        }
+        return tables;
+    }
+
     private Set<List<String>> extractTableNamesFromHaving(LogicalHaving<?> having) {
         Set<SubqueryExpr> subqueryExprs = having.getPredicate()
                 .collect(SubqueryExpr.class::isInstance);
@@ -574,8 +582,9 @@ public class CascadesContext implements ScheduleContext {
         public Lock(LogicalPlan plan, CascadesContext cascadesContext) {
             this.cascadesContext = cascadesContext;
             // tables can also be load from dump file
-            if (cascadesContext.tables == null) {
+            if (cascadesContext.getTables() == null || cascadesContext.getTables().isEmpty()) {
                 cascadesContext.extractTables(plan);
+                cascadesContext.getStatementContext().setTables(cascadesContext.getTables());
             }
             for (TableIf table : cascadesContext.tables.values()) {
                 if (!table.needReadLockWhenPlan()) {

@@ -86,7 +86,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
+            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker, true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -323,14 +323,13 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
     }
 }
 
-Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
+void QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group = tg;
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                          &_memtable_flush_pool, &_remote_scan_task_scheduler);
-    return Status::OK();
 }
 
 void QueryContext::add_fragment_profile(

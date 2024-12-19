@@ -138,7 +138,7 @@ public:
         }
     }
 
-    Status set_workload_group(WorkloadGroupPtr& tg);
+    void set_workload_group(WorkloadGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -163,6 +163,12 @@ public:
 
     [[nodiscard]] int64_t get_fe_process_uuid() const {
         return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
+    }
+
+    bool ignore_runtime_filter_error() const {
+        return _query_options.__isset.ignore_runtime_filter_error
+                       ? _query_options.ignore_runtime_filter_error
+                       : false;
     }
 
     // global runtime filter mgr, the runtime filter have remote target or
@@ -235,9 +241,9 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
-    void update_wg_cpu_adder(int64_t delta_cpu_time) {
+    void update_cpu_time(int64_t delta_cpu_time) {
         if (_workload_group != nullptr) {
-            _workload_group->update_cpu_adder(delta_cpu_time);
+            _workload_group->update_cpu_time(delta_cpu_time);
         }
     }
 

@@ -39,7 +39,9 @@ suite("test_grant_nonexist_table","p0,auth") {
             sql """grant select_priv on internal.${dbName}.non_exist_table to ${user}"""
             exception "table"
         }
-
+    // contain create_triv should not check name, Same behavior as MySQL
+    sql """grant create_priv on internal.${dbName}.non_exist_table to ${user}"""
+    sql """grant create_priv,select_priv on internal.${dbName}.non_exist_table to ${user}"""
 
     try_sql("DROP USER ${user}")
 }

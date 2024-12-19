@@ -411,9 +411,6 @@ suite("test_broker_load_p2", "p2") {
                 "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
-            properties(
-                "use_new_load_scan_node" = "true"
-            )
             """
         logger.info("submit sql: ${sql_str}");
         sql """${sql_str}"""

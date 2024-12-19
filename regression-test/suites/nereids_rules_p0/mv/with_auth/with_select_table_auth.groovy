@@ -112,6 +112,9 @@ suite("with_select_table_auth","p0,auth") {
     sql """analyze table lineitem with sync"""
     sql """analyze table orders with sync"""
 
+    sql """alter table orders modify column o_comment set stats ('row_count'='18');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+
     sql """grant select_priv on ${db}.orders to ${user_name}"""
     sql """grant select_priv on ${db}.lineitem to ${user_name}"""
     sql """grant select_priv on regression_test to ${user_name}"""
@@ -132,7 +135,7 @@ suite("with_select_table_auth","p0,auth") {
             l_suppkey;
     """)
 
-    connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user_name, "${pwd}", context.config.jdbcUrl) {
         sql "use ${db}"
         mv_rewrite_success(
             """
@@ -153,7 +156,7 @@ suite("with_select_table_auth","p0,auth") {
         )
     }
 
-    connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user_name, "${pwd}", context.config.jdbcUrl) {
         sql "use ${db}"
         test {
             sql """select * from mv1;"""

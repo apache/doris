@@ -21,9 +21,8 @@
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
-#include <stdint.h>
 
-#include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <iosfwd>
 #include <memory>
@@ -133,7 +132,7 @@ public:
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
     int32_t running_query_num() {
-        std::unique_lock<std::mutex> ctx_lock(_lock);
+        std::shared_lock lock(_query_ctx_map_mutex);
         return _query_ctx_map.size();
     }
 
@@ -145,7 +144,7 @@ public:
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
 
-    std::shared_ptr<QueryContext> get_or_erase_query_ctx_with_lock(const TUniqueId& query_id);
+    std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
 private:
     struct BrpcItem {
@@ -153,14 +152,12 @@ private:
         std::vector<std::weak_ptr<QueryContext>> queries;
     };
 
-    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(const TUniqueId& query_id);
-
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
-    template <typename Params>
-    Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                          QuerySource query_type, std::shared_ptr<QueryContext>& query_ctx);
+    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
+                                    bool pipeline, QuerySource query_type,
+                                    std::shared_ptr<QueryContext>& query_ctx);
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);
@@ -168,20 +165,21 @@ private:
     // This is input params
     ExecEnv* _exec_env = nullptr;
 
+    // The lock protect the `_pipeline_map`
+    std::shared_mutex _pipeline_map_mutex;
+    // (QueryID, FragmentID) -> PipelineFragmentContext
+    phmap::flat_hash_map<std::pair<TUniqueId, int>,
+                         std::shared_ptr<pipeline::PipelineFragmentContext>>
+            _pipeline_map;
+
     // The lock should only be used to protect the structures in fragment manager. Has to be
     // used in a very small scope because it may dead lock. For example, if the _lock is used
     // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
     // when allocate failed, allocator may call query_is_cancelled, query is callced will also
     // call _lock, so that there is dead lock.
-    std::mutex _lock;
-
-    // (QueryID, FragmentID) -> PipelineFragmentContext
-    std::unordered_map<std::pair<TUniqueId, int>,
-                       std::shared_ptr<pipeline::PipelineFragmentContext>>
-            _pipeline_map;
-
+    std::shared_mutex _query_ctx_map_mutex;
     // query id -> QueryContext
-    std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
+    phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;

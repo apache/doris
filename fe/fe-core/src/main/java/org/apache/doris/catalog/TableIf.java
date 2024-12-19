@@ -174,6 +174,8 @@ public interface TableIf {
 
     long getAvgRowLength();
 
+    long getIndexLength();
+
     long getLastCheckTime();
 
     String getComment(boolean escapeQuota);

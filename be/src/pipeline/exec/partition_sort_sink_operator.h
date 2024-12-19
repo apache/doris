@@ -24,6 +24,7 @@
 #include "vec/common/sort/partition_sorter.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class PartitionSortSinkOperatorX;
 class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortNodeSharedState> {
@@ -110,4 +111,5 @@ private:
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

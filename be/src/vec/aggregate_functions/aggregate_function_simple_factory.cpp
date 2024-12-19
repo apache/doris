@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
@@ -73,6 +74,7 @@ void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& fact
 void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -126,6 +128,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_skewness(instance);
         register_aggregate_function_kurtosis(instance);
         register_aggregate_function_approx_top_k(instance);
+        register_aggregate_function_approx_top_sum(instance);
     });
     return instance;
 }

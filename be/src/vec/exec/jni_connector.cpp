@@ -63,7 +63,9 @@ namespace doris::vectorized {
     M(TypeIndex::Date, ColumnVector<Int64>, Int64)                  \
     M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)              \
     M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)              \
-    M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
+    M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)          \
+    M(TypeIndex::IPv4, ColumnVector<IPv4>, IPv4)                    \
+    M(TypeIndex::IPv6, ColumnVector<IPv6>, IPv6)
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
@@ -450,6 +452,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         return "float";
     case TYPE_DOUBLE:
         return "double";
+    case TYPE_IPV4:
+        return "ipv4";
+    case TYPE_IPV6:
+        return "ipv6";
     case TYPE_VARCHAR:
         [[fallthrough]];
     case TYPE_CHAR:
@@ -534,6 +540,10 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
         return "float";
     case TYPE_DOUBLE:
         return "double";
+    case TYPE_IPV4:
+        return "ipv4";
+    case TYPE_IPV6:
+        return "ipv6";
     case TYPE_VARCHAR: {
         buffer << "varchar(" << desc.len << ")";
         return buffer.str();
@@ -599,68 +609,79 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     }
 }
 
-Status JniConnector::_fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
+Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                        std::vector<long>& meta_data) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    const IColumn* column = nullptr;
+    // insert const flag
+    if (is_column_const(*doris_column)) {
+        meta_data.emplace_back((long)1);
+        const auto& const_column = assert_cast<const ColumnConst&>(*doris_column);
+        column = &(const_column.get_data_column());
+    } else {
+        meta_data.emplace_back((long)0);
+        column = &(*doris_column);
+    }
+
     // insert null map address
-    MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(doris_column->assume_mutable().get());
-        data_column = nullable_column->get_nested_column_ptr();
-        NullMap& null_map = nullable_column->get_null_map_data();
+    const IColumn* data_column = nullptr;
+    if (column->is_nullable()) {
+        const auto& nullable_column = assert_cast<const vectorized::ColumnNullable&>(*column);
+        data_column = &(nullable_column.get_nested_column());
+        const auto& null_map = nullable_column.get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
     } else {
         meta_data.emplace_back(0);
-        data_column = doris_column->assume_mutable();
+        data_column = column;
     }
     switch (logical_type) {
-#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                         \
-    case TYPE_INDEX: {                                                                      \
-        meta_data.emplace_back(_get_fixed_length_column_address<COLUMN_TYPE>(data_column)); \
-        break;                                                                              \
+#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                          \
+    case TYPE_INDEX: {                                                                       \
+        meta_data.emplace_back(_get_fixed_length_column_address<COLUMN_TYPE>(*data_column)); \
+        break;                                                                               \
     }
         FOR_FIXED_LENGTH_TYPES(DISPATCH)
 #undef DISPATCH
     case TypeIndex::String:
         [[fallthrough]];
     case TypeIndex::FixedString: {
-        auto& string_column = static_cast<ColumnString&>(*data_column);
+        const auto& string_column = assert_cast<const ColumnString&>(*data_column);
         // inert offsets
         meta_data.emplace_back((long)string_column.get_offsets().data());
         meta_data.emplace_back((long)string_column.get_chars().data());
         break;
     }
     case TypeIndex::Array: {
-        ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
-        meta_data.emplace_back((long)static_cast<ColumnArray&>(*data_column).get_offsets().data());
-        DataTypePtr& element_type = const_cast<DataTypePtr&>(
-                (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
+        const auto& element_column = assert_cast<const ColumnArray&>(*data_column).get_data_ptr();
+        meta_data.emplace_back(
+                (long)assert_cast<const ColumnArray&>(*data_column).get_offsets().data());
+        const auto& element_type = assert_cast<const DataTypePtr&>(
+                (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
                         ->get_nested_type());
         RETURN_IF_ERROR(_fill_column_meta(element_column, element_type, meta_data));
         break;
     }
     case TypeIndex::Struct: {
-        auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
-        const DataTypeStruct* doris_struct_type =
-                reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        const auto& doris_struct = assert_cast<const ColumnStruct&>(*data_column);
+        const auto* doris_struct_type =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
-            ColumnPtr& struct_field = doris_struct.get_column_ptr(i);
-            DataTypePtr& field_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
+            const auto& struct_field = doris_struct.get_column_ptr(i);
+            const auto& field_type =
+                    assert_cast<const DataTypePtr&>(doris_struct_type->get_element(i));
             RETURN_IF_ERROR(_fill_column_meta(struct_field, field_type, meta_data));
         }
         break;
     }
     case TypeIndex::Map: {
-        auto& map = static_cast<ColumnMap&>(*data_column);
-        DataTypePtr& key_type = const_cast<DataTypePtr&>(
-                reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                        ->get_key_type());
-        DataTypePtr& value_type = const_cast<DataTypePtr&>(
-                reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
+        const auto& map = assert_cast<const ColumnMap&>(*data_column);
+        const auto& key_type = assert_cast<const DataTypePtr&>(
+                assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
+        const auto& value_type = assert_cast<const DataTypePtr&>(
+                assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())
                         ->get_value_type());
-        ColumnPtr& key_column = map.get_keys_ptr();
-        ColumnPtr& value_column = map.get_values_ptr();
+        const auto& key_column = map.get_keys_ptr();
+        const auto& value_column = map.get_values_ptr();
         meta_data.emplace_back((long)map.get_offsets().data());
         RETURN_IF_ERROR(_fill_column_meta(key_column, key_type, meta_data));
         RETURN_IF_ERROR(_fill_column_meta(value_column, value_type, meta_data));
@@ -686,11 +707,6 @@ Status JniConnector::to_java_table(Block* block, size_t num_rows, const ColumnNu
     // insert number of rows
     meta_data.emplace_back(num_rows);
     for (size_t i : arguments) {
-        if (is_column_const(*(block->get_by_position(i).column))) {
-            auto doris_column = block->get_by_position(i).column->convert_to_full_column_if_const();
-            bool is_nullable = block->get_by_position(i).type->is_nullable();
-            block->replace_by_position(i, is_nullable ? make_nullable(doris_column) : doris_column);
-        }
         auto& column_with_type_and_name = block->get_by_position(i);
         RETURN_IF_ERROR(_fill_column_meta(column_with_type_and_name.column,
                                           column_with_type_and_name.type, meta_data));

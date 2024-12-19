@@ -23,6 +23,7 @@
 #include "pipeline/exec/join_build_sink_operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -59,7 +60,7 @@ class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
     NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, bool need_local_merge);
+                                     const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
                 "{} should not init with TDataSink",
@@ -85,9 +86,9 @@ private:
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    bool _need_local_merge;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

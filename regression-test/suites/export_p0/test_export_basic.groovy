@@ -414,11 +414,11 @@ suite("test_export_basic", "p0") {
     }
 
     // 5. test order by and limit clause
-    uuid1 = UUID.randomUUID().toString()
+    def uuid1 = UUID.randomUUID().toString()
     outFilePath = """${outfile_path_prefix}_${uuid1}"""
-    label1 = "label_${uuid1}"
-    uuid2 = UUID.randomUUID().toString()
-    label2 = "label_${uuid2}"
+    def label1 = "label_${uuid1}"
+    def uuid2 = UUID.randomUUID().toString()
+    def label2 = "label_${uuid2}"
     try {
         // check export path
         check_path_exists.call("${outFilePath}")

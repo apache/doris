@@ -35,8 +35,9 @@ public class DorisOptions {
     private long bufferFlushMaxBytes;
     private Properties streamLoadProp;
     private int maxRetries;
+    private boolean deletable;
 
-    public DorisOptions(String fenodes, String username, String password, String database, String table, long bufferFlushMaxRows, long bufferFlushMaxBytes, Properties streamLoadProp, int maxRetries) {
+    public DorisOptions(String fenodes, String username, String password, String database, String table, long bufferFlushMaxRows, long bufferFlushMaxBytes, Properties streamLoadProp, int maxRetries, boolean deletable) {
         this.fenodes = fenodes;
         this.username = username;
         this.password = password;
@@ -46,6 +47,7 @@ public class DorisOptions {
         this.bufferFlushMaxBytes = bufferFlushMaxBytes;
         this.streamLoadProp = streamLoadProp;
         this.maxRetries = maxRetries;
+        this.deletable = deletable;
     }
 
     public String getFenodes() {
@@ -84,6 +86,26 @@ public class DorisOptions {
         return maxRetries;
     }
 
+    public boolean isDeletable() {
+        return deletable;
+    }
+
+    @Override
+    public String toString() {
+        return "DorisOptions{" +
+            "fenodes='" + fenodes + '\'' +
+            ", username='" + username + '\'' +
+            ", password='" + password + '\'' +
+            ", database='" + database + '\'' +
+            ", table='" + table + '\'' +
+            ", bufferFlushMaxRows=" + bufferFlushMaxRows +
+            ", bufferFlushMaxBytes=" + bufferFlushMaxBytes +
+            ", streamLoadProp=" + streamLoadProp +
+            ", maxRetries=" + maxRetries +
+            ", deletable=" + deletable +
+            '}';
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -98,6 +120,7 @@ public class DorisOptions {
         private long bufferFlushMaxBytes = DEFAULT_BUFFER_FLUSH_MAX_BYTES;
         private int maxRetries = DEFAULT_MAX_RETRIES;
         private Properties streamLoadProp = new Properties();
+        private boolean deletable = false;
 
         public Builder withFenodes(String fenodes) {
             this.fenodes = fenodes;
@@ -144,6 +167,11 @@ public class DorisOptions {
             return this;
         }
 
+        public Builder withDeletable(boolean deletable) {
+            this.deletable = deletable;
+            return this;
+        }
+
         public DorisOptions build() {
             Preconditions.checkArgument(fenodes != null, "Fenodes must not be null");
             Preconditions.checkArgument(username != null, "Username must not be null");
@@ -153,7 +181,7 @@ public class DorisOptions {
             Preconditions.checkArgument(bufferFlushMaxRows >= 10000, "BufferFlushMaxRows must be greater than 10000");
             Preconditions.checkArgument(bufferFlushMaxBytes >= 10 * 1024 * 1024, "BufferFlushMaxBytes must be greater than 10MB");
             Preconditions.checkArgument(maxRetries >= 0, "MaxRetries must be greater than 0");
-            return new DorisOptions(fenodes, username, password, database, table, bufferFlushMaxRows, bufferFlushMaxBytes, streamLoadProp, maxRetries);
+            return new DorisOptions(fenodes, username, password, database, table, bufferFlushMaxRows, bufferFlushMaxBytes, streamLoadProp, maxRetries, deletable);
         }
     }
 }

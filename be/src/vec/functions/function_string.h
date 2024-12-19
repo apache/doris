@@ -702,6 +702,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2, 3}; }
+
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1235,7 +1237,8 @@ public:
                         null_map = ColumnUInt8::create(input_rows_count, is_null);
                         res->insert_many_defaults(input_rows_count);
                     } else {
-                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                        res->insert_data_repeatedly(target_data.data, target_data.size,
+                                                    input_rows_count);
                     }
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
@@ -1387,7 +1390,7 @@ public:
                         fmt::format("unsupported nested array of type {} for function {}",
                                     is_column_nullable(array_column.get_data())
                                             ? array_column.get_data().get_name()
-                                            : array_column.get_data().get_family_name(),
+                                            : array_column.get_data().get_name(),
                                     get_name()));
             }
             // Concat string in array
@@ -1524,6 +1527,9 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    // should set NULL value of nested data to default,
+    // as iff it's not inited and invalid, the repeat result of length is so large cause overflow
+    bool need_replace_null_data_to_default() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());

@@ -56,15 +56,13 @@ github:
           - cloud_p0 (Doris Cloud Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - Build Broker
-          - ShellCheck          
+          - Build Broker      
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - Build Third Party Libraries (macOS-arm64)
           - COMPILE (DORIS_COMPILE)
           - Need_2_Approval
           - Cloud UT (Doris Cloud UT)
-          - performance (Doris Performance)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -80,7 +78,6 @@ github:
           - Clang Formatter
           - CheckStyle
           - Build Broker
-          - ShellCheck
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - FE UT (Doris FE UT)
@@ -103,7 +100,6 @@ github:
           - Clang Formatter
           - CheckStyle
           - Build Broker
-          - ShellCheck
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -128,7 +124,6 @@ github:
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
-          - ShellCheck
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)

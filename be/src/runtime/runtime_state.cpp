@@ -40,6 +40,7 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -120,38 +121,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
     }
 #endif
     DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-}
-
-RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
-                           const TUniqueId& query_id, int32_t fragment_id,
-                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env, QueryContext* ctx)
-        : _profile("Fragment " + print_id(instance_id)),
-          _load_channel_profile("<unnamed>"),
-          _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(nullptr),
-          _unreported_error_idx(0),
-          _query_id(query_id),
-          _fragment_id(fragment_id),
-          _per_fragment_instance_idx(0),
-          _num_rows_load_total(0),
-          _num_rows_load_filtered(0),
-          _num_rows_load_unselected(0),
-          _num_rows_filtered_in_strict_mode_partial_update(0),
-          _num_print_error_rows(0),
-          _num_bytes_load_total(0),
-          _num_finished_scan_range(0),
-          _error_row_number(0),
-          _query_ctx(ctx) {
-    [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
-    _query_mem_tracker = ctx->query_mem_tracker;
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    DCHECK(status.ok());
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
@@ -294,6 +263,10 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
+std::weak_ptr<QueryContext> RuntimeState::get_query_ctx_weak() {
+    return _exec_env->fragment_mgr()->get_query_ctx(_query_ctx->query_id());
+}
+
 void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& id) {
     _query_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER, fmt::format("{}#Id={}", name, print_id(id)));
@@ -352,7 +325,7 @@ Status RuntimeState::create_error_log_file() {
             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
             // shorten the path as much as possible to prevent the length of the presigned URL from
             // exceeding the MySQL error packet size limit
-            ss << "error_log/" << _import_label << "_" << std::hex << _fragment_instance_id.hi;
+            ss << "error_log/" << std::hex << _query_id.hi;
             _s3_error_log_file_path = ss.str();
         }
     }
@@ -368,7 +341,9 @@ Status RuntimeState::create_error_log_file() {
         LOG(WARNING) << error_msg.str();
         return Status::InternalError(error_msg.str());
     }
-    VLOG_FILE << "create error log file: " << _error_log_file_path;
+    LOG(INFO) << "create error log file: " << _error_log_file_path
+              << ", query id: " << print_id(_query_id)
+              << ", fragment instance id: " << print_id(_fragment_instance_id);
 
     return Status::OK();
 }
@@ -512,15 +487,14 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, bool need_local_merge,
-        std::shared_ptr<IRuntimeFilter>* producer_filter, bool build_bf_exactly) {
-    if (desc.has_remote_targets || need_local_merge) {
-        return global_runtime_filter_mgr()->register_local_merge_producer_filter(
-                desc, query_options(), producer_filter, build_bf_exactly);
-    } else {
-        return local_runtime_filter_mgr()->register_producer_filter(
-                desc, query_options(), producer_filter, build_bf_exactly);
-    }
+        const TRuntimeFilterDesc& desc, std::shared_ptr<IRuntimeFilter>* producer_filter) {
+    // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
+    // When RF is published, consumers in both global and local RF mgr will be found.
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, query_options(),
+                                                                         producer_filter));
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
+            desc, query_options(), *producer_filter));
+    return Status::OK();
 }
 
 Status RuntimeState::register_consumer_runtime_filter(
@@ -528,10 +502,10 @@ Status RuntimeState::register_consumer_runtime_filter(
         std::shared_ptr<IRuntimeFilter>* consumer_filter) {
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                     consumer_filter, false, true);
+                                                                     consumer_filter, true);
     } else {
         return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                    consumer_filter, false, false);
+                                                                    consumer_filter, false);
     }
 }
 

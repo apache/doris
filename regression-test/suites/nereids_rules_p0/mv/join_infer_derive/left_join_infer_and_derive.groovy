@@ -106,6 +106,8 @@ suite("left_join_infer_and_derive") {
     sql """analyze table orders_left with sync;"""
     sql """analyze table lineitem_left with sync;"""
 
+    sql """alter table orders_left modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_left modify column l_comment set stats ('row_count'='7');"""
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"

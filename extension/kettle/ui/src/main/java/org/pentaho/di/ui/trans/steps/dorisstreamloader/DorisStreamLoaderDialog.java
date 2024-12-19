@@ -72,13 +72,12 @@ import java.util.Set;
  * Dialog class for the Doris stream loader step.
  */
 @PluginDialog(id = "DorisStreamLoaderStep", image = "doris.svg", pluginType = PluginDialog.PluginType.STEP,
-        documentationUrl = "https://doris.apache.org/docs/dev/data-operate/import/import-way/stream-load-manual/")
+        documentationUrl = "https://doris.apache.org/docs/dev/ecosystem/kettle/")
 @InjectionSupported(localizationPrefix = "DorisKettleConnector.Injection.", groups = {"FIELDS"})
 public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialogInterface {
     private static Class<?> PKG = DorisStreamLoaderDialog.class; // for i18n purposes, needed by Translator2!!
 
     private DorisStreamLoaderMeta input;
-
 
     private Label wlFenodes;
     private TextVar wFenodes;
@@ -116,6 +115,10 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
     private Label wlMaxRetries;
     private TextVar wMaxRetries;
     private FormData fdlMaxRetries, fdMaxRetries;
+
+    private Label wlDeletable;
+    private Button wDeletable;
+    private FormData fdlDeletable, fdDeletable;
 
     private Label wlReturn;
     private TableView wReturn;
@@ -347,7 +350,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         wMaxRetries = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
         props.setLook(wMaxRetries);
         wMaxRetries.addModifyListener(lsMod);
-        wPassword.addFocusListener(lsFocusLost);
+        wMaxRetries.addFocusListener(lsFocusLost);
         fdMaxRetries = new FormData();
         fdMaxRetries.left = new FormAttachment(middle, 0);
         fdMaxRetries.right = new FormAttachment(100, 0);
@@ -374,6 +377,31 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         fdStreamLoadProp.top = new FormAttachment(wMaxRetries, margin * 2);
         wStreamLoadProp.setLayoutData(fdStreamLoadProp);
 
+        //deletable line ...
+        wlDeletable = new Label(shell, SWT.RIGHT);
+        wlDeletable.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Deletable.Label"));
+        props.setLook(wlDeletable);
+        fdlDeletable = new FormData();
+        fdlDeletable.left = new FormAttachment(0, 0);
+        fdlDeletable.right = new FormAttachment(middle, -margin);
+        fdlDeletable.top = new FormAttachment(wStreamLoadProp, margin * 2);
+        wlDeletable.setLayoutData(fdlDeletable);
+
+        wDeletable = new Button(shell, SWT.CHECK | SWT.LEFT);
+        props.setLook(wDeletable);
+        wDeletable.setSelection(false);
+        fdDeletable = new FormData();
+        fdDeletable.left = new FormAttachment(middle, 0);
+        fdDeletable.right = new FormAttachment(100, 0);
+        fdDeletable.top = new FormAttachment(wStreamLoadProp, margin * 2);
+        wDeletable.setLayoutData(fdDeletable);
+        wDeletable.addSelectionListener(new SelectionAdapter() {
+            @Override
+            public void widgetSelected(SelectionEvent selectionEvent) {
+                input.setChanged();
+            }
+        });
+
         // OK and cancel buttons
         wOK = new Button( shell, SWT.PUSH );
         wOK.setText( BaseMessages.getString( PKG, "System.Button.OK" ) );
@@ -387,7 +415,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         props.setLook(wlReturn);
         fdlReturn = new FormData();
         fdlReturn.left = new FormAttachment(0, 0);
-        fdlReturn.top = new FormAttachment(wStreamLoadProp, margin);
+        fdlReturn.top = new FormAttachment(wDeletable, margin);
         wlReturn.setLayoutData(fdlReturn);
 
         int UpInsCols = 2;
@@ -537,6 +565,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         wBufferFlushMaxRows.setText(Const.NVL(String.valueOf(input.getBufferFlushMaxRows()),"50000"));
         wBufferFlushMaxBytes.setText(Const.NVL(String.valueOf(input.getBufferFlushMaxBytes()),"104857600"));
         wMaxRetries.setText(Const.NVL(String.valueOf(input.getMaxRetries()),"3"));
+        wDeletable.setSelection(input.isDeletable());
 
         if (input.getFieldTable() != null) {
             for (int i = 0; i < input.getFieldTable().length; i++) {
@@ -706,6 +735,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         inf.setBufferFlushMaxBytes(Long.valueOf(wBufferFlushMaxBytes.getText()));
         inf.setMaxRetries(Integer.valueOf(wMaxRetries.getText()));
         inf.setStreamLoadProp(wStreamLoadProp.getText());
+        inf.setDeletable(wDeletable.getSelection());
 
         stepname = wStepname.getText();
 
@@ -713,7 +743,6 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
     protected void setComboBoxes() {
         // Something was changed in the row.
-        //
         final Map<String, Integer> fields = new HashMap<String, Integer>();
 
         // Add the currentMeta fields...

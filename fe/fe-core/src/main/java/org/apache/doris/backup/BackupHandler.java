@@ -52,6 +52,7 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -121,7 +122,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public BackupHandler(Env env) {
-        super("backupHandler", 3000L);
+        super("backupHandler", Config.backup_handler_update_interval_millis);
         this.env = env;
     }
 
@@ -280,9 +281,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // handle drop repository stmt
     public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
+        dropRepository(stmt.getRepoName());
+    }
+
+    // handle drop repository stmt
+    public void dropRepository(String repoName) throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getRepoName());
+            Repository repo = repoMgr.getRepo(repoName);
             if (repo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }
@@ -370,20 +376,32 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     + " is read only");
         }
 
-        // Determine the tables to be backed up
+        long commitSeq = 0;
         Set<String> tableNames = Sets.newHashSet();
         AbstractBackupTableRefClause abstractBackupTableRefClause = stmt.getAbstractBackupTableRefClause();
-        if (abstractBackupTableRefClause == null) {
-            tableNames = db.getTableNamesWithLock();
-        } else if (abstractBackupTableRefClause.isExclude()) {
-            tableNames = db.getTableNamesWithLock();
-            for (TableRef tableRef : abstractBackupTableRefClause.getTableRefList()) {
-                if (!tableNames.remove(tableRef.getName().getTbl())) {
-                    LOG.info("exclude table " + tableRef.getName().getTbl()
-                            + " of backup stmt is not exists in db " + db.getFullName());
+
+        // Obtain the snapshot commit seq, any creating table binlog will be visible.
+        db.readLock();
+        try {
+            BarrierLog log = new BarrierLog(db.getId(), db.getFullName());
+            commitSeq = env.getEditLog().logBarrier(log);
+
+            // Determine the tables to be backed up
+            if (abstractBackupTableRefClause == null) {
+                tableNames = db.getTableNames();
+            } else if (abstractBackupTableRefClause.isExclude()) {
+                tableNames = db.getTableNames();
+                for (TableRef tableRef : abstractBackupTableRefClause.getTableRefList()) {
+                    if (!tableNames.remove(tableRef.getName().getTbl())) {
+                        LOG.info("exclude table " + tableRef.getName().getTbl()
+                                + " of backup stmt is not exists in db " + db.getFullName());
+                    }
                 }
             }
+        } finally {
+            db.readUnlock();
         }
+
         List<TableRef> tblRefs = Lists.newArrayList();
         if (abstractBackupTableRefClause != null && !abstractBackupTableRefClause.isExclude()) {
             tblRefs = abstractBackupTableRefClause.getTableRefList();
@@ -401,6 +419,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
+
+            // filter the table types which are not supported by local backup.
+            if (repository == null && tbl.getType() != TableType.OLAP
+                    && tbl.getType() != TableType.VIEW && tbl.getType() != TableType.MATERIALIZED_VIEW) {
+                tblRefsNotSupport.add(tblRef);
+                continue;
+            }
+
             if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC
                     || tbl.getType() == TableType.MATERIALIZED_VIEW) {
                 continue;
@@ -420,14 +446,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
             OlapTable olapTbl = (OlapTable) tbl;
             tbl.readLock();
             try {
-                if (olapTbl.existTempPartitions()) {
+                if (!Config.ignore_backup_tmp_partitions && olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                             "Do not support backup table " + olapTbl.getName() + " with temp partitions");
                 }
 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
-                    if (partitionNames.isTemp()) {
+                    if (!Config.ignore_backup_tmp_partitions && partitionNames.isTemp()) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                 "Do not support backup temp partitions in table " + tblRef.getName());
                     }
@@ -448,7 +474,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         tblRefs.removeAll(tblRefsNotSupport);
 
         // Check if label already be used
-        long repoId = -1;
+        long repoId = Repository.KEEP_ON_LOCAL_REPO_ID;
         if (repository != null) {
             List<String> existSnapshotNames = Lists.newArrayList();
             Status st = repository.listSnapshots(existSnapshotNames);
@@ -470,7 +496,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a backup job
         BackupJob backupJob = new BackupJob(stmt.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repoId);
+                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repoId, commitSeq);
         // write log
         env.getEditLog().logBackupJob(backupJob);
 

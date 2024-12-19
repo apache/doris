@@ -167,7 +167,9 @@ protected:
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 
-    int64_t _remaining_push_down_count;
+    // the table level row count for optimizing query like:
+    // select count(*) from table;
+    int64_t _remaining_table_level_row_count;
     Fileformat _file_format = Fileformat::NONE;
 
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
@@ -218,7 +220,7 @@ public:
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
 
-    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    Status _gen_col_name_maps(const FieldDescriptor& field_desc);
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(

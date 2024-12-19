@@ -467,6 +467,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
@@ -737,6 +738,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildStoreRowColumn();
         buildRowStoreColumns();
         buildRowStorePageSize();
+        buildStoragePageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();

@@ -52,7 +52,7 @@ suite("test_show_tablet_auth","p0,auth_call") {
         """
 
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW TABLETS FROM ${dbName}.${tableName}"""
             exception "denied"
@@ -73,11 +73,14 @@ suite("test_show_tablet_auth","p0,auth_call") {
     sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
 
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW TABLETS FROM ${dbName}.${tableName}"""
 
         def tablet_res = sql """SHOW TABLET ${res[0][0]}"""
         assertTrue(tablet_res.size() == 1)
+        
+        checkNereidsExecute("SHOW TABLETS BELONG ${res[0][0]}")
+        checkNereidsExecute("SHOW TABLETS BELONG 100,101")
 
         tablet_res = sql """SHOW TABLETS BELONG ${res[0][0]}"""
         assertTrue(tablet_res.size() == 1)

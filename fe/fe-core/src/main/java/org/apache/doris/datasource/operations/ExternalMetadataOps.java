@@ -91,6 +91,10 @@ public interface ExternalMetadataOps {
 
     boolean databaseExist(String dbName);
 
+    default Object loadTable(String dbName, String tblName) {
+        throw new UnsupportedOperationException("Load table is not supported.");
+    }
+
     /**
      * close the connection, eg, to hms
      */

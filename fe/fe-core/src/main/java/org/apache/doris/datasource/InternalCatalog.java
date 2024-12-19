@@ -103,6 +103,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.RecyclePartitionParam;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -441,8 +442,17 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
                 }
             } else {
-                unprotectCreateDb(db);
-                Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
+                    LOG.warn("try lock failed, create database failed {}", fullDbName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT,
+                            "create database " + fullDbName + " time out");
+                }
+                try {
+                    unprotectCreateDb(db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                } finally {
+                    db.writeUnlock();
+                }
             }
         } finally {
             unlock();
@@ -601,20 +611,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
+    public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
         // check is new db with same name already exist
-        String newDbName = recoverStmt.getNewDbName();
         if (!Strings.isNullOrEmpty(newDbName)) {
             if (getDb(newDbName).isPresent()) {
                 throw new DdlException("Database[" + newDbName + "] already exist.");
             }
         } else {
-            if (getDb(recoverStmt.getDbName()).isPresent()) {
-                throw new DdlException("Database[" + recoverStmt.getDbName() + "] already exist.");
+            if (getDb(dbName).isPresent()) {
+                throw new DdlException("Database[" + dbName + "] already exist.");
             }
         }
 
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId());
+        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
 
         // add db to catalog
         if (!tryLock(false)) {
@@ -648,7 +657,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
             // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "");
+            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
         } finally {
@@ -656,15 +665,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeUnlock();
             unlock();
         }
-
         LOG.info("recover database[{}]", db.getId());
     }
 
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        String dbName = recoverStmt.getDbName();
-        String tableName = recoverStmt.getTableName();
-        String newTableName = recoverStmt.getNewTableName();
+    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
+        recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId(), recoverStmt.getNewDbName());
+    }
 
+    public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
@@ -677,7 +685,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, newTableName);
                 }
             }
-            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, recoverStmt.getTableId(), newTableName)) {
+            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, tableId, newTableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
@@ -685,16 +693,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        String dbName = recoverStmt.getDbName();
-        String tableName = recoverStmt.getTableName();
+    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
+        recoverTable(recoverStmt.getDbName(), recoverStmt.getTableName(),
+                        recoverStmt.getNewTableName(), recoverStmt.getTableId());
+    }
 
+    public void recoverPartition(String dbName, String tableName, String partitionName,
+                                    String newPartitionName, long partitionId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
         try {
-            String partitionName = recoverStmt.getPartitionName();
-            String newPartitionName = recoverStmt.getNewPartitionName();
             if (Strings.isNullOrEmpty(newPartitionName)) {
                 if (olapTable.getPartition(partitionName) != null) {
                     throw new DdlException("partition[" + partitionName + "] "
@@ -708,10 +717,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName,
-                    recoverStmt.getPartitionId(), newPartitionName);
+                                                            partitionId, newPartitionName);
         } finally {
             olapTable.writeUnlock();
         }
+    }
+
+    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
+        recoverPartition(recoverStmt.getDbName(), recoverStmt.getTableName(),
+                        recoverStmt.getPartitionName(), recoverStmt.getNewPartitionName(),
+                        recoverStmt.getPartitionId());
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
@@ -1001,7 +1016,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
-        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, isView, forceDrop, recycleTime);
+        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
     }
@@ -1022,10 +1037,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime) {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
-        } else if (table.isManagedTable()) {
-            // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
-            // which make things easier.
-            ((OlapTable) table).dropAllTempPartitions();
         }
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
@@ -1405,7 +1416,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // we change it to tinyint nullable.
                     typeDef = TypeDef.create(PrimitiveType.TINYINT);
                 } else {
-                    typeDef = new TypeDef(resultExpr.getType());
+                    typeDef = new TypeDef(resultType);
                 }
                 if (i == 0) {
                     // If this is the first column, because olap table does not support the first column to be
@@ -2140,10 +2151,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             TStorageType storageType = indexMeta.getStorageType();
             List<Column> schema = indexMeta.getSchema();
-            List<Integer> clusterKeyIndexes = null;
+            List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
-                // only base and shadow index need cluster key indexes
-                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(schema);
+                // only base and shadow index need cluster key unique column ids
+                clusterKeyUids = OlapTable.getClusterKeyUids(schema);
             }
             KeysType keysType = indexMeta.getKeysType();
             List<Index> indexes = indexId == tbl.getBaseIndexId() ? tbl.getCopiedIndexes() : null;
@@ -2177,10 +2188,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
-                    if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                        task.setClusterKeyIndexes(clusterKeyIndexes);
-                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
-                                tbl.getId(), partitionId, indexId, tabletId, clusterKeyIndexes);
+                    if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                        task.setClusterKeyUids(clusterKeyUids);
+                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",
+                                tbl.getId(), partitionId, indexId, tabletId, clusterKeyUids);
                     }
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -2933,6 +2944,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
                 }
+                if (isAutoBucket) {
+                    throw new AnalysisException("Auto buckets for colocate table is unsupported");
+                }
                 String fullGroupName = GroupId.getFullGroupName(db.getId(), colocateGroup);
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
                 if (groupSchema != null) {
@@ -3242,7 +3256,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 dropTable(db, tableId, true, false, 0L);
                 if (hadLogEditCreateTable) {
-                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, false, true, 0L);
+                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), false, true, 0L);
                     Env.getCurrentEnv().getEditLog().logDropTable(info);
                 }
             } catch (Exception ex) {
@@ -3528,7 +3542,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
         TableRef tblRef = truncateTableStmt.getTblRef();
         TableName dbTbl = tblRef.getName();
-
+        boolean isForceDrop = truncateTableStmt.isForceDrop();
         // check, and save some info which need to be checked again later
         Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
@@ -3557,7 +3571,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
-                    if (!partition.hasData()) {
+                    if ((isForceDrop) && (!partition.hasData())) {
+                        // if not force drop, then need to add partition to
+                        // recycle bin, so behavior for recover would be clear
                         continue;
                     }
                     origPartitions.put(partName, partition.getId());
@@ -3568,7 +3584,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Partition partition : olapTable.getPartitions()) {
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
-                    if (!partition.hasData()) {
+                    if ((isForceDrop) && (!partition.hasData())) {
+                        // if not force drop, then need to add partition to
+                        // recycle bin, so behavior for recover would be clear
                         continue;
                     }
                     origPartitions.put(partition.getName(), partition.getId());
@@ -3715,13 +3733,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
             }
 
-            // replace
-            oldPartitions = truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
+            //replace
+            Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
+            oldPartitions = truncateTableInternal(olapTable, newPartitions,
+                                    truncateEntireTable, recyclePartitionParamMap, isForceDrop);
 
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                            newPartitions, truncateEntireTable, truncateTableStmt.toSqlWithoutTable(), oldPartitions);
+                            newPartitions, truncateEntireTable,
+                            truncateTableStmt.toSqlWithoutTable(), oldPartitions, isForceDrop);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3732,8 +3753,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        erasePartitionDropBackendReplicas(oldPartitions);
-
         PartitionNames partitionNames = truncateEntireTable ? null
                 : new PartitionNames(false, tblRef.getPartitionNames().getPartitionNames());
         Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
@@ -3742,47 +3761,49 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,
-            boolean isEntireTable) {
+            boolean isEntireTable, Map<Long, RecyclePartitionParam> recyclePartitionParamMap, boolean isforceDrop) {
         // use new partitions to replace the old ones.
         List<Partition> oldPartitions = Lists.newArrayList();
-        Set<Long> oldTabletIds = Sets.newHashSet();
         for (Partition newPartition : newPartitions) {
-            Partition oldPartition = olapTable.replacePartition(newPartition);
+            RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
+            Partition oldPartition = olapTable.replacePartition(newPartition, recyclePartitionParam);
             oldPartitions.add(oldPartition);
-            // save old tablets to be removed
-            for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
-                index.getTablets().forEach(t -> {
-                    oldTabletIds.add(t.getId());
-                });
-            }
+            recyclePartitionParamMap.put(oldPartition.getId(), recyclePartitionParam);
         }
 
         if (isEntireTable) {
             Set<Long> oldPartitionsIds = oldPartitions.stream().map(Partition::getId).collect(Collectors.toSet());
             for (Partition partition : olapTable.getAllTempPartitions()) {
                 if (!oldPartitionsIds.contains(partition.getId())) {
+                    RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
+                    olapTable.fillInfo(partition, recyclePartitionParam);
                     oldPartitions.add(partition);
+                    recyclePartitionParamMap.put(partition.getId(), recyclePartitionParam);
+                    // clear temp partition from memory.
+                    // tablet may be moved to recycle bin or deleted inside
+                    // dropPartitionForTruncate function.
+                    olapTable.dropTempPartition(partition.getName(), false);
                 }
             }
-            // drop all temp partitions
-            olapTable.dropAllTempPartitions();
         }
 
-        // remove the tablets in old partitions
-        for (Long tabletId : oldTabletIds) {
-            Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+        for (Map.Entry<Long, RecyclePartitionParam> pair : recyclePartitionParamMap.entrySet()) {
+            olapTable.dropPartitionForTruncate(olapTable.getDatabase().getId(), isforceDrop, pair.getValue());
         }
 
         return oldPartitions;
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
+        boolean isForceDrop = info.getForce();
         List<Partition> oldPartitions = Lists.newArrayList();
         Database db = (Database) getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTblId(), TableType.OLAP);
         olapTable.writeLock();
         try {
-            truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable());
+            Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
+            truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
+                                    recyclePartitionParamMap, isForceDrop);
 
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();

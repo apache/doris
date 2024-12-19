@@ -44,6 +44,7 @@ suite("txn_insert_restart_fe", 'docker') {
     options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
     // options.beConfigs.add('sys_log_verbose_modules=*')
     options.beConfigs.add('enable_java_support=false')
+    options.beConfigs.add('pending_data_expire_time_sec=1')
     docker(options) {
         // ---------- test restart fe ----------
         def result = sql 'SELECT DATABASE()'
@@ -84,7 +85,7 @@ suite("txn_insert_restart_fe", 'docker') {
         def observer_fe_url = get_observer_fe_url()
         if (observer_fe_url != null) {
             logger.info("observer url: $observer_fe_url")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = observer_fe_url) {
+            connect( context.config.jdbcUser,  context.config.jdbcPassword,  observer_fe_url) {
                 order_qt_select_observer """ select * from ${dbName}.tbl_2 """
             }
         }
@@ -109,7 +110,7 @@ suite("txn_insert_restart_fe", 'docker') {
 
         if (observer_fe_url != null) {
             logger.info("observer url: $observer_fe_url")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = observer_fe_url) {
+            connect( context.config.jdbcUser,  context.config.jdbcPassword,  observer_fe_url) {
                 order_qt_select_observer_2 """ select * from ${dbName}.tbl_2 """
             }
         }

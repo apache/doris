@@ -95,6 +95,10 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         return jobId;
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -116,7 +120,7 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
 
         TableAddOrDropInvertedIndicesInfo info = (TableAddOrDropInvertedIndicesInfo) obj;
 
-        return (dbId == info.dbId && tableId == tableId
+        return (dbId == info.dbId && tableId == info.tableId
                 && indexSchemaMap.equals(info.indexSchemaMap)
                 && indexes.equals(info.indexes)
                 && alterInvertedIndexes.equals(info.alterInvertedIndexes)

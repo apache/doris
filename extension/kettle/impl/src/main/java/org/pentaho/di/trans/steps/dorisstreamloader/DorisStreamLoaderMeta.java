@@ -24,9 +24,11 @@ import org.pentaho.di.core.database.DatabaseMeta;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.exception.KettleStepException;
 import org.pentaho.di.core.exception.KettleXMLException;
+import org.pentaho.di.core.injection.AfterInjection;
 import org.pentaho.di.core.injection.Injection;
 import org.pentaho.di.core.injection.InjectionSupported;
 import org.pentaho.di.core.row.RowMetaInterface;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.xml.XMLHandler;
 import org.pentaho.di.i18n.BaseMessages;
@@ -53,7 +55,7 @@ import java.util.List;
   description = "BaseStep.TypeTooltipDesc.DorisStreamLoader",
   categoryDescription = "i18n:org.pentaho.di.trans.step:BaseStep.Category.Bulk",
   image = "doris.svg",
-  documentationUrl = "https://doris.apache.org/docs/dev/data-operate/import/import-way/stream-load-manual/",
+  documentationUrl = "https://doris.apache.org/docs/dev/ecosystem/kettle/",
   i18nPackageName = "org.pentaho.di.trans.steps.dorisstreamloader" )
 @InjectionSupported( localizationPrefix = "DorisStreamLoader.Injection.", groups = { "FIELDS" } )
 public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInterface {
@@ -84,6 +86,8 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
 
   private int maxRetries;
 
+  private boolean deletable;
+
   /** Field name of the target table */
   @Injection( name = "FIELD_TABLE", group = "FIELDS" )
   private String[] fieldTable;
@@ -111,8 +115,8 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
       bufferFlushMaxRows = Long.valueOf(XMLHandler.getTagValue(stepnode, "bufferFlushMaxRows"));
       bufferFlushMaxBytes = Long.valueOf(XMLHandler.getTagValue(stepnode, "bufferFlushMaxBytes"));
       maxRetries = Integer.valueOf(XMLHandler.getTagValue(stepnode, "maxRetries"));
-
       streamLoadProp = XMLHandler.getTagValue(stepnode, "streamLoadProp");
+      deletable = "Y".equalsIgnoreCase(XMLHandler.getTagValue(stepnode, "deletable"));
 
       // Field data mapping
       int nrvalues = XMLHandler.countNodes(stepnode, "mapping");
@@ -145,7 +149,7 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
     bufferFlushMaxBytes = 10 * 1024 * 1024;
     maxRetries = 3;
     streamLoadProp = "format:json;read_json_by_line:true";
-
+    deletable = false;
     allocate(0);
   }
 
@@ -161,6 +165,7 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
     retval.append("    ").append(XMLHandler.addTagValue("bufferFlushMaxBytes", bufferFlushMaxBytes));
     retval.append("    ").append(XMLHandler.addTagValue("maxRetries", maxRetries));
     retval.append("    ").append(XMLHandler.addTagValue("streamLoadProp", streamLoadProp));
+    retval.append("    ").append(XMLHandler.addTagValue("deletable", deletable));
 
     for (int i = 0; i < fieldTable.length; i++) {
       retval.append("      <mapping>").append(Const.CR);
@@ -189,6 +194,7 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
       maxRetries = Integer.valueOf(rep.getStepAttributeString(id_step, "maxRetries"));
 
       streamLoadProp = rep.getStepAttributeString(id_step, "streamLoadProp");
+      deletable = rep.getStepAttributeBoolean(id_step, "deletable");
       int nrvalues = rep.countNrStepAttributes(id_step, "stream_name");
       allocate(nrvalues);
 
@@ -217,6 +223,7 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
       rep.saveStepAttribute(id_transformation, id_step, "bufferFlushMaxRows", bufferFlushMaxRows);
       rep.saveStepAttribute(id_transformation, id_step, "bufferFlushMaxBytes", bufferFlushMaxBytes);
       rep.saveStepAttribute(id_transformation, id_step, "maxRetries", maxRetries);
+      rep.saveStepAttribute(id_transformation, id_step, "deletable", deletable);
 
       for (int i = 0; i < fieldTable.length; i++) {
         rep.saveStepAttribute(id_transformation, id_step, i, "stream_name", fieldTable[i]);
@@ -328,6 +335,14 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
     this.maxRetries = maxRetries;
   }
 
+  public boolean isDeletable() {
+      return deletable;
+  }
+
+  public void setDeletable(boolean deletable) {
+      this.deletable = deletable;
+  }
+
   public String[] getFieldTable() {
     return fieldTable;
   }
@@ -361,8 +376,23 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
             ", bufferFlushMaxRows=" + bufferFlushMaxRows +
             ", bufferFlushMaxBytes=" + bufferFlushMaxBytes +
             ", maxRetries=" + maxRetries +
+            ", deletable=" + deletable +
             ", fieldTable=" + Arrays.toString(fieldTable) +
             ", fieldStream=" + Arrays.toString(fieldStream) +
             '}';
+  }
+
+  /**
+   * If we use injection we can have different arrays lengths.
+   * We need synchronize them for consistency behavior with UI
+   */
+  @AfterInjection
+  public void afterInjectionSynchronization() {
+      int nrFields = (fieldTable == null) ? -1 : fieldTable.length;
+      if (nrFields <= 0) {
+          return;
+      }
+      String[][] rtnStrings = Utils.normalizeArrays(nrFields, fieldStream);
+      fieldStream = rtnStrings[0];
   }
 }

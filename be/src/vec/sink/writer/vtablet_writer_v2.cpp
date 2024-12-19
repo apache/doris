@@ -55,6 +55,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<pipeline::Dependency> dep,
@@ -269,14 +270,20 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 Status VTabletWriterV2::_open_streams() {
-    bool fault_injection_skip_be = true;
+    int fault_injection_skip_be = 0;
     bool any_backend = false;
     bool any_success = false;
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = _load_stream_map->get_or_create(dst_id);
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_one_backend", {
-            if (fault_injection_skip_be) {
-                fault_injection_skip_be = false;
+            if (fault_injection_skip_be < 1) {
+                fault_injection_skip_be++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+            if (fault_injection_skip_be < 2) {
+                fault_injection_skip_be++;
                 continue;
             }
         });
@@ -353,7 +360,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
         auto& partition_ids = row_part_tablet_ids[index_idx].partition_ids;
         auto& tablet_ids = row_part_tablet_ids[index_idx].tablet_ids;
 
-        for (int i = 0; i < row_ids.size(); i++) {
+        for (size_t i = 0; i < row_ids.size(); i++) {
             auto& tablet_id = tablet_ids[i];
             auto it = rows_for_tablet.find(tablet_id);
             if (it == rows_for_tablet.end()) {
@@ -606,7 +613,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        _close_wait(false);
+        RETURN_IF_ERROR(_close_wait(false));
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
         // this must happen after all non-incremental streams are closed,
@@ -616,7 +623,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         }
 
         // close_wait on all incremental streams, even if this is not the last sink.
-        _close_wait(true);
+        RETURN_IF_ERROR(_close_wait(true));
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -665,7 +672,7 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
-void VTabletWriterV2::_close_wait(bool incremental) {
+Status VTabletWriterV2::_close_wait(bool incremental) {
     SCOPED_TIMER(_close_load_timer);
     auto st = _load_stream_map->for_each_st(
             [this, incremental](int64_t dst_id, LoadStreamStubs& streams) -> Status {
@@ -690,6 +697,7 @@ void VTabletWriterV2::_close_wait(bool incremental) {
     if (!st.ok()) {
         LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
     }
+    return st;
 }
 
 void VTabletWriterV2::_calc_tablets_to_commit() {

@@ -52,6 +52,7 @@ import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -90,7 +91,7 @@ public class NereidsCoordinator extends Coordinator {
         this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));
 
         Preconditions.checkState(!planner.getFragments().isEmpty()
-                        && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+                && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
 
     // broker load
@@ -232,10 +233,7 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        JobProcessor jobProcessor = coordinatorContext.getJobProcessor();
-        if (jobProcessor instanceof LoadProcessor) {
-            coordinatorContext.asLoadProcessor().updateFragmentExecStatus(params);
-        }
+        coordinatorContext.getJobProcessor().updateFragmentExecStatus(params);
     }
 
     @Override
@@ -431,18 +429,22 @@ public class NereidsCoordinator extends Coordinator {
         if (dataSink instanceof ResultSink || dataSink instanceof ResultFileSink) {
             if (connectContext != null && !connectContext.isReturnResultFromLocal()) {
                 Preconditions.checkState(connectContext.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
-
-                AssignedJob firstInstance = topPlan.getInstanceJobs().get(0);
-                BackendWorker worker = (BackendWorker) firstInstance.getAssignedWorker();
-                Backend backend = worker.getBackend();
-
-                connectContext.setFinstId(firstInstance.instanceId());
-                if (backend.getArrowFlightSqlPort() < 0) {
-                    throw new IllegalStateException("be arrow_flight_sql_port cannot be empty.");
+                for (AssignedJob instance : topPlan.getInstanceJobs()) {
+                    BackendWorker worker = (BackendWorker) instance.getAssignedWorker();
+                    Backend backend = worker.getBackend();
+                    if (backend.getArrowFlightSqlPort() < 0) {
+                        throw new IllegalStateException("be arrow_flight_sql_port cannot be empty.");
+                    }
+                    TUniqueId finstId;
+                    if (connectContext.getSessionVariable().enableParallelResultSink()) {
+                        finstId = getQueryId();
+                    } else {
+                        finstId = instance.instanceId();
+                    }
+                    connectContext.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(finstId,
+                            backend.getArrowFlightAddress(), backend.getBrpcAddress(),
+                            topPlan.getFragmentJob().getFragment().getOutputExprs()));
                 }
-                connectContext.setResultFlightServerAddr(backend.getArrowFlightAddress());
-                connectContext.setResultInternalServiceAddr(backend.getBrpcAddress());
-                connectContext.setResultOutputExprs(topPlan.getFragmentJob().getFragment().getOutputExprs());
             }
         }
     }

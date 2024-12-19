@@ -79,14 +79,15 @@ private:
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
 
+    Status _batch_download_files(DataDir* data_dir, const std::string& endpoint,
+                                 const std::string& remote_dir, const std::string& local_dir);
+
     Status _make_snapshot(const std::string& ip, int port, TTableId tablet_id,
                           TSchemaHash schema_hash, int timeout_s,
                           const std::vector<Version>& missing_versions, std::string* snapshot_path,
                           bool* allow_incremental_clone);
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
-
-    std::string _mask_token(const std::string& str);
 
 private:
     StorageEngine& _engine;

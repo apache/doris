@@ -112,7 +112,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
 
         // Test user privilege, the newly created user cannot create or set default vault
         // Only users with admin role can create storage vault
-        connect(user = user1, password = passwd, url = context.config.jdbcUrl) {
+        connect(user1, passwd, context.config.jdbcUrl) {
             sql """use ${db}"""
             expectExceptionLike({
                 sql """
@@ -126,7 +126,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
             }, "denied")
         }
         // Only users with admin role can set/unset default storage vault
-        connect(user = user1, password = passwd, url = context.config.jdbcUrl) {
+        connect(user1, passwd, context.config.jdbcUrl) {
             sql """use ${db}"""
             expectExceptionLike({
                 sql """
@@ -134,7 +134,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
                 """
             }, "denied")
         }
-        connect(user = user1, password = passwd, url = context.config.jdbcUrl) {
+        connect(user1, passwd, context.config.jdbcUrl) {
             sql """use ${db}"""
             expectExceptionLike({
                 sql """
@@ -144,7 +144,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
         }
 
         // user1 should see vault1
-        def result = connect(user = user1, password = passwd, url = context.config.jdbcUrl) {
+        def result = connect(user1, passwd, context.config.jdbcUrl) {
             sql """use ${db}"""
             sql " SHOW STORAGE VAULT; "
         }
@@ -159,7 +159,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
         sql """
             DROP TABLE IF EXISTS ${table2} force;
         """
-        connect(user = user1, password = passwd, url = context.config.jdbcUrl) {
+        connect(user1, passwd, context.config.jdbcUrl) {
             sql """use ${db}"""
             sql """
                 CREATE TABLE ${table2} (
@@ -175,7 +175,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
             """
         }
 
-        result = connect(user = user1, password = passwd, url = context.config.jdbcUrl) {
+        result = connect(user1, passwd, context.config.jdbcUrl) {
             sql """use ${db}"""
             sql " SHOW create table ${table2}; "
         }

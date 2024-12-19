@@ -34,14 +34,18 @@ public class Snapshot {
     @SerializedName(value = "expired_at")
     private long expiredAt = 0;
 
+    @SerializedName(value = "commitSeq")
+    private long commitSeq = 0;
+
     public Snapshot() {
     }
 
-    public Snapshot(String label, byte[] meta, byte[] jobInfo, long expiredAt) {
+    public Snapshot(String label, byte[] meta, byte[] jobInfo, long expiredAt, long commitSeq) {
         this.label = label;
         this.meta = meta;
         this.jobInfo = jobInfo;
         this.expiredAt = expiredAt;
+        this.commitSeq = commitSeq;
     }
 
     public byte[] getMeta() {
@@ -60,6 +64,10 @@ public class Snapshot {
         return System.currentTimeMillis() > expiredAt;
     }
 
+    public long getCommitSeq() {
+        return commitSeq;
+    }
+
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
     }
@@ -71,6 +79,7 @@ public class Snapshot {
                 + ", meta=" + meta
                 + ", jobInfo=" + jobInfo
                 + ", expiredAt=" + expiredAt
+                + ", commitSeq=" + commitSeq
                 + '}';
     }
 }
