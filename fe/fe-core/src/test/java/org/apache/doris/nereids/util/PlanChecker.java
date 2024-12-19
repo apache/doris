@@ -49,7 +49,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -71,7 +70,6 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -143,12 +141,6 @@ public class PlanChecker {
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
-        return this;
-    }
-
-    public PlanChecker customAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        this.cascadesContext.newAnalyzer(customTableResolver).analyze();
         this.cascadesContext.toMemo();
         return this;
     }
@@ -565,7 +557,7 @@ public class PlanChecker {
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
-        nereidsPlanner.planWithLock(adapter);
+        nereidsPlanner.plan(adapter);
         consumer.accept(nereidsPlanner);
         return this;
     }
@@ -574,7 +566,7 @@ public class PlanChecker {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(connectContext, new OriginStatement(sql, 0)));
-        nereidsPlanner.planWithLock(LogicalPlanAdapter.of(parsed));
+        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;
     }

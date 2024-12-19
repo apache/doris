@@ -35,6 +35,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -44,9 +45,12 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -59,6 +63,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -250,22 +255,38 @@ public class PartitionsProcDir implements ProcDirInterface {
         List<Pair<List<Comparable>, TRow>> partitionInfos = new ArrayList<Pair<List<Comparable>, TRow>>();
         Map<Long, List<String>> partitionsUnSyncTables = null;
         String mtmvPartitionSyncErrorMsg = null;
+
+        List<TableIf> needLocked = Lists.newArrayList();
+        needLocked.add(olapTable);
         if (olapTable instanceof MTMV) {
-            try {
-                partitionsUnSyncTables = MTMVPartitionUtil
-                        .getPartitionsUnSyncTables((MTMV) olapTable);
-            } catch (AnalysisException e) {
-                mtmvPartitionSyncErrorMsg = e.getMessage();
+            MTMV mtmv = (MTMV) olapTable;
+            for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
+                try {
+                    TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
+                    needLocked.add(baseTable);
+                } catch (Exception e) {
+                    // do nothing, ignore not existed table
+                }
             }
+            needLocked.sort(Comparator.comparing(TableIf::getId));
         }
-        olapTable.readLock();
+        MetaLockUtils.readLockTables(needLocked);
         try {
+            if (olapTable instanceof MTMV) {
+                try {
+                    partitionsUnSyncTables = MTMVPartitionUtil
+                            .getPartitionsUnSyncTables((MTMV) olapTable);
+                } catch (AnalysisException e) {
+                    mtmvPartitionSyncErrorMsg = e.getMessage();
+                }
+            }
             List<Long> partitionIds;
             PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
 
             // for range partitions, we return partitions in ascending range order by default.
             // this is to be consistent with the behaviour before 0.12
-            if (tblPartitionInfo.getType() == PartitionType.RANGE || tblPartitionInfo.getType() == PartitionType.LIST) {
+            if (tblPartitionInfo.getType() == PartitionType.RANGE
+                    || tblPartitionInfo.getType() == PartitionType.LIST) {
                 partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
@@ -402,7 +423,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }
         } finally {
-            olapTable.readUnlock();
+            MetaLockUtils.readUnlockTables(needLocked);
         }
         return partitionInfos;
     }
