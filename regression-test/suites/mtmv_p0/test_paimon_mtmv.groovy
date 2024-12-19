@@ -170,10 +170,10 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             AS
             SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join internal.${otherDbName}.${tableName} b on a.id=b.user_id;
         """
-    def showPartitionsResult = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertTrue(showPartitionsResult.toString().contains("p_a"))
-    assertTrue(showPartitionsResult.toString().contains("p_b"))
+    def showJoinPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showJoinPartitionsResult: " + showJoinPartitionsResult.toString())
+    assertTrue(showJoinPartitionsResult.toString().contains("p_a"))
+    assertTrue(showJoinPartitionsResult.toString().contains("p_b"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
@@ -191,11 +191,11 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             AS
             SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
         """
-    def showPartitionsResult = sql """show partitions from ${mvName}"""
-    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
-    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
-    assertTrue(showPartitionsResult.toString().contains("p_20380102"))
+    def showTwoPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showTwoPartitionsResult: " + showTwoPartitionsResult.toString())
+    assertTrue(showTwoPartitionsResult.toString().contains("p_20200101"))
+    assertTrue(showTwoPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showTwoPartitionsResult.toString().contains("p_20380102"))
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
