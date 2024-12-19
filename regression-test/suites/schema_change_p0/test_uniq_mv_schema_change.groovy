@@ -26,7 +26,7 @@ suite ("test_uniq_mv_schema_change") {
          return jobStateResult[0][8]
     }
     def waitForJob =  (tbName, timeout) -> {
-       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
             String result = getMVJobState(tbName)
             if (result == "FINISHED") {
                 return true;

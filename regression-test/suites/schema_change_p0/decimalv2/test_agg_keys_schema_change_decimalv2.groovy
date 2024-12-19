@@ -90,7 +90,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     sql """ alter table ${tbName} add column `decimalv2v3` decimalv2(27,9) """
     int max_try_secs = 300
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -105,7 +105,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
     qt_sql3 """select * from ${tbName} ORDER BY 1,2,3,4;"""
 
     sql """ alter table ${tbName} drop column `decimalv2v3` """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -118,7 +118,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV2(21,3) -> decimalv3 OK
     sql """ alter table ${tbName} modify column decimalv2k2 DECIMALV3(21,3) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -131,7 +131,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV2(21,3) -> decimalv3 OK
     sql """ alter table ${tbName} modify column decimalv2k3 DECIMALV3(38,10) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -144,7 +144,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV2(27,9) -> decimalv3, round scale part, not overflow
     sql """ alter table ${tbName} modify column decimalv2v1 DECIMALV3(26,8) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -158,7 +158,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV2(21,3) -> decimalv3,  round scale part, overflow
     sql """ alter table ${tbName} modify column decimalv2v2 DECIMALV3(20,2) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "CANCELLED") {
             return true;
@@ -172,7 +172,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV2(21,3) -> decimalv3,  narrow integral, overflow
     sql """ alter table ${tbName} modify column decimalv2v2 DECIMALV3(20,3) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "CANCELLED") {
             return true;
@@ -187,7 +187,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV3(21,3) -> decimalv2 OK
     sql """ alter table ${tbName} modify column decimalv2k2 DECIMALV2(21,3) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -201,7 +201,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV3(26,8) -> decimalv2
     sql """ alter table ${tbName} modify column decimalv2v1 DECIMALV2(25,7) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -215,7 +215,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     // DECIMALV3(26,8) -> decimalv2, narrow integer
     sql """ alter table ${tbName} modify column decimalv2v1 DECIMALV2(25,8) sum """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;

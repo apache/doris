@@ -68,7 +68,7 @@ suite('test_delete_sign_with_cumu_compaction') {
 
     def waitForCompaction = { be_host, be_http_port ->
         // wait for all compactions done
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until {
+        Awaitility.await().atMost(30, SECONDS).pollDelay(10, TimeUnit.SECONDS).pollInterval(1, SECONDS).untilAsserted {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X GET http://${be_host}:${be_http_port}")
@@ -85,7 +85,7 @@ suite('test_delete_sign_with_cumu_compaction') {
             def compactionStatus = parseJson(out.trim())
             assertEquals("success", compactionStatus.status.toLowerCase())
 
-            !compactionStatus.run_status
+            assert !compactionStatus.run_status
         }
     }
 

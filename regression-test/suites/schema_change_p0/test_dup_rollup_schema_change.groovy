@@ -29,7 +29,7 @@ suite ("test_dup_rollup_schema_change") {
          return jobStateResult[0][9]
     }
     def waitForMVJob =  (tbName, timeout) -> {
-       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
             String result = getMVJobState(tbName)
             if (result == "FINISHED") {
                 return true;

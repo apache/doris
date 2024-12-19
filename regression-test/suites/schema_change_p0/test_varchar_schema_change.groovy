@@ -66,7 +66,7 @@ suite ("test_varchar_schema_change") {
 
         sql """ alter table ${tableName} modify column c2 varchar(30) """
         int max_try_secs = 300
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
             String result = getJobState(tableName)
             if (result == "FINISHED") {
                 return true;
@@ -89,7 +89,7 @@ suite ("test_varchar_schema_change") {
         sql """ insert into ${tableName} values(55,'2019-11-21',21474,'123aa') """
 
         sql """ alter table ${tableName} modify column c2 INT """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
             String result = getJobState(tableName)
             if (result == "CANCELLED" || result == "FINISHED") {
                 assertEquals(result, "CANCELLED")
@@ -131,7 +131,7 @@ suite ("test_varchar_schema_change") {
         modify column c2 varchar(40), 
         modify column c3 varchar(6) DEFAULT '0'
         """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
             String result = getJobState(tableName)
             if (result == "FINISHED") {
                 return true;

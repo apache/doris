@@ -75,7 +75,7 @@ suite("test_schema_change_varchar_to_datev2") {
 
     sql """ alter table ${tbName} modify column `k3` date; """
     int max_try_secs = 300
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;

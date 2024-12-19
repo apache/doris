@@ -101,7 +101,7 @@ suite ("test_dup_keys_schema_change") {
             ALTER TABLE ${tableName} DROP COLUMN sex
             """
         int max_try_time = 300
-        Awaitility.await().atMost(max_try_time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        Awaitility.await().atMost(max_try_time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
             String result = getJobState(tableName)
             if (result == "FINISHED") {
                 return true;

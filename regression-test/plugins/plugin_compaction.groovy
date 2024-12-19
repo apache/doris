@@ -34,13 +34,13 @@ Suite.metaClass.checkComactionStatus = { String backendIP, String backendPort, S
 }
 
 Suite.metaClass.assertCompactionStatus = { String backendIP, String backendPort, String tabletID ->
-    Awaitility.await().untilAsserted({
+    Awaitility.await().pollInterval(1, SECONDS).untilAsserted({
         assert checkComactionStatus(backendIP, backendPort, tabletID)
     })
 }
 
 Suite.metaClass.assertCompactionStatusAtMost = { String backendIP, String backendPort, String tabletID, long t, TimeUnit tu ->
-    Awaitility.await().atMost(t, tu).untilAsserted({
+    Awaitility.await().atMost(t, tu).pollInterval(1, SECONDS).untilAsserted({
         assert checkComactionStatus(backendIP, backendPort, tabletID)
     })
 }

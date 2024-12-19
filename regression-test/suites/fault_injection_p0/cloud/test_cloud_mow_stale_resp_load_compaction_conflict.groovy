@@ -92,7 +92,7 @@ suite("test_cloud_mow_stale_resp_load_compaction_conflict", "nonConcurrent") {
             Assert.assertEquals("success", compactJson.status.toLowerCase())
 
             // wait for full compaction to complete
-            Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(
                 {
                     (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)

@@ -74,7 +74,7 @@ suite("test_partial_update_schema_change", "p0") {
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
     def try_times=1200
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -194,7 +194,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -314,7 +314,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -396,7 +396,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -406,7 +406,7 @@ suite("test_partial_update_schema_change", "p0") {
 
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -496,7 +496,7 @@ suite("test_partial_update_schema_change", "p0") {
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -667,7 +667,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -785,7 +785,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -899,7 +899,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -979,7 +979,7 @@ suite("test_partial_update_schema_change", "p0") {
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -988,7 +988,7 @@ suite("test_partial_update_schema_change", "p0") {
     });
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;
@@ -1073,7 +1073,7 @@ suite("test_partial_update_schema_change", "p0") {
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
     // if timeout awaitility will raise exception
-    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
             return true;

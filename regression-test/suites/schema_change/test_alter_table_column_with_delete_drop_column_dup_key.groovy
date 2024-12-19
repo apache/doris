@@ -50,7 +50,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
         """
     int max_try_secs = 1200
     String res = "NOT_FINISHED"
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
@@ -66,7 +66,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
     max_try_secs = 1200
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
@@ -113,7 +113,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             DROP COLUMN value3;
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
@@ -128,7 +128,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
@@ -146,7 +146,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             ADD COLUMN k2 CHAR(10) KEY DEFAULT 'A';
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
@@ -190,7 +190,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             DROP COLUMN value3;
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
@@ -206,7 +206,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
 
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)

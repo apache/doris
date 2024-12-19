@@ -74,7 +74,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
 
     sql """ alter table ${tbName} add column `decimalv3v3` DECIMALV3(38,4) """
     int max_try_secs = 300
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -88,7 +88,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
     sql """ alter table ${tbName} drop column `decimalv3v3` """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             return true;
@@ -99,7 +99,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
     sql """ alter table ${tbName} modify column decimalv3k2 DECIMALV3(19,3) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "CANCELLED") {
             return true;
@@ -112,7 +112,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
 
     sql """ alter table ${tbName} modify column decimalv3k2 DECIMALV3(38,10) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "CANCELLED") {
             return true;
@@ -124,7 +124,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
 
     sql """ alter table ${tbName} modify column decimalv3k2 DECIMALV3(16,3) key """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).until(() -> {
         String result = getJobState(tbName)
         if (result == "CANCELLED") {
             return true;
