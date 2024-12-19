@@ -620,7 +620,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             command = new InsertOverwriteTableCommand(sink, labelName, cte);
         } else {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
-                    && sink.child() instanceof LogicalInlineTable) {
+                    && sink.child() instanceof LogicalInlineTable
+                    && sink.child().getExpressions().stream().allMatch(Expression::isConstant)) {
                 // FIXME: In legacy, the `insert into select 1` is handled as `insert into values`.
                 //  In nereids, the original way is throw an AnalysisException and fallback to legacy.
                 //  Now handle it as `insert into select`(a separate load job), should fix it as the legacy.

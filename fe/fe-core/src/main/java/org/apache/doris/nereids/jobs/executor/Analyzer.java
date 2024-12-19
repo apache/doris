@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
@@ -54,8 +53,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
@@ -63,38 +60,20 @@ import java.util.Optional;
  */
 public class Analyzer extends AbstractBatchJobExecutor {
 
-    public static final List<RewriteJob> ANALYZE_JOBS = buildAnalyzeJobs(Optional.empty());
-
-    private final List<RewriteJob> jobs;
-
-    /**
-     * Execute the analysis job with scope.
-     * @param cascadesContext planner context for execute job
-     */
-    public Analyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
-    }
+    public static final List<RewriteJob> ANALYZE_JOBS = buildAnalyzeJobs();
 
     /**
      * constructor of Analyzer. For view, we only do bind relation since other analyze step will do by outer Analyzer.
      *
      * @param cascadesContext current context for analyzer
-     * @param customTableResolver custom resolver for outer catalog.
      */
-    public Analyzer(CascadesContext cascadesContext, Optional<CustomTableResolver> customTableResolver) {
+    public Analyzer(CascadesContext cascadesContext) {
         super(cascadesContext);
-        Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
-
-        if (customTableResolver.isPresent()) {
-            this.jobs = buildAnalyzeJobs(customTableResolver);
-        } else {
-            this.jobs = ANALYZE_JOBS;
-        }
     }
 
     @Override
     public List<RewriteJob> getJobs() {
-        return jobs;
+        return ANALYZE_JOBS;
     }
 
     /**
@@ -104,20 +83,20 @@ public class Analyzer extends AbstractBatchJobExecutor {
         execute();
     }
 
-    private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
+    private static List<RewriteJob> buildAnalyzeJobs() {
         return notTraverseChildrenOf(
                 ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
-                () -> buildAnalyzerJobs(customTableResolver)
+                Analyzer::buildAnalyzerJobs
         );
     }
 
-    private static List<RewriteJob> buildAnalyzerJobs(Optional<CustomTableResolver> customTableResolver) {
+    private static List<RewriteJob> buildAnalyzerJobs() {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
             topDown(new AnalyzeCTE()),
             topDown(new EliminateLogicalSelectHint()),
             bottomUp(
-                    new BindRelation(customTableResolver),
+                    new BindRelation(),
                     new CheckPolicy()
             ),
             bottomUp(new BindExpression()),

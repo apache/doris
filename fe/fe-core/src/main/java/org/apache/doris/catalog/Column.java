@@ -868,10 +868,7 @@ public class Column implements Writable, GsonPostProcessable {
                 && isKey == other.isKey
                 && isAllowNull == other.isAllowNull
                 && isAutoInc == other.isAutoInc
-                && getDataType().equals(other.getDataType())
-                && getStrLen() == other.getStrLen()
-                && getPrecision() == other.getPrecision()
-                && getScale() == other.getScale()
+                && Objects.equals(type, other.type)
                 && Objects.equals(comment, other.comment)
                 && visible == other.visible
                 && Objects.equals(children, other.children)
