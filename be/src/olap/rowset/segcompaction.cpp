@@ -95,6 +95,19 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     read_options.use_page_cache = false;
     read_options.tablet_schema = ctx.tablet_schema;
     read_options.record_rowids = record_rowids;
+    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
+        DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(ctx.rowset_id, *segments,
+                                                                    delete_bitmap));
+        for (auto& seg_ptr : *segments) {
+            auto d = delete_bitmap->get_agg(
+                    {ctx.rowset_id, seg_ptr->id(), DeleteBitmap::TEMP_VERSION_COMMON});
+            if (d->isEmpty()) {
+                continue; // Empty delete bitmap for the segment
+            }
+            read_options.delete_bitmap.emplace(seg_ptr->id(), std::move(d));
+        }
+    }
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     std::map<uint32_t, uint32_t> segment_rows;
     for (auto& seg_ptr : *segments) {
@@ -191,8 +204,9 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
 
 Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat,
                                                Merger::Statistics& merger_stat, uint32_t begin,
-                                               uint32_t end) {
+                                               uint32_t end, bool is_mow_with_cluster_keys) {
     uint64_t raw_rows_read = reader_stat.raw_rows_read; /* total rows read before merge */
+    uint64_t rows_del_by_bitmap = reader_stat.rows_del_by_bitmap;
     uint64_t sum_src_row = 0; /* sum of rows in each involved source segments */
     uint64_t filtered_rows = merger_stat.filtered_rows; /* rows filtered by del conditions */
     uint64_t output_rows = merger_stat.output_rows;     /* rows after merge */
@@ -206,11 +220,15 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_sum_src_row", { sum_src_row++; });
-    if (raw_rows_read != sum_src_row) {
+    uint64_t raw_rows = raw_rows_read;
+    if (is_mow_with_cluster_keys) {
+        raw_rows += rows_del_by_bitmap;
+    }
+    if (raw_rows != sum_src_row) {
         return Status::Error<CHECK_LINES_ERROR>(
                 "segcompaction read row num does not match source. expect read row:{}, actual read "
-                "row:{}",
-                sum_src_row, raw_rows_read);
+                "row:{}(raw_rows_read: {}, rows_del_by_bitmap: {})",
+                sum_src_row, raw_rows, raw_rows_read, rows_del_by_bitmap);
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_merged_rows", { merged_rows++; });
@@ -305,9 +323,10 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
 
     /* check row num after merge/aggregation */
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            _check_correctness(key_reader_stats, key_merger_stats, begin, end),
-            "check correctness failed");
+    bool is_mow_with_cluster_keys = !tablet->tablet_schema()->cluster_key_uids().empty();
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_correctness(key_reader_stats, key_merger_stats, begin,
+                                                      end, is_mow_with_cluster_keys),
+                                   "check correctness failed");
     {
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
         _writer->_clear_statistics_for_deleting_segments_unsafe(begin, end);

@@ -93,7 +93,7 @@ private:
                                                                             uint32_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
-                              uint32_t begin, uint32_t end);
+                              uint32_t begin, uint32_t end, bool is_mow_with_cluster_keys);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
