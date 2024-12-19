@@ -19,6 +19,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -68,19 +69,24 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                 std::static_pointer_cast<BetaRowset>(reader->rowset()), &segment_cache));
         for (const auto& segment : segment_cache.get_segments()) {
-            const VariantStatisticsPB* source_statistics =
-                    segment->get_stats(_tablet_column->unique_id());
+            ColumnReader* column_reader = segment->get_column_reader(_tablet_column->unique_id());
+            if (!column_reader) {
+                continue;
+            }
+            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+            const VariantStatistics* source_statistics =
+                    static_cast<const VariantColumnReader*>(column_reader)->get_stats();
             if (!source_statistics) {
                 continue;
             }
-            for (const auto& [path, size] : source_statistics->subcolumn_non_null_size()) {
+            for (const auto& [path, size] : source_statistics->subcolumns_non_null_size) {
                 auto it = path_to_total_number_of_non_null_values.find(path);
                 if (it == path_to_total_number_of_non_null_values.end()) {
                     it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
                 }
                 it->second += size;
             }
-            for (const auto& [path, size] : source_statistics->sparse_column_non_null_size()) {
+            for (const auto& [path, size] : source_statistics->sparse_column_non_null_size) {
                 auto it = path_to_total_number_of_non_null_values.find(path);
                 if (it == path_to_total_number_of_non_null_values.end()) {
                     it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
@@ -201,8 +207,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         _subcolumn_opts[current_column_id - 1].meta->set_num_rows(num_rows);
 
         // get stastics
-        _statistics._subcolumns_non_null_size.emplace(entry->path.get_path(),
-                                                      entry->data.get_non_null_value_size());
+        _statistics.subcolumns_non_null_size.emplace(entry->path.get_path(),
+                                                     entry->data.get_non_null_value_size());
     }
     return Status::OK();
 }
@@ -239,12 +245,12 @@ Status VariantColumnWriterImpl::_process_sparse_column(
     const auto [sparse_data_paths, _] = ptr->get_sparse_data_paths_and_values();
     for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
         auto path = sparse_data_paths->get_data_at(i);
-        if (auto it = _statistics._sparse_column_non_null_size.find(path);
-            it != _statistics._sparse_column_non_null_size.end()) {
+        if (auto it = _statistics.sparse_column_non_null_size.find(path.to_string());
+            it != _statistics.sparse_column_non_null_size.end()) {
             ++it->second;
-        } else if (_statistics._sparse_column_non_null_size.size() <
+        } else if (_statistics.sparse_column_non_null_size.size() <
                    VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
-            _statistics._sparse_column_non_null_size.emplace(path, 1);
+            _statistics.sparse_column_non_null_size.emplace(path, 1);
         }
     }
 
@@ -253,21 +259,21 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 }
 
 void VariantStatistics::to_pb(VariantStatisticsPB* stats) const {
-    for (const auto& [path, value] : _subcolumns_non_null_size) {
-        stats->mutable_subcolumn_non_null_size()->emplace(path.to_string(), value);
+    for (const auto& [path, value] : subcolumns_non_null_size) {
+        stats->mutable_subcolumn_non_null_size()->emplace(path, value);
     }
-    for (const auto& [path, value] : _sparse_column_non_null_size) {
-        stats->mutable_sparse_column_non_null_size()->emplace(path.to_string(), value);
+    for (const auto& [path, value] : sparse_column_non_null_size) {
+        stats->mutable_sparse_column_non_null_size()->emplace(path, value);
     }
 }
 
 void VariantStatistics::from_pb(const VariantStatisticsPB& stats) {
     // make sure the ref of path, todo not use ref
     for (const auto& [path, value] : stats.subcolumn_non_null_size()) {
-        _subcolumns_non_null_size[StringRef(path.data(), path.size())] = value;
+        subcolumns_non_null_size[path] = value;
     }
     for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
-        _sparse_column_non_null_size[StringRef(path.data(), path.size())] = value;
+        sparse_column_non_null_size[path] = value;
     }
 }
 

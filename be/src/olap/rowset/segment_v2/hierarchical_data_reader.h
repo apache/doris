@@ -149,7 +149,6 @@ private:
         MutableColumnPtr container;
         RETURN_IF_ERROR(_init_container(container, nrows));
         auto& container_variant = assert_cast<ColumnObject&>(*container);
-
         variant.insert_range_from(container_variant, 0, nrows);
 
         _rows_read += nrows;

@@ -39,6 +39,7 @@
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -586,9 +587,10 @@ public:
         return {&key, &value};
     }
     // Insert all the data from sparse data with specified path to sub column.
-    static void fill_path_olumn_from_sparse_data(Subcolumn& subcolumn, StringRef path,
-                                                 const ColumnPtr& sparse_data_column, size_t start,
-                                                 size_t end);
+    static void fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
+                                                  StringRef path,
+                                                  const ColumnPtr& sparse_data_column, size_t start,
+                                                  size_t end);
 
     static size_t find_path_lower_bound_in_sparse_data(StringRef path,
                                                        const ColumnString& sparse_data_paths,

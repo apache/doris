@@ -201,23 +201,7 @@ Status Segment::_open() {
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
 
-    // collec variant statistics
-    for (const auto& column_pb : _footer_pb->columns()) {
-        if (column_pb.has_variant_statistics()) {
-            _variant_column_stats.try_emplace(column_pb.unique_id(),
-                                              column_pb.variant_statistics());
-        }
-    }
-
     return Status::OK();
-}
-
-const VariantStatisticsPB* Segment::get_stats(int32_t unique_id) const {
-    auto it = _variant_column_stats.find(unique_id);
-    if (it == _variant_column_stats.end()) {
-        return nullptr;
-    }
-    return &it->second;
 }
 
 Status Segment::_open_inverted_index() {
@@ -826,6 +810,13 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::InternalError("different type between schema and column reader");
     }
     return Status::OK();
+}
+
+ColumnReader* Segment::get_column_reader(int32_t col_unique_id) {
+    if (_column_readers.contains(col_unique_id)) {
+        return _column_readers[col_unique_id].get();
+    }
+    return nullptr;
 }
 
 ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {

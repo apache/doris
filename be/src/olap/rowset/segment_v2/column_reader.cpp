@@ -245,7 +245,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
             // Node contains column with children columns or has correspoding sparse columns
             // Create reader with hirachical data.
             std::unique_ptr<ColumnIterator> sparse_iter;
-            if (!_sparse_column_set_in_stats.empty()) {
+            if (_statistics && !_statistics->sparse_column_non_null_size.empty()) {
                 // Sparse column exists or reached sparse size limit, read sparse column
                 ColumnIterator* iter;
                 RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter));
@@ -259,9 +259,10 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
                                                            read_type, std::move(sparse_iter)));
         }
     } else {
-        if (_sparse_column_set_in_stats.contains(StringRef {relative_path.get_path()}) ||
-            _sparse_column_set_in_stats.size() >
-                    VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+        if (_statistics &&
+            (_statistics->sparse_column_non_null_size.contains(relative_path.get_path()) ||
+             _statistics->sparse_column_non_null_size.size() >
+                     VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE)) {
             // Sparse column exists or reached sparse size limit, read sparse column
             ColumnIterator* inner_iter;
             RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
@@ -323,9 +324,13 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
 
     // init sparse column set in stats
     if (self_column_pb.has_variant_statistics()) {
+        _statistics = std::make_unique<VariantStatistics>();
         const auto& variant_stats = self_column_pb.variant_statistics();
         for (const auto& [path, _] : variant_stats.sparse_column_non_null_size()) {
-            _sparse_column_set_in_stats.emplace(path.data(), path.size());
+            _statistics->sparse_column_non_null_size.emplace(path.data(), path.size());
+        }
+        for (const auto& [path, _] : variant_stats.subcolumn_non_null_size()) {
+            _statistics->subcolumns_non_null_size.emplace(path.data(), path.size());
         }
     }
     return Status::OK();
