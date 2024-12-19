@@ -98,6 +98,9 @@ suite('compaction_width_array_column', "p2") {
             assertEquals("success", compactJson.status.toLowerCase())
         }
 
+        // waiting compaction to start
+        Thread.sleep(10000)
+
         // wait for all compactions done
         for (def tablet in tablets) {
             boolean running = true

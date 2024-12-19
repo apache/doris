@@ -108,6 +108,8 @@ suite('test_compaction_with_visible_version', 'docker') {
                 triggerCompaction it, isCumuCompactSucc, 'cumulative'
             }
 
+            Thread.sleep(10000)
+
             if (isCumuCompactSucc) {
                 // wait compaction done
                 def startTs = System.currentTimeMillis()

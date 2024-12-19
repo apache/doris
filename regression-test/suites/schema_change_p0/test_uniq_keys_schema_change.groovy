@@ -131,10 +131,15 @@ suite ("test_uniq_keys_schema_change") {
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 //assertEquals(code, 0)
         }
+        
+        // waiting compaction to start.
+        Thread.sleep(10000)
 
         // wait for all compactions done
         for (String[] tablet in tablets) {
-            assertCompactionStatusAtMost(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId, 20, TimeUnit.SECONDS)
+            def tid = tablet[0]
+            def beid = tablet[2]
+            assertCompactionStatus(backendId_to_backendIP.get(beid), backendId_to_backendHttpPort.get(tablet[2]), tid)
         }
         qt_sc """ select count(*) from ${tableName} """
 

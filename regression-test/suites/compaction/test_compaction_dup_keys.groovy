@@ -120,6 +120,8 @@ suite("test_compaction_dup_keys") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for all compactions done
         for (def tablet in tablets) {
             boolean running = true

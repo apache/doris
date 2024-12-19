@@ -142,7 +142,7 @@ suite ("test_uniq_vals_schema_change") {
 
         // wait for all compactions done
         for (String[] tablet in tablets) {
-            assertCompactionStatus(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId)
+            assertCompactionStatus(backendId_to_backendIP.get(tablet[2]), backendId_to_backendHttpPort.get(tablet[2]), tablet[0])
         }
         qt_sc """ select count(*) from ${tableName} """
 

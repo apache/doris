@@ -189,6 +189,9 @@ suite("test_stale_rowset") {
         }
     }
 
+    // waiting compaction to start
+    Thread.sleep(10000)
+
     // wait for all compactions done
     for (String[] tablet in tablets) {
         boolean running = true

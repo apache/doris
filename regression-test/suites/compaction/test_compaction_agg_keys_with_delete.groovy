@@ -131,6 +131,8 @@ suite("test_compaction_agg_keys_with_delete") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for all compactions done
         for (def tablet in tablets) {
             boolean running = true

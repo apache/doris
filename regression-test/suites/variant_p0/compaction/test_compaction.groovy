@@ -105,6 +105,9 @@ suite("test_compaction_variant") {
                 }
             }
 
+            // wait compaction to start
+            Thread.sleep(10000)
+
             // wait for all compactions done
             for (def tablet in tablets) {
                 assertCompactionStatus(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId)

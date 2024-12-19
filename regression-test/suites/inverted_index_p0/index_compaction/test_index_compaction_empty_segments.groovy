@@ -68,6 +68,9 @@ suite("test_index_compaction_empty_segments", "p0, nonConcurrent") {
         assertEquals("success", compactJson.status.toLowerCase())
     }
 
+    // wait compaction to start
+    Thread.sleep(10000)
+
     // wait for all compactions done
     for (def tablet in tablets) {
         assertCompactionStatusAtMost(backendId_to_backendIP.get(tablet.BackendId), backendId_to_backendHttpPort.get(tablet.BackendId), tablet.TabletId, 10, TimeUnit.MINUTES)

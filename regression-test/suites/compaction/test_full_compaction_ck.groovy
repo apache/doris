@@ -140,6 +140,8 @@ suite("test_full_compaction_ck") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for full compaction done
         for (def tablet in tablets) {
             boolean running = true

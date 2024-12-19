@@ -147,6 +147,8 @@ suite("test_full_compaction_by_table_id") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for full compaction done
         {
             for (def tablet : tablets) {

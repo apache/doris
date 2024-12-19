@@ -114,6 +114,9 @@ suite("test_compaction_with_delete") {
                 assertEquals("success", compactJson.status.toLowerCase())
             }
         }
+        
+        // wait compaction to start
+        Thread.sleep(10000)
 
         // wait for all compactions done
         for (def tablet in tablets) {

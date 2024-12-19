@@ -132,6 +132,8 @@ suite("test_vertical_compaction_agg_keys") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for all compactions done
         for (def tablet in tablets) {
             boolean running = true

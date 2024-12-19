@@ -139,11 +139,12 @@ suite("test_full_compaction") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for full compaction done
         for (def tablet in tablets) {
             boolean running = true
             do {
-                Thread.sleep(1000)
                 String tablet_id = tablet.TabletId
                 backend_id = tablet.BackendId
                 (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)

@@ -124,6 +124,8 @@ suite("test_compaction_uniq_keys_ck") {
             }
         }
 
+        Thread.sleep(10000)
+
         // wait for all compactions done
         for (def tablet in tablets) {
             boolean running = true
