@@ -611,7 +611,8 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                if (!local_fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
+                if (!local_fs->link_file(index_file, binlog_index_file).ok() &&
+                    !errno_is_file_exists()) {
                     status = Status::Error<OS_ERROR>(
                             "fail to create hard link. from={}, to={}, errno={}", index_file,
                             binlog_index_file, Errno::no());
@@ -626,7 +627,8 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                if (!local_fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
+                if (!local_fs->link_file(index_file, binlog_index_file).ok() &&
+                    !errno_is_file_exists()) {
                     status = Status::Error<OS_ERROR>(
                             "fail to create hard link. from={}, to={}, errno={}", index_file,
                             binlog_index_file, Errno::no());
