@@ -125,10 +125,73 @@ suite("always_mono_func") {
         sql """ select * from always_mono_func where to_monday(dt) >= "2019-01-01" """
         contains("partitions=2/5 (p4,p5)")
     }
-
+    // year
     explain {
         sql """ select * from always_mono_func where year(dt) >= 2019 """
         contains("partitions=3/5 (p3,p4,p5)")
+    }
+    explain {
+        sql """select * from always_mono_func where year(dt) < 2019 and year(dt) > 2017"""
+        contains("partitions=2/5 (p2,p3)")
+    }
+    explain {
+        sql """select * from always_mono_func where year(dt) <2023"""
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+    }
+    // to_monday
+    explain {
+        sql """select * from always_mono_func where to_monday(dt) <'2019-01-01' """
+        contains("partitions=4/5 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from always_mono_func where to_monday(dt) ='2019-01-01' """
+        contains("partitions=1/5 (p4)")
+    }
+    explain {
+        sql """select * from always_mono_func where to_monday(dt) >='2018-01-01' and to_monday(dt) <'2019-01-01' """
+        contains("partitions=3/5 (p2,p3,p4)")
+    }
+    // to_date
+    explain {
+        sql """select * from always_mono_func where to_date(dt) <'2019-02-01' """
+        contains("partitions=4/5 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from always_mono_func where to_date(dt) <='2023-02-01' """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+    }
+    explain {
+        sql """select * from always_mono_func where to_date(dt) is null """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+    }
+    explain {
+        sql """select * from always_mono_func where to_date(dt) is not null """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+    }
+    explain {
+        sql """select * from always_mono_func where to_date(dt) >='2018-01-01' and to_date(dt) <'2019-01-01' """
+        contains("partitions=2/5 (p2,p3)")
+    }
+    // last_day
+    explain {
+        sql """select * from always_mono_func where last_day(dt) <='2019-02-01' """
+        contains("partitions=4/5 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from always_mono_func where last_day(dt) <='2023-02-01' """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+    }
+    explain {
+        sql """select * from always_mono_func where last_day(dt) is null """
+        contains("partitions=1/5 (p1)")
+    }
+    explain {
+        sql """select * from always_mono_func where last_day(dt) is not null """
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+    }
+    explain {
+        sql """select * from always_mono_func where last_day(dt) >='2018-01-01' and last_day(dt) <'2019-01-01' """
+        contains("partitions=2/5 (p2,p3)")
     }
 
     explain {
