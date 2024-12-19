@@ -205,7 +205,6 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     order_qt_two_partition "SELECT * FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
-
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
@@ -243,7 +242,26 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
           exception "only support"
       }
 
-
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`region`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.null_partition;
+        """
+    def showNullPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showNullPartitionsResult: " + showNullPartitionsResult.toString())
+    assertFalse(showNullPartitionsResult.toString().contains("p_null"))
+    assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
+    assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_null_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 
 }
