@@ -15,6 +15,8 @@ scan_rows	bigint	Yes	false	\N	NONE
 return_rows	bigint	Yes	false	\N	NONE
 shuffle_send_rows	bigint	Yes	false	\N	NONE
 shuffle_send_bytes	bigint	Yes	false	\N	NONE
+scan_bytes_from_local_storage	bigint	Yes	false	\N	NONE
+scan_bytes_from_remote_storage	bigint	Yes	false	\N	NONE
 stmt_id	bigint	Yes	false	\N	NONE
 is_query	tinyint	Yes	false	\N	NONE
 is_nereids	tinyint	Yes	false	\N	NONE
