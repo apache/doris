@@ -76,4 +76,61 @@ suite("normalize_window_nullable_agg") {
         sql "select group_concat(xwho order by xwhat) over(partition by xwhen) from windowfunnel_test_normalize_window;"
         exception "order by is not supported"
     }
+
+    sql "set enable_fold_constant_by_be = 1;"
+    sql "drop table if exists fold_window1"
+    sql """create table fold_window1 (
+            pk int,
+                    col_char_255__undef_signed char(255)  null  ,
+            col_char_100__undef_signed char(100)  null  ,
+            col_varchar_255__undef_signed varchar(255)  null  ,
+            col_char_255__undef_signed_not_null char(255)  not null  ,
+                    col_char_100__undef_signed_not_null char(100)  not null  ,
+            col_varchar_255__undef_signed_not_null varchar(255)  not null  ,
+            col_varchar_1000__undef_signed varchar(1000)  null  ,
+            col_varchar_1000__undef_signed_not_null varchar(1000)  not null  ,
+                    col_varchar_1001__undef_signed varchar(1001)  null  ,
+            col_varchar_1001__undef_signed_not_null varchar(1001)  not null  ,
+                    col_string_undef_signed string  null  ,
+                    col_string_undef_signed_not_null string  not null
+    ) engine=olap
+    DUPLICATE KEY(pk, col_char_255__undef_signed, col_char_100__undef_signed, col_varchar_255__undef_signed)
+    distributed by hash(pk) buckets 10
+    properties("bloom_filter_columns" = "col_char_255__undef_signed, col_char_100__undef_signed, col_varchar_255__undef_signed ", "replication_num" = "1");"""
+    sql """insert into fold_window1(pk,col_char_255__undef_signed,col_char_255__undef_signed_not_null,col_char_100__undef_signed
+    ,col_char_100__undef_signed_not_null,col_varchar_255__undef_signed,col_varchar_255__undef_signed_not_null,col_varchar_1000__undef_signed,col_varchar_1000__undef_signed_not_null
+    ,col_varchar_1001__undef_signed,col_varchar_1001__undef_signed_not_null,col_string_undef_signed,col_string_undef_signed_not_null)
+     values (0,'like','9999-12-31 23:59:59','9999-12-31 23:59:59','c','20240803','2024-08-03 13:08:30','300.343','2024-07-01','that''s','9999-12-31 23:59:59','s','b'),
+     (1,'be','g','f','not','20240803','20240803','2024-08-03 13:08:30','g','20240803','0','2024-07-01','be')"""
+
+    sql "drop table if exists fold_window2"
+    sql """create table fold_window2 (
+            pk int,
+                    col_char_255__undef_signed char(255)  null  ,
+            col_char_255__undef_signed_not_null char(255)  not null  ,
+                    col_char_100__undef_signed char(100)  null  ,
+            col_char_100__undef_signed_not_null char(100)  not null  ,
+                    col_varchar_255__undef_signed varchar(255)  null  ,
+            col_varchar_255__undef_signed_not_null varchar(255)  not null  ,
+                    col_varchar_1000__undef_signed varchar(1000)  null  ,
+            col_varchar_1000__undef_signed_not_null varchar(1000)  not null  ,
+                    col_varchar_1001__undef_signed varchar(1001)  null  ,
+            col_varchar_1001__undef_signed_not_null varchar(1001)  not null  ,
+                    col_string_undef_signed string  null  ,
+                    col_string_undef_signed_not_null string  not null
+    ) engine=olap
+    DUPLICATE KEY(pk)
+    distributed by hash(pk) buckets 10
+    properties ("bloom_filter_columns" = "col_char_255__undef_signed, col_char_100__undef_signed, col_varchar_255__undef_signed ", "replication_num" = "1");"""
+    sql """insert into fold_window2(pk,col_char_255__undef_signed,col_char_255__undef_signed_not_null,col_char_100__undef_signed
+    ,col_char_100__undef_signed_not_null,col_varchar_255__undef_signed,col_varchar_255__undef_signed_not_null,col_varchar_1000__undef_signed
+    ,col_varchar_1000__undef_signed_not_null,col_varchar_1001__undef_signed,col_varchar_1001__undef_signed_not_null,col_string_undef_signed,col_string_undef_signed_not_null)
+    values (0,'some','2024-07-01','9999-12-31 23:59:59','9999-12-31 23:59:59','9999-12-31 23:59:59','300.343','2024-07-01','1','1','2024-07-01','2024-08-03 13:08:30','2024-08-03 13:08:30');"""
+
+    qt_fold_window """
+    select initcap(col_varchar_1001__undef_signed_not_null)  col_alias97650 , starts_with('ourBZbRijD', "e")  AS col_alias97651 ,
+    col_varchar_1001__undef_signed_not_null  AS col_alias97652 , LAST_VALUE(col_string_undef_signed_not_null , false) over ( order by pk ) 
+     AS col_alias97653  from fold_window1 where 'DCOFMrybqf' <> (select min (  col_char_255__undef_signed ) 
+     from fold_window2)  ORDER BY col_alias97650,col_alias97651,col_alias97652,col_alias97653 ;
+    """
 }
