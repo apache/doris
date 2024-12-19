@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -192,7 +194,7 @@ public class ColumnDefinition {
         sb.append("`").append(name).append("` ");
         sb.append(type.toSql()).append(" ");
 
-        if (aggType != null) {
+        if (aggType != null && aggType != AggregateType.NONE) {
             sb.append(aggType.name()).append(" ");
         }
 
@@ -211,9 +213,24 @@ public class ColumnDefinition {
         }
 
         if (defaultValue.isPresent()) {
-            sb.append(defaultValue.get()).append(" ");
+            String value = defaultValue.get().getValue();
+            if (value != null) {
+                DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
+                if (!type.isBitmapType() && !type.isHllType()) {
+                    if (exprDef != null) {
+                        sb.append("DEFAULT ").append(value).append(" ");
+                    } else {
+                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
+                                .append(" ");
+                    }
+                } else if (type.isBitmapType()) {
+                    sb.append("DEFAULT ").append(exprDef.getExprName()).append(" ");
+                }
+            } else {
+                sb.append("DEFAULT ").append("NULL").append(" ");
+            }
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
 
         return sb.toString();
     }
