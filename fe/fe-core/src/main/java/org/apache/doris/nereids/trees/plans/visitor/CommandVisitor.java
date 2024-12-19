@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -234,6 +235,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminCleanTrashCommand(AdminCleanTrashCommand adminCleanTrashCommand, C context) {
         return visitCommand(adminCleanTrashCommand, context);
+    }
+
+    default R visitAdminSetTableStatusCommand(AdminSetTableStatusCommand cmd, C context) {
+        return visitCommand(cmd, context);
     }
 
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
