@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -123,6 +124,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
@@ -144,6 +146,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 
 /** CommandVisitor. */
@@ -234,6 +237,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(adminCleanTrashCommand, context);
     }
 
+    default R visitAdminSetTableStatusCommand(AdminSetTableStatusCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
         return visitCommand(dropConstraintCommand, context);
     }
@@ -296,6 +303,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCallCommand(CallCommand callCommand, C context) {
         return visitCommand(callCommand, context);
+    }
+
+    default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
+        return visitCommand(showSyncJobCommand, context);
     }
 
     default R visitCreateProcedureCommand(CreateProcedureCommand createProcedureCommand, C context) {
@@ -413,6 +424,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRefreshDatabaseCommand(RefreshDatabaseCommand refreshDatabaseCommand, C context) {
         return visitCommand(refreshDatabaseCommand, context);
+    }
+
+    default R visitRefreshTableCommand(RefreshTableCommand refreshTableCommand, C context) {
+        return visitCommand(refreshTableCommand, context);
     }
 
     default R visitShowBackendsCommand(ShowBackendsCommand showBackendsCommand, C context) {
