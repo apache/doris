@@ -127,7 +127,8 @@ public class ColumnDef {
         }
 
         public boolean isCurrentTimeStamp() {
-            return "CURRENT_TIMESTAMP".equals(value) && NOW.equals(defaultValueExprDef.getExprName());
+            return "CURRENT_TIMESTAMP".equals(value) && defaultValueExprDef != null
+                    && NOW.equals(defaultValueExprDef.getExprName());
         }
 
         public boolean isCurrentTimeStampWithPrecision() {
