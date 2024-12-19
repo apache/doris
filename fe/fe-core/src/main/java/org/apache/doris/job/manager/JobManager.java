@@ -206,7 +206,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                     }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
-                    throw new JobException("Alter job status error, jobName is %cds, errorMsg is %s",
+                    throw new JobException("Alter job status error, jobName is %s, errorMsg is %s",
                             jobName, e.getMessage());
                 }
             }
