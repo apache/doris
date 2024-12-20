@@ -372,7 +372,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
                                   JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
     constexpr bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
                                         JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
-
+    DCHECK_EQ(_parent->_mark_join_conjuncts.empty(), is_null_aware_join);
     const auto row_count = output_block->rows();
     if (!row_count) {
         return Status::OK();
@@ -386,7 +386,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     uint8_t* mark_filter_data = nullptr;
     uint8_t* mark_null_map = nullptr;
 
-    if (_parent->_mark_join_conjuncts.empty()) {
+    if constexpr (is_null_aware_join) {
         // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
         // the result should be null. Like:
         // select 4 not in (2, 3, null) => null, select 4 not in (2, 3) => true
@@ -400,25 +400,20 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         int last_probe_matched = -1;
         for (size_t i = 0; i != row_count; ++i) {
             mark_filter_data[i] = _build_indexs[i] != 0;
-            if constexpr (is_null_aware_join) {
-                if constexpr (with_other_conjuncts) {
-                    mark_null_map[i] = _null_flags[i];
-                } else {
-                    if (mark_filter_data[i]) {
-                        last_probe_matched = _probe_indexs[i];
-                        mark_null_map[i] = false;
-                    } else {
-                        mark_null_map[i] = (should_be_null_if_build_side_has_null &&
-                                            last_probe_matched != _probe_indexs[i]);
-                    }
-                }
+            if constexpr (with_other_conjuncts) {
+                mark_null_map[i] = _null_flags[i];
             } else {
-                // mark_null_map will be reused, so it needs to be reset every time
-                mark_null_map[i] = false;
+                if (mark_filter_data[i]) {
+                    last_probe_matched = _probe_indexs[i];
+                    mark_null_map[i] = false;
+                } else {
+                    mark_null_map[i] = (should_be_null_if_build_side_has_null &&
+                                        last_probe_matched != _probe_indexs[i]);
+                }
             }
         }
 
-        if (is_null_aware_join && null_map) {
+        if (null_map) {
             // null_map[_probe_indexs[i]] is null, which means that the probe side of the line is null, so the mark sign should also be null.
             for (size_t i = 0; i != row_count; ++i) {
                 mark_null_map[i] |= null_map[_probe_indexs[i]];
