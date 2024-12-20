@@ -38,6 +38,7 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
@@ -182,6 +183,8 @@ public class PropertyConverter {
     public static String getHadoopFSImplByScheme(String fsScheme) {
         if (fsScheme.equalsIgnoreCase("obs")) {
             return ObsProperties.HadoopFsObsConstants.HADOOP_FS_OBS_CLASS_NAME;
+        } else if (fsScheme.equalsIgnoreCase("file")) {
+            return LocalFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("cosn") || fsScheme.equalsIgnoreCase("lakefs")) {

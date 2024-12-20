@@ -55,6 +55,7 @@ public class FileSystemFactory {
         switch (type) {
             case S3:
                 return new S3FileSystem(properties);
+            case FILE:
             case DFS:
                 return new DFSFileSystem(properties);
             case OFS:
