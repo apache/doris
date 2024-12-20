@@ -631,6 +631,8 @@ private:
             size_t start, size_t length);
 
     bool try_add_new_subcolumn(const PathInData& path);
+
+    bool is_visible_root_value(size_t nrow) const;
 };
 
 } // namespace doris::vectorized

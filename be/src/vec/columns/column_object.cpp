@@ -1747,18 +1747,15 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
 }
 
 Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
-    // if (!is_finalized()) {
-    //     const_cast<ColumnObject*>(this)->finalize();
-    // }
-    if (is_scalar_variant() && is_finalized()) {
-        auto type = get_root_type();
-        *output = type->to_string(*get_root(), row);
-        return Status::OK();
-    }
-    // TODO preallocate memory
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
-    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, write_buffer, nullptr));
+    if (is_scalar_variant()) {
+        subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
+        return Status::OK();
+    } else {
+        // TODO preallocate memory
+        RETURN_IF_ERROR(serialize_one_row_to_json_format(row, write_buffer, nullptr));
+    }
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
@@ -1766,12 +1763,8 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* outpu
 }
 
 Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
-    // if (!is_finalized()) {
-    //     const_cast<ColumnObject*>(this)->finalize();
-    // }
-    if (is_scalar_variant() && is_finalized()) {
-        auto type = get_root_type();
-        type->to_string(*get_root(), row, output);
+    if (is_scalar_variant()) {
+        subcolumns.get_root()->data.serialize_text_json(row, output);
         return Status::OK();
     }
     RETURN_IF_ERROR(serialize_one_row_to_json_format(row, output, nullptr));
@@ -1836,8 +1829,27 @@ struct Prefix {
     bool root_is_first_flag = true;
 };
 
+bool ColumnObject::is_visible_root_value(size_t nrow) const {
+    if (is_null_root()) {
+        return false;
+    }
+    if (subcolumns.get_root()->data.is_null_at(nrow)) {
+        return false;
+    }
+    nrow = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
+    // only ColumnString which is DataTypeJsonb
+    const auto& nullable = assert_cast<const ColumnNullable&>(*subcolumns.get_root()->data.data[0]);
+    const auto& value_column = assert_cast<const ColumnString&>(nullable.get_nested_column());
+    return !value_column.get_data_at(nrow).empty();
+}
+
 Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
                                                       bool* is_null) const {
+    // root is not eighther null or empty, we should only process root value
+    if (is_visible_root_value(row_num)) {
+        subcolumns.get_root()->data.serialize_text_json(row_num, output);
+        return Status::OK();
+    }
     const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
     const auto& sparse_data_offsets = column_map.get_offsets();
     const auto [sparse_data_paths, sparse_data_values] = get_sparse_data_paths_and_values();
@@ -1850,9 +1862,13 @@ Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWri
     // For example:
     // b.c, a.b, a.a, b.e, g, h.u.t -> a.a, a.b, b.c, b.e, g, h.u.t -> {"a" : {"a" : ..., "b" : ...}, "b" : {"c" : ..., "e" : ...}, "g" : ..., "h" : {"u" : {"t" : ...}}}.
     std::vector<String> sorted_paths;
-    std::map<std::string, Subcolumn> subcolumn_path_map;
+    std::unordered_map<std::string, Subcolumn> subcolumn_path_map;
     sorted_paths.reserve(get_subcolumns().size() + (sparse_data_end - sparse_data_offset));
     for (const auto& subcolumn : get_subcolumns()) {
+        // Skip root value, we have already processed it
+        if (subcolumn->data.is_root) {
+            continue;
+        }
         /// We consider null value and absence of the path in a row as equivalent cases, because we cannot actually distinguish them.
         /// So, we don't output null values at all.
         if (!subcolumn->data.is_null_at(row_num)) {
