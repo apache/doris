@@ -151,7 +151,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor stmtExecutor,
                                            boolean needBeginTransaction) throws Exception {
-        List<String> qualifiedTargetTableName = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+        List<String> qualifiedTargetTableName = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
         AbstractInsertExecutor insertExecutor;
         int retryTimes = 0;
