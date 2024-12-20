@@ -399,7 +399,6 @@ Status BaseRowsetBuilder::cancel() {
 void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
                                                      const OlapTableSchemaParam* table_schema_param,
                                                      const TabletSchema& ori_tablet_schema) {
-    _tablet_schema->copy_from(ori_tablet_schema);
     // find the right index id
     int i = 0;
     auto indexes = table_schema_param->indexes();
@@ -408,14 +407,28 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
             break;
         }
     }
-
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
+        _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
         _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
                                                     indexes[i], ori_tablet_schema);
+    } else {
+        _tablet_schema->copy_from(ori_tablet_schema);
     }
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
-        _tablet->update_max_version_schema(_tablet_schema);
+        // After schema change, should include extracted column
+        // For example: a table has two columns, k and v
+        // After adding a column v2, the schema version increases, max_version_schema needs to be updated.
+        // _tablet_schema includes k, v, and v2
+        // if v is a variant, need to add the columns decomposed from the v to the _tablet_schema.
+        if (_tablet_schema->num_variant_columns() > 0) {
+            TabletSchemaSPtr max_version_schema = std::make_shared<TabletSchema>();
+            max_version_schema->copy_from(*_tablet_schema);
+            max_version_schema->copy_extracted_columns(ori_tablet_schema);
+            _tablet->update_max_version_schema(max_version_schema);
+        } else {
+            _tablet->update_max_version_schema(_tablet_schema);
+        }
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());

@@ -462,6 +462,9 @@ public:
 
     bool is_dropped_column(const TabletColumn& col) const;
 
+    // copy extracted columns from src_schema
+    void copy_extracted_columns(const TabletSchema& src_schema);
+
     // only reserve extracted columns
     void reserve_extracted_columns();
 
