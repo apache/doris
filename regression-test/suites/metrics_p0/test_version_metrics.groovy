@@ -24,6 +24,11 @@ suite("test_version_metrics") {
             logger.debug("code:${code} body:${body}");
             assertEquals(200, code)
             assertTrue(body.contains("doris_fe_version"))
+            for (final def line in body.split("\n")) {
+                if (line.contains("doris_fe_version") && !line.contains("#")) {
+                    assertTrue(Long.parseLong(line.split(" ")[1]) >= 0)
+                }
+            }
         }
     }
 
@@ -38,6 +43,11 @@ suite("test_version_metrics") {
             logger.debug("code:${code} body:${body}");
             assertEquals(200, code)
             assertTrue(body.contains("doris_be_version"))
+            for (final def line in body.split("\n")) {
+                if (line.contains("doris_be_version") && !line.contains("#")) {
+                    assertTrue(Long.parseLong(line.split(" ")[1]) >= 0)
+                }
+            }
         }
     }
 
@@ -54,6 +64,11 @@ suite("test_version_metrics") {
                 logger.debug("code:${code} body:${body}");
                 assertEquals(200, code)
                 assertTrue(body.contains("doris_cloud_version"))
+                for (final def line in body.split("\n")) {
+                    if (line.contains("doris_cloud_version") && !line.contains("#")) {
+                        assertTrue(Long.parseLong(line.split(" ")[1]) >= 0)
+                    }
+                }
             }
         }
     }
