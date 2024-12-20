@@ -140,8 +140,15 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
             sql "DROP TABLE IF EXISTS ${testTable_dup}"
             create_httplogs_dup_table.call(testTable_dup)
 
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+                load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+            }
             def res = sql "select COUNT() from ${testTable_dup} where request match 'images'"
-            assertEquals(0, res[0][0])
+            assertEquals(863, res[0][0])
+            sql "TRUNCATE TABLE ${testTable_dup}"
             try {
                 GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
                 load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
@@ -174,7 +181,7 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
                 load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
                 res = sql "select COUNT() from ${test_index_compound_directory} where request match 'gif'"
                 assertEquals(702, res[0][0])
-                // try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+                try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
             } catch(Exception ex) {
                 if (is_enable == "false") {
                     assertTrue(ex.toString().contains("failed to initialize storage reader"))
@@ -193,7 +200,7 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
                 load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
                 res = sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
                 assertEquals(0, res[0][0])
-                // try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+                try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
             }
@@ -205,7 +212,7 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
                 load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
                 res = sql "select COUNT() from ${test_index_compound_directory} where request match 'png'"
                 assertEquals(0, res[0][0])
-                // try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+                try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
             }
