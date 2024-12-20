@@ -49,8 +49,8 @@ public class SortedPartitionRanges<K> {
 
         public PartitionItemAndRange(K id, PartitionItem partitionItem, Range<MultiColumnBound> range) {
             this.id = id;
-            this.partitionItem = partitionItem;
-            this.range = range;
+            this.partitionItem = Objects.requireNonNull(partitionItem, "partitionItem can not be null");
+            this.range = Objects.requireNonNull(range, "range can not be null");
         }
 
         @Override
@@ -66,7 +66,7 @@ public class SortedPartitionRanges<K> {
 
         public PartitionItemAndId(K id, PartitionItem partitionItem) {
             this.id = id;
-            this.partitionItem = partitionItem;
+            this.partitionItem = Objects.requireNonNull(partitionItem, "partitionItem can not be null");
         }
     }
 }
