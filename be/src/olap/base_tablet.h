@@ -146,7 +146,8 @@ public:
                            RowsetSharedPtr rowset, const TupleDescriptor* desc,
                            OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
-
+    bool key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
+                               bool is_segments_key_bounds_truncated);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
