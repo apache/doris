@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
+#include "olap/iterators.h"
 #include "olap/memtable.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
@@ -81,7 +82,9 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                             rowset->rowset_id().to_string(), segid));
     }
     segment_v2::SegmentSharedPtr segment = *it;
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
+    StorageReadOptions opts;
+    opts.stats = stats;
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
