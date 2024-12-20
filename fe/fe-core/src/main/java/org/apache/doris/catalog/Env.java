@@ -6458,11 +6458,7 @@ public class Env {
                 long partitionId = partition.getId();
                 partitionMeta.setId(partitionId);
                 partitionMeta.setName(partition.getName());
-                String partitionRange = "";
-                if (tblPartitionInfo.getType() == PartitionType.RANGE
-                        || tblPartitionInfo.getType() == PartitionType.LIST) {
-                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-                }
+                String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
                 partitionMeta.setRange(partitionRange);
                 partitionMeta.setVisibleVersion(partition.getVisibleVersion());
                 // partitionMeta.setTemp（partition.isTemp());
