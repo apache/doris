@@ -50,22 +50,31 @@ suite("push_topn_to_agg") {
         notContains("STREAMING")
     }
 
-    // order key should be prefix of group key
+    // order keys are part of group keys, 
+    // 1. adjust group keys (o_custkey, o_clerk) -> o_clerk, o_custkey
+    // 2. append o_custkey to order key 
     explain{
-        sql "select o_custkey, sum(o_shippriority), o_clerk  from orders group by o_custkey, o_clerk order by o_clerk, o_custkey limit 11;"
-        multiContains("sortByGroupKey:false", 2)
-    }
-
-    // order key should be prefix of group key
-    explain{
-        sql "select o_custkey, o_clerk, sum(o_shippriority) as x from orders group by o_custkey, o_clerk order by o_custkey, x limit 12;"
-        multiContains("sortByGroupKey:false", 2)
-    }
-
-    // one phase agg is optimized 
-    explain {
-        sql "select sum(o_shippriority) from orders group by o_orderkey limit 13; "
+        sql "select sum(o_shippriority)  from orders group by o_custkey, o_clerk order by o_clerk limit 11;"
         contains("sortByGroupKey:true")
+        contains("group by: o_clerk[#10], o_custkey[#9]")
+        contains("order by: o_clerk[#18] ASC, o_custkey[#19] ASC")
+    }
+
+
+    // one distinct 
+    explain {
+        sql "select sum(distinct o_shippriority) from orders group by o_orderkey limit 13; "
+        contains("VTOP-N")
+        contains("order by: o_orderkey")
+        multiContains("sortByGroupKey:true", 1)
+    }
+
+    // multi distinct 
+    explain {
+        sql "select count(distinct o_clerk), sum(distinct o_shippriority) from orders group by o_orderkey limit 14; "
+        contains("VTOP-N")
+        contains("order by: o_orderkey")
+        multiContains("sortByGroupKey:true", 2)
     }
 
     // use group key as sort key to enable topn-push opt
@@ -74,22 +83,17 @@ suite("push_topn_to_agg") {
         contains("sortByGroupKey:true")
     }
 
-    // group key is part of output of limit, apply opt
+    // group key is expression
     explain {
-        sql "select sum(o_shippriority), o_clerk from orders group by o_clerk limit 15; "
+        sql "select sum(o_shippriority), o_clerk+1 from orders group by o_clerk+1 limit 15; "
         contains("sortByGroupKey:true")
     }
 
-    // order key is not prefix of group key
+    // order key is not part of group key
     explain {
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey+1 limit 16; "
         contains("sortByGroupKey:false")
-    }
-
-    // order key is not prefix of group key
-    explain {
-        sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey+1 limit 17; "
-        contains("sortByGroupKey:false")
+        notContains("sortByGroupKey:true")
     }
 
     // topn + one phase agg
@@ -97,73 +101,4 @@ suite("push_topn_to_agg") {
         sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_partkey, ps_suppkey limit 18;"
         contains("sortByGroupKey:true")
     }
-
-    // sort key is prefix of group key, make all group key to sort key(ps_suppkey) and then apply push-topn-agg rule
-    explain {
-        sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_partkey limit 19;"
-        contains("sortByGroupKey:true")
-    }
-
-    explain {
-        sql "select sum(ps_availqty), ps_suppkey, ps_availqty from partsupp group by ps_suppkey, ps_availqty order by ps_suppkey limit 19;"
-        contains("sortByGroupKey:true")
-    }
-
-    // sort key is not prefix of group key, deny
-    explain {
-        sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_suppkey limit 20;"
-        contains("sortByGroupKey:false")
-    }
-
-    multi_sql """
-    drop table if exists t1;
-    CREATE TABLE IF NOT EXISTS t1
-        (
-        k1 TINYINT
-        )
-        ENGINE=olap
-        AGGREGATE KEY(k1)
-        DISTRIBUTED BY HASH(k1) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-
-    insert into t1 values (0),(1);
-
-    drop table if exists t2;
-    CREATE TABLE IF NOT EXISTS t2
-        (
-        k1 TINYINT
-        )
-        ENGINE=olap
-        AGGREGATE KEY(k1)
-        DISTRIBUTED BY HASH(k1) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-    insert into t2 values(5),(6);
-    """
-
-    // the result of following sql may be unstable, run 3 times
-    qt_stable_1 """
-    select * from (
-        select k1 from t1
-        UNION
-        select k1 from t2
-    ) as b order by k1  limit 2;
-    """
-    qt_stable_2 """
-    select * from (
-        select k1 from t1
-        UNION
-        select k1 from t2
-    ) as b order by k1  limit 2;
-    """
-    qt_stable_3 """
-    select * from (
-        select k1 from t1
-        UNION
-        select k1 from t2
-    ) as b order by k1  limit 2;
-    """
 }

@@ -263,6 +263,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
+    public LogicalAggregate<Plan> withGroupBy(List<Expression> groupByExprList) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressions, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
+    }
+
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
