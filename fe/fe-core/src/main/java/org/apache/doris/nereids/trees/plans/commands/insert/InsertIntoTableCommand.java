@@ -217,7 +217,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
             stmtExecutor.setCoord(insertExecutor.getCoordinator());
             // for prepare and execute, avoiding normalization for every execute command
-            this.originalLogicalQuery = this.logicalQuery;
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
@@ -238,12 +237,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (cte.isPresent()) {
                 this.logicalQuery = Optional.of((LogicalPlan) cte.get().withChildren(logicalQuery.get()));
             }
-            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, this.logicalQuery, this.insertCtx);
+            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
         } finally {
             targetTableIf.readUnlock();
         }
 
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
         return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
     }
 
