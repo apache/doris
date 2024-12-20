@@ -203,7 +203,6 @@ protected:
 
         operator bool() const { return t != nullptr; }
 
-        operator T*() const { return t; }
 
     private:
         T* t = nullptr;
@@ -346,8 +345,8 @@ protected:
         operator const immutable_ptr<T>&() const { return value; }
         operator immutable_ptr<T>&() { return value; }
 
-        operator bool() const { return value != nullptr; }
-        bool operator!() const { return value == nullptr; }
+        operator bool() const { return value.get() != nullptr; }
+        bool operator!() const { return value.get() == nullptr; }
 
         bool operator==(const chameleon_ptr& rhs) const { return value == rhs.value; }
         bool operator!=(const chameleon_ptr& rhs) const { return value != rhs.value; }
