@@ -72,8 +72,9 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
-    std::string cur_rs_last_key;
+bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
+    std::string pre_rs_last_key;
+    bool pre_rs_key_bounds_truncated {false};
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
     for (const auto& rs_split : rs_splits) {
         if (rs_split.rs_reader->rowset()->num_rows() == 0) {
@@ -87,13 +88,17 @@ bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
         if (!has_first_key) {
             return true;
         }
-        if (rs_first_key <= cur_rs_last_key) {
+        bool cur_rs_key_bounds_truncated {
+                rs_split.rs_reader->rowset()->is_segments_key_bounds_truncated()};
+        if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_rs_last_key},
+                                                  pre_rs_key_bounds_truncated, Slice {rs_first_key},
+                                                  cur_rs_key_bounds_truncated)) {
             return true;
         }
-        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&cur_rs_last_key);
+        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&pre_rs_last_key);
+        pre_rs_key_bounds_truncated = cur_rs_key_bounds_truncated;
         CHECK(has_last_key);
     }
-
     return false;
 }
 
@@ -110,7 +115,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // check if rowsets are noneoverlapping
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        _is_rowsets_overlapping = _rowsets_mono_asc_disjoint(read_params);
+        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
         _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                             read_params.read_orderby_key_reverse);
     }

@@ -84,7 +84,8 @@ using namespace ErrorCode;
 
 namespace {
 
-bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
+bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
+                    const RowsetSharedPtr& rhs) {
     size_t min_tidy_size = config::ordered_data_compaction_min_segment_size;
     if (rhs->num_segments() == 0) {
         return true;
@@ -107,11 +108,13 @@ bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     if (!ret) {
         return false;
     }
-    if (min_key <= pre_max_key) {
+    bool cur_rs_key_bounds_truncated {rhs->is_segments_key_bounds_truncated()};
+    if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_max_key}, pre_rs_key_bounds_truncated,
+                                              Slice {min_key}, cur_rs_key_bounds_truncated)) {
         return false;
     }
     CHECK(rhs->last_key(&pre_max_key));
-
+    pre_rs_key_bounds_truncated = cur_rs_key_bounds_truncated;
     return true;
 }
 
@@ -398,8 +401,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     // files to handle compaction
     auto input_size = _input_rowsets.size();
     std::string pre_max_key;
+    bool pre_rs_key_bounds_truncated {false};
     for (auto i = 0; i < input_size; ++i) {
-        if (!is_rowset_tidy(pre_max_key, _input_rowsets[i])) {
+        if (!is_rowset_tidy(pre_max_key, pre_rs_key_bounds_truncated, _input_rowsets[i])) {
             if (i <= input_size / 2) {
                 return false;
             } else {
