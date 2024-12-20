@@ -237,7 +237,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (cte.isPresent()) {
                 this.logicalQuery = Optional.of((LogicalPlan) cte.get().withChildren(logicalQuery.get()));
             }
-            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
+            OlapGroupCommitInsertExecutor.analyzeGroupCommit(
+                    ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
         } finally {
             targetTableIf.readUnlock();
         }
