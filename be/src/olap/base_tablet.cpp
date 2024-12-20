@@ -445,6 +445,16 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     return Status::OK();
 }
 
+bool BaseTablet::key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
+                                       bool is_segments_key_bounds_truncated) {
+    Slice maybe_truncated_min_key {segment_key_bounds.min_key()};
+    Slice maybe_truncated_max_key {segment_key_bounds.max_key()};
+    return Slice::origin_is_strictly_less_than(key, false, maybe_truncated_min_key,
+                                               is_segments_key_bounds_truncated) ||
+           Slice::origin_is_strictly_less_than(maybe_truncated_max_key,
+                                               is_segments_key_bounds_truncated, key, false);
+}
+
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -473,13 +483,14 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             delete_bitmap == nullptr ? _tablet_meta->delete_bitmap_ptr() : delete_bitmap;
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         const auto& rs = specified_rowsets[i];
-        const auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
+        std::vector<KeyBoundsPB> segments_key_bounds;
+        rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
-            if (key_without_seq.compare(segments_key_bounds[j].max_key()) > 0 ||
-                key_without_seq.compare(segments_key_bounds[j].min_key()) < 0) {
+            if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
+                                      rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
             picked_segments.emplace_back(j);
