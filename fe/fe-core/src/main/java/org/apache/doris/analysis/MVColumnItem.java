@@ -66,7 +66,6 @@ public class MVColumnItem {
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
         this.defineExpr = defineExpr;
-        baseColumnNames = new HashSet<>();
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
 
@@ -74,6 +73,8 @@ public class MVColumnItem {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
+        } else {
+            baseColumnNames = new HashSet<>();
         }
     }
 
@@ -107,6 +108,8 @@ public class MVColumnItem {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
+        } else {
+            baseColumnNames = new HashSet<>();
         }
     }
 

@@ -20,16 +20,22 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -94,13 +100,16 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
-    private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,"
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, MERGE_PERCENTILE_TO_ARRAY";
+    private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, "
+            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING";
     private final TableNameInfo name;
+
     private final LogicalPlan logicalPlan;
     private Map<String, String> properties;
     private List<MVColumnItem> mvColumnItemList;
     private MVColumnItem whereClauseItem;
+    private String dbName;
     private String baseIndexName;
     private KeysType mvKeysType;
     private OriginStatement originStatement;
@@ -147,7 +156,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     }
 
     public String getDBName() {
-        return name.getDb();
+        return dbName;
     }
 
     public KeysType getMVKeysType() {
@@ -165,7 +174,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         return whereClauseItem.toMVColumn(olapTable);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    private void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
         Pair<LogicalPlan, CascadesContext> result = analyzeAndRewriteLogicalPlan(logicalPlan, ctx);
         PlanValidator planValidator = new PlanValidator();
@@ -173,7 +182,13 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         mvColumnItemList = planValidator.context.selectItems;
         whereClauseItem = planValidator.context.filterItem;
         mvKeysType = planValidator.context.keysType;
+        dbName = planValidator.context.dbName;
         baseIndexName = planValidator.context.baseIndexName;
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, baseIndexName,
+                        PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
+        }
     }
 
     private Pair<LogicalPlan, CascadesContext> analyzeAndRewriteLogicalPlan(LogicalPlan unboundPlan,
@@ -202,6 +217,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private class ValidateContext {
         public List<MVColumnItem> selectItems;
         public MVColumnItem filterItem;
+        public String dbName;
         public String baseIndexName;
         public KeysType keysType;
         private final PlanTranslatorContext planTranslatorContext;
@@ -231,12 +247,16 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, ValidateContext validateContext) {
             OlapTable olapTable = olapScan.getTable();
             validateContext.baseIndexName = olapTable.getName();
+            validateContext.dbName = olapTable.getDBName();
             validateContext.keysType = olapTable.getKeysType();
             PlanTranslatorContext translatorContext = validateContext.planTranslatorContext;
             TupleDescriptor tupleDescriptor = validateContext.planTranslatorContext.generateTupleDesc();
             tupleDescriptor.setTable(olapTable);
             for (Slot slot : olapScan.getOutput()) {
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
+                SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
+                slotRef.setLabel("`" + slot.getName() + "`");
+                slotRef.setDisableTableName(true);
             }
             return olapScan;
         }
@@ -405,6 +425,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 if (output instanceof Alias) {
                     expr = ((Alias) output).child();
                 }
+                if (expr.isConstant()) {
+                    throw new AnalysisException(String.format(
+                            "The materialized view contain constant expr is disallowed, expr: %s", expr));
+                }
                 Expression ignoreCastExpr = expr instanceof Cast ? ((Cast) expr).child() : expr;
                 if (!(ignoreCastExpr instanceof SlotReference || ignoreCastExpr instanceof BinaryArithmetic
                         || ignoreCastExpr instanceof BoundFunction)) {
@@ -426,7 +450,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                     } else {
                         throw new AnalysisException(String.format(
                                 "The materialized view's expr calculations cannot be included outside"
-                                        + "aggregate functions, expr: %s", expr));
+                                        + " aggregate functions, expr: %s", expr));
                     }
                 } else {
                     if (meetAggFunction) {
