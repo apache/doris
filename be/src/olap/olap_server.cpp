@@ -1044,19 +1044,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     int64_t permits = 0;
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
-    Defer defer {[&]() {
-        _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
-    }};
     if (st.ok() && permits > 0) {
         if (!force) {
             _permit_limiter.request(permits);
         }
-        Defer defer {[&]() {
-            if (!force) {
-                _permit_limiter.release(permits);
-            }
-        }};
         std::unique_ptr<ThreadPool>& thread_pool =
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
@@ -1071,7 +1062,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", min_threads: " << thread_pool->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                            compaction_type]() {
+                                            compaction_type, permits, force, this]() {
+            Defer defer {[&]() {
+                if (!force) {
+                    _permit_limiter.release(permits);
+                }
+                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+            }};
             if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
                 LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                              "task, tablet_id="
@@ -1083,6 +1081,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             tablet->execute_compaction(*compaction);
         });
         if (!st.ok()) {
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
+            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+            tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
                     "tablet_id={}, compaction_type={}.",
@@ -1090,6 +1093,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         }
         return Status::OK();
     } else {
+        _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+        tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
         if (!st.ok()) {
             return Status::InternalError(
                     "failed to prepare compaction task and calculate permits, "
