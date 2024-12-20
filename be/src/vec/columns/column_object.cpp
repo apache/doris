@@ -1946,6 +1946,7 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
+#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
@@ -1960,6 +1961,7 @@ Status ColumnObject::sanitize() const {
     }
 
     VLOG_DEBUG << "sanitized " << debug_string();
+#endif
     return Status::OK();
 }
 
