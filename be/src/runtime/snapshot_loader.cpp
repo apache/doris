@@ -74,7 +74,7 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
-        LOG(FATAL) << "unknown fs type: " << static_cast<int>(fs.type());
+        throw Exception(Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
     }
     return Status::OK();
 }
@@ -807,8 +807,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         }
 
     } else {
-        LOG(FATAL) << "only support overwrite now";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("only support overwrite now"));
     }
 
     // snapshot loader not need to change tablet uid

@@ -129,7 +129,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -150,7 +150,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -171,7 +171,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -211,7 +211,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)
@@ -235,7 +235,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        outfile_url = res[0][3]
+        def outfile_url = res[0][3]
         
         check_outfile_data(outfile_url, outfile_format)
         check_outfile_column_name(outfile_url, outfile_format)

@@ -133,7 +133,7 @@ size_t get_size_of_interger(TypeIndex type) {
     case TypeIndex::UInt128:
         return sizeof(uint128_t);
     default:
-        LOG(FATAL) << "Unknown integer type: " << getTypeName(type);
+        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
         return 0;
     }
 }
@@ -231,8 +231,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,

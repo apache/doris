@@ -181,30 +181,26 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         "compact_column_create_index_writer_error",
         "compact_column_indexCompaction_error",
         "compact_column_index_writer_close_error",
-        "compact_column_src_index_dirs_close_error",
+        "compact_column_delete_tmp_path_error",
         "Compaction::do_inverted_index_compaction_find_rowset_error",
         "Compaction::do_inverted_index_compaction_get_fs_error",
-        "Compaction::do_inverted_index_compaction_index_file_reader_init_error",
-        // "Compaction::do_inverted_index_compaction_file_size_status_not_ok", // v2 do not do index compaction
         "Compaction::do_inverted_index_compaction_can_not_find_index_meta",
-        "Compaction::do_inverted_index_compaction_index_properties_different",
-        "Compaction::do_inverted_index_compaction_index_file_writer_close_not_ok",
-        "Compaction::construct_skip_inverted_index_index_reader_close_error"
+        "Compaction::do_inverted_index_compaction_rowid_conversion_null",
+        "Compaction::do_inverted_index_compaction_seg_path_nullptr",
+        "Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
+        "Compaction::do_inverted_index_compaction_inverted_index_file_writers_size_error"
     ]
 
     def debug_points_normal_compaction = [
-        "compact_column_local_tmp_dir_delete_error",
-        // "Compaction::do_inverted_index_compaction_dest_segment_num_is_zero", // query result not match without inverted index
-        "Compaction::do_inverted_index_compaction_index_file_reader_init_not_found",
         "Compaction::construct_skip_inverted_index_is_skip_index_compaction",
         "Compaction::construct_skip_inverted_index_get_fs_error",
         "Compaction::construct_skip_inverted_index_index_meta_nullptr",
         "Compaction::construct_skip_inverted_index_seg_path_nullptr",
+        "Compaction::do_inverted_index_compaction_index_properties_different",
+        "Compaction::construct_skip_inverted_index_index_files_count",
+        "Compaction::construct_skip_inverted_index_index_reader_close_error",
         "Compaction::construct_skip_inverted_index_index_file_reader_init_status_not_ok",
-        "Compaction::construct_skip_inverted_index_index_file_reader_exist_status_not_ok",
-        "Compaction::construct_skip_inverted_index_index_file_reader_exist_false",
-        "Compaction::construct_skip_inverted_index_index_file_reader_open_error",
-        "Compaction::construct_skip_inverted_index_index_files_count"
+        "Compaction::construct_skip_inverted_index_index_file_reader_open_error"
     ]
 
     def run_test = { tablets, debug_point, abnormal ->
@@ -221,6 +217,9 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
             }
         }
 
+        if (debug_point == "compact_column_delete_tmp_path_error") {
+            set_be_config.call("inverted_index_ram_dir_enable", "false")
+        }
         // before full compaction, there are 7 rowsets.
         int rowsetCount = get_rowset_count.call(tablets);
         assert (rowsetCount == 7 * replicaNum)
@@ -258,6 +257,10 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         }
 
         run_sql.call()
+        
+        if (debug_point == "compact_column_delete_tmp_path_error") {
+            set_be_config.call("inverted_index_ram_dir_enable", "true")
+        }
     }
 
     def create_and_test_table = { table_name, key_type, debug_points, is_abnormal ->

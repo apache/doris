@@ -317,6 +317,14 @@ public class TabletScheduler extends MasterDaemon {
         diskRebalancer.addPrioBackends(stmt.getBackends(), stmt.getTimeoutS());
     }
 
+    public synchronized void rebalanceDisk(List<Backend> backends, long timeoutS) {
+        diskRebalancer.addPrioBackends(backends, timeoutS);
+    }
+
+    public synchronized void cancelRebalanceDisk(List<Backend> backends) {
+        diskRebalancer.removePrioBackends(backends);
+    }
+
     public synchronized void cancelRebalanceDisk(AdminCancelRebalanceDiskStmt stmt) {
         diskRebalancer.removePrioBackends(stmt.getBackends());
     }
@@ -1537,7 +1545,7 @@ public class TabletScheduler extends MasterDaemon {
                 !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
             List<String> backendsInfo = Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values().stream()
-                    .filter(be -> be.getLocationTag() == tag)
+                    .filter(be -> be.getLocationTag().equals(tag))
                     .map(Backend::getDetailsForCreateReplica)
                     .collect(Collectors.toList());
             throw new SchedException(Status.UNRECOVERABLE, String.format("unable to find dest path for new replica"

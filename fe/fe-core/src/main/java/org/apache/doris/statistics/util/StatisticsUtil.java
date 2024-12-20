@@ -223,6 +223,8 @@ public class StatisticsUtil {
         sessionVariable.enablePushDownStringMinMax = true;
         sessionVariable.enableUniqueKeyPartialUpdate = false;
         sessionVariable.enableMaterializedViewRewrite = false;
+        sessionVariable.enableQueryCache = false;
+        sessionVariable.enableSqlCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());

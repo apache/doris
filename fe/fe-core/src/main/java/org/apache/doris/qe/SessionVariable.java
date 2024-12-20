@@ -141,6 +141,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
     public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
+    public static final String DML_PLAN_RETRY_TIMES = "DML_PLAN_RETRY_TIMES";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
 
@@ -1007,6 +1008,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
+
+    @VariableMgr.VarAttr(name = DML_PLAN_RETRY_TIMES, needForward = true, description = {
+            "写入规划的最大重试次数。为了避免死锁，写入规划时采用了分阶段加锁。当在两次加锁中间，表结构发生变更时，会尝试重新规划。"
+                    + "此变量限制重新规划的最大尝试次数。",
+            "Maximum retry attempts for write planning. To avoid deadlocks, "
+                    + "phased locking is adopted during write planning. "
+                    + "When changes occur to the table structure between two locking phases, "
+                    + "re-planning will be attempted. "
+                    + "This variable limits the maximum number of retry attempts for re-planning."
+    })
+    public int dmlPlanRetryTimes = 3;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
@@ -2391,13 +2403,11 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableDeleteSubPredicateV2 = false;
-            this.topnOptLimitThreshold = 0;
             this.enableSyncRuntimeFilterSize = true;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
-            this.topnOptLimitThreshold = 1024;
             this.enableSyncRuntimeFilterSize = false;
         }
 
