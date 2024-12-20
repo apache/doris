@@ -54,7 +54,7 @@ public:
 
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator,
-                        OlapReaderStatistics* index_load_stats = nullptr);
+                        OlapReaderStatistics* index_load_stats);
 
     const TypeInfo* type_info() const { return _type_info; }
 

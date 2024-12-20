@@ -50,6 +50,7 @@ Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory,
 
     _bloom_filter_reader.reset(new IndexedColumnReader(_file_reader, bf_index_meta));
     RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, index_load_stats));
+    update_metadata_size();
     return Status::OK();
 }
 

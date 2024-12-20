@@ -127,7 +127,7 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
     auto st = (*reader)->load(true, false, nullptr);
     EXPECT_TRUE(st.ok());
 
-    st = (*reader)->new_iterator(iter);
+    st = (*reader)->new_iterator(iter, nullptr);
     EXPECT_TRUE(st.ok());
 }
 
