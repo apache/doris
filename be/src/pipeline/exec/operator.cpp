@@ -83,6 +83,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 } // namespace doris
@@ -413,8 +414,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         return nullptr;
     } else if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
                                         MultiCastSharedState>) {
-        LOG(FATAL) << "should not reach here!";
-        return nullptr;
+        throw Exception(Status::FatalError("should not reach here!"));
     } else {
         auto ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
@@ -780,4 +780,5 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSink
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

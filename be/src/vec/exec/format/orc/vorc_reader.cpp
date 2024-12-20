@@ -586,6 +586,10 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
         // only get the predicate_type
         return std::make_tuple(true, orc::Literal(true), predicate_type);
     }
+    // this only happens when the literals of in_predicate contains null value, like in (1, null)
+    if (literal->get_column_ptr()->is_null_at(0)) {
+        return std::make_tuple(false, orc::Literal(false), predicate_type);
+    }
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
@@ -666,12 +670,13 @@ bool OrcReader::_check_rest_children_can_push_down(const VExprSPtr& expr) {
         return false;
     }
 
+    bool at_least_one_child_can_push_down = false;
     for (size_t i = 1; i < expr->children().size(); ++i) {
-        if (!_check_literal_can_push_down(expr, i)) {
-            return false;
+        if (_check_literal_can_push_down(expr, i)) {
+            at_least_one_child_can_push_down = true;
         }
     }
-    return true;
+    return at_least_one_child_can_push_down;
 }
 
 // check if the expr can be pushed down to orc reader
@@ -774,12 +779,17 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
     for (size_t i = 1; i < expr->children().size(); ++i) {
         DCHECK(expr->children()[i]->is_literal());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-        DCHECK(_vliteral_to_orc_literal.contains(literal));
-        auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-        literals.emplace_back(orc_literal);
+        if (_vliteral_to_orc_literal.contains(literal)) {
+            auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+            literals.emplace_back(orc_literal);
+        }
     }
     DCHECK(!literals.empty());
-    builder->in(slot_ref->expr_name(), predicate_type, literals);
+    if (literals.size() == 1) {
+        builder->equals(slot_ref->expr_name(), predicate_type, literals[0]);
+    } else {
+        builder->in(slot_ref->expr_name(), predicate_type, literals);
+    }
 }
 
 void OrcReader::_build_is_null(const VExprSPtr& expr,

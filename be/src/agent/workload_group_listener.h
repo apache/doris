@@ -20,9 +20,10 @@
 #include <glog/logging.h>
 
 #include "agent/topic_listener.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
+
+class ExecEnv;
 
 class WorkloadGroupListener : public TopicListener {
 public:

@@ -136,7 +136,7 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VMatchPredicate.execute", {

@@ -111,9 +111,11 @@ public:
                                          std::unique_ptr<ColumnIterator>* iter,
                                          const StorageReadOptions* opt);
 
-    Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
+    Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
+                               std::unique_ptr<ColumnIterator>* iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                     const StorageReadOptions& read_options,
                                      std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
@@ -238,7 +240,7 @@ private:
 
     Status _open_inverted_index();
 
-    Status _create_column_readers_once();
+    Status _create_column_readers_once(OlapReaderStatistics* stats);
 
 private:
     friend class SegmentIterator;
