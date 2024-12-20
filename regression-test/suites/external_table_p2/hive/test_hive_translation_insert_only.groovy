@@ -17,29 +17,34 @@
 
 suite("test_hive_translation_insert_only", "p2,external,hive,external_remote,external_remote_hive") {
 
-    if (false) {
-        String hms_catalog_name = "test_hive_translation_insert_only"
-        sql """drop catalog if exists ${hms_catalog_name};"""
-        sql """
-            CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
-            PROPERTIES ( 
-                'hive.version' = '3.1.3',
-                'type'='hms'
-            );
-        """
-
-        logger.info("catalog " + hms_catalog_name + " created")
-        sql """switch ${hms_catalog_name};"""
-        logger.info("switched to catalog " + hms_catalog_name)
-        sql """ use regression;"""
-
-        qt_1 """ select * from text_insert_only order by id """ 
-        qt_2 """ select * from parquet_insert_only_major order by id """ 
-        qt_3 """ select * from orc_insert_only_minor order by id """ 
-
-
-        sql """drop catalog ${hms_catalog_name};"""
+    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+    //hudi hive use same catalog in p2.
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable test")
     }
+
+    String props = context.config.otherConfigs.get("hudiEmrCatalog")    
+    String hms_catalog_name = "test_hive_translation_insert_only"
+
+    sql """drop catalog if exists ${hms_catalog_name};"""
+    sql """
+        CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
+        PROPERTIES ( 
+            ${props}
+            ,'hive.version' = '3.1.3'
+        );
+    """
+
+    logger.info("catalog " + hms_catalog_name + " created")
+    sql """switch ${hms_catalog_name};"""
+    logger.info("switched to catalog " + hms_catalog_name)
+    sql """ use regression;"""
+
+    qt_1 """ select * from text_insert_only order by id """ 
+    qt_2 """ select * from parquet_insert_only_major order by id """ 
+    qt_3 """ select * from orc_insert_only_minor order by id """ 
+
+    sql """drop catalog ${hms_catalog_name};"""
 }
 
 
