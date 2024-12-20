@@ -315,7 +315,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    EXPECT_TRUE(column != nullptr);
+    EXPECT_TRUE(column);
 
     for (int i = 0; i < row_size; ++i) {
         // update current line
