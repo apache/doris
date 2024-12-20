@@ -454,7 +454,7 @@ public:
 
     bool empty() const;
 
-    // Check if all columns and types are aligned
+    // Check if all columns and types are aligned, only in debug mode
     Status sanitize() const;
 
     std::string debug_string() const;
