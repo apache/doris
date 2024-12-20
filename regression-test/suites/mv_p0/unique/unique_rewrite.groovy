@@ -96,6 +96,10 @@ suite("mv_on_unique_table") {
     AS
     ${mv1}
     """)
+
+    def desc_all_mv1 = sql """desc lineitem_2_uniq all;"""
+    logger.info("desc mv1 is" + desc_all_mv1)
+
     explain {
         sql("""${query1}""")
         check {result ->
@@ -124,6 +128,11 @@ suite("mv_on_unique_table") {
     AS
     ${mv2}
     """)
+
+    def desc_all_mv2 = sql """desc lineitem_2_uniq all;"""
+    logger.info("desc mv2 is" + desc_all_mv2)
+    // If exec on fe follower, wait meta data is ready on follower
+    Thread.sleep(2000)
     explain {
         sql("""${query2}""")
         check {result ->

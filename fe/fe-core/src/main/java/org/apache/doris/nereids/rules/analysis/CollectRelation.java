@@ -29,6 +29,7 @@ import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -197,7 +198,13 @@ public class CollectRelation implements AnalysisRuleFactory {
                 try {
                     for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
                         LOG.info("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
-                        cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(), TableFrom.MTMV);
+                        try {
+                            cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
+                                    TableFrom.MTMV);
+                        } catch (AnalysisException exception) {
+                            LOG.warn("mtmv related base table get err, related table is "
+                                            + baseTableInfo.toList(), exception);
+                        }
                     }
                 } finally {
                     mtmv.readMvUnlock();
