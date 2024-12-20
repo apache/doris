@@ -1047,6 +1047,21 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     _table_id = tablet_schema.table_id();
 }
 
+void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schema) {
+    *this = tablet_schema;
+    _field_path_to_index.clear();
+    _field_name_to_index.clear();
+    _field_id_to_index.clear();
+    _num_columns = 0;
+    _num_variant_columns = 0;
+    _num_null_columns = 0;
+    _num_key_columns = 0;
+    _cols.clear();
+    _vl_field_mem_size = 0;
+    // notice : do not ref columns
+    _column_cache_handlers.clear();
+}
+
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
     for (auto& col : _cols) {
         if (col->unique_id() < 0) {
