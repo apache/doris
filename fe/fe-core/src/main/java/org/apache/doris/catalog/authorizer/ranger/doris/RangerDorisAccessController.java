@@ -45,19 +45,34 @@ import java.util.stream.Collectors;
 public class RangerDorisAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
     private RangerBasePlugin dorisPlugin;
+
+    private static RangerDorisAccessController instance;
+
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
 
-    public RangerDorisAccessController(String serviceName) {
+    private RangerDorisAccessController(String serviceName) {
         this(serviceName, null);
     }
 
-    public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
+    private RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         dorisPlugin = new RangerDorisPlugin(serviceName, rangerAuthContextListener);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+    }
+
+    public static RangerDorisAccessController getInstance(String serviceName) {
+        return getInstance(serviceName, null);
+    }
+
+    public static synchronized RangerDorisAccessController getInstance(String serviceName,
+            RangerAuthContextListener rangerAuthContextListener) {
+        if (instance == null) {
+            instance = new RangerDorisAccessController(serviceName, rangerAuthContextListener);
+        }
+        return instance;
     }
 
     @VisibleForTesting

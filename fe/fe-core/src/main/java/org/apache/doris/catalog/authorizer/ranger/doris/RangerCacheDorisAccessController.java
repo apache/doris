@@ -28,7 +28,8 @@ public class RangerCacheDorisAccessController extends CatalogCacheAccessControll
 
     public RangerCacheDorisAccessController(String serviceName) {
         this.cache = new RangerCache();
-        this.proxyController = new RangerDorisAccessController(serviceName, new RangerCacheInvalidateListener(cache));
+        this.proxyController = RangerDorisAccessController.getInstance(serviceName,
+            new RangerCacheInvalidateListener(cache));
         this.cache.init(proxyController);
     }
 
