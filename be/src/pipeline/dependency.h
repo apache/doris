@@ -723,8 +723,7 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
     case ExchangeType::LOCAL_MERGE_SORT:
         return "LOCAL_MERGE_SORT";
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
@@ -758,7 +757,7 @@ public:
         }
     }
     void sub_running_sink_operators();
-    void sub_running_source_operators(LocalExchangeSourceLocalState& local_state);
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
             DCHECK(dep);

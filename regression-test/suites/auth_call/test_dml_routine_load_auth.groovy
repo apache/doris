@@ -68,7 +68,7 @@ suite("test_dml_routine_load_auth","p0,auth_call") {
             PROPERTIES("replication_num" = "1");
             ;"""
 
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user,  "${pwd}",  context.config.jdbcUrl) {
             test {
                 sql """
                 CREATE ROUTINE LOAD ${dbName}.${labelName} ON ${tableName}
@@ -86,7 +86,7 @@ suite("test_dml_routine_load_auth","p0,auth_call") {
         }
 
         sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user,  "${pwd}",  context.config.jdbcUrl) {
             sql """
                 CREATE ROUTINE LOAD ${dbName}.${labelName} ON ${tableName}
                 COLUMNS(a,b),
@@ -101,7 +101,7 @@ suite("test_dml_routine_load_auth","p0,auth_call") {
         }
         sql """revoke load_priv on ${dbName}.${tableName} from ${user}"""
 
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user,  "${pwd}",  context.config.jdbcUrl) {
             test {
                 sql """
                 ALTER ROUTINE LOAD FOR ${dbName}.${labelName}
@@ -130,7 +130,7 @@ suite("test_dml_routine_load_auth","p0,auth_call") {
             }
         }
         sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-        connect(user = user, password = "${pwd}", url = context.config.jdbcUrl) {
+        connect(user,  "${pwd}",  context.config.jdbcUrl) {
             sql """PAUSE ROUTINE LOAD FOR ${dbName}.${labelName};"""
             sql """
             ALTER ROUTINE LOAD FOR ${dbName}.${labelName}

@@ -237,18 +237,18 @@ public:
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
-        LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
-                   << this->debug_string();
-        return nullptr;
+        throw Exception(Status::FatalError(
+                "Method 'get_bloom_filter_func()' is not supported in expression: {}",
+                this->debug_string()));
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
     // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
     virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        LOG(FATAL) << "Method 'get_bitmap_filter_func()' is not supported in expression: "
-                   << this->debug_string();
-        return nullptr;
+        throw Exception(Status::FatalError(
+                "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
+                this->debug_string()));
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
@@ -328,7 +328,6 @@ protected:
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
-    bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
 };
 

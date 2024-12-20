@@ -230,6 +230,11 @@ void refresh_memory_state_after_memory_change() {
 }
 
 void refresh_cache_capacity() {
+    if (doris::GlobalMemoryArbitrator::cache_adjust_capacity_notify.load(
+                std::memory_order_relaxed)) {
+        // the last cache capacity adjustment has not been completed.
+        return;
+    }
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
         auto cache_capacity_reduce_mem_limit = int64_t(
                 doris::MemInfo::soft_mem_limit() * config::cache_capacity_reduce_mem_limit_frac);
@@ -247,6 +252,8 @@ void refresh_cache_capacity() {
                     new_cache_capacity_adjust_weighted;
             doris::GlobalMemoryArbitrator::notify_cache_adjust_capacity();
             refresh_cache_capacity_sleep_time_ms = config::memory_gc_sleep_time_ms;
+        } else {
+            refresh_cache_capacity_sleep_time_ms = 0;
         }
     }
     refresh_cache_capacity_sleep_time_ms -= config::memory_maintenance_sleep_time_ms;
@@ -437,6 +444,8 @@ void Daemon::calculate_metrics_thread() {
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);
+
+                DorisMetrics::instance()->system_metrics()->update_be_avail_cpu_num();
             }
             update_rowsets_and_segments_num_metrics();
         }

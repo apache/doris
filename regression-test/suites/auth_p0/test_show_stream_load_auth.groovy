@@ -59,13 +59,13 @@ suite("test_show_stream_load_auth","p0,auth") {
 
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
        res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
        log.info(res.toString())
        assertFalse(res.toString().contains("${label}"))
     }
     sql """grant load_priv on regression_test_auth_p0.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
        res = sql "SHOW STREAM LOAD from regression_test_auth_p0 where label = '${label}'"
        log.info(res.toString())
        assertTrue(res.toString().contains("${label}"))

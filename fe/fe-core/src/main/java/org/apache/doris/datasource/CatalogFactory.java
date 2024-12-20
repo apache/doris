@@ -37,6 +37,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -81,6 +82,15 @@ public class CatalogFactory {
     public static CatalogIf createFromLog(CatalogLog log) throws DdlException {
         return createCatalog(log.getCatalogId(), log.getCatalogName(), log.getResource(),
                 log.getComment(), log.getProps(), true);
+    }
+
+    /**
+     * create the catalog instance from CreateCatalogCommand.
+     */
+    public static CatalogIf createFromCommand(long catalogId, CreateCatalogCommand cmd)
+            throws DdlException {
+        return createCatalog(catalogId, cmd.getCatalogName(), cmd.getResource(),
+                cmd.getComment(), cmd.getProperties(), false);
     }
 
     /**

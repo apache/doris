@@ -20,6 +20,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX;
 
@@ -78,4 +79,5 @@ protected:
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

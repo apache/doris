@@ -99,8 +99,7 @@ public:
     };
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override {
-        LOG(FATAL) << "not implemeted";
-        return nullptr;
+        throw Exception(Status::FatalError("not implemeted"));
     }
 
     PUniqueId load_id() override { return _context.load_id; }

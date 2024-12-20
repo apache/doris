@@ -26,6 +26,7 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 using SpillPartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class SpillRunnable : public Runnable {
@@ -70,4 +71,5 @@ private:
     std::function<void()> _func;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

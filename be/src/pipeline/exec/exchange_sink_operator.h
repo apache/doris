@@ -26,10 +26,12 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "operator.h"
+#include "pipeline/shuffle/writer.h"
 #include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 class TDataSink;
 
@@ -38,20 +40,6 @@ namespace pipeline {
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;
-
-private:
-    class HashPartitionFunction {
-    public:
-        HashPartitionFunction(vectorized::PartitionerBase* partitioner)
-                : _partitioner(partitioner) {}
-
-        int get_partition(vectorized::Block* block, int position) {
-            return _partitioner->get_channel_ids().get<uint32_t>()[position];
-        }
-
-    private:
-        vectorized::PartitionerBase* _partitioner;
-    };
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -106,19 +94,20 @@ public:
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
-    static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
-        return Status::OK();
+    RuntimeProfile::Counter* send_new_partition_timer() { return _send_new_partition_timer; }
+    RuntimeProfile::Counter* add_partition_request_timer() { return _add_partition_request_timer; }
+    RuntimeProfile::Counter* split_block_hash_compute_timer() {
+        return _split_block_hash_compute_timer;
     }
-    Status _send_new_partition_batch(vectorized::Block* input_block);
+    RuntimeProfile::Counter* distribute_rows_into_channels_timer() {
+        return _distribute_rows_into_channels_timer;
+    }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool only_local_exchange {false};
 
     void on_channel_finished(InstanceLoId channel_id);
-
-    // for external table sink hash partition
-    std::unique_ptr<vectorized::ScaleWriterPartitioningExchanger<HashPartitionFunction>>
-            scale_writer_partitioning_exchanger;
+    vectorized::PartitionerBase* partitioner() const { return _partitioner.get(); }
 
 private:
     friend class ExchangeSinkOperatorX;
@@ -176,28 +165,16 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<Writer> _writer;
     size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
 
     // for shuffle data by partition and tablet
-    int64_t _txn_id = -1;
-    vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
-    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
-    std::unique_ptr<vectorized::OlapTabletFinder> _tablet_finder = nullptr;
-    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
-    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
-    TupleDescriptor* _tablet_sink_tuple_desc = nullptr;
-    RowDescriptor* _tablet_sink_row_desc = nullptr;
-    OlapTableLocationParam* _location = nullptr;
-    vectorized::VRowDistribution _row_distribution;
+
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
-    std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
-    int64_t _number_input_rows = 0;
     TPartitionType::type _part_type;
 
-    // for external table sink hash partition
-    std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
     int _last_local_channel_idx = -1;
 
@@ -228,25 +205,14 @@ public:
     // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
     // (Note: This does not reduce the total number of RPCs.)
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
-    /// TODO: Modify this to let FE handle the judgment instead of BE.
     std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(InstanceLoId sender_ins_id);
+    vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
 private:
     friend class ExchangeSinkLocalState;
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
-
-    Status channel_add_rows(RuntimeState* state,
-                            std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                            size_t num_channels, const uint32_t* __restrict channel_ids,
-                            size_t rows, vectorized::Block* block, bool eos);
-
-    Status channel_add_rows_with_idx(RuntimeState* state,
-                                     std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                                     size_t num_channels,
-                                     std::vector<std::vector<uint32_t>>& channel2rows,
-                                     vectorized::Block* block, bool eos);
 
     // Use ExchangeSinkOperatorX to create a sink buffer.
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
@@ -293,8 +259,12 @@ private:
     size_t _data_processed = 0;
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
+    // If dest_is_merge is true, it indicates that the corresponding receiver is a VMERGING-EXCHANGE.
+    // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
+    const bool _dest_is_merge;
     const std::vector<TUniqueId>& _fragment_instance_ids;
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris
