@@ -692,6 +692,7 @@ public class Alter {
         String tableName = dbTableName.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
         modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
+        Env.getCurrentEnv().getMtmvService().alterTable(view, tableName);
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,

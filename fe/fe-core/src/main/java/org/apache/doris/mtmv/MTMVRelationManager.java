@@ -62,12 +62,29 @@ public class MTMVRelationManager implements MTMVHookService {
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevel = Maps.newConcurrentMap();
 
+    // when
+    // create mv1 as select * from v1;
+    // create v1 as select * from v2;
+    // `viewMTMVs` will have 2 pais: v1==>mv1, v2==>mv1
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> viewMTMVs = Maps.newConcurrentMap();
+
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
     }
 
     public Set<BaseTableInfo> getMtmvsByBaseTableOneLevel(BaseTableInfo table) {
         return tableMTMVsOneLevel.getOrDefault(table, ImmutableSet.of());
+    }
+
+    public Set<BaseTableInfo> getMtmvsByView(BaseTableInfo table) {
+        return viewMTMVs.getOrDefault(table, ImmutableSet.of());
+    }
+
+    public Set<BaseTableInfo> getShouldSchemaChangeMtmvs(BaseTableInfo table) {
+        Set<BaseTableInfo> res = Sets.newHashSet();
+        res.addAll(getMtmvsByBaseTableOneLevel(table));
+        res.addAll(getMtmvsByView(table));
+        return res;
     }
 
     /**
@@ -144,6 +161,13 @@ public class MTMVRelationManager implements MTMVHookService {
         return tableMTMVsOneLevel.get(baseTableInfo);
     }
 
+    private Set<BaseTableInfo> getOrCreateViewMTMVs(BaseTableInfo baseTableInfo) {
+        if (!viewMTMVs.containsKey(baseTableInfo)) {
+            viewMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
+        }
+        return viewMTMVs.get(baseTableInfo);
+    }
+
     public void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
         LOG.info("refreshMTMVCache,relation: {}, mtmvInfo: {}", relation, mtmvInfo);
         removeMTMV(mtmvInfo);
@@ -155,7 +179,7 @@ public class MTMVRelationManager implements MTMVHookService {
             return;
         }
         addMTMVTables(relation.getBaseTables(), mtmvInfo);
-        addMTMVTables(relation.getBaseViews(), mtmvInfo);
+        addMTMVViews(relation.getBaseViews(), mtmvInfo);
         addMTMVTablesOneLevel(relation.getBaseTablesOneLevel(), mtmvInfo);
     }
 
@@ -177,11 +201,23 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
+    private void addMTMVViews(Set<BaseTableInfo> baseTables, BaseTableInfo mtmvInfo) {
+        if (CollectionUtils.isEmpty(baseTables)) {
+            return;
+        }
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            getOrCreateViewMTMVs(baseTableInfo).add(mtmvInfo);
+        }
+    }
+
     private void removeMTMV(BaseTableInfo mtmvInfo) {
         for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
             sets.remove(mtmvInfo);
         }
         for (Set<BaseTableInfo> sets : tableMTMVsOneLevel.values()) {
+            sets.remove(mtmvInfo);
+        }
+        for (Set<BaseTableInfo> sets : viewMTMVs.values()) {
             sets.remove(mtmvInfo);
         }
     }
@@ -280,7 +316,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix) {
-        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
+        Set<BaseTableInfo> mtmvsByBaseTable = getShouldSchemaChangeMtmvs(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
         }
