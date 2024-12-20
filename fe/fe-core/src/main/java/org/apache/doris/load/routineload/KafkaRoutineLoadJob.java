@@ -227,7 +227,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
                             maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000,
-                            taskKafkaProgress, isMultiTable());
+                            taskKafkaProgress, isMultiTable(), -1, false);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
