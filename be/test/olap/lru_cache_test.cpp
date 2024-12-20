@@ -325,7 +325,74 @@ TEST_F(CacheTest, Usage) {
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(0, cache.get_usage()); // evict 298 698, because 950 + 98 > 1040, so insert failed
+    ASSERT_EQ(
+            0,
+            cache.get_usage()); // evict 298 698, because 950 + 98 > 1040, data was freed when handle release.
+
+    CacheKey key8("900");
+    insert_LRUCache(cache, key8, 900, CachePriority::NORMAL);
+    ASSERT_EQ(998, cache.get_usage()); // 900 + 98 < 1050
+}
+
+TEST_F(CacheTest, UsageLRUK) {
+    LRUCache cache(LRUCacheType::SIZE, true);
+    cache.set_capacity(1050);
+
+    // The lru usage is handle_size + charge.
+    // handle_size = sizeof(handle) - 1 + key size = 96 - 1 + 3 = 98
+    CacheKey key1("100");
+    insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
+    ASSERT_EQ(198, cache.get_usage()); // 100 + 98
+
+    CacheKey key2("200");
+    insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
+    ASSERT_EQ(496, cache.get_usage()); // 198 + 298(d), d = DURABLE
+
+    CacheKey key3("300");
+    insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
+    ASSERT_EQ(894, cache.get_usage()); // 198 + 298(d) + 398
+
+    CacheKey key4("400");
+    insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
+    // Data cache is full, not insert, visits lru cache not exist key=498(400 + 98) and insert it.
+    ASSERT_EQ(894, cache.get_usage());
+
+    insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
+    // Data cache 298(d) + 498, evict 198 398. visits lru cache exist key=498
+    // and erase from visits lru cache, insert to Data cache.
+    ASSERT_EQ(796, cache.get_usage());
+
+    CacheKey key5("500");
+    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    // Data cache is full, not insert, visits lru cache not exist key=598(500 + 98) and insert it.
+    ASSERT_EQ(796, cache.get_usage());
+
+    CacheKey key6("600");
+    insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
+    // Data cache is full, not insert, visits lru cache not exist key=698(600 + 98) and insert it,
+    // visits lru cache is full, evict key=598 from visits lru cache.
+    ASSERT_EQ(796, cache.get_usage());
+
+    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    // Data cache is full, not insert, visits lru cache not exist key=598 and insert it.
+    // visits lru cache is full, evict key=698 from visits lru cache.
+    ASSERT_EQ(796, cache.get_usage());
+
+    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    // Data cache 298(d) + 598, evict 498. visits lru cache exist key=598
+    // and erase from visits lru cache, insert to Data cache.
+    ASSERT_EQ(896, cache.get_usage());
+
+    CacheKey key7("980");
+    insert_LRUCache(cache, key7, 980, CachePriority::DURABLE);
+    // Data cache is full, not insert, visits lru cache not exist key=1078(980 + 98)
+    // but 1078 > capacity(1050), not insert visits lru cache.
+    ASSERT_EQ(896, cache.get_usage());
+
+    insert_LRUCache(cache, key7, 980, CachePriority::DURABLE);
+    // Ssame as above, data cache is full, not insert, visits lru cache not exist key=1078(980 + 98)
+    // but 1078 > capacity(1050), not insert visits lru cache.
+    ASSERT_EQ(896, cache.get_usage());
 }
 
 TEST_F(CacheTest, Prune) {

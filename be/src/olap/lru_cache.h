@@ -62,6 +62,7 @@ enum LRUCacheType {
 static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
 static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 32;
 static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
+static constexpr bool DEFAULT_LRU_CACHE_IS_LRU_K = false;
 
 class CacheKey {
 public:
@@ -180,6 +181,10 @@ public:
     //
     // When the inserted entry is no longer needed, the key and
     // value will be passed to "deleter".
+    //
+    // if cache is lru k and cache is full, first insert of key will not succeed.
+    //
+    // Note: if is ShardedLRUCache, cache capacity = ShardedLRUCache_capacity / num_shards.
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            CachePriority priority = CachePriority::NORMAL) = 0;
 
@@ -326,8 +331,11 @@ using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 // A single shard of sharded cache.
 class LRUCache {
 public:
-    LRUCache(LRUCacheType type);
+    LRUCache(LRUCacheType type, bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K);
     ~LRUCache();
+
+    using visits_lru_cache_key = uint32_t;
+    using visits_lru_cache_pair = std::pair<visits_lru_cache_key, size_t>;
 
     // Separate from constructor so caller can easily make an array of LRUCache
     PrunedInfo set_capacity(size_t capacity);
@@ -365,6 +373,7 @@ private:
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
     bool _check_element_count_limit();
+    bool _lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key visits_key);
 
 private:
     LRUCacheType _type;
@@ -396,6 +405,13 @@ private:
     LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
 
     uint32_t _element_count_capacity = 0;
+
+    bool _is_lru_k = false; // LRU-K algorithm, K=2
+    std::list<visits_lru_cache_pair> _visits_lru_cache_list;
+    std::unordered_map<visits_lru_cache_key, std::list<visits_lru_cache_pair>::iterator>
+            _visits_lru_cache_map;
+    size_t _visits_lru_cache_usage = 0;
+    std::mutex _visits_lru_cache_mutex;
 };
 
 class ShardedLRUCache : public Cache {
@@ -420,11 +436,12 @@ private:
     friend class LRUCachePolicy;
 
     explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_capacity);
+                             uint32_t num_shards, uint32_t element_count_capacity, bool is_lru_k);
     explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_capacity);
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity,
+                             bool is_lru_k);
 
     void update_cache_metrics() const;
 
