@@ -41,6 +41,8 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
@@ -214,7 +216,7 @@ public class MinidumpUtils {
         }
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 new StatementContext(ConnectContext.get(), new OriginStatement(sql, 0)));
-        nereidsPlanner.planWithLock(LogicalPlanAdapter.of(parsed));
+        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         return ((AbstractPlan) nereidsPlanner.getOptimizedPlan()).toJson();
     }
 
@@ -460,10 +462,11 @@ public class MinidumpUtils {
     /**
      * This function is used to serialize inputs of one query
      * @param parsedPlan input plan
-     * @param tables all tables relative to this query
+     * @param statementContext context for this query
      * @throws IOException this will write to disk, so io exception should be dealed with
      */
-    public static void serializeInputsToDumpFile(Plan parsedPlan, List<TableIf> tables) throws IOException {
+    public static void serializeInputsToDumpFile(Plan parsedPlan, StatementContext statementContext)
+            throws IOException {
         ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
         if (connectContext.getSessionVariable().isPlayNereidsDump()
@@ -477,7 +480,10 @@ public class MinidumpUtils {
             connectContext.getSessionVariable().setMinidumpPath("defaultMinidumpPath");
         }
         MinidumpUtils.init();
-        connectContext.setMinidump(serializeInputs(parsedPlan, tables));
+        Map<List<String>, TableIf> allTablesUsedInQuery = Maps.newHashMap();
+        allTablesUsedInQuery.putAll(statementContext.getTables());
+        allTablesUsedInQuery.putAll(statementContext.getMtmvRelatedTables());
+        connectContext.setMinidump(serializeInputs(parsedPlan, Lists.newArrayList(allTablesUsedInQuery.values())));
     }
 
     /**

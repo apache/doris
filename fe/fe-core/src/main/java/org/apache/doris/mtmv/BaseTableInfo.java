@@ -26,10 +26,13 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 public class BaseTableInfo {
     private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
@@ -166,5 +169,9 @@ public class BaseTableInfo {
         } catch (AnalysisException e) {
             LOG.warn("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
         }
+    }
+
+    public List<String> toList() {
+        return Lists.newArrayList(getCtlName(), getDbName(), getTableName());
     }
 }

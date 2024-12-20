@@ -393,6 +393,14 @@ public class InsertUtils {
      * get target table from names.
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
+        List<String> tableQualifier = getTargetTableQualified(plan, ctx);
+        return RelationUtil.getTable(tableQualifier, ctx.getEnv());
+    }
+
+    /**
+     * get target table from names.
+     */
+    public static List<String> getTargetTableQualified(Plan plan, ConnectContext ctx) {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
@@ -407,8 +415,7 @@ public class InsertUtils {
                     + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
                     + " but it is " + plan.getType());
         }
-        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
-        return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
+        return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }
 
     private static NamedExpression generateDefaultExpression(Column column) {

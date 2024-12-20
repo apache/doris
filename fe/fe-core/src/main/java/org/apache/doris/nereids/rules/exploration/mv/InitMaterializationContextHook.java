@@ -26,9 +26,6 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -70,30 +67,17 @@ public class InitMaterializationContextHook implements PlannerHook {
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
         if (cascadesContext.getConnectContext().getSessionVariable().isInDebugMode()) {
-            LOG.info(String.format("MaterializationContext init return because is in debug mode, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()));
+            LOG.info("MaterializationContext init return because is in debug mode, current queryId is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return;
         }
-        // Only collect the table or mv which query use directly, to avoid useless mv partition in rewrite
-        // Keep use one connection context when in query, if new connect context,
-        // the ConnectionContext.get() will change
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), false,
-                cascadesContext.getConnectContext());
-        try {
-            Plan rewritePlan = cascadesContext.getRewritePlan();
-            rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
-        } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext init table collect fail, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
-            return;
-        }
-        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = Sets.newHashSet(cascadesContext.getStatementContext().getTables().values());
         if (collectedTables.isEmpty()) {
             return;
         }
         // Create async materialization context
         for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
-                collectorContext.getCollectedTables())) {
+                collectedTables)) {
             cascadesContext.addMaterializationContext(context);
         }
     }

@@ -224,6 +224,10 @@ public class NereidsSqlCacheManager {
             SqlCacheContext sqlCacheContext, UserIdentity currentUserIdentity) {
         Env env = connectContext.getEnv();
 
+        if (!tryLockTables(connectContext, env, sqlCacheContext)) {
+            return invalidateCache(key);
+        }
+
         // check table and view and their columns authority
         if (privilegeChanged(connectContext, env, sqlCacheContext)) {
             return invalidateCache(key);
@@ -377,16 +381,38 @@ public class NereidsSqlCacheManager {
         return false;
     }
 
-    private boolean privilegeChanged(ConnectContext connectContext, Env env, SqlCacheContext sqlCacheContext) {
+    /**
+     * Execute table locking operations in ascending order of table IDs.
+     *
+     * @return true if obtain all tables lock.
+     */
+    private boolean tryLockTables(ConnectContext connectContext, Env env, SqlCacheContext sqlCacheContext) {
         StatementContext currentStatementContext = connectContext.getStatementContext();
+        for (FullTableName fullTableName : sqlCacheContext.getUsedTables()) {
+            TableIf tableIf = findTableIf(env, fullTableName);
+            if (tableIf == null) {
+                return false;
+            }
+            currentStatementContext.getTables().put(fullTableName.toList(), tableIf);
+        }
+        for (FullTableName fullTableName : sqlCacheContext.getUsedViews().keySet()) {
+            TableIf tableIf = findTableIf(env, fullTableName);
+            if (tableIf == null) {
+                return false;
+            }
+            currentStatementContext.getTables().put(fullTableName.toList(), tableIf);
+        }
+        currentStatementContext.lock();
+        return true;
+    }
+
+    private boolean privilegeChanged(ConnectContext connectContext, Env env, SqlCacheContext sqlCacheContext) {
         for (Entry<FullTableName, Set<String>> kv : sqlCacheContext.getCheckPrivilegeTablesOrViews().entrySet()) {
             Set<String> usedColumns = kv.getValue();
             TableIf tableIf = findTableIf(env, kv.getKey());
             if (tableIf == null) {
                 return true;
             }
-            // release when close statementContext
-            currentStatementContext.addTableReadLock(tableIf);
             try {
                 UserAuthentication.checkPermission(tableIf, connectContext, usedColumns);
             } catch (Throwable t) {
