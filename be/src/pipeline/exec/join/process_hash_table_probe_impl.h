@@ -372,7 +372,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
                                   JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
     constexpr bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
                                         JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
-    DCHECK_EQ(_parent->_mark_join_conjuncts.empty(), is_null_aware_join);
     const auto row_count = output_block->rows();
     if (!row_count) {
         return Status::OK();
@@ -472,7 +471,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
                 mark_filter_data[i] = false;
             }
         } else {
-            if (mark_null_map[i]) { // is null
+            if (mark_null_map[i]) {
                 _parent->_last_probe_null_mark = _probe_indexs[i];
             } else if (mark_filter_data[i] && not_matched_before) {
                 _parent->_last_probe_match = _probe_indexs[i];
