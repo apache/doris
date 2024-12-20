@@ -123,9 +123,8 @@ public:
 
     void close_on_error() override {
         try {
-            if (_index_writer) {
-                _index_writer->close();
-            }
+            // delete index file must be done before close index writer
+            // because index writer will close the directory, the files in RAMDirectory will be cleared.
             if (_dir) {
                 _dir->deleteDirectory();
                 io::Path cfs_path(_dir->getCfsDirName());
@@ -133,6 +132,9 @@ public:
                 std::string idx_name = std::string(cfs_path.stem().c_str()) +
                                        DorisCompoundDirectory::COMPOUND_FILE_EXTENSION;
                 _dir->deleteFile(idx_name.c_str());
+            }
+            if (_index_writer) {
+                _index_writer->close();
             }
         } catch (CLuceneError& e) {
             LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
@@ -676,6 +678,9 @@ private:
     std::unique_ptr<lucene::document::Document> _doc {};
     lucene::document::Field* _field {};
     bool _single_field = true;
+    // Since _index_writer's write.lock is created by _dir.lockFactory,
+    // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
+    std::unique_ptr<DorisCompoundDirectory> _dir;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
     std::unique_ptr<lucene::util::Reader> _char_string_reader {};
@@ -687,7 +692,6 @@ private:
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;
     std::wstring _field_name;
-    std::unique_ptr<DorisCompoundDirectory> _dir;
     uint32_t _ignore_above;
 };
 
