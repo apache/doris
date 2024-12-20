@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -38,8 +39,12 @@ public class LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN extends O
                     .build()
                     .transform(topN.getLogicalTopN(), ctx.cascadesContext)
                     .get(0);
-            return wrap(physicalTopN, topN, wrap((PhysicalTopN<? extends Plan>) physicalTopN.child(), topN,
-                    ((PhysicalTopN<?>) physicalTopN.child()).child()));
+            if (physicalTopN.getSortPhase() == SortPhase.MERGE_SORT) {
+                return wrap(physicalTopN, topN, wrap((PhysicalTopN<? extends Plan>) physicalTopN.child(), topN,
+                        ((PhysicalTopN<?>) physicalTopN.child()).child()));
+            } else {
+                return wrap(physicalTopN, topN, physicalTopN.child());
+            }
 
         }).toRule(RuleType.LOGICAL_DEFER_MATERIALIZE_TOP_N_TO_PHYSICAL_DEFER_MATERIALIZE_TOP_N_RULE);
     }
