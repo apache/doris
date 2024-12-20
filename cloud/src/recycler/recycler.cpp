@@ -2293,7 +2293,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
         int64_t final_expiration =
                 recycle_txn_pb.creation_time() + config::label_keep_max_second * 1000L;
         if (earlest_ts > final_expiration / 1000) {
-            earlest_ts = final_expiration;
+            earlest_ts = final_expiration / 1000;
             g_bvar_recycler_recycle_expired_txn_label_earlest_ts.put(instance_id_, earlest_ts);
         }
         return final_expiration;
