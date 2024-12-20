@@ -323,7 +323,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     String colNamesStr = joiner.join(colNames);
                     partitionInfo.add(colNamesStr);
                     trow.addToColumnValue(new TCell().setStringVal(colNamesStr));
-                    String itemStr = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                    String itemStr = tblPartitionInfo.getPartitionRangeString(partitionId);
                     partitionInfo.add(itemStr);
                     trow.addToColumnValue(new TCell().setStringVal(itemStr));
                 } else {
