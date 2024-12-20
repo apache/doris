@@ -28,9 +28,9 @@ public:
     ConcurrentQueueOrder() = default;
     ~ConcurrentQueueOrder() override = default;
 };
-// The previously used moodycamel::ConcurrentQueue does not guarantee that the enqueue order matches the dequeue order,  
-// even when there is only a single producer and a single consumer.  
-// Refer to this issue: https://github.com/cameron314/concurrentqueue/issues/316  
+// The previously used moodycamel::ConcurrentQueue does not guarantee that the enqueue order matches the dequeue order,
+// even when there is only a single producer and a single consumer.
+// Refer to this issue: https://github.com/cameron314/concurrentqueue/issues/316
 // We can use tokens to ensure the correct order.
 TEST_F(ConcurrentQueueOrder, test_not_guarantee_order) {
     {
