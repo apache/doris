@@ -1071,7 +1071,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", min_threads: " << thread_pool->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                            compaction_type, permits, force, this]() {
+                                            compaction_type, this]() {
             if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
                 LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                              "task, tablet_id="
