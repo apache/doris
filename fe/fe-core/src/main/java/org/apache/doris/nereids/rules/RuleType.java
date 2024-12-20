@@ -26,9 +26,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 public enum RuleType {
     // just for UT
     TEST_REWRITE(RuleTypeClass.REWRITE),
-    // binding rules
 
-    // **** make sure BINDING_UNBOUND_LOGICAL_PLAN is the lowest priority in the rewrite rules. ****
+    // collect relation rules
+    COLLECT_TABLE_FROM_CTE(RuleTypeClass.REWRITE),
+    COLLECT_TABLE_FROM_RELATION(RuleTypeClass.REWRITE),
+    COLLECT_TABLE_FROM_SINK(RuleTypeClass.REWRITE),
+    COLLECT_TABLE_FROM_OTHER(RuleTypeClass.REWRITE),
+
+    // binding rules
     BINDING_RESULT_SINK(RuleTypeClass.REWRITE),
     BINDING_INSERT_HIVE_TABLE(RuleTypeClass.REWRITE),
     BINDING_INSERT_ICEBERG_TABLE(RuleTypeClass.REWRITE),

@@ -236,6 +236,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1349,6 +1350,7 @@ public class StmtExecutor {
             }
             // table id in tableList is in ascending order because that table map is a sorted map
             List<TableIf> tables = Lists.newArrayList(tableMap.values());
+            tables.sort((Comparator.comparing(TableIf::getId)));
             int analyzeTimes = 2;
             if (Config.isCloudMode()) {
                 // be core and be restarted, need retry more times
@@ -2380,6 +2382,7 @@ public class StmtExecutor {
                             response.getStatus(), i);
                     if (i < maxRetry) {
                         List<TableIf> tables = Lists.newArrayList(insertStmt.getTargetTable());
+                        tables.sort((Comparator.comparing(TableIf::getId)));
                         MetaLockUtils.readLockTables(tables);
                         try {
                             insertStmt.reset();
