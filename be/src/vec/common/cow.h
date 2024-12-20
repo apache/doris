@@ -203,7 +203,6 @@ protected:
 
         operator bool() const { return t != nullptr; }
 
-
     private:
         T* t = nullptr;
     };
