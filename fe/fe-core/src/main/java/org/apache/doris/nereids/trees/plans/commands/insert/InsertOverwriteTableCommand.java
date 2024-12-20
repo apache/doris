@@ -91,7 +91,6 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private final Optional<LogicalPlan> cte;
     private AtomicBoolean isCancelled = new AtomicBoolean(false);
     private AtomicBoolean isRunning = new AtomicBoolean(false);
-    private Optional<CascadesContext> analyzeContext;
 
     /**
      * constructor
@@ -103,7 +102,6 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         this.logicalQuery = Optional.empty();
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.cte = cte;
-        this.analyzeContext = Optional.empty();
     }
 
     public void setLabelName(Optional<String> labelName) {
@@ -133,7 +131,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
-        this.analyzeContext = Optional.of(
+        Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
         this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
