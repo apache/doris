@@ -1990,6 +1990,12 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
 }
 
+void SegmentIterator::_clear_iterators() {
+    _column_iterators.clear();
+    _bitmap_index_iterators.clear();
+    _inverted_index_iterators.clear();
+}
+
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // TEMP column in block is not allowed here, need to erase.
     block->erase_tmp_columns();
@@ -2094,6 +2100,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
         block->clear_column_data();
+        // clear and release iterators memory footprint in advance
+        _clear_iterators();
         return Status::EndOfFile("no more data in segment");
     }
 
