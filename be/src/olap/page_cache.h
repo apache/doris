@@ -97,7 +97,8 @@ public:
         DataPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicyTrackingAllocator(
                           CachePolicy::CacheType::DATA_PAGE_CACHE, capacity, LRUCacheType::SIZE,
-                          config::data_page_cache_stale_sweep_time_sec, num_shards) {}
+                          config::data_page_cache_stale_sweep_time_sec, num_shards,
+                          DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, true, true) {}
     };
 
     class IndexPageCache : public LRUCachePolicyTrackingAllocator {
