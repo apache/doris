@@ -312,6 +312,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     def tablets = sql_return_maparray """show tablets from ${table_name}"""
     def exit_code, stdout, stderr
 
+    def auto_compaction_disabled = sql("show create table ${table_name}")[0][1].contains('"disable_auto_compaction" = "true"')
+
     // 1. cache compaction status
     def be_tablet_compaction_status = [:]
     for (tablet in tablets) {
@@ -324,6 +326,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         be_tablet_compaction_status.put("${be_host}-${tablet.TabletId}", tabletStatus)
     }
     // 2. trigger compaction
+    def triggered_tablets = []
     for (tablet in tablets) {
         def be_host = backendId_to_backendIP["${tablet.BackendId}"]
         def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
@@ -339,12 +342,23 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 break
         }
         assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+        def trigger_status = parseJson(stdout.trim())
+        if (trigger_status.status.toLowerCase() != "success") {
+            if (auto_compaction_disabled) {
+                // ignore the error if auto compaction is disabled
+            } else {
+                throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
+            }
+        } else {
+            triggered_tablets.add(tablet)
+        }
     }
+
     // 3. wait all compaction finished
-    def running = true
+    def running = triggered_tablets.size() > 0
     while (running) {
         Thread.sleep(500)
-        for (tablet in tablets) {
+        for (tablet in triggered_tablets) {
             def be_host = backendId_to_backendIP["${tablet.BackendId}"]
             def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
 
