@@ -54,9 +54,11 @@ SPEC_ARCHIVES=(
 )
 while [[ $# -gt 0 ]]; do
     GIVEN_LIB=$1
+    GIVEN_LIB_LOWER="$(echo ${GIVEN_LIB} | awk '{print tolower($0)}')"
     SPEC_LIB=
     for TP_ARCH in "${TP_ARCHIVES[@]}"; do
-        if [[ "${GIVEN_LIB,,}" = "${TP_ARCH,,}" ]]; then
+        TP_ARCH_LOWER="$(echo ${TP_ARCH} | awk '{print tolower($0)}')"
+        if [[ "${GIVEN_LIB_LOWER}" = "${TP_ARCH_LOWER}" ]]; then
             SPEC_LIB=${TP_ARCH}
             break
         fi
