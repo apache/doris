@@ -358,9 +358,9 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
             assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
             def tabletStatus = parseJson(stdout.trim())
-            def oldStatus = be_tablet_compaction_status["${be_host}-${tablet.TabletId}"]
+            def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
             // last compaction success time isn't updated, indicates compaction is not started(so we treat it as running and wait)
-            running = running || (oldStatus["last ${compaction_type} success time"] != tabletStatus["last ${compaction_type} success time"])
+            running = running || (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
             if (running) {
                 break
             }
