@@ -107,11 +107,11 @@ TEST_F(StoragePageCacheTest, data_page_only) {
     for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcde", 0, i);
         PageCacheHandle handle;
-        auto* data = new DataPage(1024);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(key, data, &handle, page_type, false);
         auto found = cache.lookup(key, &handle, page_type); // after handle destruct, free data.
         EXPECT_FALSE(found);
-        data = new DataPage(1024);
+        data = new DataPage(1024, true, page_type);
         cache.insert(key, data, &handle, page_type, false);
         found = cache.lookup(key, &handle, page_type);
         EXPECT_TRUE(found);
