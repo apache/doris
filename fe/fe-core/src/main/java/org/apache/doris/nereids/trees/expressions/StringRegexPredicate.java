@@ -51,7 +51,7 @@ public abstract class StringRegexPredicate extends ScalarFunction
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return '(' + left().toSql() + ' ' + getName() + ' ' + right().toSql() + ')';
     }
 

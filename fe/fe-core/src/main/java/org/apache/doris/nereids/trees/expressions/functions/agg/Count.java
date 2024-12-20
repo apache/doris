@@ -119,11 +119,11 @@ public class Count extends AggregateFunction
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         if (isStar) {
             return "count(*)";
         }
-        return super.toSql();
+        return super.computeToSql();
     }
 
     @Override

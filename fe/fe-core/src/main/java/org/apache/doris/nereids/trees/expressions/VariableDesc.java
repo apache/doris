@@ -50,7 +50,7 @@ public class VariableDesc extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return toString();
     }
 

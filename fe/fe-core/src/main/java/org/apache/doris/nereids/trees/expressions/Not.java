@@ -97,7 +97,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "( not " + child().toSql() + ")";
     }
 
