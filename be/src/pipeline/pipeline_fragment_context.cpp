@@ -654,7 +654,7 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     RETURN_IF_ERROR(_create_operator(pool, tnodes[*node_idx], request, descs, op, cur_pipe,
                                      parent == nullptr ? -1 : parent->node_id(), child_idx,
                                      followed_by_shuffled_operator));
-
+    RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {
         // add to parent's child(s)
@@ -697,8 +697,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
                     *node_idx, tnodes.size());
         }
     }
-
-    RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
 
     return Status::OK();
 }

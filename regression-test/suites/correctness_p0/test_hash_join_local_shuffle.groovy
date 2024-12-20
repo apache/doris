@@ -1,0 +1,87 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// The cases is copied from https://github.com/trinodb/trino/tree/master
+// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
+// and modified by Doris.
+
+suite("test_hash_join_local_shuffle") {
+
+    sql """drop table if exists test1;drop table if exists test2;drop table if exists test4;drop table if exists test3;"""
+    sql """ 
+    CREATE TABLE `test1` (
+              `id1` bigint,
+              `id2` bigint,
+              `id3` bigint,
+              `id4` bigint,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id1`) BUCKETS 96
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1"
+            );
+
+    CREATE TABLE `test2` (
+              `id1` bigint,
+              `id2` bigint,
+              `id3` bigint,
+              `id4` bigint,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id1`) BUCKETS 96
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1"
+            );
+
+    CREATE TABLE `test3` (
+              `id1` bigint,
+              `id2` bigint,
+              `id3` bigint,
+              `id4` bigint,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id1`) BUCKETS 96
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1"
+            );
+
+    CREATE TABLE `test4` (
+              `id1` bigint,
+              `id2` bigint,
+              `id3` bigint,
+              `id4` bigint,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id1`) BUCKETS 96
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1"
+            );
+
+    insert into test1 values(1,2,3,4);
+    insert into test2 values(1,2,3,4);
+    insert into test3 values(1,2,3,4);
+    insert into test4 values(1,2,3,4); """
+
+    qt_select """
+    select /*+ SET_VAR(disable_join_reorder=true)*/ * from   (select tmp2.id1,tmp2.id3,tmp2.id4,count(distinct tmp2.id2) from (select tmp1.id1, tmp1.id2, tmp1.id3, tmp1.id4 from   (select test3.id1,test3.id2,test3.id3,test3.id4 from test2 join[shuffle] test3 on test2.id3 = test3.id3) tmp1 join [broadcast] test4 on test4.id2 = tmp1.id2) tmp2 group by tmp2.id1, tmp2.id3, tmp2.id4) tmp join [shuffle]  test1 on test1.id3 = tmp.id3;
+    """
+     
+}
