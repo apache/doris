@@ -22,6 +22,9 @@ suite("fold_constant_by_be") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_constant_by_be=true'
 
+    qt_sql """ select hex(from_base64('wr2JEDVXzL9+2XtRhgIloA==')); """
+    qt_sql """ select hex(s) from (select from_base64('wr2JEDVXzL9+2XtRhgIloA==') as s) t; """
+
     test {
         sql '''
             select if(
@@ -32,8 +35,8 @@ suite("fold_constant_by_be") {
         result([['9999-07-31']])
     }
 
-    sql """ 
-        CREATE TABLE IF NOT EXISTS str_tb (k1 VARCHAR(10) NULL, v1 STRING NULL) 
+    sql """
+        CREATE TABLE IF NOT EXISTS str_tb (k1 VARCHAR(10) NULL, v1 STRING NULL)
         UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
     """
 
@@ -49,7 +52,7 @@ suite("fold_constant_by_be") {
     qt_sql "explain select sleep(sign(1)*100);"
     sql 'set query_timeout=12;'
     qt_sql "select sleep(sign(1)*10);"
-    
+
     explain {
         sql("verbose select substring('123456', 1, 3)")
         contains "varchar(3)"
