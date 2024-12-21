@@ -1068,7 +1068,6 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    _vl_field_mem_size = 0;
     // notice : do not ref columns
     _column_cache_handlers.clear();
 }
