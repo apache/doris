@@ -147,7 +147,7 @@ public abstract class ExternalCatalog
     protected PreExecutionAuthenticator preExecutionAuthenticator;
 
     private volatile Configuration cachedConf = null;
-    private final byte[] confLock = new byte[0];
+    private byte[] confLock = new byte[0];
 
     public ExternalCatalog() {
     }
@@ -773,6 +773,7 @@ public abstract class ExternalCatalog
             }
         }
         this.propLock = new byte[0];
+        this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
     }
