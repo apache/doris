@@ -107,7 +107,10 @@ public class FetchRemoteTabletSchemaUtil {
         }
         // pick 2 random coordinator
         Collections.shuffle(coordinatorBackend);
-        coordinatorBackend = coordinatorBackend.subList(0, 2);
+        if (!coordinatorBackend.isEmpty()) {
+            coordinatorBackend = coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()));
+            LOG.debug("pick coordinator backend {}", coordinatorBackend.get(0));
+        }
         PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
                                                                     .addAllTabletLocation(locations)
                                                                     .setIsCoordinator(true);
