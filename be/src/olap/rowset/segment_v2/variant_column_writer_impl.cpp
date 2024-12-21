@@ -47,16 +47,12 @@ Status VariantColumnWriterImpl::init() {
     // caculate stats info
     std::set<std::string> subcolumn_paths;
     RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(subcolumn_paths));
-    if (subcolumn_paths.empty()) {
-        _column = vectorized::ColumnObject::create(true, false);
-    } else {
-        // create root
-        auto col = vectorized::ColumnObject::create(true, true);
-        for (const auto& str_path : subcolumn_paths) {
-            DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
-        }
-        _column = std::move(col);
+
+    auto col = vectorized::ColumnObject::create(true);
+    for (const auto& str_path : subcolumn_paths) {
+        DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
     }
+    _column = std::move(col);
     if (_tablet_column->is_nullable()) {
         _null_column = vectorized::ColumnUInt8::create(0);
     }
@@ -91,6 +87,9 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
                 it->second += size;
             }
             for (const auto& [path, size] : source_statistics->sparse_column_non_null_size) {
+                if (path.empty()) {
+                    CHECK(false);
+                }
                 auto it = path_to_total_number_of_non_null_values.find(path);
                 if (it == path_to_total_number_of_non_null_values.end()) {
                     it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
@@ -112,7 +111,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         // Fill subcolumn_paths with first subcolumn paths in sorted list.
         // reserve 1 for root column
         for (const auto& [size, path] : paths_with_sizes) {
-            if (paths.size() < config::variant_max_subcolumns_count - 1) {
+            if (paths.size() < config::variant_max_subcolumns_count) {
                 VLOG_DEBUG << "pick " << path << " as subcolumn";
                 paths.emplace(path);
             }
@@ -215,6 +214,11 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
     // convert sub column data from engine format to storage layer format
     for (const auto& entry :
          vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+        const auto& least_common_type = entry->data.get_least_common_type();
+        if (is_nothing(remove_nullable(
+                    vectorized::schema_util::get_base_type_of_array(least_common_type)))) {
+            continue;
+        }
         if (entry->path.empty()) {
             // already handled
             continue;
@@ -328,13 +332,14 @@ Status VariantColumnWriterImpl::finalize() {
 
     DCHECK(ptr->is_finalized());
 
-    if (ptr->is_null_root()) {
-        auto root_type = vectorized::make_nullable(
-                std::make_shared<vectorized::ColumnObject::MostCommonType>());
-        auto root_col = root_type->create_column();
-        root_col->insert_many_defaults(ptr->rows());
-        ptr->create_root(root_type, std::move(root_col));
-    }
+    // if (ptr->is_null_root()) {
+    //     CHECK(false);
+    //     // auto root_type = vectorized::make_nullable(
+    //     //         std::make_shared<vectorized::ColumnObject::MostCommonType>());
+    //     // auto root_col = root_type->create_column();
+    //     // root_col->insert_many_defaults(ptr->rows());
+    //     // ptr->create_root(root_type, std::move(root_col));
+    // }
 
 #ifndef NDEBUG
     ptr->check_consistency();

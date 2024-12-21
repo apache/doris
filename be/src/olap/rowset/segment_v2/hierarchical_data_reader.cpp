@@ -29,6 +29,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/json/path_in_data.h"
 
@@ -193,7 +194,7 @@ Status HierarchicalDataReader::_process_nested_columns(
     // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
     // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
     for (const auto& entry : nested_subcolumns) {
-        MutableColumnPtr nested_object = ColumnObject::create(true, false);
+        MutableColumnPtr nested_object = ColumnObject::create(true);
         const auto* base_array =
                 check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
         MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
@@ -245,10 +246,8 @@ Status HierarchicalDataReader::_process_nested_columns(
 Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& container,
                                                size_t nrows) {
     using namespace vectorized;
-    // build variant as container
-    container = ColumnObject::create(true, false);
-    auto& container_variant = assert_cast<ColumnObject&>(*container);
 
+    // build variant as container
     // add root first
     if (_path.get_parts().empty() && _root_reader) {
         // auto& root_var =
@@ -259,16 +258,28 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
         //                 : assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
         // auto column = root_var.get_root();
         // auto type = root_var.get_root_type();
+
         MutableColumnPtr column = _root_reader->column->get_ptr();
-        container_variant.add_sub_column({}, std::move(column), _root_reader->type);
+        // container_variant.add_sub_column({}, std::move(column), _root_reader->type);
+        DCHECK(column->size() == nrows);
+        container = ColumnObject::create(_root_reader->type, std::move(column));
+    } else {
+        auto root_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TypeIndex::Nothing, true);
+        MutableColumnPtr column = root_type->create_column();
+        column->insert_many_defaults(nrows);
+        container = ColumnObject::create(root_type, std::move(column));
     }
+
+    auto& container_variant = assert_cast<ColumnObject&>(*container);
+
     // parent path -> subcolumns
     std::map<PathInData, PathsWithColumnAndType> nested_subcolumns;
     PathsWithColumnAndType non_nested_subcolumns;
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
         MutableColumnPtr column = node.data.column->get_ptr();
         PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
-
+        DCHECK(column->size() == nrows);
         if (node.path.has_nested_part()) {
             CHECK_EQ(getTypeName(remove_nullable(node.data.type)->get_type_id()),
                      getTypeName(TypeIndex::Array));
@@ -301,6 +312,7 @@ static std::string_view get_sub_path(const std::string_view& path, const std::st
 Status HierarchicalDataReader::_process_sparse_column(vectorized::ColumnObject& container_variant,
                                                       size_t nrows) {
     using namespace vectorized;
+    container_variant.clear_sparse_column();
     if (!_sparse_column_reader) {
         container_variant.get_sparse_column()->assume_mutable()->insert_many_defaults(nrows);
         return Status::OK();

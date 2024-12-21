@@ -151,7 +151,7 @@ private:
                     result_column->insert_default();
                 }
             }
-            *result = ColumnObject::create(true, type, std::move(result_column));
+            *result = ColumnObject::create(type, std::move(result_column));
             (*result)->assume_mutable()->finalize();
             return Status::OK();
         } else {
@@ -162,8 +162,7 @@ private:
             const auto* node = subcolumns.find_exact(path);
             MutableColumnPtr result_col;
             if (node != nullptr) {
-                // Create without root, since root will be added
-                result_col = ColumnObject::create(true, false /*should not create root*/);
+                result_col = ColumnObject::create(true);
                 std::vector<decltype(node)> nodes;
                 PathsInData paths;
                 ColumnObject::Subcolumns::get_leaves_of_node(node, nodes, paths);
@@ -186,10 +185,10 @@ private:
                             nodes[0]->data.get_finalized_column_ptr()->assume_mutable(),
                             nodes[0]->data.get_least_common_type(), true, true});
                 }
-                auto container = ColumnObject::create(std::move(new_subcolumns), true);
+                auto container = ColumnObject::create(std::move(new_subcolumns));
                 result_col->insert_range_from(*container, 0, container->size());
             } else {
-                // Create with root, otherwise the root type maybe type Nothing
+                // Create with root, otherwise the root type maybe type Nothing ?
                 result_col = ColumnObject::create(true);
                 result_col->insert_many_defaults(src.size());
             }
