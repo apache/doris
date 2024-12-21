@@ -385,30 +385,21 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     uint8_t* mark_filter_data = nullptr;
     uint8_t* mark_null_map = nullptr;
 
-    if constexpr (is_null_aware_join) {
+    if (is_null_aware_join) {
         // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
         // the result should be null. Like:
         // select 4 not in (2, 3, null) => null, select 4 not in (2, 3) => true
         // select 4 in (2, 3, null) => null, select 4 in (2, 3) => false
-        const bool should_be_null_if_build_side_has_null = *_has_null_in_build_side;
-
         mark_column.resize(row_count);
         mark_filter_data = filter.data();
         mark_null_map = mark_column.get_null_map_data().data();
 
-        int last_probe_matched = -1;
         for (size_t i = 0; i != row_count; ++i) {
             mark_filter_data[i] = _build_indexs[i] != 0;
             if constexpr (with_other_conjuncts) {
                 mark_null_map[i] = _null_flags[i];
             } else {
-                if (mark_filter_data[i]) {
-                    last_probe_matched = _probe_indexs[i];
-                    mark_null_map[i] = false;
-                } else {
-                    mark_null_map[i] = (should_be_null_if_build_side_has_null &&
-                                        last_probe_matched != _probe_indexs[i]);
-                }
+                mark_null_map[i] = false;
             }
         }
 
