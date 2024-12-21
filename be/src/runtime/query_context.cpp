@@ -26,11 +26,9 @@
 #include <exception>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <utility>
 
 #include "common/logging.h"
-#include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
@@ -74,12 +72,11 @@ const std::string toString(QuerySource queryType) {
 
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
+                           bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
         : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
-          _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
           _query_options(query_options),
           _query_source(query_source) {
@@ -89,7 +86,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
+            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker, true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -180,8 +177,7 @@ QueryContext::~QueryContext() {
         }
     }
 
-    //TODO: check if pipeline and tracing both enabled
-    if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
+    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
         try {
             ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
         } catch (std::exception& e) {
@@ -198,7 +194,8 @@ QueryContext::~QueryContext() {
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
-    LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
+    // the only one msg shows query's end. any other msg should append to it if need.
+    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
@@ -326,14 +323,13 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
     }
 }
 
-Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
+void QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group = tg;
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                          &_memtable_flush_pool, &_remote_scan_task_scheduler);
-    return Status::OK();
 }
 
 void QueryContext::add_fragment_profile(

@@ -27,6 +27,7 @@
 #include <thread>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/map-util.h"
 #include "gutil/port.h"
@@ -75,7 +76,8 @@ ThreadPoolBuilder& ThreadPoolBuilder::set_max_queue_size(int max_queue_size) {
     return *this;
 }
 
-ThreadPoolBuilder& ThreadPoolBuilder::set_cgroup_cpu_ctl(CgroupCpuCtl* cgroup_cpu_ctl) {
+ThreadPoolBuilder& ThreadPoolBuilder::set_cgroup_cpu_ctl(
+        std::weak_ptr<CgroupCpuCtl> cgroup_cpu_ctl) {
     _cgroup_cpu_ctl = cgroup_cpu_ctl;
     return *this;
 }
@@ -193,7 +195,7 @@ void ThreadPoolToken::transition(State new_state) {
         CHECK(false); // QUIESCED is a terminal state
         break;
     default:
-        LOG(FATAL) << "Unknown token state: " << _state;
+        throw Exception(Status::FatalError("Unknown token state: {}", _state));
     }
 #endif
 
@@ -476,8 +478,8 @@ void ThreadPool::dispatch_thread() {
     _num_threads++;
     _num_threads_pending_start--;
 
-    if (_cgroup_cpu_ctl != nullptr) {
-        static_cast<void>(_cgroup_cpu_ctl->add_thread_to_cgroup());
+    if (std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_sptr = _cgroup_cpu_ctl.lock()) {
+        static_cast<void>(cg_cpu_ctl_sptr->add_thread_to_cgroup());
     }
 
     // Owned by this worker thread and added/removed from _idle_threads as needed.
@@ -615,10 +617,10 @@ Status ThreadPool::create_thread() {
 void ThreadPool::check_not_pool_thread_unlocked() {
     Thread* current = Thread::current_thread();
     if (ContainsKey(_threads, current)) {
-        LOG(FATAL) << strings::Substitute(
-                "Thread belonging to thread pool '$0' with "
-                "name '$1' called pool function that would result in deadlock",
-                _name, current->name());
+        throw Exception(
+                Status::FatalError("Thread belonging to thread pool {} with "
+                                   "name {} called pool function that would result in deadlock",
+                                   _name, current->name()));
     }
 }
 

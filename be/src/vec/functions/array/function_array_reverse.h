@@ -28,7 +28,7 @@
 namespace doris::vectorized {
 
 struct ArrayReverseImpl {
-    static Status _execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status _execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                            size_t input_rows_count) {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();

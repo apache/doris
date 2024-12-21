@@ -33,6 +33,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -116,10 +117,8 @@ private:
     RowsetState _rowset_state;
 };
 
-class Rowset : public std::enable_shared_from_this<Rowset> {
+class Rowset : public std::enable_shared_from_this<Rowset>, public MetadataAdder<Rowset> {
 public:
-    virtual ~Rowset();
-
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
     //
@@ -149,7 +148,8 @@ public:
     int64_t start_version() const { return rowset_meta()->version().first; }
     int64_t end_version() const { return rowset_meta()->version().second; }
     size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
-    size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
+    size_t data_disk_size() const { return rowset_meta()->data_disk_size(); }
+    size_t total_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
     bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
     size_t num_rows() const { return rowset_meta()->num_rows(); }

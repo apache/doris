@@ -33,14 +33,12 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,20 +76,12 @@ public class InitMaterializationContextHook implements PlannerHook {
      * @param cascadesContext current cascadesContext in the planner
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
-        // Only collect the table or mv which query use directly, to avoid useless mv partition in rewrite
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), false);
-        try {
-            Plan rewritePlan = cascadesContext.getRewritePlan();
-            // Keep use one connection context when in query, if new connect context,
-            // the ConnectionContext.get() will change
-            collectorContext.setConnectContext(cascadesContext.getConnectContext());
-            rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
-        } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext init table collect fail, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+        if (cascadesContext.getConnectContext().getSessionVariable().isInDebugMode()) {
+            LOG.info("MaterializationContext init return because is in debug mode, current queryId is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
             return;
         }
-        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
+        Set<TableIf> collectedTables = Sets.newHashSet(cascadesContext.getStatementContext().getTables().values());
         if (collectedTables.isEmpty()) {
             return;
         }
@@ -109,7 +99,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         // Create async materialization context
         for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
-                collectorContext.getCollectedTables())) {
+                collectedTables)) {
             cascadesContext.addMaterializationContext(context);
         }
     }
@@ -127,8 +117,15 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     private List<MaterializationContext> createAsyncMaterializationContext(CascadesContext cascadesContext,
             Set<TableIf> usedTables) {
-        Set<MTMV> availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
-        if (availableMTMVs.isEmpty()) {
+        Set<MTMV> availableMTMVs;
+        try {
+            availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
+        } catch (Exception e) {
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
+                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+            return ImmutableList.of();
+        }
+        if (CollectionUtils.isEmpty(availableMTMVs)) {
             LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
                     + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();

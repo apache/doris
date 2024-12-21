@@ -253,19 +253,15 @@ public class CloudPartition extends Partition {
             LOG.debug("get version from meta service, partitions: {}, versions: {}", partitionIds, versions);
         }
 
-        if (isEmptyPartitionPruneDisabled()) {
-            ArrayList<Long> news = new ArrayList<>();
-            for (Long v : versions) {
-                news.add(v == -1 ? 1 : v);
-            }
-            return news;
-        }
-
         if (versionUpdateTimesMs != null) {
             versionUpdateTimesMs.addAll(resp.getVersionUpdateTimeMsList());
         }
 
-        return versions;
+        ArrayList<Long> news = new ArrayList<>();
+        for (Long v : versions) {
+            news.add(v == -1 ?  Partition.PARTITION_INIT_VERSION : v);
+        }
+        return news;
     }
 
     @Override

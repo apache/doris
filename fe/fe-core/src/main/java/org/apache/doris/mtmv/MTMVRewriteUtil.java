@@ -51,8 +51,8 @@ public class MTMVRewriteUtil {
             return res;
         }
         // check mv is normal
-        if (mtmv.getStatus().getState() != MTMVState.NORMAL
-                || mtmv.getStatus().getRefreshState() == MTMVRefreshState.INIT) {
+        MTMVStatus mtmvStatus = mtmv.getStatus();
+        if (mtmvStatus.getState() != MTMVState.NORMAL || mtmvStatus.getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
         MTMVRefreshContext refreshContext = null;
@@ -64,10 +64,16 @@ public class MTMVRewriteUtil {
                 res.add(partition);
                 continue;
             }
-            try {
-                if (refreshContext == null) {
+            if (refreshContext == null) {
+                try {
                     refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                } catch (AnalysisException e) {
+                    LOG.warn("buildContext failed", e);
+                    // After failure, one should quickly return to avoid repeated failures
+                    return res;
                 }
+            }
+            try {
                 if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
                         mtmvRelation.getBaseTablesOneLevel(),
                         Sets.newHashSet())) {

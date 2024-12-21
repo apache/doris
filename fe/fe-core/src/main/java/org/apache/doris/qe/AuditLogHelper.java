@@ -32,10 +32,12 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -186,6 +188,8 @@ public class AuditLogHelper {
         String cluster = Config.isCloudMode() ? cloudCluster : "";
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
+        // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
+        auditEventBuilder.reset();
         auditEventBuilder
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
@@ -208,7 +212,8 @@ public class AuditLogHelper {
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
-                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
+                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables())
+                .setCommandType(ctx.getCommand().toString());
 
         if (ctx.getState().isQuery()) {
             if (!ctx.getSessionVariable().internalSession) {
@@ -244,6 +249,7 @@ public class AuditLogHelper {
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     auditEventBuilder.setSqlDigest(sqlDigest);
+                    MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
                 }
             }
             auditEventBuilder.setIsQuery(true)
@@ -259,16 +265,28 @@ public class AuditLogHelper {
         auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            auditEventBuilder.setStmt(parsedStmt.toSql());
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            if (!ctx.getState().isQuery() && (parsedStmt != null
+                    && (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof NeedAuditEncryption)
+                    && ((NeedAuditEncryption) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan())
+                            .needAuditEncryption())) {
+                auditEventBuilder
+                        .setStmt(((NeedAuditEncryption) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan()).toSql());
+            } else {
+                auditEventBuilder.setStmt(origStmt);
+            }
         } else {
-            auditEventBuilder.setStmt(origStmt);
+            if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
+                auditEventBuilder.setStmt(parsedStmt.toSql());
+            } else {
+                auditEventBuilder.setStmt(origStmt);
+            }
         }
 
         auditEventBuilder.setStmtType(getStmtType(parsedStmt));
 
         if (!Env.getCurrentEnv().isMaster()) {
-            if (ctx.executor.isForwardToMaster()) {
+            if (ctx.executor != null && ctx.executor.isForwardToMaster()) {
                 auditEventBuilder.setState(ctx.executor.getProxyStatus());
                 int proxyStatusCode = ctx.executor.getProxyStatusCode();
                 if (proxyStatusCode != 0) {
@@ -276,6 +294,9 @@ public class AuditLogHelper {
                     auditEventBuilder.setErrorMessage(ctx.executor.getProxyErrMsg());
                 }
             }
+        }
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && ctx.getState().getErrorCode() == null) {
+            auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
         Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
     }

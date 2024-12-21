@@ -64,6 +64,7 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
 }
 
 Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
+    SCOPED_TIMER(_init_load_queue_timer);
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
     if (_state->exec_env()->wal_mgr()->is_running()) {
         RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
@@ -238,6 +239,17 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
     return Status::OK();
 }
 
+Status GroupCommitBlockSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _init_load_queue_timer = ADD_TIMER(_profile, "InitLoadQueueTime");
+    _valid_and_convert_block_timer = ADD_TIMER(_profile, "ValidAndConvertBlockTime");
+    _find_partition_timer = ADD_TIMER(_profile, "FindPartitionTime");
+    _append_blocks_timer = ADD_TIMER(_profile, "AppendBlocksTime");
+    return Status::OK();
+}
+
 Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(Base::init(t_sink));
     DCHECK(t_sink.__isset.olap_table_sink);
@@ -318,10 +330,15 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
-    RETURN_IF_ERROR(local_state._block_convertor->validate_and_convert_block(
-            state, input_block, block, local_state._output_vexpr_ctxs, rows, has_filtered_rows));
+    {
+        SCOPED_TIMER(local_state._valid_and_convert_block_timer);
+        RETURN_IF_ERROR(local_state._block_convertor->validate_and_convert_block(
+                state, input_block, block, local_state._output_vexpr_ctxs, rows,
+                has_filtered_rows));
+    }
     local_state._has_filtered_rows = false;
     if (!local_state._vpartition->is_auto_partition()) {
+        SCOPED_TIMER(local_state._find_partition_timer);
         //reuse vars for find_partition
         local_state._partitions.assign(rows, nullptr);
         local_state._filter_bitmap.Reset(rows);
@@ -351,23 +368,26 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
             }
         }
     }
-
-    if (local_state._block_convertor->num_filtered_rows() > 0 || local_state._has_filtered_rows) {
-        auto cloneBlock = block->clone_without_columns();
-        auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-        for (int i = 0; i < rows; ++i) {
-            if (local_state._block_convertor->filter_map()[i]) {
-                continue;
+    {
+        SCOPED_TIMER(local_state._append_blocks_timer);
+        if (local_state._block_convertor->num_filtered_rows() > 0 ||
+            local_state._has_filtered_rows) {
+            auto cloneBlock = block->clone_without_columns();
+            auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+            for (int i = 0; i < rows; ++i) {
+                if (local_state._block_convertor->filter_map()[i]) {
+                    continue;
+                }
+                if (local_state._filter_bitmap.Get(i)) {
+                    continue;
+                }
+                res_block.add_row(block.get(), i);
             }
-            if (local_state._filter_bitmap.Get(i)) {
-                continue;
-            }
-            res_block.add_row(block.get(), i);
+            block->swap(res_block.to_block());
         }
-        block->swap(res_block.to_block());
+        // add block into block queue
+        RETURN_IF_ERROR(local_state._add_block(state, block));
     }
-    // add block into block queue
-    RETURN_IF_ERROR(local_state._add_block(state, block));
 
     return wind_up();
 }

@@ -17,6 +17,7 @@
 
 #include "agent/workload_group_listener.h"
 
+#include "runtime/exec_env.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
@@ -59,7 +60,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                 workload_group_info.enable_cpu_hard_limit);
 
         // 4 create and update task scheduler
-        wg->upsert_task_scheduler(&workload_group_info, _exec_env);
+        wg->upsert_task_scheduler(&workload_group_info);
 
         // 5 upsert io throttle
         wg->upsert_scan_io_throttle(&workload_group_info);

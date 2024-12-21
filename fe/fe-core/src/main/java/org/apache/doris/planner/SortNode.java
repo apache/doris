@@ -389,6 +389,12 @@ public class SortNode extends PlanNode {
         return new HashSet<>(result);
     }
 
+    // If it's analytic sort or not merged by a followed exchange node, it must output the global ordered data.
+    @Override
+    public boolean isSerialOperator() {
+        return !isAnalyticSort && !mergeByexchange;
+    }
+
     public void setColocate(boolean colocate) {
         isColocate = colocate;
     }

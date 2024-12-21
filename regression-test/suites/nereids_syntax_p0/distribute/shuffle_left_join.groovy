@@ -95,8 +95,8 @@ suite("shuffle_left_join") {
         .collect(Collectors.joining("\n"))
     logger.info("Variables:\n${variableString}")
 
-    extractFragment(sqlStr, "INNER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
-        assertTrue(exchangeNum == 1)
+    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+        assertTrue(exchangeNum == 2)
     }
 
     explain {

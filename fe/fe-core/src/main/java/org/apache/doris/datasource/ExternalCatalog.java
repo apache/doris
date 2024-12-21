@@ -39,7 +39,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -149,6 +151,10 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    protected PreExecutionAuthenticator preExecutionAuthenticator;
+
+    private volatile Configuration cachedConf = null;
+    private final byte[] confLock = new byte[0];
 
     public ExternalCatalog() {
     }
@@ -161,6 +167,20 @@ public abstract class ExternalCatalog
     }
 
     public Configuration getConfiguration() {
+        // build configuration is costly, so we cache it.
+        if (cachedConf != null) {
+            return cachedConf;
+        }
+        synchronized (confLock) {
+            if (cachedConf != null) {
+                return cachedConf;
+            }
+            cachedConf = buildConf();
+            return cachedConf;
+        }
+    }
+
+    private Configuration buildConf() {
         Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
@@ -406,6 +426,10 @@ public abstract class ExternalCatalog
             this.convertedProperties = null;
         }
 
+        synchronized (this.confLock) {
+            this.cachedConf = null;
+        }
+
         refreshOnlyCatalogCache(invalidCache);
     }
 
@@ -418,6 +442,7 @@ public abstract class ExternalCatalog
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
+                this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
                     db.setUnInitialized(invalidCache);
                 }
@@ -429,13 +454,13 @@ public abstract class ExternalCatalog
         }
     }
 
-    public final Optional<SchemaCacheValue> getSchema(String dbName, String tblName) {
+    public final Optional<SchemaCacheValue> getSchema(SchemaCacheKey key) {
         makeSureInitialized();
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(dbName);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(key.getDbName());
         if (db.isPresent()) {
-            Optional<? extends ExternalTable> table = db.get().getTable(tblName);
+            Optional<? extends ExternalTable> table = db.get().getTable(key.getTblName());
             if (table.isPresent()) {
-                return table.get().initSchemaAndUpdateTime();
+                return table.get().initSchemaAndUpdateTime(key);
             }
         }
         return Optional.empty();
@@ -933,5 +958,9 @@ public abstract class ExternalCatalog
         } else {
             tableAutoAnalyzePolicy.put(key, policy);
         }
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
     }
 }

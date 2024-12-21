@@ -17,6 +17,7 @@
 
 #include "olap/primary_key_index.h"
 
+#include <butil/time.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <utility>
@@ -49,8 +50,8 @@ Status PrimaryKeyIndexBuilder::init() {
 
     auto opt = segment_v2::BloomFilterOptions();
     opt.fpp = 0.01;
-    _bloom_filter_index_builder.reset(
-            new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(opt, type_info));
+    RETURN_IF_ERROR(segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
+            opt, type_info, &_bloom_filter_index_builder));
     return Status::OK();
 }
 
@@ -63,6 +64,9 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     if (UNLIKELY(_num_rows == 0)) {
         _min_key.append(key.get_data(), key.get_size());
     }
+    DCHECK(key.compare(_max_key) > 0)
+            << "found duplicate key or key is not sorted! current key: " << key
+            << ", last max key: " << _max_key;
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
     _num_rows++;
@@ -91,25 +95,29 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
 }
 
 Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
-                                          const segment_v2::PrimaryKeyIndexMetaPB& meta) {
+                                          const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                                          OlapReaderStatistics* pk_index_load_stats) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     _index_reader->set_is_pk_index(true);
-    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false));
+    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
+                                        pk_index_load_stats));
 
     _index_parsed = true;
     return Status::OK();
 }
 
 Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
-                                       const segment_v2::PrimaryKeyIndexMetaPB& meta) {
+                                       const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                                       OlapReaderStatistics* pk_index_load_stats) {
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
                                                        column_index_meta.bloom_filter_index());
-    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false));
+    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false,
+                                         pk_index_load_stats));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
+    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter, pk_index_load_stats));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
     segment_v2::g_pk_total_bloom_filter_num << 1;
     segment_v2::g_pk_total_bloom_filter_total_bytes << _bf->size();

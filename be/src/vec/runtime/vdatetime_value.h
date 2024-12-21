@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "gutil/integral_types.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
@@ -356,7 +357,7 @@ public:
     }
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int value_len) {
+                              int64_t value_len) {
         memset(this, 0, sizeof(*this));
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
@@ -371,8 +372,8 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
+    bool from_date_str(const char* str, size_t len);
+    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -397,11 +398,11 @@ public:
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
-    bool to_format_string_conservative(const char* format, int len, char* to,
-                                       int max_valid_length) const;
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
+                                       size_t max_valid_length) const;
 
     // compute the length of data format pattern
-    static int compute_format_len(const char* format, int len);
+    static int compute_format_len(const char* format, size_t len);
 
     // Return true if range or date is invalid
     static bool check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -428,15 +429,16 @@ public:
 
     int64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
-    int year() const { return _year; }
-    int month() const { return _month; }
+    uint16_t year() const { return _year; }
+    uint8_t month() const { return _month; }
     int quarter() const { return (_month - 1) / 3 + 1; }
     int week() const { return week(mysql_week_mode(0)); } //00-53
-    int day() const { return _day; }
-    int hour() const { return _hour; }
-    int minute() const { return _minute; }
-    int second() const { return _second; }
-    int neg() const { return _neg; }
+    uint8_t day() const { return _day; }
+    uint8_t hour() const { return _hour; }
+    uint8_t minute() const { return _minute; }
+    uint16_t second() const { return _second; }
+    uint16_t neg() const { return _neg; }
+
     int64_t time_part_to_seconds() const {
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
     }
@@ -731,8 +733,8 @@ private:
     void set_zero(int type);
     void set_max_time(bool neg);
 
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
+    bool from_date_format_str(const char* format, int format_len, const char* value,
+                              int64_t value_len, const char** sub_val_end);
 
     // 1 bits for neg. 3 bits for type. 12bit for second
     uint16_t _neg : 1;  // Used for time value.
@@ -783,7 +785,7 @@ public:
         return datetime;
     }
 
-    void set_microsecond(uint32_t microsecond);
+    void set_microsecond(uint64_t microsecond);
 
     bool from_olap_date(uint64_t date) {
         auto [year, month, day] = std::tuple {0, 0, 0};
@@ -828,11 +830,11 @@ public:
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
-    bool to_format_string_conservative(const char* format, int len, char* to,
-                                       int max_valid_length) const;
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
+                                       size_t max_valid_length) const;
 
-    bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int value_len) {
+    bool from_date_format_str(const char* format, size_t format_len, const char* value,
+                              size_t value_len) {
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
@@ -888,9 +890,9 @@ public:
     }
 
     void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                            uint8_t second, uint32_t microsecond = 0);
+                            uint16_t second, uint32_t microsecond = 0);
 
-    void unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
+    void unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second, uint32_t microsecond);
 
     int64_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
@@ -1273,8 +1275,6 @@ public:
         }
     }
 
-    operator int64_t() const { return to_int64(); }
-
     int64_t to_int64() const {
         if constexpr (is_datetime) {
             return (date_v2_value_.year_ * 10000L + date_v2_value_.month_ * 100 +
@@ -1287,8 +1287,8 @@ public:
         }
     }
 
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
+    bool from_date_format_str(const char* format, int format_len, const char* value,
+                              int64_t value_len, const char** sub_val_end);
     static constexpr int MAX_DATE_PARTS = 7;
     static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
 

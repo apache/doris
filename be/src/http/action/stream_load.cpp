@@ -145,7 +145,8 @@ void StreamLoadAction::handle(HttpRequest* req) {
               << ctx->commit_and_publish_txn_cost_nanos / 1000000
               << ", number_total_rows=" << ctx->number_total_rows
               << ", number_loaded_rows=" << ctx->number_loaded_rows
-              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes;
+              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes
+              << ", error_url=" << ctx->error_url;
 
     // update statistics
     streaming_load_requests_total->increment(1);
@@ -728,7 +729,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
 #ifndef BE_TEST
     // plan this load
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,

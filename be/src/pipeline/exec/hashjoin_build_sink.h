@@ -56,7 +56,8 @@ public:
 
 protected:
     Status _hash_table_init(RuntimeState* state);
-    void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
+    void _set_build_side_has_external_nullmap(vectorized::Block& block,
+                                              const std::vector<int>& res_col_ids);
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
@@ -79,7 +80,6 @@ protected:
 
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
-    bool _has_set_need_null_map_for_build = false;
 
     /*
      * The comparison result of a null value with any other value is null,
@@ -87,28 +87,26 @@ protected:
      * the result of an equality condition involving null should be false,
      * so null does not need to be added to the hash table.
      */
-    bool _build_side_ignore_null = false;
+    bool _build_side_has_external_nullmap = false;
     std::vector<int> _build_col_ids;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
-    RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
     RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
-
-    RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs, bool use_global_rf);
+                               const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -130,8 +128,8 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->ignore_data_distribution() ? DataDistribution(ExchangeType::PASS_TO_ONE)
-                                                      : DataDistribution(ExchangeType::NOOP);
+            return _child->is_serial_operator() ? DataDistribution(ExchangeType::PASS_TO_ONE)
+                                                : DataDistribution(ExchangeType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
@@ -139,9 +137,6 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    bool require_shuffled_data_distribution() const override {
-        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
-    }
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
@@ -157,20 +152,16 @@ private:
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
     // mark the build hash table whether it needs to store null value
-    std::vector<bool> _store_null_in_hash_table;
+    std::vector<bool> _serialize_null_into_key;
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
-
-    std::vector<bool> _should_convert_to_nullable;
 
     bool _is_broadcast_join = false;
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
-
-    const bool _need_local_merge;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
@@ -187,12 +178,12 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null,
-              bool with_other_conjuncts>
+    template <int JoinOpType, bool short_circuit_for_null, bool with_other_conjuncts>
     Status run(HashTableContext& hash_table_ctx, vectorized::ConstNullMapPtr null_map,
                bool* has_null_key) {
-        if (short_circuit_for_null || ignore_null) {
+        if (null_map) {
             // first row is mocked and is null
+            // TODO: Need to test the for loop. break may better
             for (uint32_t i = 1; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;
@@ -206,12 +197,28 @@ struct ProcessHashTableBuild {
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
                                                                       *has_null_key);
-
+        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
+        if (_build_raw_ptrs.size() == 1 && null_map) {
+            _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
+        }
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
-                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
+        // only 2 cases need to access the null value in hash table
+        bool keep_null_key = false;
+        if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+             JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+            with_other_conjuncts) {
+            //null aware join with other conjuncts
+            keep_null_key = true;
+        } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
+                   _parent->_shared_state->is_null_safe_eq_join[0]) {
+            // single null safe eq
+            keep_null_key = true;
+        }
+
+        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
+                                         _rows, keep_null_key);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 

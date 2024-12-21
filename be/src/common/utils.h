@@ -31,13 +31,14 @@ struct AuthInfo {
     std::string cluster;
     std::string user_ip;
     // -1 as unset
-    int64_t auth_code = -1;
+    int64_t auth_code = -1; // deprecated
     std::string token;
 };
 
 template <class T>
 void set_request_auth(T* req, const AuthInfo& auth) {
     req->user = auth.user; // always set user, because it may be used by FE
+    // auth code is deprecated and should be removed in 3.1
     if (auth.auth_code != -1) {
         // if auth_code is set, no need to set other info
         req->__set_auth_code(auth.auth_code);

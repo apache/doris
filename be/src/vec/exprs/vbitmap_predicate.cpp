@@ -17,11 +17,8 @@
 
 #include "vec/exprs/vbitmap_predicate.h"
 
-#include <stddef.h>
-
-#include <algorithm>
+#include <cstddef>
 #include <utility>
-#include <vector>
 
 #include "exprs/bitmapfilter_predicate.h"
 #include "gutil/integral_types.h"
@@ -41,12 +38,12 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+class VExprContext;
 
 vectorized::VBitmapPredicate::VBitmapPredicate(const TExprNode& node)
         : VExpr(node), _filter(nullptr), _expr_name("bitmap_predicate") {}
@@ -90,19 +87,19 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
         arguments[i] = column_id;
     }
     // call function
-    size_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = block->columns();
     auto res_data_column = ColumnVector<UInt8>::create(block->rows());
 
     ColumnPtr argument_column =
             block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
-    auto ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
+    auto* ptr = res_data_column->get_data().data();
 
     if (argument_column->is_nullable()) {
-        auto column_nested = reinterpret_cast<const ColumnNullable*>(argument_column.get())
-                                     ->get_nested_column_ptr();
-        auto column_nullmap = reinterpret_cast<const ColumnNullable*>(argument_column.get())
+        auto column_nested =
+                assert_cast<const ColumnNullable*>(argument_column.get())->get_nested_column_ptr();
+        auto column_nullmap = assert_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
         _filter->find_batch(column_nested->get_raw_data().data,
                             (uint8*)column_nullmap->get_raw_data().data, sz, ptr);
@@ -134,4 +131,5 @@ void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBa
     _filter = filter;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

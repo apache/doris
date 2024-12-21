@@ -57,7 +57,6 @@ class IDataType;
 class ShortKeyIndexDecoder;
 class Schema;
 class StorageReadOptions;
-class MemTracker;
 class PrimaryKeyIndexReader;
 class RowwiseIterator;
 struct RowLocation;
@@ -80,8 +79,8 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment>, public MetadataAdder<Segment> {
 public:
-    static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
-                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+    static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
+                       uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {});
 
@@ -93,6 +92,7 @@ public:
     ~Segment();
 
     int64_t get_metadata_size() const override;
+    void update_metadata_size();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
@@ -111,9 +111,11 @@ public:
                                          std::unique_ptr<ColumnIterator>* iter,
                                          const StorageReadOptions* opt);
 
-    Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
+    Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
+                               std::unique_ptr<ColumnIterator>* iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                     const StorageReadOptions& read_options,
                                      std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
@@ -132,7 +134,7 @@ public:
     }
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
-                          bool with_rowid, RowLocation* row_location,
+                          bool with_rowid, RowLocation* row_location, OlapReaderStatistics* stats,
                           std::string* encoded_seq_value = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
@@ -141,9 +143,9 @@ public:
                                   vectorized::MutableColumnPtr& result, OlapReaderStatistics& stats,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
 
-    Status load_index();
+    Status load_index(OlapReaderStatistics* stats);
 
-    Status load_pk_index_and_bf();
+    Status load_pk_index_and_bf(OlapReaderStatistics* stats);
 
     void update_healthy_status(Status new_status) { _healthy_status.update(new_status); }
     // The segment is loaded into SegmentCache and then will load indices, if there are something wrong
@@ -162,6 +164,8 @@ public:
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
 
+    // Including the column reader memory.
+    // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
     // Identify the column by unique id or path info
@@ -214,11 +218,15 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
             InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo());
+    static Status _open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                        const io::FileReaderOptions& reader_options,
+                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer(SegmentFooterPB* footer);
     Status _create_column_readers(const SegmentFooterPB& footer);
-    Status _load_pk_bloom_filter();
+    Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
     ColumnReader* _get_column_reader(const TabletColumn& col);
 
     // Get Iterator which will read variant root column and extract with paths and types info
@@ -231,7 +239,7 @@ private:
 
     Status _open_inverted_index();
 
-    Status _create_column_readers_once();
+    Status _create_column_readers_once(OlapReaderStatistics* stats);
 
 private:
     friend class SegmentIterator;
@@ -244,9 +252,8 @@ private:
     // 1. Tracking memory use by segment meta data such as footer or index page.
     // 2. Tracking memory use by segment column reader
     // The memory consumed by querying is tracked in segment iterator.
-    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
-    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
     int64_t _meta_mem_usage;
+    int64_t _tracked_meta_mem_usage = 0;
 
     RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;

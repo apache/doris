@@ -225,7 +225,6 @@ public:
     }
 
     int get_filter_id() const override { return _values->get_filter_id(); }
-    bool is_filter() const override { return true; }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -233,9 +232,9 @@ public:
         if (column.is_nullable()) {
             const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            const auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                              nullable_col->get_null_map_column())
-                                              .get_data();
+            const auto& null_bitmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                            .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -356,9 +355,9 @@ private:
         if (column.is_nullable()) {
             const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                           nullable_col->get_null_map_column())
-                                           .get_data();
+            const auto& null_map =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                            .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {

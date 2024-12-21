@@ -18,6 +18,7 @@
 #include "olap/rowset/beta_rowset.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -81,12 +82,7 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     }
 
     if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-        auto indices = _schema->indexes();
-        for (auto& index : indices) {
-            // only get file_size for inverted index
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
+        for (const auto& index : _schema->inverted_indexes()) {
             for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
                 auto seg_path = DORIS_TRY(segment_path(seg_id));
                 int64_t file_size = 0;
@@ -94,7 +90,7 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
                 std::string inverted_index_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
-                                index.index_id(), index.get_index_suffix());
+                                index->index_id(), index->get_index_suffix());
                 RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
                 *index_size += file_size;
             }
@@ -122,7 +118,7 @@ void BetaRowset::clear_inverted_index_cache() {
 
         auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path);
         for (const auto& column : tablet_schema()->columns()) {
-            const TabletIndex* index_meta = tablet_schema()->get_inverted_index(*column);
+            const TabletIndex* index_meta = tablet_schema()->inverted_index(*column);
             if (index_meta) {
                 auto inverted_index_file_cache_key =
                         InvertedIndexDescriptor::get_index_file_cache_key(
@@ -183,8 +179,9 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
             .file_size = _rowset_meta->segment_file_size(seg_id),
     };
 
-    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
-                                       segment, _rowset_meta->inverted_index_file_info(seg_id));
+    auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id, rowset_id(),
+                                       _schema, reader_options, segment,
+                                       _rowset_meta->inverted_index_file_info(seg_id));
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -226,7 +223,7 @@ Status BetaRowset::remove() {
 
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (auto& column : _schema->columns()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
+                const TabletIndex* index_meta = _schema->inverted_index(*column);
                 if (index_meta) {
                     std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
@@ -310,22 +307,19 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return status;
         });
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (const auto& index : _schema->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
-                    continue;
-                }
-                auto index_id = index.index_id();
+            for (const auto& index : _schema->inverted_indexes()) {
+                auto index_id = index->index_id();
                 if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
                     continue;
                 }
                 std::string inverted_index_src_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(src_path),
-                                index_id, index.get_index_suffix());
+                                index_id, index->get_index_suffix());
                 std::string inverted_index_dst_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(dst_path),
-                                index_id, index.get_index_suffix());
+                                index_id, index->get_index_suffix());
                 bool index_file_exists = true;
                 RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
                 if (index_file_exists) {
@@ -404,7 +398,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (auto& column : _schema->columns()) {
                 // if (column.has_inverted_index()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
+                const TabletIndex* index_meta = _schema->inverted_index(*column);
                 if (index_meta) {
                     std::string inverted_index_src_file_path =
                             InvertedIndexDescriptor::get_index_file_path_v1(
@@ -463,7 +457,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (auto& column : _schema->columns()) {
                 // if (column.has_inverted_index()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
+                const TabletIndex* index_meta = _schema->inverted_index(*column);
                 if (index_meta) {
                     std::string remote_inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
@@ -497,7 +491,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
     auto st = dest_fs.fs->batch_upload(local_paths, dest_paths);
     if (st.ok()) {
         DorisMetrics::instance()->upload_rowset_count->increment(1);
-        DorisMetrics::instance()->upload_total_byte->increment(data_disk_size());
+        DorisMetrics::instance()->upload_total_byte->increment(total_disk_size());
     } else {
         DorisMetrics::instance()->upload_fail_count->increment(1);
     }
@@ -543,8 +537,8 @@ Status BetaRowset::check_current_rowset_segment() {
                 .file_size = _rowset_meta->segment_file_size(seg_id),
         };
 
-        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
-                                           reader_options, &segment,
+        auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,
+                                           rowset_id(), _schema, reader_options, &segment,
                                            _rowset_meta->inverted_index_file_info(seg_id));
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
@@ -564,10 +558,6 @@ Status BetaRowset::add_to_binlog() {
     }
 
     const auto& fs = io::global_local_filesystem();
-
-    // all segments are in the same directory, so cache binlog_dir without multi times check
-    std::string binlog_dir;
-
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
@@ -576,17 +566,25 @@ Status BetaRowset::add_to_binlog() {
     std::vector<string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
-            LOG(WARNING) << "will delete linked success files due to error " << status;
+            LOG(WARNING) << "will delete linked success files due to error "
+                         << status.to_string_no_stack();
             std::vector<io::Path> paths;
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete linked success file " << file << " due to error";
             }
             static_cast<void>(fs->batch_delete(paths));
-            LOG(WARNING) << "done delete linked success files due to error " << status;
+            LOG(WARNING) << "done delete linked success files due to error "
+                         << status.to_string_no_stack();
         }
     }};
 
+    // The publish_txn might fail even if the add_to_binlog success, so we need to check
+    // whether a file already exists before linking.
+    auto errno_is_file_exists = []() { return Errno::no() == EEXIST; };
+
+    // all segments are in the same directory, so cache binlog_dir without multi times check
+    std::string binlog_dir;
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = local_segment_path(_tablet_path, rowset_id().to_string(), i);
 
@@ -604,7 +602,7 @@ Status BetaRowset::add_to_binlog() {
                 (std::filesystem::path(binlog_dir) / std::filesystem::path(seg_file).filename())
                         .string();
         VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
-        if (!fs->link_file(seg_file, binlog_file).ok()) {
+        if (!fs->link_file(seg_file, binlog_file).ok() && !errno_is_file_exists()) {
             status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
                                              seg_file, binlog_file, Errno::no());
             return status;
@@ -612,19 +610,21 @@ Status BetaRowset::add_to_binlog() {
         linked_success_files.push_back(binlog_file);
 
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            for (const auto& index : _schema->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
-                    continue;
-                }
-                auto index_id = index.index_id();
+            for (const auto& index : _schema->inverted_indexes()) {
+                auto index_id = index->index_id();
                 auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_file), index_id,
-                        index.get_index_suffix());
+                        index->get_index_suffix());
                 auto binlog_index_file = (std::filesystem::path(binlog_dir) /
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (!fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
@@ -635,7 +635,12 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (!fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         }
@@ -660,7 +665,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
         file_paths.emplace_back(seg_path);
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (auto& column : _schema->columns()) {
-                const TabletIndex* index_meta = _schema->get_inverted_index(*column);
+                const TabletIndex* index_meta = _schema->inverted_index(*column);
                 if (index_meta) {
                     std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
@@ -713,10 +718,24 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                                           rapidjson::Document::AllocatorType& allocator) {
     const auto& fs = _rowset_meta->fs();
     auto storage_format = _schema->get_inverted_index_storage_format();
-    auto format_str = storage_format == InvertedIndexStorageFormatPB::V1 ? "V1" : "V2";
+    std::string format_str;
+    switch (storage_format) {
+    case InvertedIndexStorageFormatPB::V1:
+        format_str = "V1";
+        break;
+    case InvertedIndexStorageFormatPB::V2:
+        format_str = "V2";
+        break;
+    case InvertedIndexStorageFormatPB::V3:
+        format_str = "V3";
+        break;
+    default:
+        return Status::InternalError("inverted index storage format error");
+        break;
+    }
     auto rs_id = rowset_id().to_string();
     rowset_value->AddMember("rowset_id", rapidjson::Value(rs_id.c_str(), allocator), allocator);
-    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str, allocator),
+    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str.c_str(), allocator),
                             allocator);
     rapidjson::Value segments(rapidjson::kArrayType);
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
@@ -804,7 +823,7 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         } else {
             rapidjson::Value indices(rapidjson::kArrayType);
             for (auto column : _rowset_meta->tablet_schema()->columns()) {
-                const auto* index_meta = _rowset_meta->tablet_schema()->get_inverted_index(*column);
+                const auto* index_meta = _rowset_meta->tablet_schema()->inverted_index(*column);
                 if (index_meta == nullptr) {
                     continue;
                 }

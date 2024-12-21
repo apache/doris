@@ -286,8 +286,7 @@ JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
           _connection_pool_max_size(tdesc.jdbcTable.connection_pool_max_size),
           _connection_pool_max_wait_time(tdesc.jdbcTable.connection_pool_max_wait_time),
           _connection_pool_max_life_time(tdesc.jdbcTable.connection_pool_max_life_time),
-          _connection_pool_keep_alive(tdesc.jdbcTable.connection_pool_keep_alive),
-          _enable_connection_pool(tdesc.jdbcTable.enable_connection_pool) {}
+          _connection_pool_keep_alive(tdesc.jdbcTable.connection_pool_keep_alive) {}
 
 std::string JdbcTableDescriptor::debug_string() const {
     fmt::memory_buffer buf;
@@ -295,14 +294,13 @@ std::string JdbcTableDescriptor::debug_string() const {
             buf,
             "JDBCTable({} ,_jdbc_catalog_id = {}, _jdbc_resource_name={} ,_jdbc_driver_url={} "
             ",_jdbc_driver_class={} ,_jdbc_driver_checksum={} ,_jdbc_url={} "
-            ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={} "
-            ",_enable_connection_pool={},_connection_pool_min_size={} "
+            ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={} ,_connection_pool_min_size={} "
             ",_connection_pool_max_size={} ,_connection_pool_max_wait_time={} "
             ",_connection_pool_max_life_time={} ,_connection_pool_keep_alive={})",
             TableDescriptor::debug_string(), _jdbc_catalog_id, _jdbc_resource_name,
             _jdbc_driver_url, _jdbc_driver_class, _jdbc_driver_checksum, _jdbc_url,
-            _jdbc_table_name, _jdbc_user, _jdbc_passwd, _enable_connection_pool,
-            _connection_pool_min_size, _connection_pool_max_size, _connection_pool_max_wait_time,
+            _jdbc_table_name, _jdbc_user, _jdbc_passwd, _connection_pool_min_size,
+            _connection_pool_max_size, _connection_pool_max_wait_time,
             _connection_pool_max_life_time, _connection_pool_keep_alive);
     return fmt::to_string(buf);
 }

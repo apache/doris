@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewOlapScanner;
@@ -97,11 +98,8 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
 
-    RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
-
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
-    RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
@@ -139,22 +137,18 @@ private:
     RuntimeProfile::Counter* _block_init_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_bf_timer = nullptr;
     RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
-    RuntimeProfile::Counter* _collect_iterator_normal_next_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_timer = nullptr;
-    RuntimeProfile::Counter* _second_read_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_dict_timer = nullptr;
+    RuntimeProfile::Counter* _predicate_column_read_timer = nullptr;
+    RuntimeProfile::Counter* _non_predicate_column_read_timer = nullptr;
+    RuntimeProfile::Counter* _predicate_column_read_seek_timer = nullptr;
+    RuntimeProfile::Counter* _predicate_column_read_seek_counter = nullptr;
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
-
-    RuntimeProfile::Counter* _block_convert_timer = nullptr;
 
     // total pages read
     // used by segment v2
@@ -175,7 +169,6 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
-    RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
@@ -190,6 +183,33 @@ private:
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
     RuntimeProfile::Counter* _runtime_filter_info = nullptr;
+
+    // timer about tablet reader
+    RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_delete_condition_param_timer = nullptr;
+
+    // timer about block reader
+    RuntimeProfile::Counter* _block_reader_vcollect_iter_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_reader_rs_readers_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_reader_build_heap_init_timer = nullptr;
+
+    RuntimeProfile::Counter* _rowset_reader_get_segment_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_create_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_init_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
+
+    RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_inverted_index_iterators_timer = nullptr;
+
+    RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
+    RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     std::mutex _profile_mtx;
 };
@@ -206,4 +226,5 @@ private:
     TQueryCacheParam _cache_param;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

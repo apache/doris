@@ -93,7 +93,7 @@ public class UseCloudClusterStmt extends StatementBase implements NotFallbackInP
                 cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                 + "'@'" + ConnectContext.get().getRemoteIP()
-                + "' for cloud cluster '" + cluster + "'");
+                + "' for compute group '" + cluster + "'");
         }
 
         if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(cluster)) {

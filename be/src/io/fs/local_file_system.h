@@ -34,6 +34,8 @@ class LocalFileSystem final : public FileSystem {
 public:
     ~LocalFileSystem() override;
 
+    static Status convert_to_abs_path(const Path& path, Path& abs_path);
+
     /// hard link dest file to src file
     Status link_file(const Path& src, const Path& dest);
 
@@ -104,7 +106,9 @@ private:
 
     // `LocalFileSystem` always use absolute path as arguments
     // FIXME(plat1ko): Eliminate this method
-    Path absolute_path(const Path& path) const override { return path; }
+    Status absolute_path(const Path& path, Path& abs_path) const override {
+        return convert_to_abs_path(path, abs_path);
+    }
 
     friend const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 };

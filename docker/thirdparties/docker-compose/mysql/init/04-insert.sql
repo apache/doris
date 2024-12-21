@@ -1049,6 +1049,7 @@ insert into doris_test.test1 values
 (false, 'abc', 'efg', '2022-10-01', 4.5, 1, 2, 1024, 100000, 1.2, '2022-10-02 12:59:01', 24.000);
 
 insert into doris_test.ex_tb0 values (111, 'abc'), (112, 'abd'), (113, 'abe'),(114, 'abf'),(115, 'abg');
+analyze table doris_test.ex_tb0;
 
 insert into doris_test.ex_tb1 values ('{"k1":"v1", "k2":"v2"}');
 

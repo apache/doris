@@ -32,6 +32,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.qe.SessionVariable;
@@ -208,12 +209,6 @@ class StatisticsUtilTest {
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test external table auto analyze enabled.
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public TableStatsMeta findTableStatsStatus(long tblId) {
-                return null;
-            }
-        };
         externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
         HMSExternalTable hmsTable1 = new HMSExternalTable(1, "name", "dbName", externalCatalog);
         externalCatalog.setAutoAnalyzePolicy("dbName", "name", "enable");
@@ -238,27 +233,10 @@ class StatisticsUtilTest {
         tableMeta.userInjected = false;
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test column hasn't been analyzed for longer than 1 day.
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 0, null);
-            }
-        };
-        new MockUp<OlapTable>() {
-            @Mock
-            public long getRowCount() {
-                return 100;
-            }
-        };
-        Config.auto_analyze_interval_seconds = 60 * 60 * 24;
-        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
-        Config.auto_analyze_interval_seconds = 0;
-
-        new MockUp<TableStatsMeta>() {
-            @Mock
-            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null);
             }
         };
 
@@ -312,7 +290,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
@@ -322,7 +300,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
@@ -338,33 +316,184 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 500, 0, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 500, 0, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test update rows changed more than threshold.
+        // Test row count changed more than threshold.
         new MockUp<OlapTable>() {
             @Mock
             public long getRowCount() {
-                return 120;
+                return 111;
             }
         };
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 80, null);
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 80, 0, null);
             }
         };
         tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(200);
+        tableMeta.updatedRows.set(80);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test update rows changed less than threshold
+        // Test update rows changed more than threshold
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 101;
+            }
+        };
         tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(100);
-        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+        tableMeta.updatedRows.set(91);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
+        // Test row count and update rows changed less than threshold
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(85);
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+    }
+
+    @Test
+    void testLongTimeNoAnalyze() {
+        Column column = new Column("testColumn", PrimitiveType.INT);
+        List<Column> schema = new ArrayList<>();
+        schema.add(column);
+        OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
+
+        // Test column is null
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, null));
+
+        // Test table auto analyze is disabled.
+        new MockUp<OlapTable>() {
+            @Mock
+            public boolean autoAnalyzeEnabled() {
+                return false;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        new MockUp<OlapTable>() {
+            @Mock
+            public boolean autoAnalyzeEnabled() {
+                return true;
+            }
+        };
+
+        // Test external table
+        new MockUp<ExternalTable>() {
+            @Mock
+            public boolean autoAnalyzeEnabled() {
+                return true;
+            }
+        };
+        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null);
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName())));
+
+        // Test table stats meta is null.
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return null;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+
+        // Test column stats meta is null
+        TableStatsMeta tableMeta = new TableStatsMeta();
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return tableMeta;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return null;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null);
+            }
+        };
+
+        // Test table stats is user injected
+        tableMeta.userInjected = true;
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        tableMeta.userInjected = false;
+
+        // Test Config.auto_analyze_interval_seconds == 0
+        Config.auto_analyze_interval_seconds = 0;
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+
+        // Test column analyzed within the time interval
+        Config.auto_analyze_interval_seconds = 86400;
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+
+        // Test column hasn't analyzed for longer than time interval, but version and row count doesn't change
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                ColStatsMeta ret = new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 20, 10, null);
+                try {
+                    Thread.sleep(1500);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                return ret;
+            }
+        };
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getVisibleVersion() {
+                return 10;
+            }
+
+            @Mock
+            public long fetchRowCount() {
+                return 100;
+            }
+        };
+        Config.auto_analyze_interval_seconds = 1;
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+
+        // Test column hasn't analyzed for longer than time interval, and version change
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getVisibleVersion() {
+                return 11;
+            }
+
+            @Mock
+            public long fetchRowCount() {
+                return 100;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+
+        // Test column hasn't analyzed for longer than time interval, and row count change
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getVisibleVersion() {
+                return 10;
+            }
+
+            @Mock
+            public long fetchRowCount() {
+                return 101;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
     }
 }

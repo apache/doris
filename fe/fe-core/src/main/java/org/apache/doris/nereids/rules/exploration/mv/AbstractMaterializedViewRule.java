@@ -234,7 +234,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Plan rewrittenPlan;
-            Plan mvScan = materializationContext.getScanPlan(queryStructInfo);
+            Plan mvScan = materializationContext.getScanPlan(queryStructInfo, cascadesContext);
             Plan queryPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
@@ -262,12 +262,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
-            // If rewrite successfully, try to get mv read lock to avoid data inconsistent,
-            // try to get lock which should added before RBO
-            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
-                cascadesContext.getStatementContext()
-                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
-            }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -379,9 +373,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
-            // if rewrite successfully, try to regenerate mv scan because it maybe used again
-            materializationContext.tryReGenerateScanPlan(cascadesContext);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
+            // If rewrite successfully, try to clear mv scan currently because it maybe used again
+            materializationContext.clearScanPlan(cascadesContext);
         }
         return rewriteResults;
     }
@@ -467,17 +461,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         // Collect the mv related base table partitions which query used
-        Map<BaseTableInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
+        Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
         queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
         // Bail out, not check invalid partition if not olap scan, support later
         if (queryUsedBaseTablePartitions.isEmpty()) {
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
-        Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
-                .stream()
-                .map(Partition::getName)
-                .collect(Collectors.toSet());
+        Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable);
 
         Collection<Partition> mvValidPartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
                 cascadesContext.getConnectContext(), System.currentTimeMillis(), false);
@@ -746,12 +737,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             SlotMapping queryToViewMapping = viewToQuerySlotMapping.inverse();
             // try to use
             boolean valid = containsNullRejectSlot(requireNoNullableViewSlot,
-                    queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
+                    queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, queryStructInfo,
+                    viewStructInfo, cascadesContext);
             if (!valid) {
                 queryStructInfo = queryStructInfo.withPredicates(
                         queryStructInfo.getPredicates().merge(comparisonResult.getQueryAllPulledUpExpressions()));
                 valid = containsNullRejectSlot(requireNoNullableViewSlot,
-                        queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, cascadesContext);
+                        queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping,
+                        queryStructInfo, viewStructInfo, cascadesContext);
             }
             if (!valid) {
                 return SplitPredicate.INVALID_INSTANCE;
@@ -801,6 +794,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     private boolean containsNullRejectSlot(Set<Set<Slot>> requireNoNullableViewSlot,
             Set<Expression> queryPredicates,
             SlotMapping queryToViewMapping,
+            StructInfo queryStructInfo,
+            StructInfo viewStructInfo,
             CascadesContext cascadesContext) {
         Set<Expression> queryPulledUpPredicates = queryPredicates.stream()
                 .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
@@ -813,16 +808,37 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return expr;
                 })
                 .collect(Collectors.toSet());
-        Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates, cascadesContext);
-        Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
-                .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
-                .filter(Objects::nonNull)
-                .map(expr -> ExpressionUtils.replace((Expression) expr, queryToViewMapping.toSlotReferenceMap()))
+        Set<Expression> queryNullRejectPredicates =
+                ExpressionUtils.inferNotNull(queryPulledUpPredicates, cascadesContext);
+        if (queryPulledUpPredicates.containsAll(queryNullRejectPredicates)) {
+            // Query has no null reject predicates, return
+            return false;
+        }
+        // Get query null reject predicate slots
+        Set<Expression> queryNullRejectSlotSet = new HashSet<>();
+        for (Expression queryNullRejectPredicate : queryNullRejectPredicates) {
+            Optional<Slot> notNullSlot = TypeUtils.isNotNull(queryNullRejectPredicate);
+            if (!notNullSlot.isPresent()) {
+                continue;
+            }
+            queryNullRejectSlotSet.add(notNullSlot.get());
+        }
+        // query slot need shuttle to use table slot, avoid alias influence
+        Set<Expression> queryUsedNeedRejectNullSlotsViewBased = ExpressionUtils.shuttleExpressionWithLineage(
+                        new ArrayList<>(queryNullRejectSlotSet), queryStructInfo.getTopPlan(), new BitSet()).stream()
+                .map(expr -> ExpressionUtils.replace(expr, queryToViewMapping.toSlotReferenceMap()))
                 .collect(Collectors.toSet());
+        // view slot need shuttle to use table slot, avoid alias influence
+        Set<Set<Slot>> shuttledRequireNoNullableViewSlot = new HashSet<>();
+        for (Set<Slot> requireNullableSlots : requireNoNullableViewSlot) {
+            shuttledRequireNoNullableViewSlot.add(
+                    ExpressionUtils.shuttleExpressionWithLineage(new ArrayList<>(requireNullableSlots),
+                                    viewStructInfo.getTopPlan(), new BitSet()).stream().map(Slot.class::cast)
+                            .collect(Collectors.toSet()));
+        }
         // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
-        return !queryPulledUpPredicates.containsAll(nullRejectPredicates)
-                && requireNoNullableViewSlot.stream().noneMatch(set ->
-                Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
+        return shuttledRequireNoNullableViewSlot.stream().noneMatch(viewRequiredNullSlotSet ->
+                Sets.intersection(viewRequiredNullSlotSet, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
     }
 
     /**

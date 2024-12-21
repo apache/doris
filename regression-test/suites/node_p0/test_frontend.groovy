@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_frontend") {
+suite("test_frontend", "nonconcurrent") {
     def address = "127.0.0.1"
     def notExistPort = 12345
 

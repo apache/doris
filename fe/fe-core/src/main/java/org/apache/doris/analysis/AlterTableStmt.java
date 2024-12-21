@@ -212,6 +212,10 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                     sb.append("DROP ROLLUP ");
                 }
                 sb.append(((AddRollupClause) op).getRollupName());
+            } else if (op instanceof CreateIndexClause) {
+                sb.append(((CreateIndexClause) op).toSql(true));
+            } else if (op instanceof DropIndexClause) {
+                sb.append(((DropIndexClause) op).toSql(true));
             } else {
                 sb.append(op.toSql());
             }

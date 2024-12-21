@@ -164,7 +164,7 @@ public class SystemInfoService {
     public static TPaloNodesInfo createAliveNodesInfo() {
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(true /*need alive*/)) {
+        for (Long id : systemInfoService.getAllBackendByCurrentCluster(true)) {
             Backend backend = systemInfoService.getBackend(id);
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
@@ -363,9 +363,20 @@ public class SystemInfoService {
     public int getBackendsNumber(boolean needAlive) {
         int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
-            beNumber = getAllBackendIds(needAlive).size();
+            beNumber = getAllBackendByCurrentCluster(needAlive).size();
         }
         return beNumber;
+    }
+
+    public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
+        try {
+            return getBackendsByCurrentCluster()
+                .values().stream().filter(be -> !needAlive || be.isAlive())
+                .map(Backend::getId).collect(Collectors.toList());
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backends by Current Cluster", e);
+            return Lists.newArrayList();
+        }
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
@@ -556,7 +567,7 @@ public class SystemInfoService {
         StringBuilder sb = new StringBuilder(" Backends details: ");
         for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
             sb.append("backends with tag ").append(tag).append(" is ");
-            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag() == tag)
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag().equals(tag))
                     .map(Backend::getDetailsForCreateReplica)
                     .collect(Collectors.toList()));
             sb.append(", ");

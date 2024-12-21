@@ -30,6 +30,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// For bitmap value
 struct BitmapValueData {
@@ -64,7 +65,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
+    void read(BufferReadable& buf, Arena*) {
         read_binary(has_value, buf);
         if (has()) {
             DataTypeBitMap::deserialize_as_stream(value, buf);
@@ -101,9 +102,9 @@ public:
         key.write(buf);
     }
 
-    void read(BufferReadable& buf, Arena* arena) {
-        value.read(buf, arena);
-        key.read(buf, arena);
+    void read(BufferReadable& buf, Arena*) {
+        value.read(buf, nullptr);
+        key.read(buf, nullptr);
     }
 };
 
@@ -111,15 +112,15 @@ template <typename VT, typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMaxByData;
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
-                          Arena* arena) {
-        if (this->key.change_if_greater(key_column, row_num, arena)) {
-            this->value.change(value_column, row_num, arena);
+                          Arena*) {
+        if (this->key.change_if_greater(key_column, row_num, nullptr)) {
+            this->value.change(value_column, row_num, nullptr);
         }
     }
 
-    void change_if_better(const Self& to, Arena* arena) {
-        if (this->key.change_if_greater(to.key, arena)) {
-            this->value.change(to.value, arena);
+    void change_if_better(const Self& to, Arena*) {
+        if (this->key.change_if_greater(to.key, nullptr)) {
+            this->value.change(to.value, nullptr);
         }
     }
 
@@ -130,15 +131,15 @@ template <typename VT, typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
     using Self = AggregateFunctionMinByData;
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
-                          Arena* arena) {
-        if (this->key.change_if_less(key_column, row_num, arena)) {
-            this->value.change(value_column, row_num, arena);
+                          Arena*) {
+        if (this->key.change_if_less(key_column, row_num, nullptr)) {
+            this->value.change(value_column, row_num, nullptr);
         }
     }
 
-    void change_if_better(const Self& to, Arena* arena) {
-        if (this->key.change_if_less(to.key, arena)) {
-            this->value.change(to.value, arena);
+    void change_if_better(const Self& to, Arena*) {
+        if (this->key.change_if_less(to.key, nullptr)) {
+            this->value.change(to.value, nullptr);
         }
     }
 
@@ -169,15 +170,15 @@ public:
     DataTypePtr get_return_type() const override { return value_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
-        this->data(place).change_if_better(*columns[0], *columns[1], row_num, arena);
+             Arena*) const override {
+        this->data(place).change_if_better(*columns[0], *columns[1], row_num, nullptr);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
-        this->data(place).change_if_better(this->data(rhs), arena);
+               Arena*) const override {
+        this->data(place).change_if_better(this->data(rhs), nullptr);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -185,8 +186,8 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
-        this->data(place).read(buf, arena);
+                     Arena*) const override {
+        this->data(place).read(buf, nullptr);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -295,3 +296,5 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
 }
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

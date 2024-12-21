@@ -19,6 +19,7 @@
 
 #include <sstream>
 
+#include "common/cast_set.h"
 #include "olap/rowset/rowset_writer.h"
 #include "runtime/query_context.h"
 #include "util/brpc_client_cache.h"
@@ -28,6 +29,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                                  size_t size) {
@@ -63,13 +65,11 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
         if (response.failed_tablets_size() > 0) {
             ss << ", failed tablet ids:";
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                ss << " " << pb.id() << ":" << st;
+                ss << " " << pb.id() << ":" << Status::create(pb.status());
             }
             std::lock_guard<bthread::Mutex> lock(stub->_failed_tablets_mutex);
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                stub->_failed_tablets.emplace(pb.id(), st);
+                stub->_failed_tablets.emplace(pb.id(), Status::create(pb.status()));
             }
         }
         if (response.tablet_schemas_size() > 0) {
@@ -92,7 +92,7 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
             TRuntimeProfileTree tprofile;
             const uint8_t* buf =
                     reinterpret_cast<const uint8_t*>(response.load_stream_profile().data());
-            uint32_t len = response.load_stream_profile().size();
+            uint32_t len = cast_set<uint32_t>(response.load_stream_profile().size());
             auto status = deserialize_thrift_msg(buf, &len, false, &tprofile);
             if (status.ok()) {
                 // TODO
@@ -154,7 +154,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     _is_init.store(true);
     _dst_id = node_info.id;
     brpc::StreamOptions opt;
-    opt.max_buf_size = config::load_stream_max_buf_size;
+    opt.max_buf_size = cast_set<int>(config::load_stream_max_buf_size);
     opt.idle_timeout_ms = idle_timeout_ms;
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, shared_from_this());
@@ -213,17 +213,13 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 
 // APPEND_DATA
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, uint64_t offset, std::span<const Slice> data,
+                                   int32_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos, FileType file_type) {
     if (!_is_open.load()) {
         add_failed_tablet(tablet_id, _status);
         return _status;
     }
-    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
-        if (segment_id != 0) {
-            return Status::OK();
-        }
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -240,17 +236,13 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, const SegmentStatistics& segment_stat,
+                                   int32_t segment_id, const SegmentStatistics& segment_stat,
                                    TabletSchemaSPtr flush_schema) {
     if (!_is_open.load()) {
         add_failed_tablet(tablet_id, _status);
         return _status;
     }
-    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
-        if (segment_id != 0) {
-            return Status::OK();
-        }
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -340,6 +332,10 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
+    if (!_is_open.load()) {
+        // we don't need to close wait on non-open streams
+        return Status::OK();
+    }
     if (!_is_closing.load()) {
         return _status;
     }

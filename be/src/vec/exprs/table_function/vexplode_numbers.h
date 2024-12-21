@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <algorithm>
+#include <cstddef>
 
 #include "common/status.h"
 #include "vec/columns/column_nullable.h"
@@ -29,10 +28,9 @@
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
-class Block;
-} // namespace doris::vectorized
+#include "common/compile_check_begin.h"
 
-namespace doris::vectorized {
+class Block;
 
 class VExplodeNumbersTableFunction : public TableFunction {
     ENABLE_FACTORY_CREATOR(VExplodeNumbersTableFunction);
@@ -92,4 +90,5 @@ private:
     ColumnPtr _elements_column = ColumnInt32::create();
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

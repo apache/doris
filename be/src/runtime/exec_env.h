@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_fwd.h"
 #include "pipeline/pipeline_tracing.h"
+#include "runtime/cluster_info.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
@@ -83,7 +84,6 @@ class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class RuntimeQueryStatisticsMgr;
-class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
 class LoadStreamMapPool;
@@ -101,6 +101,7 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
+class TabletColumnObjectPool;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
@@ -110,6 +111,7 @@ class RowCache;
 class DummyLRUCache;
 class CacheManager;
 class ProcessProfile;
+class HeapProfiler;
 class WalManager;
 class DNSCache;
 
@@ -176,7 +178,6 @@ public:
     std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
     void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
-    std::shared_ptr<MemTracker> page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> brpc_iobuf_block_memory_tracker() {
         return _brpc_iobuf_block_memory_tracker;
     }
@@ -185,6 +186,15 @@ public:
     }
     std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
         return _stream_load_pipe_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> tablets_no_cache_mem_tracker() {
+        return _tablets_no_cache_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> rowsets_no_cache_mem_tracker() {
+        return _rowsets_no_cache_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> segments_no_cache_mem_tracker() {
+        return _segments_no_cache_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
         return _point_query_executor_mem_tracker;
@@ -219,7 +229,7 @@ public:
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
-    TMasterInfo* master_info() { return _master_info; }
+    ClusterInfo* cluster_info() { return _cluster_info; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
@@ -262,7 +272,7 @@ public:
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
         _memtable_memory_limiter.reset(limiter);
     }
-    void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
+    void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {
         this->_new_load_stream_mgr = new_load_stream_mgr;
     }
@@ -271,9 +281,14 @@ public:
     }
 
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
+    void set_inverted_index_searcher_cache(
+            segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
@@ -287,6 +302,7 @@ public:
     static void set_tracking_memory(bool tracking_memory) {
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
+    void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -295,10 +311,11 @@ public:
     void wait_for_all_tasks_done();
 
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
-    std::map<TNetworkAddress, FrontendInfo> get_frontends();
+    std::vector<TFrontendInfo> get_frontends();
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
+    TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -306,6 +323,7 @@ public:
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
+    HeapProfiler* get_heap_profiler() { return _heap_profiler; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
         return _inverted_index_searcher_cache;
     }
@@ -329,6 +347,8 @@ public:
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
+    bool check_auth_token(const std::string& auth_token);
+
 private:
     ExecEnv();
 
@@ -338,6 +358,7 @@ private:
     void _destroy();
 
     Status _init_mem_env();
+    Status _check_deploy_mode();
 
     void _register_metrics();
     void _deregister_metrics();
@@ -364,12 +385,14 @@ private:
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
-    // page size not in cache, data page/index page/etc.
-    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;
+
+    std::shared_ptr<MemTrackerLimiter> _tablets_no_cache_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _rowsets_no_cache_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _segments_no_cache_mem_tracker;
 
     // Tracking memory may be shared between multiple queries.
     std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
@@ -399,7 +422,7 @@ private:
     WorkloadGroupMgr* _workload_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
-    TMasterInfo* _master_info = nullptr;
+    ClusterInfo* _cluster_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
@@ -437,6 +460,7 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
+    TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
@@ -445,6 +469,7 @@ private:
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
     ProcessProfile* _process_profile = nullptr;
+    HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     QueryCache* _query_cache = nullptr;

@@ -47,6 +47,7 @@ Status JdbcTableSinkOperatorX::open(RuntimeState* state) {
 Status JdbcTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     RETURN_IF_ERROR(local_state.sink(state, block, eos));
     return Status::OK();
 }

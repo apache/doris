@@ -757,7 +757,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // progress
         // check null
-        String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(id));
+        String progress = Env.getCurrentProgressManager()
+                .getProgressInfo(String.valueOf(id), state == JobState.FINISHED);
         switch (state) {
             case PENDING:
                 jobInfo.add("0%");
@@ -1225,10 +1226,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     public boolean isSingleTabletLoadPerSink() {
         return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
-    }
-
-    public boolean useNewLoadScanNode() {
-        return (boolean) jobProperties.getOrDefault(LoadStmt.USE_NEW_LOAD_SCAN_NODE, false);
     }
 
     // Return true if this job is finished for a long time

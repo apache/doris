@@ -869,5 +869,107 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
                 return reader;
             });
 }
+
+Status LinearProbeRangeFinder::get_range_for(int64_t desired_offset,
+                                             io::PrefetchRange& result_range) {
+    while (index < _ranges.size()) {
+        io::PrefetchRange& range = _ranges[index];
+        if (range.end_offset > desired_offset) {
+            if (range.start_offset > desired_offset) [[unlikely]] {
+                return Status::InvalidArgument("Invalid desiredOffset");
+            }
+            result_range = range;
+            return Status::OK();
+        }
+        ++index;
+    }
+    return Status::InvalidArgument("Invalid desiredOffset");
+}
+
+RangeCacheFileReader::RangeCacheFileReader(RuntimeProfile* profile, io::FileReaderSPtr inner_reader,
+                                           std::shared_ptr<RangeFinder> range_finder)
+        : _profile(profile),
+          _inner_reader(std::move(inner_reader)),
+          _range_finder(std::move(range_finder)) {
+    _size = _inner_reader->size();
+    uint64_t max_cache_size =
+            std::max((uint64_t)4096, (uint64_t)_range_finder->get_max_range_size());
+    _cache = OwnedSlice(max_cache_size);
+
+    if (_profile != nullptr) {
+        const char* random_profile = "RangeCacheFileReader";
+        ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+        _request_io =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT, random_profile, 1);
+        _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
+                                                      random_profile, 1);
+        _request_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RequestTime", random_profile, 1);
+        _read_to_cache_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadToCacheTime", random_profile, 1);
+        _cache_refresh_count = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "CacheRefreshCount",
+                                                            TUnit::UNIT, random_profile, 1);
+        _read_to_cache_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReadToCacheBytes",
+                                                            TUnit::BYTES, random_profile, 1);
+    }
+}
+
+Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                          const IOContext* io_ctx) {
+    auto request_size = result.size;
+
+    _cache_statistics.request_io++;
+    _cache_statistics.request_bytes += request_size;
+    SCOPED_RAW_TIMER(&_cache_statistics.request_time);
+
+    PrefetchRange range;
+    if (_range_finder->get_range_for(offset, range)) [[likely]] {
+        if (_current_start_offset != range.start_offset) { // need read new range to cache.
+            auto range_size = range.end_offset - range.start_offset;
+
+            _cache_statistics.cache_refresh_count++;
+            _cache_statistics.read_to_cache_bytes += range_size;
+            SCOPED_RAW_TIMER(&_cache_statistics.read_to_cache_time);
+
+            Slice cache_slice = {_cache.data(), range_size};
+            RETURN_IF_ERROR(
+                    _inner_reader->read_at(range.start_offset, cache_slice, bytes_read, io_ctx));
+
+            if (*bytes_read != range_size) [[unlikely]] {
+                return Status::InternalError(
+                        "RangeCacheFileReader use inner reader read bytes {} not eq expect size {}",
+                        *bytes_read, range_size);
+            }
+
+            _current_start_offset = range.start_offset;
+        }
+
+        int64_t buffer_offset = offset - _current_start_offset;
+        memcpy(result.data, _cache.data() + buffer_offset, request_size);
+        *bytes_read = request_size;
+
+        return Status::OK();
+    } else {
+        return Status::InternalError("RangeCacheFileReader read  not in Ranges. Offset = {}",
+                                     offset);
+        //                RETURN_IF_ERROR(_inner_reader->read_at(offset, result , bytes_read, io_ctx));
+        //                return Status::OK();
+        // think return error is ok,otherwise it will cover up the error.
+    }
+}
+
+void RangeCacheFileReader::_collect_profile_before_close() {
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_request_io, _cache_statistics.request_io);
+        COUNTER_UPDATE(_request_bytes, _cache_statistics.request_bytes);
+        COUNTER_UPDATE(_request_time, _cache_statistics.request_time);
+        COUNTER_UPDATE(_read_to_cache_time, _cache_statistics.read_to_cache_time);
+        COUNTER_UPDATE(_cache_refresh_count, _cache_statistics.cache_refresh_count);
+        COUNTER_UPDATE(_read_to_cache_bytes, _cache_statistics.read_to_cache_bytes);
+        if (_inner_reader != nullptr) {
+            _inner_reader->collect_profile_before_close();
+        }
+    }
+}
+
 } // namespace io
 } // namespace doris

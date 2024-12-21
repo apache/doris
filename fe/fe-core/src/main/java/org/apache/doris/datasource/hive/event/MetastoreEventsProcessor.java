@@ -165,7 +165,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             } catch (HMSClientException hmsClientException) {
                 if (hmsClientException.getCause() != null
                         && hmsClientException.getCause() instanceof NoSuchObjectException) {
-                    LOG.warn(event.debugString("Failed to process event and skip"), hmsClientException);
+                    LOG.warn(event.getMsgWithEventInfo("Failed to process event and skip"), hmsClientException);
                 } else {
                     updateLastSyncedEventId(hmsExternalCatalog, event.getEventId() - 1);
                     throw hmsClientException;

@@ -22,7 +22,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF5 RF6 RF7 RF8 RF10
 --------------------------------------PhysicalProject
-----------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
+----------------------------------------filter(OR[(promotion.p_channel_dmail = 'Y'),(promotion.p_channel_email = 'Y'),(promotion.p_channel_tv = 'Y')])
 ------------------------------------------PhysicalOlapScan[promotion]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer] apply RFs: RF9

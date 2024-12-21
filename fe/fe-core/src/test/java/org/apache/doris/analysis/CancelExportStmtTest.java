@@ -234,7 +234,6 @@ public class CancelExportStmtTest extends TestWithFeService {
         exportMgr.unprotectAddJob(job3);
         exportMgr.unprotectAddJob(job4);
 
-
         // cancel export job where state = "PENDING"
         Assert.assertTrue(job1.getState() == ExportJobState.PENDING);
         SlotRef stateSlotRef = new SlotRef(null, "state");

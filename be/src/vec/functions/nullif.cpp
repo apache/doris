@@ -67,14 +67,6 @@ public:
 
     static DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) {
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
-
-        for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
-            bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const) {
-                arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
-            }
-        }
-
         if (!arguments.empty()) {
             if (have_null_column(arguments)) {
                 return make_nullable(std::make_shared<doris::vectorized::DataTypeUInt8>());
@@ -86,7 +78,7 @@ public:
 
     // nullIf(col1, col2) == if(col1 = col2, NULL, col1)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnsWithTypeAndName eq_columns {
                 block.get_by_position(arguments[0]),
                 block.get_by_position(arguments[1]),

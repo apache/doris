@@ -20,11 +20,10 @@
 
 #pragma once
 
-#include <string>
+#include <cstdint>
 #include <vector>
 
 namespace doris::vectorized {
 
-using ColumnNumbers = std::vector<size_t>;
-
+using ColumnNumbers = std::vector<uint32_t>;
 }

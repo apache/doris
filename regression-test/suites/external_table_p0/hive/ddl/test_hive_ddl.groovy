@@ -96,8 +96,10 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
             // create and insert default value is supported on hive3, we can test default hive version 2.3
             sql """switch ${catalog_name}"""
-            sql  """ create database if not exists `test_hive_default_val`
-                 """
+            sql  """ drop database if exists `test_hive_default_val` """
+
+            sql  """ create database if not exists `test_hive_default_val` """
+            
             sql """use `test_hive_default_val`"""
             test {
                 sql """ 
@@ -111,7 +113,6 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     """
                 exception "failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
             }
-            sql """DROP DATABASE `test_hive_default_val`"""
 
             test {
                 sql """

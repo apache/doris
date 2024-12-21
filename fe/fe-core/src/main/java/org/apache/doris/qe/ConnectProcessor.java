@@ -44,6 +44,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlPacket;
@@ -195,6 +196,12 @@ public abstract class ConnectProcessor {
 
     // Do nothing for now.
     protected void handleDebug() {
+        ctx.getState().setOk();
+    }
+
+    protected void handleResetConnection() {
+        ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        ctx.clearLastDBOfCatalog();
         ctx.getState().setOk();
     }
 
@@ -656,7 +663,8 @@ public abstract class ConnectProcessor {
         }
 
         // set resource tag
-        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser),
+                Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

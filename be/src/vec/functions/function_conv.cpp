@@ -49,6 +49,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -73,7 +74,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
@@ -222,8 +223,8 @@ struct ConvStringImpl {
         if (!MathFunctions::handle_parse_result(dst_base, &decimal_num, parse_res)) {
             result_column->insert_data("0", 1);
         } else {
-            StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+            StringRef str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+            result_column->insert_data(reinterpret_cast<const char*>(str_base.data), str_base.size);
         }
     }
 };

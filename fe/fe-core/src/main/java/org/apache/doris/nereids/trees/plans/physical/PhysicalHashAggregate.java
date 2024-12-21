@@ -206,8 +206,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
-                "requireProperties", requireProperties,
-                "topnOpt", topnPushInfo != null
+                "topnFilter", topnPushInfo != null,
+                "topnPushDown", getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).isPresent()
         );
     }
 
@@ -234,6 +234,13 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public int hashCode() {
         return Objects.hash(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, requireProperties);
+    }
+
+    public PhysicalHashAggregate<Plan> withGroupByExpressions(List<Expression> newGroupByExpressions) {
+        return new PhysicalHashAggregate<>(newGroupByExpressions, outputExpressions, partitionExpressions,
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
+                requireProperties, physicalProperties, statistics,
+                child());
     }
 
     @Override

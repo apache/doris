@@ -69,6 +69,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TabletSchema;
 class LoadStreamStub;
 
@@ -133,15 +134,18 @@ public:
 #ifdef BE_TEST
     virtual
 #endif
+            // segment_id is limited by max_segment_num_per_rowset (default value of 1000),
+            // so in practice it will not exceed the range of i16.
+
             // APPEND_DATA
             Status
             append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                        int64_t segment_id, uint64_t offset, std::span<const Slice> data,
+                        int32_t segment_id, uint64_t offset, std::span<const Slice> data,
                         bool segment_eos = false, FileType file_type = FileType::SEGMENT_FILE);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, const SegmentStatistics& segment_stat,
+                       int32_t segment_id, const SegmentStatistics& segment_stat,
                        TabletSchemaSPtr flush_schema);
 
     // CLOSE_LOAD
@@ -335,3 +339,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

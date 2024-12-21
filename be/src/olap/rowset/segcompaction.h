@@ -25,6 +25,7 @@
 #include "olap/merger.h"
 #include "olap/simple_rowid_conversion.h"
 #include "olap/tablet.h"
+#include "segment_v2/inverted_index_file_writer.h"
 #include "segment_v2/segment.h"
 
 namespace doris {
@@ -69,6 +70,9 @@ public:
     DeleteBitmapPtr get_converted_delete_bitmap() { return _converted_delete_bitmap; }
 
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
+    InvertedIndexFileWriterPtr& get_inverted_index_file_writer() {
+        return _inverted_index_file_writer;
+    }
 
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
@@ -96,6 +100,7 @@ private:
     // Currently cloud storage engine doesn't need segcompaction
     BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
+    InvertedIndexFileWriterPtr _inverted_index_file_writer = nullptr;
 
     // for unique key mow table
     std::unique_ptr<SimpleRowIdConversion> _rowid_conversion = nullptr;

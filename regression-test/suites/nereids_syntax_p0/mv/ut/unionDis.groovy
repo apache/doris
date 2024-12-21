@@ -58,6 +58,8 @@ suite ("unionDis") {
     order_qt_select_mv "select * from (select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0) t order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table unionDis modify column time_col set stats ('row_count'='4');"""
+
     mv_rewrite_fail("select * from unionDis order by empid;", "unionDis_mv")
 
     explain {

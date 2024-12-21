@@ -21,11 +21,8 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-class MemTracker;
-
-namespace vectorized {
-
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct ChannelField {
     const void* channel_id;
     const uint32_t len;
@@ -48,11 +45,15 @@ public:
 
     virtual Status open(RuntimeState* state) = 0;
 
+    virtual Status close(RuntimeState* state) = 0;
+
     virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
 
     virtual ChannelField get_channel_ids() const = 0;
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
+
+    size_t partition_count() const { return _partition_count; }
 
 protected:
     const size_t _partition_count;
@@ -73,6 +74,8 @@ public:
     }
 
     Status open(RuntimeState* state) override { return VExpr::open(_partition_expr_ctxs, state); }
+
+    Status close(RuntimeState* state) override { return Status::OK(); }
 
     Status do_partitioning(RuntimeState* state, Block* block) const override;
 
@@ -108,6 +111,5 @@ struct SpillPartitionChannelIds {
         return ((l >> 16) | (l << 16)) % r;
     }
 };
-
-} // namespace vectorized
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::vectorized

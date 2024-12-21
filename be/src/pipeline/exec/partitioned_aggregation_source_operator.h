@@ -22,6 +22,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -91,10 +92,13 @@ public:
 
     bool is_source() const override { return true; }
 
+    bool is_serial_operator() const override;
+
 private:
     friend class PartitionedAggLocalState;
 
     std::unique_ptr<AggSourceOperatorX> _agg_source_operator;
 };
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

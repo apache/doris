@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.serde2.OpenCSVSerde;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,14 +28,11 @@ import java.util.Set;
 
 public class HiveProperties {
     public static final String PROP_FIELD_DELIMITER = "field.delim";
-    public static final String PROP_SEPARATOR_CHAR = "separatorChar";
     public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
 
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
-
-    public static final String PROP_QUOTE_CHAR = "quoteChar";
 
     public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
@@ -49,6 +47,14 @@ public class HiveProperties {
     public static final String PROP_NULL_FORMAT = "serialization.null.format";
     public static final String DEFAULT_NULL_FORMAT = "\\N";
 
+    // The following properties are used for OpenCsvSerde.
+    public static final String PROP_SEPARATOR_CHAR = OpenCSVSerde.SEPARATORCHAR;
+    public static final String DEFAULT_SEPARATOR_CHAR = ",";
+    public static final String PROP_QUOTE_CHAR = OpenCSVSerde.QUOTECHAR;
+    public static final String DEFAULT_QUOTE_CHAR = "\"";
+    public static final String PROP_ESCAPE_CHAR = OpenCSVSerde.ESCAPECHAR;
+    public static final String DEFAULT_ESCAPE_CHAR = "\\";
+
     public static final Set<String> HIVE_SERDE_PROPERTIES = ImmutableSet.of(
             PROP_FIELD_DELIMITER,
             PROP_COLLECTION_DELIMITER_HIVE2,
@@ -59,37 +65,33 @@ public class HiveProperties {
             PROP_QUOTE_CHAR,
             PROP_MAP_KV_DELIMITER,
             PROP_ESCAPE_DELIMITER,
-            PROP_NULL_FORMAT
-    );
+            PROP_ESCAPE_CHAR,
+            PROP_NULL_FORMAT);
 
     public static String getFieldDelimiter(Table table) {
         // This method is used for text format.
-        // If you need compatibility with csv format, please use `getColumnSeparator`.
         Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_FIELD_DELIMITER);
         Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SERIALIZATION_FORMAT);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
                 DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat));
     }
 
-    public static String getColumnSeparator(Table table) {
-        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_FIELD_DELIMITER);
-        Optional<String> columnSeparator = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SEPARATOR_CHAR);
-        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SERIALIZATION_FORMAT);
-        return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-            DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator, serFormat));
+    public static String getSeparatorChar(Table table) {
+        Optional<String> separatorChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SEPARATOR_CHAR);
+        return HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_SEPARATOR_CHAR, separatorChar);
     }
-
 
     public static String getLineDelimiter(Table table) {
         Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_LINE_DELIMITER);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-            DEFAULT_LINE_DELIMITER, lineDelim));
+                DEFAULT_LINE_DELIMITER, lineDelim));
     }
 
     public static String getMapKvDelimiter(Table table) {
         Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_MAP_KV_DELIMITER);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-            DEFAULT_MAP_KV_DELIMITER, mapkvDelim));
+                DEFAULT_MAP_KV_DELIMITER, mapkvDelim));
     }
 
     public static String getCollectionDelimiter(Table table) {
@@ -99,14 +101,6 @@ public class HiveProperties {
                 PROP_COLLECTION_DELIMITER_HIVE3);
         return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
                 DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3));
-    }
-
-    public static Optional<String> getQuoteChar(Table table) {
-        Map<String, String> serdeParams = table.getSd().getSerdeInfo().getParameters();
-        if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
-            return Optional.of(serdeParams.get(PROP_QUOTE_CHAR));
-        }
-        return Optional.empty();
     }
 
     public static Optional<String> getEscapeDelimiter(Table table) {
@@ -125,6 +119,16 @@ public class HiveProperties {
     public static String getNullFormat(Table table) {
         Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_NULL_FORMAT);
         return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_NULL_FORMAT, nullFormat);
+    }
+
+    public static String getQuoteChar(Table table) {
+        Optional<String> quoteChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_QUOTE_CHAR);
+        return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_QUOTE_CHAR, quoteChar);
+    }
+
+    public static String getEscapeChar(Table table) {
+        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_ESCAPE_CHAR);
+        return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_ESCAPE_CHAR, escapeChar);
     }
 
     // Set properties to table

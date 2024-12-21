@@ -126,7 +126,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     ReadStatistics stats;
     auto defer_func = [&](int*) {
         if (io_ctx->file_cache_stats) {
-            _update_state(stats, io_ctx->file_cache_stats);
+            _update_state(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
             io::FileCacheProfile::instance().update(io_ctx->file_cache_stats);
         }
     };
@@ -292,6 +292,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                                  file_offset);
             }
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
+                LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
+                             << st.msg() << ", block state=" << block_state;
                 size_t bytes_read {0};
                 stats.hit_cache = false;
                 s3_read_counter << 1;
@@ -310,7 +312,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
 }
 
 void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
-                                           FileCacheStatistics* statis) const {
+                                           FileCacheStatistics* statis,
+                                           bool is_inverted_index) const {
     if (statis == nullptr) {
         return;
     }
@@ -318,6 +321,9 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
         statis->num_local_io_total++;
         statis->bytes_read_from_local += read_stats.bytes_read;
     } else {
+        if (is_inverted_index) {
+            statis->num_inverted_index_remote_io_total++;
+        }
         statis->num_remote_io_total++;
         statis->bytes_read_from_remote += read_stats.bytes_read;
     }

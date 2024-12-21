@@ -53,9 +53,9 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
-class MemTracker;
 class RowDescriptor;
 class TDataSink;
 class TDataStreamSink;
@@ -76,16 +76,21 @@ namespace vectorized {
 class BlockSerializer {
 public:
     BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local = true);
-    Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 bool eos, const std::vector<uint32_t>* rows = nullptr);
-    Status serialize_block(PBlock* dest, int num_receivers = 1);
-    Status serialize_block(const Block* src, PBlock* dest, int num_receivers = 1);
+#ifdef BE_TEST
+    BlockSerializer() : _batch_size(0) {};
+#endif
+    Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
+                                 bool eos, const uint32_t* data = nullptr,
+                                 const uint32_t offset = 0, const uint32_t size = 0);
+    Status serialize_block(PBlock* dest, size_t num_receivers = 1);
+    Status serialize_block(const Block* src, PBlock* dest, size_t num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
     void reset_block() { _mutable_block.reset(); }
 
     void set_is_local(bool is_local) { _is_local = is_local; }
+    bool is_local() const { return _is_local; }
 
 private:
     pipeline::ExchangeSinkLocalState* _parent;
@@ -146,7 +151,8 @@ public:
     Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
     Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
 
-    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
+    Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
+                    bool eos) {
         if (_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
@@ -156,7 +162,7 @@ public:
             _pblock = std::make_unique<PBlock>();
         }
         RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
-                                                          &rows));
+                                                          data, offset, size));
         if (serialized) {
             RETURN_IF_ERROR(_send_current_block(eos));
         }
@@ -164,10 +170,9 @@ public:
         return Status::OK();
     }
 
-    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
-        _buffer = buffer;
-        _buffer->register_sink(_fragment_instance_id);
-    }
+    void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
+
+    InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos) {
@@ -232,3 +237,5 @@ protected:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

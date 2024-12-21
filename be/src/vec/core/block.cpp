@@ -509,16 +509,13 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
                 continue;
             }
             std::string s;
-            if (data[i].column) {
-                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
-                    if (is_column_const(*data[i].column)) {
-                        s = data[i].to_string(0);
-                    } else {
-                        assert(allow_null_mismatch);
-                        s = assert_cast<const DataTypeNullable*>(data[i].type.get())
-                                    ->get_nested_type()
-                                    ->to_string(*data[i].column, row_num);
-                    }
+            if (data[i].column) { // column may be const
+                // for code inside `default_implementation_for_nulls`, there's could have: type = null, col != null
+                if (data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
+                    assert(allow_null_mismatch);
+                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                                ->get_nested_type()
+                                ->to_string(*data[i].column, row_num);
                 } else {
                     s = data[i].to_string(row_num);
                 }
@@ -647,10 +644,10 @@ Block Block::clone_with_columns(const Columns& columns) const {
     size_t num_columns = data.size();
 
     if (num_columns != columns.size()) {
-        LOG(FATAL) << fmt::format(
+        throw Exception(Status::FatalError(
                 "Cannot clone block with columns because block has {} columns, but {} columns "
                 "given.",
-                num_columns, columns.size());
+                num_columns, columns.size()));
     }
 
     for (size_t i = 0; i < num_columns; ++i) {
@@ -815,7 +812,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
             if (column->size() != count) {
                 if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
-                    if (result_size != count) {
+                    if (result_size != count) [[unlikely]] {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
                                         "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
@@ -1083,7 +1080,7 @@ Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t lengt
     return Status::OK();
 }
 
-Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& rows) {
     RETURN_IF_CATCH_EXCEPTION({
         DCHECK_LE(columns(), block->columns());
         const auto& block_data = block->get_columns_with_type_and_name();
@@ -1093,7 +1090,7 @@ Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
             auto& dst = _columns[i];
             const auto& src = *block_data[i].column.get();
             dst->reserve(dst->size() + length);
-            for (size_t row : rows) {
+            for (auto row : rows) {
                 // we can introduce a new function like `insert_assume_reserved` for IColumn.
                 dst->insert_from(src, row);
             }
@@ -1215,7 +1212,7 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {
             auto& col_and_name = this->get_by_position(idx);
-            col_and_name.column = col_and_name.column->assume_mutable()->get_shrinked_column();
+            col_and_name.column->assume_mutable()->shrink_padding_chars();
         }
     }
 }

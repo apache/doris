@@ -57,9 +57,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
      */
     public AsyncMaterializationContext(MTMV mtmv, Plan mvPlan, Plan mvOriginalPlan, List<Table> baseTables,
             List<Table> baseViews, CascadesContext cascadesContext, StructInfo structInfo) {
-        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, mtmv.getBaseIndexId(),
-                        mtmv.getPartitionIds(), PreAggStatus.on(), cascadesContext),
-                cascadesContext, structInfo);
+        super(mvPlan, mvOriginalPlan, cascadesContext, structInfo);
         this.mtmv = mtmv;
     }
 
@@ -110,7 +108,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return Optional.empty();
         }
         RelationId relationId = null;
-        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan(null)
+        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan(null, cascadesContext)
                 .collectFirst(LogicalOlapScan.class::isInstance);
         if (logicalOlapScan.isPresent()) {
             relationId = logicalOlapScan.get().getRelationId();
@@ -132,7 +130,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    public Plan getScanPlan(StructInfo queryInfo) {
+    public Plan getScanPlan(StructInfo queryInfo, CascadesContext cascadesContext) {
+        super.getScanPlan(queryInfo, cascadesContext);
         return scanPlan;
     }
 

@@ -106,7 +106,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (routineLoadTaskInfo.getIsEof()) {
                 RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
                 if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
-                        < routineLoadJob.getMaxBatchIntervalS()) {
+                        < routineLoadJob.getMaxBatchIntervalS() * 1000) {
                     needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                     return;
                 }

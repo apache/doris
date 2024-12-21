@@ -53,7 +53,7 @@ public class ResultReceiver {
     private Types.PUniqueId finstId;
     private Long backendId;
     private Thread currentThread;
-    private Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
+    private volatile Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
     private Boolean enableParallelResultSink = false;
 
     int maxMsgSizeOfResultReceiver;

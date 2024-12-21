@@ -133,7 +133,7 @@ size_t get_size_of_interger(TypeIndex type) {
     case TypeIndex::UInt128:
         return sizeof(uint128_t);
     default:
-        LOG(FATAL) << "Unknown integer type: " << getTypeName(type);
+        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
         return 0;
     }
 }
@@ -231,8 +231,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -360,6 +359,10 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema) {
+    DCHECK(target.is_extracted_column());
+    target.set_aggregation_method(source.aggregation());
+
+    // 1. bloom filter
     if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
         target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
         target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
@@ -367,21 +370,24 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // above types are not supported in bf
         target.set_is_bf_column(source.is_bf_column());
     }
-    target.set_aggregation_method(source.aggregation());
-    const auto* source_index_meta = target_schema->get_inverted_index(source.unique_id(), "");
+
+    // 2. inverted index
+    const auto* source_index_meta = target_schema->inverted_index(source.unique_id());
     if (source_index_meta != nullptr) {
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        // get_inverted_index: No need to check, just inherit directly
-        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
+        const auto* target_index_meta = target_schema->inverted_index(
+                target.parent_unique_id(), target.path_info_ptr()->get_path());
         if (target_index_meta != nullptr) {
             // already exist
-            target_schema->update_index(target, index_info);
+            target_schema->update_index(target, IndexType::INVERTED, std::move(index_info));
         } else {
-            target_schema->append_index(index_info);
+            target_schema->append_index(std::move(index_info));
         }
     }
+
+    // 3. TODO: gnragm bf index
 }
 
 void inherit_column_attributes(TabletSchemaSPtr& schema) {
@@ -409,9 +415,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // duplicated paths following the update_least_common_schema process.
     auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
         output_schema = std::make_shared<TabletSchema>();
-        output_schema->copy_from(*base_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
+        // not copy columns but only shadow copy other attributes
+        output_schema->shawdow_copy_without_columns(*base_schema);
         // Get all columns without extracted columns and collect variant col unique id
         for (const TabletColumnPtr& col : base_schema->columns()) {
             if (col->is_variant_type()) {
@@ -571,7 +576,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                                  : std::make_shared<DataTypeJsonb>();
     ColumnsWithTypeAndName arguments {
             {source, json_type, ""},
-            {type_string->create_column_const(1, Field(jsonpath.data(), jsonpath.size())),
+            {type_string->create_column_const(1, Field(String(jsonpath.data(), jsonpath.size()))),
              type_string, ""}};
     auto function =
             SimpleFunctionFactory::instance().get_function("jsonb_extract", arguments, json_type);
@@ -589,6 +594,22 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                   .column->convert_to_full_column_if_const()
                   ->assume_mutable();
     return Status::OK();
+}
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx) {
+    const auto& column_new = new_schema->column(new_col_idx);
+    const auto& column_old = old_schema->column(old_col_idx);
+
+    if (column_new.is_bf_column() != column_old.is_bf_column() ||
+        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+        return true;
+    }
+
+    bool new_schema_has_inverted_index = new_schema->inverted_index(column_new);
+    bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
+
+    return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
 } // namespace doris::vectorized::schema_util

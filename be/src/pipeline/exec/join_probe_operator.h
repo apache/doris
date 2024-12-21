@@ -20,6 +20,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinProbeOperatorX;
 template <typename SharedStateArg, typename Derived>
@@ -49,10 +50,10 @@ protected:
 
     size_t _mark_column_id = -1;
 
-    RuntimeProfile::Counter* _probe_timer = nullptr;
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
@@ -123,4 +124,5 @@ protected:
     const bool _use_specific_projections;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

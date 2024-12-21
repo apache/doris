@@ -25,6 +25,7 @@
 #include "vec/common/hash_table/hash_table_set_probe.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -69,14 +70,18 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    auto probe_rows = in_block->rows();
+    uint32_t probe_rows = cast_set<uint32_t>(in_block->rows());
     if (probe_rows > 0) {
-        RETURN_IF_ERROR(_extract_probe_column(local_state, *in_block, local_state._probe_columns,
-                                              _cur_child_id));
+        {
+            SCOPED_TIMER(local_state._extract_probe_data_timer);
+            RETURN_IF_ERROR(_extract_probe_column(local_state, *in_block,
+                                                  local_state._probe_columns, _cur_child_id));
+        }
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        SCOPED_TIMER(local_state._probe_timer);
                         vectorized::HashTableProbe<HashTableCtxType, is_intersect>
                                 process_hashtable_ctx(&local_state, probe_rows);
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
@@ -99,6 +104,9 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+
+    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
+    _extract_probe_data_timer = ADD_TIMER(Base::profile(), "ExtractProbeDataTime");
     Parent& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _dependency->block();
@@ -203,46 +211,52 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    auto tmp_hash_table =
-                            std::make_shared<typename HashTableCtxType::HashMapType>();
-                    bool is_need_shrink =
-                            arg.hash_table->should_be_shrink(valid_element_in_hash_tbl);
-                    if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(size_t(
-                                valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
-                    }
-
                     arg.init_iterator();
                     auto& iter = arg.iterator;
                     auto iter_end = arg.hash_table->end();
-                    std::visit(
-                            [&](auto is_need_shrink_const) {
-                                while (iter != iter_end) {
-                                    auto& mapped = iter->get_second();
-                                    auto it = mapped.begin();
 
-                                    if constexpr (is_intersect) { //intersected
-                                        if (it->visited) {
-                                            it->visited = false;
-                                            tmp_hash_table->insert(iter->get_value());
-                                        }
-                                        ++iter;
-                                    } else { //except
-                                        if constexpr (is_need_shrink_const) {
-                                            if (!it->visited) {
-                                                tmp_hash_table->insert(iter->get_value());
-                                            }
-                                        }
-                                        ++iter;
-                                    }
+                    constexpr double need_shrink_ratio = 0.25;
+                    bool is_need_shrink =
+                            is_intersect
+                                    ? (valid_element_in_hash_tbl <
+                                       arg.hash_table
+                                               ->size()) // When intersect, shrink as long as the element decreases
+                                    : ((double)valid_element_in_hash_tbl <
+                                       (double)arg.hash_table->size() *
+                                               need_shrink_ratio); // When except, element decreases need to within the 'need_shrink_ratio' before shrinking
+
+                    if (is_need_shrink) {
+                        auto tmp_hash_table =
+                                std::make_shared<typename HashTableCtxType::HashMapType>();
+                        tmp_hash_table->reserve(
+                                local_state._shared_state->valid_element_in_hash_tbl);
+                        while (iter != iter_end) {
+                            auto& mapped = iter->get_second();
+                            auto* it = &mapped;
+
+                            if constexpr (is_intersect) {
+                                if (it->visited) {
+                                    it->visited = false;
+                                    tmp_hash_table->insert(iter->get_first(), iter->get_second());
                                 }
-                            },
-                            vectorized::make_bool_variant(is_need_shrink));
+                            } else {
+                                if (!it->visited) {
+                                    tmp_hash_table->insert(iter->get_first(), iter->get_second());
+                                }
+                            }
+                            ++iter;
+                        }
+                        arg.hash_table = std::move(tmp_hash_table);
+                    } else if (is_intersect) {
+                        while (iter != iter_end) {
+                            auto& mapped = iter->get_second();
+                            auto* it = &mapped;
+                            it->visited = false;
+                            ++iter;
+                        }
+                    }
 
                     arg.reset();
-                    if (is_intersect || is_need_shrink) {
-                        arg.hash_table = std::move(tmp_hash_table);
-                    }
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                     __builtin_unreachable();
@@ -256,4 +270,5 @@ template class SetProbeSinkLocalState<false>;
 template class SetProbeSinkOperatorX<true>;
 template class SetProbeSinkOperatorX<false>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
