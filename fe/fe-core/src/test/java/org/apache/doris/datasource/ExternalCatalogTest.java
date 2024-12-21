@@ -23,9 +23,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -258,22 +260,26 @@ public class ExternalCatalogTest extends TestWithFeService {
         // 1. Write objects to file
         File file = new File("./external_catalog_persist_test.dat");
         file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
+        try {
+            DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
 
-        TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
-        ctl.write(dos);
-        dos.flush();
-        dos.close();
+            TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
+            ctl.write(dos);
+            dos.flush();
+            dos.close();
 
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
+            // 2. Read objects from file
+            DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
 
-        TestExternalCatalog ctl2 = (TestExternalCatalog) ExternalCatalog.read(dis);
-        Configuration conf = ctl2.getConfiguration();
-        Assertions.assertNotNull(conf);
+            String json = Text.readString(dis);
+            TestExternalCatalog ctl2 = GsonUtils.GSON.fromJson(json, TestExternalCatalog.class);
+            Configuration conf = ctl2.getConfiguration();
+            Assertions.assertNotNull(conf);
 
-        // 3. delete files
-        dis.close();
-        file.delete();
+            // 3. delete files
+            dis.close();
+        } finally {
+            file.delete();
+        }
     }
 }
