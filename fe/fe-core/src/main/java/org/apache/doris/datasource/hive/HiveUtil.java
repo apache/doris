@@ -70,6 +70,9 @@ public final class HiveUtil {
     public static final Set<String> SUPPORTED_TEXT_COMPRESSIONS =
             ImmutableSet.of("plain", "gzip", "zstd", "bzip2", "lz4", "snappy");
 
+    public static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
+    public static final String DELTA_SIDE_FILE_SUFFIX = "_flush_length";
+
     private HiveUtil() {
     }
 
@@ -385,5 +388,24 @@ public final class HiveUtil {
         sd.setParameters(ImmutableMap.of());
 
         return sd;
+    }
+
+    public interface ACIDFileFilter {
+        public boolean accept(String fileName);
+    }
+
+    public static final class FullAcidFileFilter implements ACIDFileFilter {
+        @Override
+        public boolean accept(String fileName) {
+            return fileName.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)
+                    && !fileName.endsWith(DELTA_SIDE_FILE_SUFFIX);
+        }
+    }
+
+    public static final class InsertOnlyACIDFileFilter implements ACIDFileFilter {
+        @Override
+        public boolean accept(String fileName) {
+            return true;
+        }
     }
 }
