@@ -95,6 +95,8 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
+    _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
+                                        [](const VExprSPtr& expr) { return expr->is_constant(); });
     _open_finished = true;
     return Status::OK();
 }
@@ -113,13 +115,18 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
-    // TODO: not execute const expr again, but use the const column in function context
-    doris::vectorized::ColumnNumbers arguments(_children.size());
-    for (int i = 0; i < _children.size(); ++i) {
+
+    // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
+    // where all values inside the IN clause are constants,
+    // a hash set is created during open, and it will not be accessed again during execute
+    //  Here, _children[0] is colA
+    const size_t args_size = _is_args_all_constant ? 1 : _children.size();
+    doris::vectorized::ColumnNumbers arguments(args_size);
+    for (int i = 0; i < args_size; ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
