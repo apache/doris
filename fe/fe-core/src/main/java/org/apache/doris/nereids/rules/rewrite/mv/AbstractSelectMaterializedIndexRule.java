@@ -222,8 +222,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
     }
 
     protected static boolean containsAllColumn(Expression expression, Set<String> mvColumnNames) {
-        if (mvColumnNames.contains(expression.toSql()) || mvColumnNames
-                .contains(org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(expression.toSql()))) {
+        String sql = expression.toSql();
+        if (mvColumnNames.contains(sql) || mvColumnNames
+                .contains(org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(sql))) {
             return true;
         }
         if (expression.children().isEmpty()) {

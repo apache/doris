@@ -126,7 +126,7 @@ public abstract class TableValuedFunction extends BoundFunction
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         String args = getTVFProperties()
                 .getMap()
                 .entrySet()

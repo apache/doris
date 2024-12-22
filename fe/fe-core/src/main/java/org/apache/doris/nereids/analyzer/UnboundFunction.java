@@ -86,7 +86,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         String params = children.stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));

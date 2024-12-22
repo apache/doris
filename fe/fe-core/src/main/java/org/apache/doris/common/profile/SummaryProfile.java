@@ -487,7 +487,9 @@ public class SummaryProfile {
     }
 
     public void setQueryPlanFinishTime() {
-        this.queryPlanFinishTime = TimeUtils.getStartTimeMs();
+        if (queryPlanFinishTime == -1) {
+            this.queryPlanFinishTime = TimeUtils.getStartTimeMs();
+        }
     }
 
     public void setQueryScheduleFinishTime() {

@@ -81,8 +81,18 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public String toSql() {
-        return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
+    public String computeToSql() {
+        switch (nameParts.size()) {
+            case 1: return Utils.quoteIfNeeded(nameParts.get(0));
+            case 2: return Utils.quoteIfNeeded(nameParts.get(0)) + "." + Utils.quoteIfNeeded(nameParts.get(1));
+            case 3: return Utils.quoteIfNeeded(nameParts.get(0)) + "." + Utils.quoteIfNeeded(nameParts.get(1))
+                    + "." + Utils.quoteIfNeeded(nameParts.get(2));
+            default: {
+                return nameParts.stream().map(Utils::quoteIfNeeded)
+                        .reduce((left, right) -> left + "." + right)
+                        .orElse("");
+            }
+        }
     }
 
     public static UnboundSlot quoted(String name) {

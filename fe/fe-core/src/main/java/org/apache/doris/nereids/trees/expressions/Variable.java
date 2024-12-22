@@ -85,7 +85,7 @@ public class Variable extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         return toString();
     }
 
