@@ -1745,6 +1745,9 @@ under the License.
             <id>snapshots</id>
             <name>apache snapshots maven repo https</name>
             <url>https://repository.apache.org/content/repositories/snapshots/</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
             <snapshots>
                 <updatePolicy>always</updatePolicy>
             </snapshots>
