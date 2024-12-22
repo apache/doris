@@ -24,6 +24,7 @@
 #include <iosfwd>
 #include <vector>
 
+#include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
@@ -105,6 +106,9 @@ public:
     // there is 16 shards in ShardedLRUCache
     // And the LRUHandle size is about 100B. So the cache size should big enough
     // to run the UT.
+    // kCacheSize needs to be an even number. if odd number, the cache will behave correctly,
+    // but the UT Test will fail because check(capacity / 2) will fail.
+    // In fact, Cache will waste an entry space.
     static const int kCacheSize = 1000 * 16;
     std::vector<int> _deleted_keys;
     std::vector<int> _deleted_values;
@@ -728,26 +732,51 @@ TEST_F(CacheTest, SetCapacity) {
               cache()->get_usage()); // Handle not be released, so key cannot be evicted.
 
     for (int i = 0; i < kCacheSize; i++) {
+        // The Key exists in the Cache, remove the old Entry from the Cache, and insert it again.
         Insert(i + kCacheSize, 2000 + i, 1);
-        EXPECT_EQ(-1, Lookup(i + kCacheSize)); // Cache is full, insert failed.
+        if (i < kCacheSize / 2) {
+            // Insert() will replace the entry with the same key in the cache, the replaced entry will
+            // not be freed because there are unreleased handles holding them.
+            // The current cache capacity(kCacheSize/2) is half of the cache usage(kCacheSize),
+            // Insert() method will immediately release the handle of the newly inserted entry,
+            // so the newly inserted entry will be freed, until cache usage is less than or equal to capacity.
+            ASSERT_GE(cache()->get_usage(), cache()->get_capacity());
+            EXPECT_EQ(-1, Lookup(i + kCacheSize));
+        } else if (i == kCacheSize / 2) {
+            // When cache usage is equal to cache capacity, Insert() will replace the old entry
+            // with the same key and will not free the entry after releasing the handle.
+            ASSERT_EQ(cache()->get_usage(), cache()->get_capacity());
+            EXPECT_EQ(2000 + i, Lookup(i + kCacheSize));
+        } else {
+            // When inserting at `i == kCacheSize / 2 + 1`, the cache usage is equal to the cache capacity,
+            // so the entry in the LRU list will be evicted (usage - 1) and then inserted (usage + 1).
+            // because the entry inserted is an existing key, the old entry with the same key is evicted (usage - 1),
+            // so the final cache usage is equal to (capacity - 1).
+            ASSERT_EQ(cache()->get_usage(), cache()->get_capacity() - 1);
+            EXPECT_EQ(2000 + i, Lookup(i + kCacheSize));
+        }
     }
     ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
-    ASSERT_EQ(kCacheSize, cache()->get_usage());
+    // Here cache usage equals cache capacity - 1, because the entry inserted in the previous step
+    // at `i == kCacheSize / 2 + 1` was evicted, see the reason above.
+    // Entries held by unreleased handles in `handles` will not be counted in cache usage,
+    // but will still be counted in the memory tracker.
+    ASSERT_EQ(kCacheSize / 2 - 1, cache()->get_usage());
 
     cache()->adjust_capacity_weighted(2);
     ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
-    ASSERT_EQ(kCacheSize, cache()->get_usage());
+    ASSERT_EQ(kCacheSize / 2 - 1, cache()->get_usage());
 
     for (int i = 0; i < kCacheSize; i++) {
         Insert(i, 3000 + i, 1);
         EXPECT_EQ(3000 + i, Lookup(i));
     }
     ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
-    ASSERT_EQ(kCacheSize * 2, cache()->get_usage());
+    ASSERT_EQ(kCacheSize * 1.5 - 1, cache()->get_usage());
 
     cache()->adjust_capacity_weighted(0);
     ASSERT_EQ(0, cache()->get_capacity());
-    ASSERT_EQ(kCacheSize, cache()->get_usage());
+    ASSERT_EQ(0, cache()->get_usage());
 
     for (auto it : handles) {
         cache()->release(it);
