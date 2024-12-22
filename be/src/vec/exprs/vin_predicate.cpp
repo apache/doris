@@ -102,17 +102,6 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-size_t VInPredicate::skip_constant_args_size() const {
-    if (_is_args_all_constant && !_can_fast_execute) {
-        // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
-        // where all values inside the IN clause are constants,
-        // a hash set is created during open, and it will not be accessed again during execute
-        //  Here, _children[0] is colA
-        return 1;
-    }
-    return _children.size();
-}
-
 void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
@@ -127,12 +116,19 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
-    doris::vectorized::ColumnNumbers arguments(skip_constant_args_size());
-    for (int i = 0; i < skip_constant_args_size(); ++i) {
+
+    // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
+    // where all values inside the IN clause are constants,
+    // a hash set is created during open, and it will not be accessed again during execute
+    //  Here, _children[0] is colA
+    const size_t args_size = _is_args_all_constant ? 1 : _children.size();
+
+    doris::vectorized::ColumnNumbers arguments(args_size);
+    for (int i = 0; i < args_size; ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
