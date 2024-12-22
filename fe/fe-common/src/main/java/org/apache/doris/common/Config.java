@@ -2974,6 +2974,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_checkpoint = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否开启 sync job 功能。默认关闭。该功能将在3.1版本中移除。",
+            "Whether to enable the sync job feature. It is disabled by default and will be removed in version 3.1."
+    })
+    public static boolean enable_feature_data_sync_job = false;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
