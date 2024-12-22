@@ -170,6 +170,8 @@ public:
 
     int32_t low_memory_mode_scanners() const { return 4; }
 
+    pipeline::ScanLocalStateBase* local_state() const { return _local_state; }
+
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;

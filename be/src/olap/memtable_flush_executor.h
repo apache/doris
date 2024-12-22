@@ -94,7 +94,7 @@ private:
 
     Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
 
-    Status _try_reserve_memory(int64_t size);
+    Status _try_reserve_memory(QueryThreadContext query_thread_context, int64_t size);
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.

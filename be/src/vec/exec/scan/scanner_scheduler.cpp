@@ -33,10 +33,12 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/tablet.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/blocking_queue.hpp"
 #include "util/cpu_info.h"
@@ -209,6 +211,35 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
     return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
+void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
+                                   const Status& st, size_t reserve_size) {
+    ctx->clear_free_blocks();
+    auto* pipeline_task = state->get_task();
+    auto* local_state = ctx->local_state();
+
+    pipeline_task->inc_memory_reserve_failed_times();
+    auto debug_msg = fmt::format(
+            "Query: {} , scanner try to reserve: {}, operator name {}, "
+            "operator "
+            "id: {}, "
+            "task id: "
+            "{}, revocable mem size: {}, failed: {}",
+            print_id(state->query_id()), PrettyPrinter::print_bytes(reserve_size),
+            local_state->get_name(), local_state->parent()->node_id(), state->task_id(),
+            PrettyPrinter::print_bytes(pipeline_task->get_revocable_size()), st.to_string());
+    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+    if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
+        debug_msg += fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
+    }
+    LOG(INFO) << debug_msg;
+
+    state->get_query_ctx()->update_paused_reason(st);
+    state->get_query_ctx()->set_low_memory_mode();
+    state->get_query_ctx()->set_memory_sufficient(false);
+    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+            state->get_query_ctx()->shared_from_this(), reserve_size);
+}
+
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
     auto task_lock = ctx->task_exec_ctx();
@@ -246,6 +277,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     bool eos = false;
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
+            if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
+
             if (!scanner->is_init()) {
                 status = scanner->init();
                 if (!status.ok()) {
@@ -254,6 +287,14 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             if (!eos && !scanner->is_open()) {
+                if (state->enable_reserve_memory()) {
+                    size_t block_avg_bytes = scanner->get_block_avg_bytes();
+                    auto st = thread_context()->try_reserve_memory(block_avg_bytes);
+                    if (!st.ok()) {
+                        handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
+                        return;
+                    }
+                }
                 status = scanner->open(state);
                 if (!status.ok()) {
                     eos = true;
@@ -268,16 +309,17 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            if (ctx->low_memory_mode() &&
-                raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
-                raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+            if (ctx->low_memory_mode()) {
+                ctx->clear_free_blocks();
+                if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
+                    raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+                }
             }
 
             size_t raw_bytes_read = 0;
             bool first_read = true;
             // If the first block is full, then it is true. Or the first block + second block > batch_size
             bool has_first_full_block = false;
-            size_t block_avg_bytes = ctx->batch_size();
 
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
@@ -298,15 +340,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     free_block = ctx->get_free_block(first_read);
                 } else {
                     if (state->enable_reserve_memory()) {
-                        auto reserve_status = thread_context()->try_reserve_memory(block_avg_bytes);
-                        if (!reserve_status.ok()) {
-                            LOG(INFO) << "query: " << print_id(state->query_id())
-                                      << ", scanner try to reserve: "
-                                      << PrettyPrinter::print(block_avg_bytes, TUnit::BYTES)
-                                      << ", failed: " << reserve_status.to_string()
-                                      << ", process info: "
-                                      << GlobalMemoryArbitrator::process_mem_log_str();
-                            ctx->clear_free_blocks();
+                        size_t block_avg_bytes = scanner->get_block_avg_bytes();
+                        auto st = thread_context()->try_reserve_memory(block_avg_bytes);
+                        if (!st.ok()) {
+                            handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
                             break;
                         }
                     }
@@ -353,10 +390,17 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
                 if (scan_task->cached_blocks.back().first->rows() > 0) {
-                    block_avg_bytes = (scan_task->cached_blocks.back().first->allocated_bytes() +
-                                       scan_task->cached_blocks.back().first->rows() - 1) /
-                                      scan_task->cached_blocks.back().first->rows() *
-                                      ctx->batch_size();
+                    auto block_avg_bytes =
+                            (scan_task->cached_blocks.back().first->allocated_bytes() +
+                             scan_task->cached_blocks.back().first->rows() - 1) /
+                            scan_task->cached_blocks.back().first->rows() * ctx->batch_size();
+                    scanner->update_block_avg_bytes(block_avg_bytes);
+                }
+                if (ctx->low_memory_mode()) {
+                    ctx->clear_free_blocks();
+                    if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
+                        raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+                    }
                 }
             } // end for while
 

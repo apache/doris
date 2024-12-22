@@ -141,26 +141,26 @@ Status FlushToken::wait() {
     return Status::OK();
 }
 
-Status FlushToken::_try_reserve_memory(int64_t size) {
+Status FlushToken::_try_reserve_memory(QueryThreadContext query_thread_context, int64_t size) {
     auto* thread_context = doris::thread_context();
     auto* memtable_flush_executor =
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
     Status st;
     do {
         // only try to reserve process memory
-        st = thread_context->reserve_memory(size);
+        st = thread_context->try_reserve_process_memory(size);
         if (st.ok()) {
             memtable_flush_executor->inc_flushing_task();
             break;
         }
-        if (_is_shutdown()) {
+        if (_is_shutdown() || query_thread_context.get_memory_tracker()->is_query_cancelled()) {
             st = Status::Cancelled("flush memtable already cancelled");
             break;
         }
         // Make sure at least one memtable is flushing even reserve memory failed.
         if (memtable_flush_executor->check_and_inc_has_any_flushing_task()) {
             // If there are already any flushing task, Wait for some time and retry.
-            LOG(INFO) << fmt::format(
+            LOG_EVERY_T(INFO, 60) << fmt::format(
                     "Failed to reserve memory {} for flush memtable, retry after 100ms", size);
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         } else {
@@ -189,7 +189,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                 memtable->query_thread_context().query_mem_tracker->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
         auto reserve_size = memtable->get_flush_reserve_memory_size();
-        RETURN_IF_ERROR(_try_reserve_memory(reserve_size));
+        RETURN_IF_ERROR(_try_reserve_memory(memtable->query_thread_context(), reserve_size));
         Defer defer {[&]() {
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
         }};
