@@ -84,24 +84,7 @@ suite("test_cloud_mow_stale_resp_load_compaction_conflict", "nonConcurrent") {
             Thread.sleep(11 * 1000)
 
             // trigger full compaction on tablet
-            logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
-            def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            Assert.assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            Assert.assertEquals("success", compactJson.status.toLowerCase())
-
-            // wait for full compaction to complete
-            Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
-                {
-                    (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    Assert.assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    Assert.assertEquals("success", compactionStatus.status.toLowerCase())
-                    return !compactionStatus.run_status
-                }
-            )
+            trigger_and_wait_compaction(table1, "full")
             order_qt_sql "select * from ${table1};"
 
 
@@ -116,7 +99,7 @@ suite("test_cloud_mow_stale_resp_load_compaction_conflict", "nonConcurrent") {
             Thread.sleep(1000)
 
             order_qt_sql "select * from ${table1};"
-            
+
         } catch(Exception e) {
             logger.info(e.getMessage())
             throw e
