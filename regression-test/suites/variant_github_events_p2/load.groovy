@@ -23,7 +23,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-    
+
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
@@ -106,7 +106,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
         return "wait_timeout"
-    }    
+    }
 
 
     def backendId_to_backendIP = [:]
@@ -117,15 +117,15 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
-    } 
+    }
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             set 'memtable_on_sink_node', 'true'
             file file_name // import json file
@@ -153,11 +153,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant 
+            v variant
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
     """
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
@@ -179,42 +179,19 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
     if (!isCloudMode()) {
-        // BUILD INDEX and expect state is FINISHED 
+        // BUILD INDEX and expect state is FINISHED
         sql """ BUILD INDEX idx_var ON  github_events"""
         state = wait_for_last_build_index_on_table_finish("github_events", timeout)
         assertEquals("FINISHED", state)
     }
-   
-    // // add bloom filter at the end of loading data 
+
+    // // add bloom filter at the end of loading data
 
     def tablets = sql_return_maparray """ show tablets from github_events; """
     // trigger compactions for all tablets in github_events
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-    }
+    trigger_and_wait_compaction("github_events", "cumulative")
 
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        boolean running = true
-        do {
-            Thread.sleep(1000)
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            running = compactionStatus.run_status
-        } while (running)
-    }
-
-    sql """set enable_match_without_inverted_index = false""" 
+    sql """set enable_match_without_inverted_index = false"""
     sql """ set enable_common_expr_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
@@ -226,7 +203,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             v variant not null
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
         """
     sql """insert into github_events2 select * from github_events order by k"""
