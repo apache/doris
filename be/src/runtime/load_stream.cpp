@@ -58,13 +58,14 @@ bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
 bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
 TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
-                           LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
+                           LoadStreamMgr* load_stream_mgr,
+                           std::shared_ptr<FlushTokens> flush_tokens, RuntimeProfile* profile)
         : _id(id),
           _next_segid(0),
           _load_id(load_id),
           _txn_id(txn_id),
-          _load_stream_mgr(load_stream_mgr) {
-    load_stream_mgr->create_tokens(_flush_tokens);
+          _load_stream_mgr(load_stream_mgr),
+          _flush_tokens(flush_tokens) {
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
@@ -178,7 +179,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(WARNING) << "write data failed " << st << ", " << *this;
         }
     };
-    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    auto& flush_token = _flush_tokens->at(new_segid % _flush_tokens->size());
     auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
     auto load_stream_max_wait_flush_token_time_ms =
             config::load_stream_max_wait_flush_token_time_ms;
@@ -263,7 +264,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "add segment failed " << *this;
         }
     };
-    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    auto& flush_token = _flush_tokens->at(new_segid % _flush_tokens->size());
     Status st = Status::OK();
     DBUG_EXECUTE_IF("TabletStream.add_segment.submit_func_failed",
                     { st = Status::InternalError("fault injection"); });
@@ -303,7 +304,7 @@ void TabletStream::pre_close() {
 
     SCOPED_TIMER(_close_wait_timer);
     _status.update(_run_in_heavy_work_pool([this]() {
-        for (auto& token : _flush_tokens) {
+        for (auto& token : *_flush_tokens) {
             token->wait();
         }
         return Status::OK();
@@ -338,12 +339,15 @@ Status TabletStream::close() {
 
 IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
                          std::shared_ptr<OlapTableSchemaParam> schema,
-                         LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
+                         LoadStreamMgr* load_stream_mgr,
+                         RuntimeProfile* profile)
         : _id(id),
           _load_id(load_id),
           _txn_id(txn_id),
           _schema(schema),
           _load_stream_mgr(load_stream_mgr) {
+    _flush_tokens = std::make_shared<FlushTokens>();
+    load_stream_mgr->create_tokens(*_flush_tokens);
     _profile = profile->create_child(fmt::format("IndexStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -369,7 +373,7 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
 void IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
                                       int64_t partition_id) {
     tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
-                                                   _profile);
+                                                   _flush_tokens, _profile);
     _tablet_streams_map[tablet_id] = tablet_stream;
     auto st = tablet_stream->init(_schema, _id, partition_id);
     if (!st.ok()) {

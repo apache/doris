@@ -42,10 +42,11 @@ class OlapTableSchemaParam;
 // origin_segid(index) -> new_segid(value in vector)
 using SegIdMapping = std::vector<uint32_t>;
 using FailedTablets = std::vector<std::pair<int64_t, Status>>;
+using FlushTokens = std::vector<std::unique_ptr<ThreadPoolToken>>;
 class TabletStream {
 public:
     TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, LoadStreamMgr* load_stream_mgr,
-                 RuntimeProfile* profile);
+                 std::shared_ptr<FlushTokens> flush_tokens, RuntimeProfile* profile);
 
     Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
                 int64_t partition_id);
@@ -65,7 +66,6 @@ private:
 
     int64_t _id;
     LoadStreamWriterSharedPtr _load_stream_writer;
-    std::vector<std::unique_ptr<ThreadPoolToken>> _flush_tokens;
     std::unordered_map<int64_t, std::unique_ptr<SegIdMapping>> _segids_mapping;
     std::atomic<uint32_t> _next_segid;
     int64_t _num_segments = 0;
@@ -79,6 +79,7 @@ private:
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
+    std::shared_ptr<FlushTokens> _flush_tokens;
 };
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
@@ -110,6 +111,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
+    std::shared_ptr<FlushTokens> _flush_tokens;
 };
 using IndexStreamSharedPtr = std::shared_ptr<IndexStream>;
 
