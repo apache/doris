@@ -179,7 +179,7 @@ public class WindowExpression extends Expression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(function.toSql()).append(" OVER(");
         if (!partitionKeys.isEmpty()) {

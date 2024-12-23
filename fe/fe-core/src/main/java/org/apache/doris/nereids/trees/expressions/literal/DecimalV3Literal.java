@@ -152,7 +152,7 @@ public class DecimalV3Literal extends FractionalLiteral {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return value.toPlainString();
     }
 
