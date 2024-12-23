@@ -1044,17 +1044,14 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
 }
 
 void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std::string_view path,
-                                                         ColumnString* value, size_t row,
-                                                         bool& is_null) {
+                                                         ColumnString* value, size_t row) {
     // no need insert
     if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
-        is_null = true;
         return;
     }
 
     // no need insert
     if (row < num_of_defaults_in_prefix) {
-        is_null = true;
         return;
     }
 
@@ -1064,10 +1061,7 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
         const auto& part = data[i];
         if (row < part->size()) {
             // no need null in sparse column
-            if (assert_cast<const ColumnNullable&>(*part).is_null_at(row)) {
-                is_null = true;
-            } else {
-                is_null = false;
+            if (!assert_cast<const ColumnNullable&>(*part).is_null_at(row)) {
                 // insert key
                 key->insert_data(path.data(), path.size());
 
@@ -1094,6 +1088,7 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
 
 const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Field& res,
                                             FieldInfo& info_res) {
+    info_res.scalar_type_id = type;
     const char* end = data;
     switch (type) {
     case TypeIndex::String: {
@@ -1347,27 +1342,13 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
             auto [sparse_column_keys, sparse_column_values] = get_sparse_data_paths_and_values();
             auto& sparse_column_offsets = serialized_sparse_column_offsets();
             for (size_t i = start; i != start + length; ++i) {
-                int null_count = 0;
                 // Paths in sorted_src_subcolumn_for_sparse_column are already sorted.
                 for (auto& [path, subcolumn] : sorted_src_subcolumn_for_sparse_column) {
-                    bool is_null = false;
                     subcolumn.serialize_to_sparse_column(sparse_column_keys, path,
-                                                         sparse_column_values, i, is_null);
-                    if (is_null) {
-                        ++null_count;
-                    }
+                                                         sparse_column_values, i);
                 }
-
-                // All the sparse columns in this row are null.
-                if (null_count == sorted_src_subcolumn_for_sparse_column.size()) {
-                    serialized_sparse_column->insert_default();
-                } else {
-                    DCHECK_EQ(sparse_column_keys->size(),
-                              sparse_column_offsets[i - 1] +
-                                      sorted_src_subcolumn_for_sparse_column.size() - null_count);
-                    DCHECK_EQ(sparse_column_values->size(), sparse_column_keys->size());
-                    sparse_column_offsets.push_back(sparse_column_keys->size());
-                }
+                // TODO add dcheck
+                sparse_column_offsets.push_back(sparse_column_keys->size());
             }
         }
 
@@ -1418,9 +1399,8 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
                                                .first < src_sparse_path) {
                     auto& [src_path, src_subcolumn] = sorted_src_subcolumn_for_sparse_column
                             [sorted_src_subcolumn_for_sparse_column_idx++];
-                    bool is_null = false;
                     src_subcolumn.serialize_to_sparse_column(sparse_column_path, src_path,
-                                                             sparse_column_values, row, is_null);
+                                                             sparse_column_values, row);
                 }
 
                 /// Insert path and value from src sparse column to our sparse column.
@@ -1434,9 +1414,8 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
                sorted_src_subcolumn_for_sparse_column_size) {
             auto& [src_path, src_subcolumn] = sorted_src_subcolumn_for_sparse_column
                     [sorted_src_subcolumn_for_sparse_column_idx++];
-            bool is_null = false;
             src_subcolumn.serialize_to_sparse_column(sparse_column_path, src_path,
-                                                     sparse_column_values, row, is_null);
+                                                     sparse_column_values, row);
         }
 
         // All the sparse columns in this row are null.
@@ -1876,26 +1855,11 @@ Status ColumnObject::serialize_sparse_columns(
 
     // Fill the column map for each row
     for (size_t i = 0; i < num_rows; ++i) {
-        int null_count = 0;
-
         for (auto& [path, subcolumn] : remaing_subcolumns) {
-            bool is_null = false;
-            subcolumn.serialize_to_sparse_column(sparse_column_keys, path, sparse_column_values, i,
-                                                 is_null);
-            if (is_null) {
-                ++null_count;
-            }
+            subcolumn.serialize_to_sparse_column(sparse_column_keys, path, sparse_column_values, i);
         }
-
-        // All the sparse columns in this row are null.
-        if (null_count == remaing_subcolumns.size()) {
-            serialized_sparse_column->insert_default();
-        } else {
-            DCHECK_EQ(sparse_column_keys->size(),
-                      sparse_column_offsets[i - 1] + remaing_subcolumns.size() - null_count);
-            DCHECK_EQ(sparse_column_values->size(), sparse_column_keys->size());
-            sparse_column_offsets.push_back(sparse_column_keys->size());
-        }
+        // TODO add dcheck
+        sparse_column_offsets.push_back(sparse_column_keys->size());
     }
     CHECK_EQ(serialized_sparse_column->size(), num_rows);
     return Status::OK();
