@@ -176,7 +176,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                     DateTimeLiteral dateTimeLiteral = (DateTimeLiteral) right;
                     right = migrateToDateV2(dateTimeLiteral);
                     if (dateTimeLiteral.getHour() != 0 || dateTimeLiteral.getMinute() != 0
-                            || dateTimeLiteral.getSecond() != 0) {
+                            || dateTimeLiteral.getSecond() != 0 || dateTimeLiteral.getMicroSecond() != 0) {
                         if (cp instanceof EqualTo) {
                             return ExpressionUtils.falseOrNull(cast.child());
                         } else if (cp instanceof NullSafeEqual) {
