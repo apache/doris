@@ -712,9 +712,10 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
-                        + optimizedPlan.treeString() + "\n\n"
-                        + "========== MEMO "
-                        + cascadesContext.getMemo().toString() + "\n\n";
+                        + optimizedPlan.treeString() + "\n\n";
+                if (cascadesContext != null && cascadesContext.getMemo() != null) {
+                    plan += "========== MEMO " + cascadesContext.getMemo().toString() + "\n\n";
+                }
 
                 if (distributedPlans != null && !distributedPlans.isEmpty()) {
                     plan += "========== DISTRIBUTED PLAN "
