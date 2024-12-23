@@ -19,9 +19,11 @@
 suite("test_inverted_index_v3", "p0"){
     def indexTbName1 = "test_inverted_index_v3_1"
     def indexTbName2 = "test_inverted_index_v3_2"
+    def indexTbName3 = "test_inverted_index_v3_3"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     sql "DROP TABLE IF EXISTS ${indexTbName2}"
+    sql "DROP TABLE IF EXISTS ${indexTbName3}"
 
     sql """
       CREATE TABLE ${indexTbName1} (
@@ -49,6 +51,24 @@ suite("test_inverted_index_v3", "p0"){
       `status` int(11) NULL COMMENT "",
       `size` int(11) NULL COMMENT "",
       INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1",
+      "inverted_index_storage_format" = "V3"
+      );
+    """
+
+    sql """
+      CREATE TABLE ${indexTbName3} (
+      `@timestamp` int(11) NULL COMMENT "",
+      `clientip` varchar(20) NULL COMMENT "",
+      `request` text NULL COMMENT "",
+      `status` int(11) NULL COMMENT "",
+      `size` int(11) NULL COMMENT "",
+      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true", "dict_compression" = "true") COMMENT ''
       ) ENGINE=OLAP
       DUPLICATE KEY(`@timestamp`)
       COMMENT "OLAP"
@@ -99,6 +119,7 @@ suite("test_inverted_index_v3", "p0"){
     try {
       load_httplogs_data.call(indexTbName1, indexTbName1, 'true', 'json', 'documents-1000.json')
       load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
+      load_httplogs_data.call(indexTbName3, indexTbName3, 'true', 'json', 'documents-1000.json')
       
       sql "sync"
 
@@ -111,6 +132,11 @@ suite("test_inverted_index_v3", "p0"){
       qt_sql """ select count() from ${indexTbName2} where request match_all 'hm bg'; """
       qt_sql """ select count() from ${indexTbName2} where request match_phrase 'hm bg'; """
       qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'hm bg'; """
+
+      qt_sql """ select count() from ${indexTbName3} where request match_any 'hm bg'; """
+      qt_sql """ select count() from ${indexTbName3} where request match_all 'hm bg'; """
+      qt_sql """ select count() from ${indexTbName3} where request match_phrase 'hm bg'; """
+      qt_sql """ select count() from ${indexTbName3} where request match_phrase_prefix 'hm bg'; """
 
     } finally {
     }
