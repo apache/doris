@@ -47,8 +47,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status spill_probe_blocks(RuntimeState* state,
-                              const std::shared_ptr<SpillContext>& spill_context = nullptr);
+    Status spill_probe_blocks(RuntimeState* state);
 
     Status recover_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                           bool& has_data);
@@ -180,9 +179,6 @@ public:
     bool require_data_distribution() const override {
         return _inner_probe_operator->require_data_distribution();
     }
-
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
 
 private:
     Status _revoke_memory(RuntimeState* state);
