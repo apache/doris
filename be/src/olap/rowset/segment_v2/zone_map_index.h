@@ -154,14 +154,16 @@ public:
     virtual ~ZoneMapIndexReader();
 
     // load all page zone maps into memory
-    Status load(bool use_page_cache, bool kept_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory,
+                OlapReaderStatistics* index_load_stats = nullptr);
 
     const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
 
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>);
+    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
+                 OlapReaderStatistics* index_load_stats);
 
     int64_t get_metadata_size() const override;
 
