@@ -168,6 +168,16 @@ Status EngineCloneTask::_do_clone() {
         auto duration = std::chrono::milliseconds(dp->param("duration", 10 * 1000));
         std::this_thread::sleep_for(duration);
     });
+
+    DBUG_EXECUTE_IF("EngineCloneTask.failed_clone", {
+        LOG_WARNING("EngineCloneTask.failed_clone")
+                .tag("tablet_id", _clone_req.tablet_id)
+                .tag("replica_id", _clone_req.replica_id)
+                .tag("version", _clone_req.version);
+        return Status::InternalError(
+                "in debug point, EngineCloneTask.failed_clone tablet={}, replica={}, version={}",
+                _clone_req.tablet_id, _clone_req.replica_id, _clone_req.version);
+    });
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;

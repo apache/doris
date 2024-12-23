@@ -62,34 +62,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /*
  * TabletSchedCtx contains all information which is created during tablet scheduler processing.
  */
 public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private static final Logger LOG = LogManager.getLogger(TabletSchedCtx.class);
-
-    /*
-     * SCHED_FAILED_COUNTER_THRESHOLD:
-     *    threshold of times a tablet failed to be scheduled
-     *
-     * MIN_ADJUST_PRIORITY_INTERVAL_MS:
-     *    min interval time of adjusting a tablet's priority
-     *
-     * MAX_NOT_BEING_SCHEDULED_INTERVAL_MS:
-     *    max gap time of a tablet NOT being scheduled.
-     *
-     * These 3 params is for adjusting priority.
-     * If a tablet being scheduled failed for more than SCHED_FAILED_COUNTER_THRESHOLD times, its priority
-     * will be downgraded. And the interval between adjustment is larger than MIN_ADJUST_PRIORITY_INTERVAL_MS,
-     * to avoid being downgraded too soon.
-     * And if a tablet is not being scheduled longer than MAX_NOT_BEING_SCHEDULED_INTERVAL_MS, its priority
-     * will be upgraded, to avoid starvation.
-     *
-     */
-    private static final int SCHED_FAILED_COUNTER_THRESHOLD = 5;
-    private static final long MIN_ADJUST_PRIORITY_INTERVAL_MS = 5 * 60 * 1000L; // 5 min
-    private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
 
     /*
      * A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
@@ -448,10 +427,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setSchedFailedCode(SubCode code) {
         schedFailedCode = code;
-    }
-
-    public CloneTask getCloneTask() {
-        return cloneTask;
     }
 
     public long getCopySize() {
@@ -932,12 +907,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
         if (cloneTask != null) {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
+            cloneTask = null;
 
             // clear all CLONE replicas
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db != null) {
                 Table table = db.getTableNullable(tblId);
-                if (table != null && table.writeLockIfExist()) {
+                // try get table write lock, if failed TabletScheduler will try next time
+                if (table != null && table.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                     try {
                         List<Replica> cloneReplicas = Lists.newArrayList();
                         tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
