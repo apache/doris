@@ -537,11 +537,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         "Failed to get info of snapshot '" + stmt.getLabel() + "' because: "
                                 + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
             }
-
             // Check if all restore objects are exist in this snapshot.
             // Also remove all unrelated objs
             Preconditions.checkState(infos.size() == 1);
             jobInfo = infos.get(0);
+        }
+
+        if (!jobInfo.backupOlapTableObjects.isEmpty() && stmt.isBackupGlobal()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to restore from snapshot '" + stmt.getLabel()
+                    + "' because: This snapshot is not a global backup.");
         }
 
         checkAndFilterRestoreObjsExistInSnapshot(jobInfo, stmt.getAbstractBackupTableRefClause());

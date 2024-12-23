@@ -671,7 +671,8 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
 
     public static BackupJobInfo fromCatalog(long backupTime, String label, String dbName, long dbId,
                                             BackupContent content, BackupMeta backupMeta,
-                                            Map<Long, SnapshotInfo> snapshotInfos, Map<Long, Long> tableCommitSeqMap) {
+                                            Map<Long, SnapshotInfo> snapshotInfos, Map<Long, Long> tableCommitSeqMap,
+                                            boolean backupPriv, boolean backupCatalog, boolean backupWorkloadGroup) {
 
         BackupJobInfo jobInfo = new BackupJobInfo();
         jobInfo.backupTime = backupTime;
@@ -758,7 +759,8 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
                 jobInfo.newBackupObjects.odbcResources.add(backupOdbcResourceInfo);
             }
         }
-        jobInfo.newBackupObjects.backupGlobalInfo = backupMeta.getBackupGlobalInfo();
+        jobInfo.newBackupObjects.backupGlobalInfo = new BackupGlobalInfo();
+        jobInfo.newBackupObjects.backupGlobalInfo.init(backupPriv, backupCatalog, backupWorkloadGroup);
 
         return jobInfo;
     }
