@@ -205,7 +205,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
       @logger.warn("FAILED doris stream load response:\n#{response}")
       # if there are data quality issues, we do not retry
-      if (status == 'Fail' && response_json['ErrorURL'] != nil) || (@max_retries >= 0 && req_count > @max_retries)
+      if (status == 'Fail' && response_json['Message'].start_with?("[DATA_QUALITY_ERROR]")) || (@max_retries >= 0 && req_count > @max_retries)
          @logger.warn("DROP this batch after failed #{req_count} times.")
          if @save_on_failure
             @logger.warn("Try save to disk.Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
