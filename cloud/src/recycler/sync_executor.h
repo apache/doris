@@ -69,13 +69,12 @@ public:
                 *finished = false;
                 return res;
             }
-            // 10s
-            size_t max_wait_time = 10000;
-            TEST_SYNC_POINT_CALLBACK("SyncExecutor::when_all.set_wait_time", &max_wait_time);
+            size_t max_wait_ms = 10000;
+            TEST_SYNC_POINT_CALLBACK("SyncExecutor::when_all.set_wait_time", &max_wait_ms);
             // _count.timed_wait has already ensured that all tasks are completed.
             // The 10 seconds here is just waiting for the task results to be returned,
             // so 10 seconds is more than enough.
-            auto status = task->wait_for(max_wait_time);
+            auto status = task->wait_for(max_wait_ms);
             if (status == std::future_status::ready) {
                 res.emplace_back(task->get());
             } else {
