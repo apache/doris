@@ -98,15 +98,18 @@ public class FetchRemoteTabletSchemaUtil {
             if (!backend.isAlive()) {
                 continue;
             }
-            // need 2 be to provide a retry
-            if (coordinatorBackend.size() < 2) {
-                coordinatorBackend.add(backend);
-            }
+            coordinatorBackend.add(backend);
             PTabletsLocation.Builder locationBuilder = PTabletsLocation.newBuilder()
                                                         .setHost(backend.getHost())
                                                         .setBrpcPort(backend.getBrpcPort());
             PTabletsLocation location = locationBuilder.addAllTabletId(tabletIds).build();
             locations.add(location);
+        }
+        // pick 2 random coordinator
+        Collections.shuffle(coordinatorBackend);
+        if (!coordinatorBackend.isEmpty()) {
+            coordinatorBackend = coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()));
+            LOG.debug("pick coordinator backend {}", coordinatorBackend.get(0));
         }
         PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
                                                                     .addAllTabletLocation(locations)
