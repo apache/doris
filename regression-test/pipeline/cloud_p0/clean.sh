@@ -23,7 +23,7 @@ if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_buil
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
-echo "#### Run tpcds test on Doris ####"
+echo "#### Stop and clean  ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 stop_doris

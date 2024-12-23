@@ -216,6 +216,17 @@ function stop_doris() {
     fi
 }
 
+function stop_doris_grace() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
+    if "${DORIS_HOME}"/be/bin/stop_be.sh --grace && "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+        echo "INFO: grace stoped doris"
+    else
+        echo "ERROR: failed to grace stop doris" && return 1
+    fi
+}
+
 function clean_fdb() {
     instance_id="$1"
     if [[ -z "${instance_id:-}" ]]; then return 1; fi
@@ -856,4 +867,14 @@ function print_running_pipeline_tasks() {
     echo ""
     curl -m 10 "http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30" 2>&1 | tee "${DORIS_HOME}"/be/log/running_pipeline_tasks_30
     echo "------------------------${FUNCNAME[0]}--------------------------"
+}
+
+function check_leak() {
+    echo "INFO: start to check memory leak from be.out"
+    if grep -i -c 'leak' "${DORIS_HOME}"/be/log/be.out; then
+        echo "ERROR: find memory leak in be.out"
+        return 1
+    else
+        echo "INFO: no memory leak found in be.out"
+    fi
 }
