@@ -564,8 +564,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources, isBackupPriv(),
-                isBackupCatalog(), isBackupWorkloadGroup());
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -883,7 +882,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 }
             }
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
-                    getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
+                    getContent(), backupMeta, snapshotInfos, tableCommitSeqMap,
+                    isBackupPriv(), isBackupCatalog(), isBackupWorkloadGroup());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("job info: {}. {}", jobInfo, this);
             }

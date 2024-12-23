@@ -52,14 +52,11 @@ public class BackupMeta implements Writable, GsonPostProcessable {
     // resource name -> resource
     @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
-    // don't need to serialize
-    private BackupGlobalInfo backupGlobalInfo = new BackupGlobalInfo();
 
     private BackupMeta() {
     }
 
-    public BackupMeta(List<Table> tables, List<Resource> resources,
-                      boolean backupPriv, boolean backupCatalog, boolean backupWorkloadGroup) {
+    public BackupMeta(List<Table> tables, List<Resource> resources) {
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
@@ -67,7 +64,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         for (Resource resource : resources) {
             resourceNameMap.put(resource.getName(), resource);
         }
-        backupGlobalInfo.init(backupPriv, backupCatalog, backupWorkloadGroup);
     }
 
     public Map<String, Table> getTables() {
@@ -88,10 +84,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
 
     public Table getTable(Long tblId) {
         return tblIdMap.get(tblId);
-    }
-
-    public BackupGlobalInfo  getBackupGlobalInfo() {
-        return backupGlobalInfo;
     }
 
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {

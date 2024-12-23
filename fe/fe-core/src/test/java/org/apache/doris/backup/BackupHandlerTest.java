@@ -213,7 +213,7 @@ public class BackupHandlerTest {
                 List<Table> tbls = Lists.newArrayList();
                 tbls.add(tbl);
                 List<Resource> resources = Lists.newArrayList();
-                BackupMeta backupMeta = new BackupMeta(tbls, resources, false, false, false);
+                BackupMeta backupMeta = new BackupMeta(tbls, resources);
                 Map<Long, SnapshotInfo> snapshotInfos = Maps.newHashMap();
                 for (Partition part : tbl.getPartitions()) {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -229,7 +229,7 @@ public class BackupHandlerTest {
                 BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
                         "ss2", CatalogMocker.TEST_DB_NAME,
                         CatalogMocker.TEST_DB_ID, BackupStmt.BackupContent.ALL,
-                        backupMeta, snapshotInfos, null);
+                        backupMeta, snapshotInfos, null, false, false, false);
                 infos.add(info);
                 return Status.OK;
             }
