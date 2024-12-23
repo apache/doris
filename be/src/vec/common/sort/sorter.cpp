@@ -108,10 +108,6 @@ Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int ba
 
 Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
                                                bool* eos) {
-    if (priority_queue_.empty()) {
-        *eos = true;
-        return Status::OK();
-    }
     size_t num_columns = priority_queue_.top().impl->block->columns();
 
     MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
@@ -120,6 +116,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
+    // process single element queue on merge_sort_read()
     while (priority_queue_.size() > 1) {
         auto current = priority_queue_.top();
         priority_queue_.pop();
@@ -140,30 +137,6 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
 
         if (merged_rows == batch_size) {
             break;
-        }
-    }
-
-    if (merged_rows < batch_size && priority_queue_.size() == 1) {
-        auto current = priority_queue_.top();
-        priority_queue_.pop();
-        if (offset_) {
-            auto skip_step = std::min(current->remained_rows(), size_t(offset_));
-            offset_ -= skip_step;
-            current->pos += skip_step;
-        }
-
-        auto step = std::min(current->remained_rows(), size_t(batch_size - merged_rows));
-        if (step) {
-            for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_range_from(*current->block->get_columns()[i],
-                                                     current->pos, step);
-            }
-            merged_rows += step;
-            current->pos += step;
-        }
-
-        if (current->remained_rows()) {
-            priority_queue_.push(current);
         }
     }
 
