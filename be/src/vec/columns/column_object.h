@@ -189,7 +189,7 @@ public:
 
         // Serialize the i-th row of the column into the sparse column.
         void serialize_to_sparse_column(ColumnString* key, std::string_view path,
-                                        ColumnString* value, size_t row, bool& is_null);
+                                        ColumnString* value, size_t row);
 
         friend class ColumnObject;
 
