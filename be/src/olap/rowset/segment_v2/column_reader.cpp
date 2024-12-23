@@ -303,8 +303,12 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
         }
         auto relative_path = path.copy_pop_front();
         auto get_data_type_fn = [&]() {
+            // root subcolumn is ColumnObject::MostCommonType which is jsonb
             if (relative_path.empty()) {
-                return make_nullable(std::make_unique<vectorized::ColumnObject::MostCommonType>());
+                return self_column_pb.is_nullable()
+                               ? make_nullable(std::make_unique<
+                                               vectorized::ColumnObject::MostCommonType>())
+                               : std::make_unique<vectorized::ColumnObject::MostCommonType>();
             }
             return vectorized::DataTypeFactory::instance().create_data_type(column_pb);
         };

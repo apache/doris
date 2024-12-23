@@ -274,8 +274,6 @@ public:
 
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
 
-    explicit ColumnObject(MutableColumnPtr&& sparse_column);
-
     explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
     // create without root, num_rows = size

@@ -257,8 +257,7 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
         // auto column = root_var.get_root();
         // auto type = root_var.get_root_type();
         MutableColumnPtr column = _root_reader->column->get_ptr();
-        container_variant.add_sub_column({}, std::move(column),
-                                         ColumnObject::get_most_common_type());
+        container_variant.add_sub_column({}, std::move(column), _root_reader->type);
     }
     // parent path -> subcolumns
     std::map<PathInData, PathsWithColumnAndType> nested_subcolumns;

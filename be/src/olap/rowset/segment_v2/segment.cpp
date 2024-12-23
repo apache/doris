@@ -233,8 +233,11 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (col.is_extracted_column()) {
             auto relative_path = col.path_info_ptr()->copy_pop_front();
             int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
-            const auto* node = ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
-                                       ->get_reader_by_path(relative_path);
+            const auto* node =
+                    _column_readers.contains(unique_id)
+                            ? ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
+                                      ->get_reader_by_path(relative_path)
+                            : nullptr;
             reader = node != nullptr ? node->data.reader.get() : nullptr;
         } else {
             reader = _column_readers.contains(col.unique_id())
@@ -828,7 +831,7 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
     if (col.has_path_info() || col.is_variant_type()) {
         auto relative_path = col.path_info_ptr()->copy_pop_front();
         int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
-        const auto* node = col.has_path_info()
+        const auto* node = col.has_path_info() && _column_readers.contains(unique_id)
                                    ? ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
                                              ->get_reader_by_path(relative_path)
                                    : nullptr;

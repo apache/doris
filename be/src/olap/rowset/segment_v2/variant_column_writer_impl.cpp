@@ -151,9 +151,11 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnObject* p
         return status;
     }
     const uint8_t* nullmap =
-            vectorized::check_and_get_column<vectorized::ColumnUInt8>(_null_column.get())
-                    ->get_data()
-                    .data();
+            _null_column
+                    ? vectorized::check_and_get_column<vectorized::ColumnUInt8>(_null_column.get())
+                              ->get_data()
+                              .data()
+                    : nullptr;
     RETURN_IF_ERROR(_root_writer->append(nullmap, column->get_data(), num_rows));
     ++column_id;
     converter->clear_source_content();
