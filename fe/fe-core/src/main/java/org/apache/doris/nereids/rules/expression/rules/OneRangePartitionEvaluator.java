@@ -801,9 +801,6 @@ public class OneRangePartitionEvaluator<K>
             return new EvaluateRangeResult((Expression) func, ImmutableMap.of((Expression) func,
                     context.rangeMap.get(func)), result.childrenResult);
         }
-        if (!func.isMonotonic()) {
-            return result;
-        }
         int childIndex = func.getMonotonicFunctionChildIndex();
         Expression funcChild = func.child(childIndex);
         boolean isNullable = partitionSlotContainsNull.getOrDefault(funcChild, true);
