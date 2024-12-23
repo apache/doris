@@ -42,7 +42,7 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
                 columnStatistic = table.getColumnStatistic(key.colName);
             }
         } catch (Throwable t) {
-            LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
+            LOG.info("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
                     key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
             if (LOG.isDebugEnabled()) {
                 LOG.debug(t);

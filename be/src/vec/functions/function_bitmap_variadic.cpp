@@ -247,7 +247,7 @@ public:
         vec_res.resize(input_rows_count);
 
         RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
-                                            input_rows_count, vec_res, col_res_nulls));
+                                            input_rows_count, vec_res, col_res_nulls.get()));
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));

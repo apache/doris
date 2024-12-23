@@ -241,7 +241,7 @@ suite("insert_group_commit_with_exception") {
                     assertTrue(false)
                 } catch (Exception e) {
                     logger.info("exception : " + e)
-                    assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
+                    assertTrue(e.getMessage().contains("Column count doesn't match value count"))
                 }
             }
             getRowCount(14)

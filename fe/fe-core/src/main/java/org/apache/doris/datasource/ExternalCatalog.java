@@ -153,6 +153,9 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected PreExecutionAuthenticator preExecutionAuthenticator;
 
+    private volatile Configuration cachedConf = null;
+    private byte[] confLock = new byte[0];
+
     public ExternalCatalog() {
     }
 
@@ -164,6 +167,20 @@ public abstract class ExternalCatalog
     }
 
     public Configuration getConfiguration() {
+        // build configuration is costly, so we cache it.
+        if (cachedConf != null) {
+            return cachedConf;
+        }
+        synchronized (confLock) {
+            if (cachedConf != null) {
+                return cachedConf;
+            }
+            cachedConf = buildConf();
+            return cachedConf;
+        }
+    }
+
+    private Configuration buildConf() {
         Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
@@ -407,6 +424,10 @@ public abstract class ExternalCatalog
         this.initialized = false;
         synchronized (this.propLock) {
             this.convertedProperties = null;
+        }
+
+        synchronized (this.confLock) {
+            this.cachedConf = null;
         }
 
         refreshOnlyCatalogCache(invalidCache);
@@ -763,6 +784,7 @@ public abstract class ExternalCatalog
             }
         }
         this.propLock = new byte[0];
+        this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
         if (tableAutoAnalyzePolicy == null) {

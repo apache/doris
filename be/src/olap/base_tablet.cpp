@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
+#include "olap/iterators.h"
 #include "olap/memtable.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
@@ -81,7 +82,9 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                             rowset->rowset_id().to_string(), segid));
     }
     segment_v2::SegmentSharedPtr segment = *it;
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
+    StorageReadOptions opts;
+    opts.stats = stats;
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
@@ -496,7 +499,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, with_rowid,
-                                                    &loc, encoded_seq_value, stats);
+                                                    &loc, stats, encoded_seq_value);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -612,7 +615,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     vectorized::Block ordered_block = block.clone_empty();
     uint32_t pos = 0;
 
-    RETURN_IF_ERROR(seg->load_pk_index_and_bf()); // We need index blocks to iterate
+    RETURN_IF_ERROR(seg->load_pk_index_and_bf(nullptr)); // We need index blocks to iterate
     const auto* pk_idx = seg->get_primary_key_index();
     int total = pk_idx->num_rows();
     uint32_t row_id = 0;
@@ -626,7 +629,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     while (remaining > 0) {
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-        RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
+        RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min(batch_size, remaining);
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(

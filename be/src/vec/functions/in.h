@@ -216,7 +216,7 @@ public:
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                                materialized_column);
+                                materialized_column.get());
                 const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                                null_col_ptr->get_null_map_column())
                                                .get_data();

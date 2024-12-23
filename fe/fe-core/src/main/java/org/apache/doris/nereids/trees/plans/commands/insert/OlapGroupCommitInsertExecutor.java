@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -93,8 +94,11 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             conditions.add(Pair.of(() -> !(insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
                     && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
             conditions.add(Pair.of(
-                    () -> tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion,
-                    () -> "not one row relation or union, class: " + tableSink.child().getClass().getName()));
+                    () -> tableSink.child() instanceof OneRowRelation
+                            || tableSink.child() instanceof LogicalUnion
+                            || tableSink.child() instanceof InlineTable,
+                    () -> "not one row relation or union or inline table, class: "
+                            + tableSink.child().getClass().getName()));
             ctx.setGroupCommit(conditions.stream().allMatch(p -> p.first.getAsBoolean()));
             if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {

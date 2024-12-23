@@ -16,10 +16,10 @@
 // under the License.
 
 #include <glog/logging.h>
-#include <stddef.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <utility>
 
@@ -41,11 +41,11 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
 class FunctionContext;
@@ -137,7 +137,7 @@ struct RangeImplUtil {
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
         ColumnNullable* dest_nested_nullable_col =
                 reinterpret_cast<ColumnNullable*>(dest_nested_column);
-        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
+        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
         auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -229,10 +229,9 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::vectorized::date_time_add<
-                                UNIT::value, DateV2Value<DateTimeV2ValueType>,
-                                DateV2Value<DateTimeV2ValueType>, DateTimeV2>(idx, step_row,
-                                                                              is_null);
+                        idx = doris::vectorized::date_time_add<UNIT::value, DataTypeDateTimeV2,
+                                                               DataTypeDateTimeV2>(idx, step_row,
+                                                                                   is_null);
                     }
                     dest_offsets.push_back(offset);
                 }

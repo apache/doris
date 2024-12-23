@@ -410,7 +410,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
         int position) {
     //1) get the partition column ptr
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
-    CHECK(col_ptr != nullptr);
+    CHECK(col_ptr);
     if (col_ptr->is_nullable()) {
         const ColumnNullable* nullable_column =
                 reinterpret_cast<const vectorized::ColumnNullable*>(col_ptr.get());

@@ -139,18 +139,20 @@ public:
             left_column = check_and_get_column<const ColumnNullable>(
                     assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
                             col_left.column.get())
-                            ->get_data_column_ptr());
+                            ->get_data_column_ptr()
+                            .get());
         } else {
-            left_column = check_and_get_column<const ColumnNullable>(col_left.column);
+            left_column = check_and_get_column<const ColumnNullable>(col_left.column.get());
         }
 
         if (right_const) {
             right_column = check_and_get_column<const ColumnNullable>(
                     assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
                             col_right.column.get())
-                            ->get_data_column_ptr());
+                            ->get_data_column_ptr()
+                            .get());
         } else {
-            right_column = check_and_get_column<const ColumnNullable>(col_right.column);
+            right_column = check_and_get_column<const ColumnNullable>(col_right.column.get());
         }
 
         bool left_nullable = left_column != nullptr;

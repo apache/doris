@@ -77,8 +77,8 @@ public class InSubquery extends SubqueryExpr {
     }
 
     @Override
-    public String toSql() {
-        return this.compareExpr.toSql() + " IN (" + super.toSql() + ")";
+    public String computeToSql() {
+        return this.compareExpr.toSql() + " IN (" + super.computeToSql() + ")";
     }
 
     @Override

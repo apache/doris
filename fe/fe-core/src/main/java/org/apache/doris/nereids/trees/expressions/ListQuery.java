@@ -48,8 +48,8 @@ public class ListQuery extends SubqueryExpr {
     }
 
     @Override
-    public String toSql() {
-        return " (LISTQUERY) " + super.toSql();
+    public String computeToSql() {
+        return " (LISTQUERY) " + super.computeToSql();
     }
 
     @Override

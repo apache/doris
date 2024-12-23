@@ -95,27 +95,29 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
 }
 
 Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
-                                          const segment_v2::PrimaryKeyIndexMetaPB& meta) {
+                                          const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                                          OlapReaderStatistics* pk_index_load_stats) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     _index_reader->set_is_pk_index(true);
     RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
-                                        _pk_index_load_stats));
+                                        pk_index_load_stats));
 
     _index_parsed = true;
     return Status::OK();
 }
 
 Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
-                                       const segment_v2::PrimaryKeyIndexMetaPB& meta) {
+                                       const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                                       OlapReaderStatistics* pk_index_load_stats) {
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
                                                        column_index_meta.bloom_filter_index());
     RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false,
-                                         _pk_index_load_stats));
+                                         pk_index_load_stats));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
+    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter, pk_index_load_stats));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
     segment_v2::g_pk_total_bloom_filter_num << 1;
     segment_v2::g_pk_total_bloom_filter_total_bytes << _bf->size();

@@ -42,7 +42,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -843,11 +842,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
+        return table.getCatalog().getConfiguration();
     }
 
     public static Optional<String> getSerdeProperty(Table table, String key) {

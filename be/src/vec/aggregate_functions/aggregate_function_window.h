@@ -402,7 +402,7 @@ public:
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
                 } else {
-                    _default_value.set_value(nullable_column->get_nested_column_ptr(), 0);
+                    _default_value.set_value(nullable_column->get_nested_column_ptr().get(), 0);
                 }
             } else {
                 _default_value.set_value(column, 0);

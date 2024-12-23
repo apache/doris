@@ -459,11 +459,12 @@ public:
         // prepare jsonb data column
         jsonb_data_column = unpack_if_const(block.get_by_position(arguments[0]).column).first;
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column);
+            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
             jsonb_data_column = nullable->get_nested_column_ptr();
             data_null_map = &nullable->get_null_map_data();
         }
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(jsonb_data_column);
+        const ColumnString* col_from_string =
+                check_and_get_column<ColumnString>(jsonb_data_column.get());
 
         // prepare parse path column prepare, maybe we do not have path column
         ColumnPtr jsonb_path_column = nullptr;
@@ -475,11 +476,12 @@ public:
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             if (block.get_by_position(arguments[1]).column->is_nullable()) {
-                const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_path_column);
+                const auto* nullable =
+                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
-            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column);
+            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1844,9 +1846,10 @@ public:
         // prepare jsonb data column
         std::tie(col_json, json_is_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json)) {
-            col_json_string = check_and_get_column<ColumnString>(nullable->get_nested_column_ptr());
+        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            col_json_string =
+                    check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
         }
 
         if (!col_json_string) {
@@ -1873,8 +1876,8 @@ public:
         // prepare jsonb data column
         std::tie(col_one, one_is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one)) {
+        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
             col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }
         if (!col_one_string) {
@@ -1921,8 +1924,9 @@ public:
         std::tie(col_search, search_is_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        const ColumnString* col_search_string = check_and_get_column<ColumnString>(col_search);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search)) {
+        const ColumnString* col_search_string =
+                check_and_get_column<ColumnString>(col_search.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
             col_search_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }

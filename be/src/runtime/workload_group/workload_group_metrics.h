@@ -28,7 +28,7 @@ class WorkloadGroup;
 
 template <typename T>
 class AtomicCounter;
-using IntAtomicCounter = AtomicCounter<int64_t>;
+using IntCounter = AtomicCounter<int64_t>;
 class MetricEntity;
 struct MetricPrototype;
 
@@ -65,11 +65,11 @@ private:
     // _local_disk_io_metric is every disk's IO
     std::map<std::string, std::unique_ptr<doris::MetricPrototype>> _local_scan_bytes_metric_map;
 
-    IntAtomicCounter* _cpu_time_counter {nullptr};                          // used for metric
-    IntAtomicCounter* _mem_used_bytes_counter {nullptr};                    // used for metric
-    IntAtomicCounter* _local_scan_bytes_counter {nullptr};                  // used for metric
-    IntAtomicCounter* _remote_scan_bytes_counter {nullptr};                 // used for metric
-    std::map<std::string, IntAtomicCounter*> _local_scan_bytes_counter_map; // used for metric
+    IntCounter* _cpu_time_counter {nullptr};                          // used for metric
+    IntCounter* _mem_used_bytes_counter {nullptr};                    // used for metric
+    IntCounter* _local_scan_bytes_counter {nullptr};                  // used for metric
+    IntCounter* _remote_scan_bytes_counter {nullptr};                 // used for metric
+    std::map<std::string, IntCounter*> _local_scan_bytes_counter_map; // used for metric
 
     std::atomic<uint64_t> _cpu_time_nanos {0};
     std::atomic<uint64_t> _last_cpu_time_nanos {0};

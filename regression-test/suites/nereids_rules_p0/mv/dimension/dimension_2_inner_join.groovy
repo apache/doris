@@ -19,7 +19,7 @@
 This suite is a two dimensional test case file.
 It mainly tests the inner join and filter positions.
  */
-suite("partition_mv_rewrite_dimension_2_2") {
+suite("dimension_2_inner_join") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 

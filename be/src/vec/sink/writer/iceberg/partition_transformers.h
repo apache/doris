@@ -153,8 +153,8 @@ public:
         ColumnPtr string_column_ptr;
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             string_column_ptr = nullable_column->get_nested_column_ptr();
             is_nullable = true;
@@ -211,7 +211,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -270,7 +270,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -332,8 +332,8 @@ public:
         ColumnPtr column_ptr;
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
             is_nullable = true;
@@ -342,7 +342,7 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr);
+        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
         auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
@@ -391,7 +391,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -454,7 +454,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -518,7 +518,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -597,7 +597,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -665,7 +665,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -746,7 +746,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -811,7 +811,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -883,7 +883,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -955,7 +955,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1027,7 +1027,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1099,7 +1099,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1177,7 +1177,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1254,7 +1254,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1328,7 +1328,7 @@ public:
         ColumnPtr column_ptr;
         ColumnPtr null_map_column_ptr;
         if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         } else {

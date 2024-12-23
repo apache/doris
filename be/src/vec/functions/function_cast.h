@@ -770,7 +770,7 @@ struct ConvertImplGenericFromJsonb {
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
-                Status st = data_type_to->from_string(read_buffer, col_to);
+                Status st = data_type_to->from_string(read_buffer, col_to.get());
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {

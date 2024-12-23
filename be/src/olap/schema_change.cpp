@@ -337,7 +337,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             int result_tmp_column_idx = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_tmp_column_idx));
             auto& result_tmp_column_def = ref_block->get_by_position(result_tmp_column_idx);
-            if (result_tmp_column_def.column == nullptr) {
+            if (!result_tmp_column_def.column) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result column={} is nullptr, input expr={}", result_tmp_column_def.name,
                         apache::thrift::ThriftDebugString(*expr));
@@ -430,7 +430,7 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
             const auto* ref_null_map =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column.get())
                             ->get_null_map_column()
                             .get_data()
                             .data();
@@ -446,10 +446,12 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
             }
         } else {
             const auto& null_map_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                            output_column.get())
                             ->get_null_map_column();
             const auto& nested_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                            output_column.get())
                             ->get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
 
@@ -481,12 +483,12 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
         const auto* ref_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column)
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column.get())
                         ->get_null_map_column()
                         .get_data()
                         .data();
         const auto* new_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column.get())
                         ->get_null_map_column()
                         .get_data()
                         .data();

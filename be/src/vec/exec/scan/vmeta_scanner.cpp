@@ -148,7 +148,7 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
                 if (slot_desc->is_nullable()) {
                     auto& null_col = reinterpret_cast<ColumnNullable&>(*col_ptr);
                     null_col.get_null_map_data().push_back(0);
-                    col_ptr = null_col.get_nested_column_ptr();
+                    col_ptr = null_col.get_nested_column_ptr().get();
                 }
                 switch (slot_desc->type().type) {
                 case TYPE_BOOLEAN: {

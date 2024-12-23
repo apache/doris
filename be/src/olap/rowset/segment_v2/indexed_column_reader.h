@@ -76,7 +76,8 @@ public:
     void set_is_pk_index(bool is_pk) { _is_pk_index = is_pk; }
 
 private:
-    Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
+    Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader,
+                           OlapReaderStatistics* index_load_stats);
 
     int64_t get_metadata_size() const override;
 
@@ -103,7 +104,6 @@ private:
     const KeyCoder* _value_key_coder = nullptr;
     uint64_t _mem_size = 0;
     bool _is_pk_index = false;
-    OlapReaderStatistics* _index_load_stats = nullptr;
 };
 
 class IndexedColumnIterator {

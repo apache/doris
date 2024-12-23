@@ -56,7 +56,7 @@ public class Properties extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return getMap()
                 .entrySet()
                 .stream()

@@ -257,7 +257,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
-                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName() == col.getName()) {
+                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {
                     exprId = childSlot.getExprId();
                     slot = slot.withExprId(exprId);
                     break;

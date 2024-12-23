@@ -38,7 +38,7 @@ public class MaxLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "MAX_VALUE";
     }
 

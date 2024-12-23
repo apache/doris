@@ -105,9 +105,6 @@ import java.util.stream.Collectors;
 public class TabletScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletScheduler.class);
 
-    // handle at most BATCH_NUM tablets in one loop
-    private static final int MIN_BATCH_NUM = 50;
-
     // the minimum interval of updating cluster statistics and priority of tablet info
     private static final long STAT_UPDATE_INTERVAL_MS = 20 * 1000; // 20s
 
@@ -151,7 +148,7 @@ public class TabletScheduler extends MasterDaemon {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
         LIMIT_EXCEED, // number of pending tablets exceed the limit
-        REPLACE_ADDED,  // succ to add, and envit a lowest task
+        REPLACE_ADDED,  // succ to add, and evict a lowest task
         DISABLED // scheduler has been disabled.
     }
 
@@ -292,7 +289,7 @@ public class TabletScheduler extends MasterDaemon {
             addResult = AddResult.REPLACE_ADDED;
             pendingTablets.pollLast();
             finalizeTabletCtx(lowestPriorityTablet, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
-                    "envit lower priority sched tablet because pending queue is full");
+                    "evict lower priority sched tablet because pending queue is full");
         }
 
         if (!contains || tablet.getType() == TabletSchedCtx.Type.REPAIR) {
@@ -1868,9 +1865,9 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.increaseFailedRunningCounter();
                 if (!tabletCtx.isExceedFailedRunningLimit()) {
                     stat.counterCloneTaskFailed.incrementAndGet();
+                    tabletCtx.setState(TabletSchedCtx.State.PENDING);
                     tabletCtx.releaseResource(this);
                     tabletCtx.resetFailedSchedCounter();
-                    tabletCtx.setState(TabletSchedCtx.State.PENDING);
                     addBackToPendingTablets(tabletCtx);
                     return false;
                 } else {

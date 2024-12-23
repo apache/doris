@@ -75,6 +75,9 @@ suite("test_paimon_rewrite_mtmv", "p0,external,mtmv,external_docker,external_doc
 
     mv_rewrite_success("${mvSql}", "${mvName}")
 
+    // select p_b should not rewrite
+    mv_rewrite_fail("SELECT par,count(*) as num FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format where par='b' group by par;", "${mvName}")
+
     //refresh auto
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto

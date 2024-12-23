@@ -615,8 +615,13 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto addr_idx = index_check_const(i, addr_const);
             auto cidr_idx = index_check_const(i, cidr_const);
-            const auto cidr =
-                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
+            auto cidr_data = str_cidr_column->get_data_at(cidr_idx);
+            // cidr_data maybe NULL, But the input column is nested column, so check here avoid throw exception
+            if (cidr_data.data == nullptr || cidr_data.size == 0) {
+                col_res_data[i] = 0;
+                continue;
+            }
+            const auto cidr = parse_ip_with_cidr(cidr_data.to_string_view());
             if constexpr (PT == PrimitiveType::TYPE_IPV4) {
                 if (cidr._address.as_v4()) {
                     col_res_data[i] = match_ipv4_subnet(ip_data[addr_idx], cidr._address.as_v4(),
@@ -763,11 +768,13 @@ public:
         if (is_ipv4(addr_column_with_type_and_name.type)) {
             execute_impl_with_ip<PrimitiveType::TYPE_IPV4, ColumnIPv4>(
                     input_rows_count, addr_const, cidr_const,
-                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column, col_res);
+                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column,
+                    col_res.get());
         } else if (is_ipv6(addr_column_with_type_and_name.type)) {
             execute_impl_with_ip<PrimitiveType::TYPE_IPV6, ColumnIPv6>(
                     input_rows_count, addr_const, cidr_const,
-                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column, col_res);
+                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column,
+                    col_res.get());
         } else {
             const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
             const auto* str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
@@ -775,11 +782,15 @@ public:
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto addr_idx = index_check_const(i, addr_const);
                 auto cidr_idx = index_check_const(i, cidr_const);
-
-                const auto addr =
-                        IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
-                const auto cidr =
-                        parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
+                auto addr_data = str_addr_column->get_data_at(addr_idx);
+                auto cidr_data = str_cidr_column->get_data_at(cidr_idx);
+                // cidr_data maybe NULL, But the input column is nested column, so check here avoid throw exception
+                if (cidr_data.data == nullptr || cidr_data.size == 0) {
+                    col_res_data[i] = 0;
+                    continue;
+                }
+                const auto addr = IPAddressVariant(addr_data.to_string_view());
+                const auto cidr = parse_ip_with_cidr(cidr_data.to_string_view());
                 col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
             }
         }
