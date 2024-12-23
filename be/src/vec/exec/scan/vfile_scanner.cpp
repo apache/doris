@@ -879,17 +879,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr;
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
-                static std::vector<orc::TypeKind> paimon_unsupport_type =
-                        std::vector<orc::TypeKind> {orc::TypeKind::CHAR};
-                unsupported_pushdown_types = &paimon_unsupport_type;
-            }
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
-                    unsupported_pushdown_types);
+                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
