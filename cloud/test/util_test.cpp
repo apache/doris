@@ -29,6 +29,7 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
+#include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "recycler/recycler.h"
 #include "recycler/sync_executor.h"
@@ -284,4 +285,43 @@ TEST(UtilTest, exception) {
         EXPECT_EQ(finished, false);
         std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(1, n); });
     }
+}
+
+TEST(UtilTest, test_sync_executor) {
+    auto f = []() {
+        sleep(1);
+        auto pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+        pool->start();
+        SyncExecutor<int> sync_executor(pool, "test sync executor: inside",
+                                        [](int k) { return k != 0; });
+        auto f1 = []() { return 0; };
+        sync_executor.add(f1);
+        bool finished = true;
+        std::vector<int> res = sync_executor.when_all(&finished);
+        sync_executor.add(f1);
+        res = sync_executor.when_all(&finished);
+        EXPECT_EQ(1, res.size());
+        EXPECT_EQ(finished, true);
+        std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
+        return 0;
+    };
+    std::mutex go_mutex;
+
+    auto* sp = doris::SyncPoint::get_instance();
+    sp->set_call_back("SyncExecutor::when_all.set_wait_time", [&](auto&& args) {
+        std::unique_lock<std::mutex> _lock(go_mutex);
+        auto max_wait_time = *doris::try_any_cast<size_t*>(args[0]);
+        max_wait_time = 100;
+    });
+
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    SyncExecutor<int> s3_sync_executor(s3_producer_pool, "test sync executor: outside",
+                                       [](int k) { return k != 0; });
+    s3_sync_executor.add(f);
+    bool finished = true;
+    std::vector<int> res = s3_sync_executor.when_all(&finished);
+    EXPECT_EQ(1, res.size());
+    EXPECT_EQ(finished, true);
+    std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
 }
