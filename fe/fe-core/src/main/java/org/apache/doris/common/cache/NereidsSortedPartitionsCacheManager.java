@@ -45,7 +45,13 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
-/** NereidsSortedPartitionsCacheManager */
+/**
+ * This cache is used to sort the table partitions by range, so we can do binary search to skip
+ * filter the huge numbers of partitions, for example, the table partition column is `dt date`
+ * and one date for one partition, range from '2017-01-01' to '2025-01-01', for partition predicate
+ * `where dt = '2024-12-24'`, we can fast jump to '2024-12-24' within few partition range comparison,
+ * and the QPS can be improved
+ */
 public class NereidsSortedPartitionsCacheManager {
     private volatile Cache<TableIdentifier, PartitionCacheContext> partitionCaches;
 
@@ -74,7 +80,7 @@ public class NereidsSortedPartitionsCacheManager {
         if (table.getId() != partitionCacheContext.tableId
                 || table.getVisibleVersion() != partitionCacheContext.tableVersion) {
             partitionCaches.invalidate(key);
-            return Optional.empty();
+            return Optional.of(loadCache(key, table));
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
     }
