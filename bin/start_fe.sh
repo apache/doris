@@ -258,6 +258,12 @@ if [[ "${HELPER}" != "" ]]; then
     HELPER="-helper ${HELPER}"
 fi
 
+if [[ "${OPT_VERSION}" != "" ]]; then
+    export DORIS_LOG_TO_STDERR=1
+    ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE --version
+    exit 0
+fi
+
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     if [[ -n "${IMAGE_PATH}" ]]; then
         ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}"
