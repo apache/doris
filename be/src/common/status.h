@@ -293,7 +293,8 @@ namespace ErrorCode {
     E(ENTRY_NOT_FOUND, -7002, false);                        \
     E(INVALID_TABLET_STATE, -7211, false);                   \
     E(ROWSETS_EXPIRED, -7311, false);                        \
-    E(CGROUP_ERROR, -7411, false);
+    E(CGROUP_ERROR, -7411, false);                           \
+    E(FATAL_ERROR, -7412, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -445,6 +446,14 @@ public:
     }
 
     static Status OK() { return {}; }
+
+    template <bool stacktrace = true, typename... Args>
+    static Status FatalError(std::string_view msg, Args&&... args) {
+#ifndef NDEBUG
+        LOG(FATAL) << fmt::format(msg, std::forward<Args>(args)...);
+#endif
+        return Error<ErrorCode::FATAL_ERROR, stacktrace>(msg, std::forward<Args>(args)...);
+    }
 
 // default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \

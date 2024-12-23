@@ -128,11 +128,10 @@ public class MaterializedViewUtils {
             materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
         }
         // Collect table relation map which is used to identify self join
-        List<CatalogRelation> catalogRelationObjs =
-                materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
+        List<CatalogRelation> catalogRelations = materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
         ImmutableMultimap.Builder<TableIdentifier, CatalogRelation> tableCatalogRelationMultimapBuilder =
                 ImmutableMultimap.builder();
-        for (CatalogRelation catalogRelation : catalogRelationObjs) {
+        for (CatalogRelation catalogRelation : catalogRelations) {
             tableCatalogRelationMultimapBuilder.put(new TableIdentifier(catalogRelation.getTable()), catalogRelation);
         }
         // Check sql pattern
@@ -320,6 +319,7 @@ public class MaterializedViewUtils {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql);
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(querySql, 0));
+        mvSqlStatementContext.setNeedLockTables(false);
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
@@ -771,7 +771,7 @@ public class MaterializedViewUtils {
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
         // This records the partition expression if exist
-        private Optional<Expression> partitionExpression;
+        private final Optional<Expression> partitionExpression;
 
         public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
                 Expression partitionExpression) {
