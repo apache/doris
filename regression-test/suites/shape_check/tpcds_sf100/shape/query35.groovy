@@ -92,7 +92,7 @@ suite("query35") {
           cd_dep_college_count
  limit 100"""
     qt_ds_shape_35 """
-    explain physical plan
+    explain shape plan
     ${ds}
     """
 }
