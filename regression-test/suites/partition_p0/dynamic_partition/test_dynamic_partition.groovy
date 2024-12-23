@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_dynamic_partition") {
+    def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'force_olap_table_replication_allocation'; """
+    String old_conf_value = config_row[0][1]
+    sql """ ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_allocation" = ""); """
+
     // todo: test dynamic partition
     sql "drop table if exists dy_par"
     sql """
@@ -156,4 +160,7 @@ suite("test_dynamic_partition") {
         exception "errCode = 2,"
     }
     sql "drop table if exists dy_par_bad"
+
+    // restore force_olap_table_replication_allocation to old_value
+    sql """ ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_allocation" = "${old_conf_value}"); """
 }
