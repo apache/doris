@@ -62,7 +62,7 @@ suite("test_use_database_stmt", "p0,external,mysql,external_docker,external_dock
                 sql """use ${internal_db_name}"""
                 qt_sql """select current_catalog()"""
                 sql """use ${catalog_name}.${ex_db_name}"""
-                Assert.fail("Access denied for user '${user}' to database '${ex_db_name}'");
+                exception"Access denied for user '${user}' to database '${ex_db_name}'";
             } catch (Exception e) {
                 log.info(e.getMessage())
             }
