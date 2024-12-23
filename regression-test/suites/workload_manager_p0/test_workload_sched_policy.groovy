@@ -160,7 +160,7 @@ suite("test_workload_sched_policy") {
     sql "create workload policy test_set_var_policy conditions(username='test_workload_sched_user')" +
             "actions(set_session_variable 'workload_group=test_set_session_wg');"
 
-    def result1 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
+    def result1 = connect('test_workload_sched_user', '12345', context.config.jdbcUrl) {
         logger.info("begin sleep 15s to wait")
         Thread.sleep(15000)
         sql "show variables like 'workload_group';"

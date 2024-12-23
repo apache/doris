@@ -170,7 +170,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
     // async mode, sync mode, off mode
     for (item in ["legacy", "nereids"]) {
         sql """ truncate table ${tableName} """
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """

@@ -66,7 +66,7 @@ suite("insert_group_commit_with_large_data") {
             );
             """
 
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
                 sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
