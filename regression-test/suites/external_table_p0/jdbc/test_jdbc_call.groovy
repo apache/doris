@@ -120,7 +120,7 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
     sql """create user ${user2}""";
     sql """grant load_priv, select_priv on *.*.* to ${user2}"""
 
-    def result1 = connect(user="${user1}", password="", url=context.config.jdbcUrl) {
+    def result1 = connect("${user1}", "", context.config.jdbcUrl) {
         sql """set enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
         test {

@@ -48,7 +48,7 @@ suite('nereids_insert_auth') {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         try {
             sql """ insert into ${db}.${t1} values (1, 1) """
             fail()
