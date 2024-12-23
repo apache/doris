@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -272,6 +274,102 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Expression rewrittenExpression = executor.rewrite(expression, context);
         Assertions.assertEquals(left.child(0).getDataType(), rewrittenExpression.child(1).getDataType());
         Assertions.assertEquals(rewrittenExpression.child(0).getDataType(), rewrittenExpression.child(1).getDataType());
+
+        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE);
+        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE);
+        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE);
+        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
+
+        // tiny int, literal not exceeds data type limit
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, FloatType.INSTANCE), new FloatLiteral(12.0f)),
+                new EqualTo(tinyIntSlot, new TinyIntLiteral((byte) 12)));
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.0f)),
+                new EqualTo(tinyIntSlot, new TinyIntLiteral((byte) 12)));
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                ExpressionUtils.falseOrNull(tinyIntSlot));
+        assertRewrite(new NullSafeEqual(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThan(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThan(tinyIntSlot, new TinyIntLiteral((byte) 12)));
+        assertRewrite(new GreaterThanEqual(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThanEqual(tinyIntSlot, new TinyIntLiteral((byte) 13)));
+        assertRewrite(new LessThan(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThan(tinyIntSlot, new TinyIntLiteral((byte) 13)));
+        assertRewrite(new LessThanEqual(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThanEqual(tinyIntSlot, new TinyIntLiteral((byte) 12)));
+
+
+        // tiny int, literal exceeds data type limit
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, FloatType.INSTANCE), new FloatLiteral(200.0f)),
+                ExpressionUtils.falseOrNull(tinyIntSlot));
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.0f)),
+                ExpressionUtils.falseOrNull(tinyIntSlot));
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.3f)),
+                ExpressionUtils.falseOrNull(tinyIntSlot));
+        assertRewrite(new NullSafeEqual(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.3f)),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThan(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.3f)),
+                ExpressionUtils.falseOrNull(tinyIntSlot));
+        assertRewrite(new GreaterThanEqual(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.3f)),
+                ExpressionUtils.falseOrNull(tinyIntSlot));
+        assertRewrite(new LessThan(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.3f)),
+                ExpressionUtils.trueOrNull(tinyIntSlot));
+        assertRewrite(new LessThanEqual(new Cast(tinyIntSlot, DoubleType.INSTANCE), new DoubleLiteral(200.3f)),
+                ExpressionUtils.trueOrNull(tinyIntSlot));
+
+        // small int
+        assertRewrite(new EqualTo(new Cast(smallIntSlot, FloatType.INSTANCE), new FloatLiteral(12.0f)),
+                new EqualTo(smallIntSlot, new SmallIntLiteral((short) 12)));
+        assertRewrite(new EqualTo(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.0f)),
+                new EqualTo(smallIntSlot, new SmallIntLiteral((short) 12)));
+        assertRewrite(new EqualTo(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                ExpressionUtils.falseOrNull(smallIntSlot));
+        assertRewrite(new NullSafeEqual(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThan(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThan(smallIntSlot, new SmallIntLiteral((short) 12)));
+        assertRewrite(new GreaterThanEqual(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThanEqual(smallIntSlot, new SmallIntLiteral((short) 13)));
+        assertRewrite(new LessThan(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThan(smallIntSlot, new SmallIntLiteral((short) 13)));
+        assertRewrite(new LessThanEqual(new Cast(smallIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThanEqual(smallIntSlot, new SmallIntLiteral((short) 12)));
+
+        // int
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(12.0f)),
+                new EqualTo(intSlot, new IntegerLiteral(12)));
+        assertRewrite(new EqualTo(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.0f)),
+                new EqualTo(intSlot, new IntegerLiteral(12)));
+        assertRewrite(new EqualTo(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                ExpressionUtils.falseOrNull(intSlot));
+        assertRewrite(new NullSafeEqual(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThan(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThan(intSlot, new IntegerLiteral(12)));
+        assertRewrite(new GreaterThanEqual(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThanEqual(intSlot, new IntegerLiteral(13)));
+        assertRewrite(new LessThan(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThan(intSlot, new IntegerLiteral(13)));
+        assertRewrite(new LessThanEqual(new Cast(intSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThanEqual(intSlot, new IntegerLiteral(12)));
+
+        // big int
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, FloatType.INSTANCE), new FloatLiteral(12.0f)),
+                new EqualTo(bigIntSlot, new BigIntLiteral(12L)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.0f)),
+                new EqualTo(bigIntSlot, new BigIntLiteral(12L)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                ExpressionUtils.falseOrNull(bigIntSlot));
+        assertRewrite(new NullSafeEqual(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThan(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThan(bigIntSlot, new BigIntLiteral(12L)));
+        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new GreaterThanEqual(bigIntSlot, new BigIntLiteral(13L)));
+        assertRewrite(new LessThan(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThan(bigIntSlot, new BigIntLiteral(13L)));
+        assertRewrite(new LessThanEqual(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
+                new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
     }
 
     @Test
