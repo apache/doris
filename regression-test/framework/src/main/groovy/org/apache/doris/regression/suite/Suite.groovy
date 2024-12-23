@@ -71,6 +71,7 @@ import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.regex.Pattern
 import java.util.stream.Collectors
 import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
@@ -1314,13 +1315,23 @@ class Suite implements GroovyInterceptable {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
+                def allPlan = ""
+                if (arg instanceof String) {
+                    def query = (String) arg;
+                    def pattern = Pattern.compile("^\\s*explain\\s+shape\\s*plan\\s*", Pattern.MULTILINE)
+                    if (query =~ pattern) {
+                        def physical = query.replaceAll(pattern, "explain all plan ")
+                        allPlan = JdbcUtils.executeToStringList(context.getConnection(), physical)[0].join('\n')
+                    }
+                }
+
                 String csvRealResult = realResults.stream()
-                    .map {row -> OutputUtils.toCsvString(row)}
-                    .collect(Collectors.joining("\n"))
+                        .map { row -> OutputUtils.toCsvString(row) }
+                        .collect(Collectors.joining("\n"))
                 def outputFilePath = context.outputFile.getCanonicalPath().substring(context.config.dataPath.length() + 1)
                 def line = expectCsvResults.currentLine()
                 logger.warn("expect results in file: ${outputFilePath}, line: ${line}\nrealResults:\n" + csvRealResult)
-                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}\n\nmemo:\n${allPlan}")
             }
         }
     }
