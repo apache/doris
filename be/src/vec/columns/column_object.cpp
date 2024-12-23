@@ -351,12 +351,21 @@ void get_field_info(const Field& field, FieldInfo* info) {
     }
 }
 
+#ifdef NDEBUG
+#define ENABLE_CHECK_CONSISTENCY /* Nothing */
+#else
+#define ENABLE_CHECK_CONSISTENCY(this) this->check_consistency()
+#endif
+
+// current nested level is 2, inside column object
+constexpr int CURRENT_SERIALIZE_NESTING_LEVEL = 2;
+
 ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, bool is_nullable_,
                                    bool is_root_)
         : least_common_type(type), is_nullable(is_nullable_), is_root(is_root_) {
     data.push_back(std::move(data_));
     data_types.push_back(type);
-    data_serdes.push_back(type->get_serde());
+    data_serdes.push_back(type->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL));
 }
 
 ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
@@ -399,7 +408,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
     data.push_back(type->create_column());
     least_common_type = LeastCommonType {type};
     data_types.push_back(type);
-    data_serdes.push_back(type->get_serde());
+    data_serdes.push_back(type->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL));
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
@@ -650,6 +659,7 @@ void ColumnObject::resize(size_t n) {
         serialized_sparse_column->pop_back(num_rows - n);
     }
     num_rows = n;
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
@@ -701,7 +711,7 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
     }
     data = {std::move(result_column)};
     data_types = {std::move(to_type)};
-    data_serdes = {data_types[0]->get_serde()};
+    data_serdes = {data_types[0]->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL)};
     num_of_defaults_in_prefix = 0;
 }
 
@@ -786,7 +796,7 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
         : type(std::move(type_)),
           base_type(get_base_type_of_array(type)),
           num_dimensions(get_number_of_dimensions(*type)) {
-    least_common_type_serder = type->get_serde();
+    least_common_type_serder = type->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL);
     type_id = type->is_nullable() ? assert_cast<const DataTypeNullable*>(type.get())
                                             ->get_nested_type()
                                             ->get_type_id()
@@ -802,6 +812,7 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     if (create_root_) {
         subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     }
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 ColumnObject::ColumnObject(MutableColumnPtr&& sparse_column)
@@ -813,18 +824,19 @@ ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr
         : is_nullable(is_nullable_), num_rows(0) {
     add_sub_column({}, std::move(column), type);
     serialized_sparse_column->insert_many_defaults(num_rows);
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
         : is_nullable(is_nullable_),
           subcolumns(std::move(subcolumns_)),
           num_rows(subcolumns.empty() ? 0 : (*subcolumns.begin())->data.size()) {
-    check_consistency();
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 ColumnObject::ColumnObject(size_t size) : is_nullable(true), num_rows(0) {
     insert_many_defaults(size);
-    check_consistency();
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnObject::check_consistency() const {
@@ -885,16 +897,17 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
     const auto* src_v = check_and_get_column<ColumnObject>(src);
-    // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
-        src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
-        is_finalized()) {
-        assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*get_root())
-                .insert_from(*src_v->get_root(), n);
-        ++num_rows;
-        return;
-    }
-    return try_insert(src[n]);
+    // // optimize when src and this column are scalar variant, since try_insert is inefficiency
+    // if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
+    //     src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
+    //     is_finalized()) {
+    //     assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(*get_root())
+    //             .insert_from(*src_v->get_root(), n);
+    //     ++num_rows;
+    //     ENABLE_CHECK_CONSISTENCY(this);
+    //     return;
+    // }
+    return try_insert((*src_v)[n]);
 }
 
 void ColumnObject::try_insert(const Field& field) {
@@ -948,6 +961,7 @@ void ColumnObject::try_insert(const Field& field) {
     }
     serialized_sparse_column->insert_default();
     ++num_rows;
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnObject::insert_default() {
@@ -956,6 +970,16 @@ void ColumnObject::insert_default() {
     }
     serialized_sparse_column->insert_default();
     ++num_rows;
+    ENABLE_CHECK_CONSISTENCY(this);
+}
+
+void ColumnObject::insert_many_defaults(size_t length) {
+    for (auto& entry : subcolumns) {
+        entry->data.insert_many_defaults(length);
+    }
+    serialized_sparse_column->insert_many_defaults(length);
+    num_rows += length;
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 bool ColumnObject::Subcolumn::is_null_at(size_t n) const {
@@ -1048,8 +1072,8 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
                 key->insert_data(path.data(), path.size());
 
                 // every subcolumn is always Nullable
-                auto nullable_serde =
-                        std::static_pointer_cast<DataTypeNullableSerDe>(data_types[i]->get_serde());
+                auto nullable_serde = std::static_pointer_cast<DataTypeNullableSerDe>(
+                        data_types[i]->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL));
                 auto& nullable_col = assert_cast<const ColumnNullable&>(*part);
 
                 // insert value
@@ -1252,6 +1276,7 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
                 "Required size of subcolumn {} ({}) is inconsistent with column size ({})",
                 key.get_path(), new_size, num_rows);
     }
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
@@ -1299,9 +1324,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
 
     num_rows += length;
     finalize();
-#ifndef NDEBUG
-    check_consistency();
-#endif
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 // std::map<std::string_view, Subcolumn>
@@ -1440,6 +1463,7 @@ void ColumnObject::pop_back(size_t length) {
     }
     serialized_sparse_column->pop_back(length);
     num_rows -= length;
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key) const {
@@ -1614,138 +1638,6 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInData& path,
-                                         int idx = 0) {
-    if (idx >= path.get_parts().size()) {
-        return &json;
-    }
-
-    std::string_view current_key = path.get_parts()[idx].key;
-    if (!json.IsObject()) {
-        return nullptr;
-    }
-    rapidjson::Value name(current_key.data(), current_key.size());
-    auto it = json.FindMember(name);
-    if (it == json.MemberEnd()) {
-        return nullptr;
-    }
-    rapidjson::Value& current = it->value;
-    // if (idx == path.get_parts().size() - 1) {
-    //     return &current;
-    // }
-    return find_leaf_node_by_path(current, path, idx + 1);
-}
-
-// skip empty json:
-// 1. null value as empty json, todo: think a better way to disinguish empty json and null json.
-// 2. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
-// 3. empty root jsonb value(not null)
-// 4. type is nothing
-bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
-                     TypeIndex base_type_id, int row, const PathInData& path) {
-    // skip nulls
-    if (nullable && nullable->is_null_at(row)) {
-        return true;
-    }
-    // check if it is empty nested json array, then skip
-    if (base_type_id == TypeIndex::VARIANT && type->equals(*ColumnObject::NESTED_TYPE)) {
-        Field field = (*nullable)[row];
-        if (field.get_type() == Field::Types::Array) {
-            const auto& array = field.get<Array>();
-            bool only_nulls_inside = true;
-            for (const auto& elem : array) {
-                if (elem.get_type() != Field::Types::Null) {
-                    only_nulls_inside = false;
-                    break;
-                }
-            }
-            // if only nulls then skip
-            return only_nulls_inside;
-        }
-    }
-    // skip empty jsonb value
-    if ((path.empty() && nullable && nullable->get_data_at(row).empty())) {
-        return true;
-    }
-    // skip nothing type
-    if (base_type_id == TypeIndex::Nothing) {
-        return true;
-    }
-    return false;
-}
-
-Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
-                                const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
-                                TypeIndex base_type_index, rapidjson::Value& root,
-                                rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                int row) {
-#ifndef NDEBUG
-    // sanitize type and column
-    if (column->get_name() != type->create_column()->get_name()) {
-        return Status::InternalError(
-                "failed to set value for path {}, expected type {}, but got {} at row {}",
-                path.get_path(), type->get_name(), column->get_name(), row);
-    }
-#endif
-    const auto* nullable = check_and_get_column<ColumnNullable>(column);
-    if (skip_empty_json(nullable, type, base_type_index, row, path)) {
-        return Status::OK();
-    }
-    // TODO could cache the result of leaf nodes with it's path info
-    rapidjson::Value* target = find_leaf_node_by_path(root, path);
-    if (UNLIKELY(!target)) {
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        root.Accept(writer);
-        LOG(WARNING) << "could not find path " << path.get_path()
-                     << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
-        return Status::NotFound("Not found path {}", path.get_path());
-    }
-    RETURN_IF_ERROR(type_serde->write_one_cell_to_json(*column, *target, allocator, mem_pool, row));
-    return Status::OK();
-}
-
-// compact null values
-// {"a" : {"b" : "d" {"n" : null}, "e" : null}, "c" : 10 }
-// after compact -> {"a" : {"c"} : 10}
-void compact_null_values(rapidjson::Value& json, rapidjson::Document::AllocatorType& allocator) {
-    if (!json.IsObject() || json.IsNull()) {
-        return;
-    }
-
-    rapidjson::Value::MemberIterator it = json.MemberBegin();
-    while (it != json.MemberEnd()) {
-        rapidjson::Value& value = it->value;
-        if (value.IsNull()) {
-            it = json.EraseMember(it);
-            continue;
-        }
-        compact_null_values(value, allocator);
-        if (value.IsObject() && value.ObjectEmpty()) {
-            it = json.EraseMember(it);
-            continue;
-        }
-        ++it;
-    }
-}
-
-// Construct rapidjson value from Subcolumns
-void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::AllocatorType& allocator,
-                             const ColumnObject::Subcolumns::Node* node_root) {
-    if (node_root == nullptr || node_root->children.empty()) {
-        root.SetNull();
-        return;
-    }
-    root.SetObject();
-    // sort to make output stable
-    std::vector<StringRef> sorted_keys = node_root->get_sorted_chilren_keys();
-    for (const StringRef& key : sorted_keys) {
-        rapidjson::Value value(rapidjson::kObjectType);
-        get_json_by_column_tree(value, allocator, node_root->get_child_node(key).get());
-        root.AddMember(rapidjson::StringRef(key.data, key.size), value, allocator);
-    }
-}
-
 Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
@@ -1837,10 +1729,8 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
         return false;
     }
     nrow = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
-    // only ColumnString which is DataTypeJsonb
     const auto& nullable = assert_cast<const ColumnNullable&>(*subcolumns.get_root()->data.data[0]);
-    const auto& value_column = assert_cast<const ColumnString&>(nullable.get_nested_column());
-    return !value_column.get_data_at(nrow).empty();
+    return !nullable.get_data_at(nrow).empty();
 }
 
 Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
@@ -2167,6 +2057,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     }
     if (subcolumns.empty()) {
         auto res = ColumnObject::create(count_bytes_in_filter(filter));
+        res->check_consistency();
         return res;
     }
     auto new_column = ColumnObject::create(true, false);
@@ -2175,7 +2066,8 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
                                    entry->data.get_least_common_type());
     }
-
+    new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
+    new_column->check_consistency();
     return new_column;
 }
 
@@ -2218,9 +2110,7 @@ size_t ColumnObject::filter(const Filter& filter) {
         CHECK_EQ(result_size, count);
     }
     num_rows = count;
-#ifndef NDEBUG
-    check_consistency();
-#endif
+    ENABLE_CHECK_CONSISTENCY(this);
     return count;
 }
 
@@ -2234,6 +2124,7 @@ void ColumnObject::clear_column_data() {
     }
     serialized_sparse_column->clear();
     num_rows = 0;
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnObject::clear() {
@@ -2242,6 +2133,7 @@ void ColumnObject::clear() {
     serialized_sparse_column->clear();
     num_rows = 0;
     _prev_positions.clear();
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& column) {
@@ -2252,6 +2144,7 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     if (serialized_sparse_column->empty()) {
         serialized_sparse_column->insert_many_defaults(num_rows);
     }
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 const DataTypePtr& ColumnObject::get_most_common_type() {
@@ -2287,38 +2180,12 @@ DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
 }
 
-#define SANITIZE_ROOT()                                                                            \
-    if (is_null_root()) {                                                                          \
-        return Status::InternalError("No root column, path {}", path.get_path());                  \
-    }                                                                                              \
-    if (!WhichDataType(remove_nullable(subcolumns.get_root()->data.get_least_common_type()))       \
-                 .is_json()) {                                                                     \
-        return Status::InternalError(                                                              \
-                "Root column is not jsonb type but {}, path {}",                                   \
-                subcolumns.get_root()->data.get_least_common_type()->get_name(), path.get_path()); \
-    }
-
-Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst) const {
-    SANITIZE_ROOT();
-    if (!path.empty()) {
-        RETURN_IF_ERROR(schema_util::extract(subcolumns.get_root()->data.get_finalized_column_ptr(),
-                                             path, dst));
-    } else {
-        if (!dst) {
-            dst = subcolumns.get_root()->data.get_finalized_column_ptr()->clone_empty();
-            dst->reserve(num_rows);
-        }
-        dst->insert_range_from(*subcolumns.get_root()->data.get_finalized_column_ptr(), 0,
-                               num_rows);
-    }
-    return Status::OK();
-}
-
 void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnObject::insert_from(src, *x);
     }
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 template <typename Func>
@@ -2441,6 +2308,7 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
                                  .clone_with_default_values(field_info);
 
     entry->data.insert_range_from(new_subcolumn, 0, new_subcolumn.size());
+    ENABLE_CHECK_CONSISTENCY(this);
     return true;
 }
 
@@ -2466,6 +2334,7 @@ bool ColumnObject::try_insert_default_from_nested(const Subcolumns::NodePtr& ent
     auto default_field = apply_visitor(
             FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);
     entry->data.insert(std::move(default_field));
+    ENABLE_CHECK_CONSISTENCY(this);
     return true;
 }
 
