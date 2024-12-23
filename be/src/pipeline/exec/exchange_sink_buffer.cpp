@@ -422,8 +422,7 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
         }
         LOG(INFO) << ss.str();
 
-        LOG(FATAL) << "not find the instance id";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("not find the instance id"));
     } else {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
         _running_sink_count[id]--;

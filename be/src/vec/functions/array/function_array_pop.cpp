@@ -75,7 +75,7 @@ public:
         }
         // prepare dst array column
         bool is_nullable = src.nested_nullmap_data != nullptr;
-        ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
+        ColumnArrayMutableData dst = create_mutable_data(src.nested_col.get(), is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
         // start from index depending on the PopType::start_offset
         auto offset_column = ColumnInt64::create(array_column->size(), PopType::start_offset);

@@ -370,11 +370,11 @@ private:
 
             ExecutorImpl impl;
             if (right_size < left_size) {
-                impl.insert_array(right_data.nested_col, right_start, right_size);
-                dst_data[row] = impl.find_any(left_data.nested_col, left_start, left_size);
+                impl.insert_array(right_data.nested_col.get(), right_start, right_size);
+                dst_data[row] = impl.find_any(left_data.nested_col.get(), left_start, left_size);
             } else {
-                impl.insert_array(left_data.nested_col, left_start, left_size);
-                dst_data[row] = impl.find_any(right_data.nested_col, right_start, right_size);
+                impl.insert_array(left_data.nested_col.get(), left_start, left_size);
+                dst_data[row] = impl.find_any(right_data.nested_col.get(), right_start, right_size);
             }
         }
         return Status::OK();
