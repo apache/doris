@@ -17,12 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <cstddef>
 
-#include "runtime/runtime_state.h"
-
 namespace doris {
-class RuntimeState;
 // check utf8 code using simd instructions
 // Return true - success,  false fail
 bool validate_utf8(const char* src, size_t len);
