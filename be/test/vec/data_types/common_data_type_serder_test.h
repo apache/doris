@@ -24,22 +24,13 @@
 #include <fstream>
 #include <iostream>
 
-#include "olap/schema.h"
-#include "runtime/descriptors.cpp"
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_map.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 // this test is gonna to be a data type serialize and deserialize functions
@@ -155,7 +146,7 @@ public:
             std::string value;
             int l_idx = 0;
             int c_idx = 0;
-            std::vector<string> row;
+            std::vector<std::string> row;
             while (std::getline(lineStream, value, spliter)) {
                 if (idxes.contains(l_idx)) {
                     // load csv data
@@ -210,7 +201,7 @@ public:
         if (generate_res_file) {
             // generate res
             auto pos = file_path.find_last_of(".");
-            string hive_format = is_hive_format ? "_hive" : "";
+            std::string hive_format = is_hive_format ? "_hive" : "";
             std::string res_file = file_path.substr(0, pos) + hive_format + "_serde_res.csv";
             std::ofstream res_f(res_file);
             if (!res_f.is_open()) {

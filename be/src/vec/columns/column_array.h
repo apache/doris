@@ -118,7 +118,6 @@ public:
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
-    bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
@@ -164,8 +163,6 @@ public:
     size_t allocated_bytes() const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-
-    ColumnPtr convert_to_full_column_if_const() const override;
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }

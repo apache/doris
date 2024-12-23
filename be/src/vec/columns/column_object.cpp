@@ -1271,7 +1271,7 @@ bool ColumnObject::is_finalized() const {
 void ColumnObject::Subcolumn::wrapp_array_nullable() {
     // Wrap array with nullable, treat empty array as null to elimate conflict at present
     auto& result_column = get_finalized_column_ptr();
-    if (result_column->is_column_array() && !result_column->is_nullable()) {
+    if (check_column<vectorized::ColumnArray>(result_column) && !result_column->is_nullable()) {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();

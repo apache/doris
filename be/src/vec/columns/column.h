@@ -609,8 +609,6 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
-    virtual bool is_column_array() const { return false; }
-
     virtual bool is_column_map() const { return false; }
 
     virtual bool is_column_struct() const { return false; }

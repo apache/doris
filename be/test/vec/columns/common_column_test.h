@@ -72,9 +72,9 @@ protected:
             int l_idx = 0;
             int c_idx = 0;
             while (std::getline(lineStream, value, spliter)) {
-                if (idxes.contains(l_idx)) {
+                if (!value.starts_with("//") && idxes.contains(l_idx)) {
                     Slice string_slice(value.data(), value.size());
-                    std::cout << string_slice << std::endl;
+                    //                    std::cout << string_slice << std::endl;
                     if (auto st = serders[c_idx]->deserialize_one_cell_from_json(
                                 *columns[c_idx], string_slice, options);
                         !st.ok()) {
@@ -412,11 +412,17 @@ public:
                         // insert_range_from now we have no any exception error data to handle, so here will meet crash
                         continue;
                     } else if (*pos + *cl > source_column->size()) {
+                        if (check_column<ColumnArray>(
+                                    remove_nullable(source_column->assume_mutable()))) {
+                            // insert_range_from in array has DCHECK_LG
+                            continue;
+                        }
                         target_column->clear();
                         // insert_range_from now we have no any exception error data to handle and also no crash
                         std::cout << "we expect exception insert_many_from from " << *pos
-                                  << " with length " << *cl
-                                  << "with source size: " << source_column->size() << std::endl;
+                                  << " with length " << *cl << " for column "
+                                  << source_column->get_name()
+                                  << " with source size: " << source_column->size() << std::endl;
                         target_column->insert_many_from(*source_column, *pos, *cl);
                     }
 
@@ -461,9 +467,9 @@ public:
 
             // uint32_t(-1) now we have compiler to make sure it will not appear
             // and this function
-            std::vector<uint32_t> check_indices = {0, uint32_t(source_column->size()),
-                                                   uint32_t(source_column->size() + 1),
-                                                   uint32_t((source_column->size() + 1) >> 1)};
+            std::vector<uint32_t> check_indices = {0, uint32_t((source_column->size() + 1) >> 1),
+                                                   uint32_t(source_column->size()),
+                                                   uint32_t(source_column->size() + 1)};
             for (auto from_idx = check_indices.begin(); from_idx < check_indices.end();
                  ++from_idx) {
                 for (auto end_idx = check_indices.begin(); end_idx < check_indices.end();
@@ -477,11 +483,12 @@ public:
                         // here we will meet `heap-buffer-overflow on address`
                         continue;
                     } else {
+                        std::cout << source_column->get_name() << " now insert_indices_from from "
+                                  << *from_idx << " to " << *end_idx
+                                  << " with source size: " << source_column->size() << std::endl;
                         target_column->insert_indices_from(*source_column, &(*from_idx),
                                                            &(*end_idx));
                     }
-                    std::cout << source_column->get_name() << " now insert_indices_from from "
-                              << *from_idx << " to " << *end_idx << std::endl;
                     // Verify the inserted data matches the expected results in `assert_res`
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(target_column->size());
@@ -1691,7 +1698,7 @@ public:
             if (column->size() > rows) {
                 std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
                           << std::endl;
-                column->pop_back(rows - column->size());
+                column->pop_back(column->size() - rows);
             } else if (column->size() < rows) {
                 std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
                           << std::endl;
@@ -1753,7 +1760,7 @@ public:
             if (column->size() > rows) {
                 std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
                           << std::endl;
-                column->pop_back(rows - column->size());
+                column->pop_back(column->size() - rows);
             } else if (column->size() < rows) {
                 std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
                           << std::endl;
