@@ -1573,7 +1573,7 @@ public class Coordinator implements CoordInterface {
                     }
                     // process bucket shuffle join on fragment without scan node
                     while (bucketSeq < bucketNum) {
-                        TPlanFragmentDestination dest = setDestination(destParams, params.destinations.size(),
+                        TPlanFragmentDestination dest = setDestination(destParams, destinations.size(),
                                 bucketSeq);
                         bucketSeq++;
                         destinations.add(dest);
@@ -1611,7 +1611,7 @@ public class Coordinator implements CoordInterface {
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
                         dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
-                        destParams.instanceExecParams.get(j).recvrId = params.destinations.size();
+                        destParams.instanceExecParams.get(j).recvrId = destinations.size();
                         destinations.add(dest);
                     }
                 }
