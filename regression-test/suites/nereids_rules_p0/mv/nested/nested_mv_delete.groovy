@@ -24,7 +24,7 @@ suite("nested_mv_delete") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_1
     """
 
     sql """
