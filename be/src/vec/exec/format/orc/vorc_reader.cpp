@@ -726,7 +726,10 @@ bool OrcReader::_init_search_argument(
     }
 
     if (_is_hive1_orc_or_use_idx) {
-        for (OrcPredicate& it : predicates) it.col_name = _col_name_to_file_col_name[it.col_name];
+        // use hive 1.x version orc file, need to convert column name to internal column name
+        for (OrcPredicate& it : predicates) {
+            it.col_name = _col_name_to_file_col_name[it.col_name];
+        }
     }
 
     std::unique_ptr<orc::SearchArgumentBuilder> builder = orc::SearchArgumentFactory::newBuilder();
