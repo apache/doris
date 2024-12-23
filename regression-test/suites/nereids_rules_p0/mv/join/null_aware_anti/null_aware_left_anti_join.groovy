@@ -207,4 +207,26 @@ suite("null_aware_anti") {
     async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
+
+
+    def mv2_1 =
+            """
+            select  lineitem.L_LINENUMBER
+            from lineitem
+            where L_ORDERKEY not in (
+            select o_custkey from orders_nullable
+            );
+            """
+    def query2_1 = """
+            select  lineitem.L_LINENUMBER
+            from lineitem
+            where L_ORDERKEY not in (
+            select o_custkey from orders_nullable
+            ) and L_LINENUMBER = 4;
+            """
+    order_qt_query2_1_before "${query2_1}"
+    // test NULL_AWARE_LEFT_ANTI_JOIN, should success
+    async_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
+    order_qt_query2_1_after "${query2_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 }
