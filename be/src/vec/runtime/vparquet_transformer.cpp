@@ -307,11 +307,12 @@ Status VParquetTransformer::write(const Block& block) {
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema,
                                            ExecEnv::GetInstance()->arrow_memory_pool(), &result,
                                            _state->timezone_obj()));
-
+    if (_write_size == 0) {
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+    }
     RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
     _write_size += block.bytes();
     if (_write_size >= doris::config::min_row_group_size) {
-        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
         _write_size = 0;
     }
     return Status::OK();
