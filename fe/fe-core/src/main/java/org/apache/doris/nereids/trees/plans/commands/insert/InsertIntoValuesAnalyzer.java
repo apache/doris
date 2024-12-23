@@ -69,8 +69,16 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
                     new InlineTableToUnionOrOneRowRelation(),
                     new BindSink(),
                     new MergeProjects(),
+
+                    // the BatchInsertIntoTableCommand need send StringLiteral to backend,
+                    // and only support alias(literal as xx) or alias(cast(literal as xx)),
+                    // but not support alias(cast(slotRef as xx)) which create in BindSink,
+                    // we should push down the cast into Union or OneRowRelation.
+                    // the InsertIntoTableCommand support translate slotRef in the TPlan,
+                    // so we don't need this rules, just evaluate in backend
                     new PushProjectIntoUnion(),
                     new PushProjectIntoOneRowRelation(),
+
                     new RewriteBatchInsertIntoExpressions(ExpressionRewrite.bottomUp(
                             ConvertAggStateCast.INSTANCE,
                             FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE
