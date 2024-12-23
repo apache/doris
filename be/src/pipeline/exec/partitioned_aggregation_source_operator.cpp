@@ -261,7 +261,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         while (!state->is_cancelled() && !has_agg_data &&
                !_shared_state->spill_partitions.empty()) {
             while (!_shared_state->spill_partitions[0]->spill_streams_.empty() &&
-                   !state->is_cancelled()) {
+                   !state->is_cancelled() && !has_agg_data) {
                 auto& stream = _shared_state->spill_partitions[0]->spill_streams_[0];
                 stream->set_read_counters(profile());
                 vectorized::Block block;
