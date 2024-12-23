@@ -839,7 +839,13 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    such as when index segment files are not generated
         // above case can downgrade without index query
         _opts.stats->inverted_index_downgrade_count++;
-        LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
+        if (!res.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
+            LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: "
+                      << res;
+        } else {
+            VLOG_DEBUG << "will downgrade without index to evaluate predicate, because of res: "
+                       << res;
+        }
         return true;
     }
     return false;
@@ -1181,7 +1187,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     bool exact_match = false;
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator));
+    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator, _opts.stats));
 
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
@@ -1955,8 +1961,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
 Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& col_ids) {
     for (ColumnId i : col_ids) {
-        if (_current_return_columns[i] == nullptr || _converted_column_ids[i] ||
-            _is_pred_column[i]) {
+        if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
         if (!_segment->same_with_storage_type(
@@ -1999,7 +2004,7 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
 
-    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
+    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
 }
 
 void SegmentIterator::_clear_iterators() {
