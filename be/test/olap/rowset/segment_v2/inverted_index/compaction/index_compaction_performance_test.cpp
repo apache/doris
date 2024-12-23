@@ -39,7 +39,6 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         _current_dir = std::string(buffer);
-        // _current_dir = "/mnt/disk2/luen/develop/workspace/incubator-doris";
         _absolute_dir = _current_dir + std::string(dest_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
@@ -63,6 +62,8 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_segcompaction = false;
         config::string_type_length_soft_limit_bytes = 2147483643;
+        config::inverted_index_dict_path =
+                _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
