@@ -54,7 +54,7 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     private LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.projects = Utils.fastToImmutableList(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
     @Override
