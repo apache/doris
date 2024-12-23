@@ -870,9 +870,6 @@ Status CloudTablet::sync_meta() {
         }
         return st;
     }
-    if (tablet_meta->tablet_state() != TABLET_RUNNING) { // impossible
-        return Status::InternalError("invalid tablet state. tablet_id={}", tablet_id());
-    }
 
     auto new_ttl_seconds = tablet_meta->ttl_seconds();
     if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
