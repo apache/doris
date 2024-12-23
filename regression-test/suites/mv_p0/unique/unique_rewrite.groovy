@@ -98,7 +98,7 @@ suite("mv_on_unique_table") {
     """)
 
     def desc_all_mv1 = sql """desc lineitem_2_uniq all;"""
-    logger.info("desc mv1 is" + desc_all_mv1)
+    logger.info("desc mv1 is: " + desc_all_mv1.toString())
 
     explain {
         sql("""${query1}""")

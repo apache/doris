@@ -130,7 +130,8 @@ suite("test_select_column_auth","p0,auth") {
     sql """grant select_priv(sum_id) on ${dbName}.${mtmv_name} to ${user}"""
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        logger.info("show grants;")
+        def show_grants = sql """show grants;"""
+        logger.info("show grants:" + show_grants.toString())
         // If exec on fe follower, wait meta data is ready on follower
         Thread.sleep(2000)
         sql "SET enable_materialized_view_rewrite=true"

@@ -120,7 +120,7 @@ suite("is_in_debug_mode") {
         """
     } catch (Exception e) {
         def message = e.getMessage()
-        logger.info("test_create_mv3" + message)
+        logger.info("test_create_mv3: " + message)
         Assert.assertTrue(message.contains("because is in debug mode"))
     }
     sql """set skip_delete_bitmap = false;"""
