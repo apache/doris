@@ -57,7 +57,7 @@ suite("test_show_dynamic_table_auth","p0,auth_call") {
         assertTrue(res.size() == 0)
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW DYNAMIC PARTITION TABLES from ${dbName};"""
         assertTrue(res.size() == 1)
     }

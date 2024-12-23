@@ -324,11 +324,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
             assertTrue(res == [])
         }
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res.size == 10)
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res.size == 10)
         }
