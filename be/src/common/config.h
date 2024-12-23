@@ -1497,7 +1497,6 @@ DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 DECLARE_mInt32(compaction_num_per_round);
 
-DECLARE_mBool(enable_segments_key_bounds_truncation);
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 
 #ifdef BE_TEST
