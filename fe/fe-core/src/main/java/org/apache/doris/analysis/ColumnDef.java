@@ -687,7 +687,7 @@ public class ColumnDef {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
 
         return sb.toString();
     }
