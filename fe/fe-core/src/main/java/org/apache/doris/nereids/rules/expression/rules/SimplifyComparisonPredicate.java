@@ -228,37 +228,17 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
-                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
-
-                try {
-                    BigDecimal trailingZerosValue = literal.getValue().stripTrailingZeros();
-                    int literalScale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
-                    int literalPrecision = org.apache.doris.analysis.DecimalLiteral
-                            .getBigDecimalPrecision(trailingZerosValue);
-
-                    // we have a column named col1 with type decimalv3(15, 2)
-                    // and we have a comparison like col1 > 0.5 + 0.1
-                    // suppose the result type of 0.5 + 0.1 is decimalv3(27, 9)
-                    // then the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
-                    // then will have cast(col1 as decimalv3(27,9)) > 0.5 + 0.1,
-                    // after fold constant, we have cast(col1 as decimalv3(27, 9)) > 0.6 (0.6 is decimalv3(27, 9))
-                    // but 0.6 can be represented using decimalv3(15, 2)
-                    // then simplify it from 'cast(col1 as decimalv3(27, 9)) > 0.6' (0.6 is decimalv3(27, 9))
-                    // to 'col1 > 0.6' (0.6 is decimalv3(15, 2))
-                    if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
-                        trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
-                        Expression newLiteral = new DecimalV3Literal(
-                                DecimalV3Type.createDecimalV3TypeLooseCheck(
-                                        leftType.getPrecision(), leftType.getScale()),
-                                trailingZerosValue);
-                        return comparisonPredicate.withChildren(left, newLiteral);
-                    }
-                } catch (ArithmeticException e) {
-                    // stripTrailingZeros and setScale may cause exception if overflow
+                Optional<Expression> toSmallerDecimalDataTypeExpr = convertDecimalToSmallerDecimalV3Type(
+                        comparisonPredicate, cast, literal);
+                if (toSmallerDecimalDataTypeExpr.isPresent()) {
+                    return toSmallerDecimalDataTypeExpr.get();
                 }
 
+                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
                 DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
-                if (leftType.getScale() < literalType.getScale()) {
+                if (cast.getDataType().isDecimalV3Type()
+                        && ((DecimalV3Type) cast.getDataType()).getScale() >= leftType.getScale()
+                        && leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
@@ -421,6 +401,44 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             }
         }
         return cp;
+    }
+
+    private static Optional<Expression> convertDecimalToSmallerDecimalV3Type(ComparisonPredicate comparisonPredicate,
+            Cast castLeft, DecimalV3Literal right) {
+        Expression left = castLeft.child();
+        if (!castLeft.getDataType().isDecimalV3Type() || !left.getDataType().isDecimalV3Type()
+                || ((DecimalV3Type) castLeft.getDataType()).getScale()
+                        < ((DecimalV3Type) left.getDataType()).getScale()) {
+            return Optional.empty();
+        }
+        DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+        try {
+            BigDecimal trailingZerosValue = right.getValue().stripTrailingZeros();
+            int literalScale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
+            int literalPrecision = org.apache.doris.analysis.DecimalLiteral
+                    .getBigDecimalPrecision(trailingZerosValue);
+
+            // we have a column named col1 with type decimalv3(15, 2)
+            // and we have a comparison like col1 > 0.5 + 0.1
+            // suppose the result type of 0.5 + 0.1 is decimalv3(27, 9)
+            // then the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
+            // then will have cast(col1 as decimalv3(27,9)) > 0.5 + 0.1,
+            // after fold constant, we have cast(col1 as decimalv3(27, 9)) > 0.6 (0.6 is decimalv3(27, 9))
+            // but 0.6 can be represented using decimalv3(15, 2)
+            // then simplify it from 'cast(col1 as decimalv3(27, 9)) > 0.6' (0.6 is decimalv3(27, 9))
+            // to 'col1 > 0.6' (0.6 is decimalv3(15, 2))
+            if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
+                trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
+                Expression newLiteral = new DecimalV3Literal(
+                        DecimalV3Type.createDecimalV3TypeLooseCheck(leftType.getPrecision(), leftType.getScale()),
+                        trailingZerosValue);
+                return Optional.of(comparisonPredicate.withChildren(left, newLiteral));
+            }
+        } catch (ArithmeticException e) {
+            // stripTrailingZeros and setScale may cause exception if overflow
+        }
+
+        return Optional.empty();
     }
 
     private static IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
