@@ -17,49 +17,45 @@
 
 import org.junit.Assert;
 
-suite("test_system_user","p0,auth") {
+suite("test_system_role","p0,auth") {
     test {
           sql """
-              create user `root`;
+              drop role operator;
           """
-          exception "root"
-    }
-    test {
-          sql """
-              drop user `root`;
-          """
-          exception "system"
-    }
-    test {
-          sql """
-              drop user `admin`;
-          """
-          exception "system"
-    }
-    test {
-          sql """
-              revoke "operator" from root;
-          """
-          exception "Can not revoke role"
-    }
-    test {
-          sql """
-              revoke 'admin' from `admin`;
-          """
-          exception "Unsupported operation"
+          exception "Can not drop role"
     }
 
-    sql """
-        grant select_priv on *.*.* to  `root`;
-    """
-    sql """
-        revoke select_priv on *.*.* from  `root`;
-    """
-    sql """
-        grant select_priv on *.*.* to  `admin`;
-    """
-    sql """
-        revoke select_priv on *.*.* from  `admin`;
-    """
+    test {
+          sql """
+              drop role `admin`;
+          """
+          exception "Can not drop role"
+    }
+
+    test {
+          sql """
+              grant select_priv on *.*.* to role "operator";
+          """
+          exception "Can not grant"
+    }
+    test {
+          sql """
+              grant select_priv on *.*.* to role "admin";
+          """
+          exception "Can not grant"
+    }
+    test {
+          sql """
+              revoke Node_priv on *.*.* from role 'operator';
+          """
+          exception "Can not revoke"
+    }
+
+    test {
+          sql """
+              revoke Admin_priv on *.*.* from role 'admin';
+          """
+          exception "Can not revoke"
+    }
 
 }
