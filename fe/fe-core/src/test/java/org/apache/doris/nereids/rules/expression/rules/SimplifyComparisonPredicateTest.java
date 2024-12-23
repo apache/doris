@@ -153,6 +153,18 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThan(date, new DateV2Literal("2020-01-02")));
         assertRewrite(new LessThanEqual(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("2020-01-01 00:00:01")),
                 new LessThanEqual(date, new DateV2Literal("2020-01-01")));
+        assertRewrite(new EqualTo(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("2020-01-01 00:00:00")),
+                new EqualTo(date, new DateV2Literal("2020-01-01")));
+        assertRewrite(new EqualTo(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("2020-01-01 00:00:01")),
+                ExpressionUtils.falseOrNull(date));
+        assertRewrite(new EqualTo(new Cast(date, DateTimeV2Type.of(2)), new DateTimeV2Literal("2020-01-01 00:00:00.01")),
+                ExpressionUtils.falseOrNull(date));
+        assertRewrite(new NullSafeEqual(new Cast(date, DateTimeV2Type.of(2)), new DateTimeV2Literal("2020-01-01 00:00:00.01")),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThanEqual(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("2020-01-01 00:00:01")),
+                new GreaterThanEqual(date, new DateV2Literal("2020-01-02")));
+        assertRewrite(new GreaterThanEqual(new Cast(date, DateTimeV2Type.of(2)), new DateTimeV2Literal("2020-01-01 00:00:00.01")),
+                new GreaterThanEqual(date, new DateV2Literal("2020-01-02")));
         // cast (date as datev1) = datev1-literal
         // assertRewrite(new EqualTo(new Cast(date, DateType.INSTANCE), new DateLiteral("2020-01-01")),
         //        new EqualTo(date, new DateV2Literal("2020-01-01")));
@@ -178,6 +190,18 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new EqualTo(datev1, new DateLiteral("2020-01-01")));
         assertRewrite(new GreaterThan(new Cast(datev1, DateV2Type.INSTANCE), new DateV2Literal("2020-01-01")),
                 new GreaterThan(datev1, new DateLiteral("2020-01-01")));
+        assertRewrite(new EqualTo(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("2020-01-01 00:00:00")),
+                new EqualTo(datev1, new DateLiteral("2020-01-01")));
+        assertRewrite(new EqualTo(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("2020-01-01 00:00:01")),
+                ExpressionUtils.falseOrNull(datev1));
+        assertRewrite(new EqualTo(new Cast(datev1, DateTimeV2Type.of(2)), new DateTimeV2Literal("2020-01-01 00:00:00.01")),
+                ExpressionUtils.falseOrNull(datev1));
+        assertRewrite(new NullSafeEqual(new Cast(datev1, DateTimeV2Type.of(2)), new DateTimeV2Literal("2020-01-01 00:00:00.01")),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThanEqual(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("2020-01-01 00:00:01")),
+                new GreaterThanEqual(datev1, new DateLiteral("2020-01-02")));
+        assertRewrite(new GreaterThanEqual(new Cast(datev1, DateTimeV2Type.of(2)), new DateTimeV2Literal("2020-01-01 00:00:00.01")),
+                new GreaterThanEqual(datev1, new DateLiteral("2020-01-02")));
 
         // cast (datetimev1 as datetime) cmp datetime
         assertRewrite(new EqualTo(new Cast(datetimev1, DateTimeV2Type.of(0)), new DateTimeV2Literal("2020-01-01 00:00:00")),
