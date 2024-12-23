@@ -266,7 +266,7 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "'" + getStringValue() + "'";
     }
 
