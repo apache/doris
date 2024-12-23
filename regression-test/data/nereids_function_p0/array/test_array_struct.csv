@@ -4,7 +4,7 @@
 [null]
 NULL
 // single element
-[{}]
+array(struct(null))
 // smallint min/max value with ipvalue
 [{32767, '2020-01-01', 32767.0, '32767', 32767.0, '0.0.0.1', '2001:0db8:0:0:0:0:0:1'}, {-32768, '2020-01-01', -32768.0, '-32768', -32768.0, '224.0.0.13', '2001:0db8:0:0:0:0:0:2'}]
 // smallint min/max value + 1
