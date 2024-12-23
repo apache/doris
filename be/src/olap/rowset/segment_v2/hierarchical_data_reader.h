@@ -165,8 +165,8 @@ private:
         // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
         for (auto& entry : nested_subcolumns) {
             MutableColumnPtr nested_object = ColumnObject::create(true, false);
-            const auto* base_array =
-                    check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
+            const auto* base_array = check_and_get_column<ColumnArray>(
+                    remove_nullable(entry.second[0].column).get());
             MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
             auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
             // flatten nested arrays

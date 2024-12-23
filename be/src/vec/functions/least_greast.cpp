@@ -173,7 +173,7 @@ struct FunctionFieldImpl {
                              size_t input_rows_count) {
         const auto& data_type = block.get_by_position(arguments[0]).type;
         auto result_column = ColumnInt32::create(input_rows_count, 0);
-        auto& res_data = static_cast<ColumnInt32*>(result_column)->get_data();
+        auto& res_data = static_cast<ColumnInt32*>(result_column.get())->get_data();
 
         const auto& column_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(column_size);

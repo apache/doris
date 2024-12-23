@@ -1955,8 +1955,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
 Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& col_ids) {
     for (ColumnId i : col_ids) {
-        if (_current_return_columns[i] == nullptr || _converted_column_ids[i] ||
-            _is_pred_column[i]) {
+        if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
         if (!_segment->same_with_storage_type(
@@ -1999,7 +1998,7 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
 
-    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
+    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
 }
 
 void SegmentIterator::_clear_iterators() {

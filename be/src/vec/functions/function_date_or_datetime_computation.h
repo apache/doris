@@ -878,7 +878,7 @@ struct CurrentDateTimeImpl {
         bool use_const;
         if constexpr (WithPrecision) {
             if (const auto* const_column = check_and_get_column<ColumnConst>(
-                        block.get_by_position(arguments[0]).column)) {
+                        block.get_by_position(arguments[0]).column.get())) {
                 int64_t scale = const_column->get_int(0);
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->nano_seconds(),
@@ -892,7 +892,7 @@ struct CurrentDateTimeImpl {
 
                 use_const = true;
             } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
-                               block.get_by_position(arguments[0]).column)) {
+                               block.get_by_position(arguments[0]).column.get())) {
                 const auto& null_map = nullable_column->get_null_map_data();
                 const auto& nested_column = assert_cast<const ColumnInt32*>(
                         nullable_column->get_nested_column_ptr().get());

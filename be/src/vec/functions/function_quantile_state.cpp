@@ -130,7 +130,7 @@ public:
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
         auto compression_arg = check_and_get_column_const<ColumnFloat32>(
-                block.get_by_position(arguments.back()).column);
+                block.get_by_position(arguments.back()).column.get());
         float compression = 2048;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<Float32>();
@@ -189,7 +189,7 @@ public:
         auto str_col = assert_cast<const ColumnQuantileState*>(column.get());
         auto& col_data = str_col->get_data();
         auto percent_arg = check_and_get_column_const<ColumnFloat32>(
-                block.get_by_position(arguments.back()).column);
+                block.get_by_position(arguments.back()).column.get());
 
         if (!percent_arg) {
             return Status::InternalError(
