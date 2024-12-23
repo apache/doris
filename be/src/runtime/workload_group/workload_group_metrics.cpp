@@ -36,32 +36,31 @@ WorkloadGroupMetrics::WorkloadGroupMetrics(WorkloadGroup* wg) {
 
     _cpu_time_metric = std::make_unique<doris::MetricPrototype>(
             doris::MetricType::COUNTER, doris::MetricUnit::SECONDS, "workload_group_cpu_time_sec");
-    _cpu_time_counter =
-            (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(_cpu_time_metric.get()));
+    _cpu_time_counter = (IntCounter*)(_entity->register_metric<IntCounter>(_cpu_time_metric.get()));
 
     _mem_used_bytes_metric = std::make_unique<doris::MetricPrototype>(
             doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "workload_group_mem_used_bytes");
-    _mem_used_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-            _mem_used_bytes_metric.get()));
+    _mem_used_bytes_counter =
+            (IntCounter*)(_entity->register_metric<IntCounter>(_mem_used_bytes_metric.get()));
 
     _local_scan_bytes_metric = std::make_unique<doris::MetricPrototype>(
             doris::MetricType::COUNTER, doris::MetricUnit::BYTES,
             "workload_group_local_scan_bytes");
-    _local_scan_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-            _local_scan_bytes_metric.get()));
+    _local_scan_bytes_counter =
+            (IntCounter*)(_entity->register_metric<IntCounter>(_local_scan_bytes_metric.get()));
 
     _remote_scan_bytes_metric = std::make_unique<doris::MetricPrototype>(
             doris::MetricType::COUNTER, doris::MetricUnit::BYTES,
             "workload_group_remote_scan_bytes");
-    _remote_scan_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-            _remote_scan_bytes_metric.get()));
+    _remote_scan_bytes_counter =
+            (IntCounter*)(_entity->register_metric<IntCounter>(_remote_scan_bytes_metric.get()));
 
     for (const auto& [key, io_throttle] : wg->_scan_io_throttle_map) {
         std::unique_ptr<doris::MetricPrototype> metric = std::make_unique<doris::MetricPrototype>(
                 doris::MetricType::COUNTER, doris::MetricUnit::BYTES,
                 "workload_group_local_scan_bytes_" + io_throttle->metric_name());
         _local_scan_bytes_counter_map[key] =
-                (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(metric.get()));
+                (IntCounter*)(_entity->register_metric<IntCounter>(metric.get()));
         _local_scan_bytes_metric_map[key] = std::move(metric);
     }
 }
