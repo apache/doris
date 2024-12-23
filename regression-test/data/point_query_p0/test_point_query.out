@@ -163,3 +163,34 @@
 -- !sql --
 -10	20	aabc	update val
 
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+
+-- !point_select --
+user_guid	feature	sk	feature_value	2021-01-01T00:00
+>>>>>>> 91c475e0f4 ([Fix](ShortCircuit) fix prepared statement with partial arguments prepared (#45371))
+

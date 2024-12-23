@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -145,6 +146,8 @@ public class StatementContext implements Closeable {
     private final IdGenerator<PlaceholderId> placeHolderIdGenerator = PlaceholderId.createGenerator();
     // relation id to placeholders for prepared statement, ordered by placeholder id
     private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new TreeMap<>();
+    // map placeholder id to comparison slot, which will used to replace conjuncts directly
+    private final Map<PlaceholderId, SlotReference> idToComparisonSlot = new TreeMap<>();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -446,6 +449,10 @@ public class StatementContext implements Closeable {
 
     public Map<PlaceholderId, Expression> getIdToPlaceholderRealExpr() {
         return idToPlaceholderRealExpr;
+    }
+
+    public Map<PlaceholderId, SlotReference> getIdToComparisonSlot() {
+        return idToComparisonSlot;
     }
 
     public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
