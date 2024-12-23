@@ -336,7 +336,9 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
             continue;
         }
         if (_flush_schema == nullptr) {
-            _flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+            _flush_schema = std::make_shared<TabletSchema>();
+            // deep copy
+            _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.get_by_position(i).column;
         const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
