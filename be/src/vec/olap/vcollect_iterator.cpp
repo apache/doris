@@ -865,20 +865,20 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
 Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_normal_next_timer);
     auto res = _cur_child->next(block);
+
+    while (res.is<END_OF_FILE>() && !_children.empty()) {
+        _cur_child = std::move(*(_children.begin()));
+        _children.pop_front();
+        // clear TEMP columns to avoid column align problem
+        block->erase_tmp_columns();
+        res = _cur_child->next(block);
+    }
+
     if (LIKELY(res.ok())) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
-        // current child has been read, to read next
-        if (!_children.empty()) {
-            _cur_child = std::move(*(_children.begin()));
-            _children.pop_front();
-            // clear TEMP columns to avoid column align problem
-            block->erase_tmp_columns();
-            return _normal_next(block);
-        } else {
-            _cur_child.reset();
-            return Status::Error<END_OF_FILE>("");
-        }
+        _cur_child.reset();
+        return Status::Error<END_OF_FILE>("");
     } else {
         _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
