@@ -101,7 +101,7 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         children().forEach(c -> sb.append(c.toSql()).append(","));
         sb.deleteCharAt(sb.length() - 1);
