@@ -120,13 +120,14 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
-    while (!priority_queue_.empty()) {
+    while (priority_queue_.size() > 1) {
         auto current = priority_queue_.top();
         priority_queue_.pop();
 
         if (offset_ == 0) {
-            for (size_t i = 0; i < num_columns; ++i)
+            for (size_t i = 0; i < num_columns; ++i) {
                 merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+            }
             ++merged_rows;
         } else {
             offset_--;
@@ -141,6 +142,31 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             break;
         }
     }
+
+    if (merged_rows < batch_size && priority_queue_.size() == 1) {
+        auto current = priority_queue_.top();
+        priority_queue_.pop();
+        if (offset_) {
+            auto skip_step = std::min(current->remained_rows(), size_t(offset_));
+            offset_ -= skip_step;
+            current->pos += skip_step;
+        }
+
+        auto step = std::min(current->remained_rows(), size_t(batch_size - merged_rows));
+        if (step) {
+            for (size_t i = 0; i < num_columns; ++i) {
+                merged_columns[i]->insert_range_from(*current->block->get_columns()[i],
+                                                     current->pos, step);
+            }
+            merged_rows += step;
+            current->pos += step;
+        }
+
+        if (current->remained_rows()) {
+            priority_queue_.push(current);
+        }
+    }
+
     block->set_columns(std::move(merged_columns));
 
     if (merged_rows == 0) {
@@ -217,9 +243,15 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
 
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
+
+    if (_reach_limit() && block->bytes() > _state->unsorted_block_->allocated_bytes() -
+                                                   _state->unsorted_block_->bytes()) {
+        RETURN_IF_ERROR(_do_sort());
+    }
+
     {
         SCOPED_TIMER(_merge_block_timer);
-        auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
+        const auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
@@ -231,9 +263,6 @@ Status FullSorter::append_block(Block* block) {
                     *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
         }
         block->clear_column_data();
-    }
-    if (_reach_limit()) {
-        RETURN_IF_ERROR(_do_sort());
     }
     return Status::OK();
 }
