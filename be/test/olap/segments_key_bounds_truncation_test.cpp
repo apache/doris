@@ -424,6 +424,22 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
         EXPECT_EQ(segments_key_bounds.size(), data.size());
         check_key_bounds(data, segments_key_bounds);
     }
+
+    {
+        // 3. segments_key_bounds_truncated should be set to false if no actual truncation happend
+        config::segments_key_bounds_truncation_threshold = 100;
+
+        auto tablet_schema = create_schema(100);
+        std::vector<std::vector<std::string>> data {{std::string(2, 'x'), std::string(3, 'y')},
+                                                    {std::string(4, 'a'), std::string(15, 'b')},
+                                                    {std::string(18, 'c'), std::string(5, 'z')},
+                                                    {std::string(20, '0'), std::string(22, '1')}};
+        auto blocks = generate_blocks(tablet_schema, data);
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, NONOVERLAPPING, blocks, 2, false);
+
+        auto rowset_meta = rowset->rowset_meta();
+        EXPECT_EQ(false, rowset_meta->is_segments_key_bounds_truncated());
+    }
 }
 
 TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
