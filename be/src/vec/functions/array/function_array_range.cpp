@@ -137,7 +137,7 @@ struct RangeImplUtil {
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
         ColumnNullable* dest_nested_nullable_col =
                 reinterpret_cast<ColumnNullable*>(dest_nested_column);
-        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
+        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
         auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
