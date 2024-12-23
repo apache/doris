@@ -20,6 +20,8 @@ suite("test_backup_restore_priv", "backup_restore") {
     String repoName = "${suiteName}_repo"
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
+    String tableName1 = "${suiteName}_table_1"
+    String tableName2 = "${suiteName}_table_2"
     String snapshotName = "${suiteName}_snapshot"
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
@@ -42,7 +44,35 @@ suite("test_backup_restore_priv", "backup_restore") {
            PROPERTIES (
                "replication_allocation" = "tag.location.default: 1"
         )
-        """
+    """
+    sql """
+           CREATE TABLE if NOT EXISTS ${dbName}.${tableName1}
+           (
+               `test` INT,
+               `id` INT
+           )
+           ENGINE=OLAP
+           UNIQUE KEY(`test`, `id`)
+           DISTRIBUTED BY HASH(id) BUCKETS 1
+           PROPERTIES (
+               "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+           CREATE TABLE if NOT EXISTS ${dbName}.${tableName2}
+           (
+               `test` INT,
+               `id` INT
+           )
+           ENGINE=OLAP
+           UNIQUE KEY(`test`, `id`)
+           DISTRIBUTED BY HASH(id) BUCKETS 1
+           PROPERTIES (
+               "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
     def insert_num = 5
     for (int i = 0; i < insert_num; ++i) {
         sql """
@@ -79,6 +109,10 @@ suite("test_backup_restore_priv", "backup_restore") {
     sql "grant 'role_select', 'role_load' to 'user1'@'%';"
     sql "grant 'role_select' to 'user2'@'%';"
     sql "grant 'role_load' to 'user3'@'%';"
+    sql "grant Create_priv on *.* to user3"
+    sql "GRANT Select_priv(id1) ON ${dbName}.${tableName1} TO user3;"
+    sql "GRANT Select_priv(test) ON ${dbName}.${tableName2} TO role 'role_select';"
+
 
     sql "CREATE ROW POLICY test_row_policy_1 ON ${dbName}.${tableName} AS RESTRICTIVE TO user1 USING (id = 1);"
 
@@ -164,14 +198,17 @@ suite("test_backup_restore_priv", "backup_restore") {
         def result = sql_return_maparray """show grants for user1"""
         log.info(result as String)
         commonAuth result, "'user1'@'%'", "Yes", "role_select,role_load", "internal: Select_priv,Load_priv"
+        assertEquals("internal.${dbName}.${tableName2}: Select_priv[test]" as String, result.ColPrivs[0] as String)
 
         result = sql_return_maparray """show grants for user2"""
         log.info(result as String)
         commonAuth result, "'user2'@'%'", "Yes", "role_select", "internal: Select_priv"
+        assertEquals("internal.${dbName}.${tableName2}: Select_priv[test]" as String, result.ColPrivs[0] as String)
 
         result = sql_return_maparray """show grants for user3"""
         log.info(result as String)
-        commonAuth result, "'user3'@'%'", "Yes", "role_load", "internal: Load_priv"
+        commonAuth result, "'user3'@'%'", "Yes", "role_load", "internal: Load_priv,Create_priv"
+        assertEquals("internal.${dbName}.${tableName1}: Select_priv[id1]" as String, result.ColPrivs[0] as String)
 
         result = showRoles.call("role_select")
         log.info(result as String)
@@ -515,7 +552,7 @@ suite("test_backup_restore_priv", "backup_restore") {
     checkNonCatalogs();
     checkWorkloadGroups();
 
-    logger.info(""" ======================================  7 restore fail check cancel ==================================== """)
+    logger.info(""" ======================================  7 restore fail check cancel: wg2 exist ==================================== """)
 
     sql "drop user if exists user1;"
     sql "drop user if exists user2;"
@@ -533,6 +570,7 @@ suite("test_backup_restore_priv", "backup_restore") {
     sql "GRANT Select_priv, Load_priv ON *.* TO ROLE 'role_select';"
     sql "create user user1;"
     sql "grant select_priv on *.* to user1;"
+    sql "GRANT Select_priv(id1) ON ${dbName}.${tableName1} TO user1;"
     sql """ create workload group wg2 properties ("max_concurrency"="5","max_queue_size" = "50"); """
 
 
@@ -571,6 +609,72 @@ suite("test_backup_restore_priv", "backup_restore") {
     assertEquals(result.Users, "")
     assertEquals(result.CatalogPrivs, "internal.*.*: Select_priv,Load_priv")
 
+    logger.info(""" ======================================  8 restore fail check cancel : ${dbName}.${tableName1} not exist ==================================== """)
+
+    sql "drop user if exists user1;"
+    sql "drop user if exists user2;"
+    sql "drop user if exists user3;"
+
+    sql "drop role if exists role_select;"
+    sql "drop role if exists role_load;"
+    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
+    sql "drop sql_block_rule if exists test_block_rule;"
+    sql "drop catalog if exists mysql;"
+    sql "drop workload group if exists wg1;"
+    sql "drop workload group if exists wg2;"
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName1}"
+
+
+    sql """
+           CREATE TABLE if NOT EXISTS ${dbName}.${tableName}
+           (
+               `test` INT,
+               `id` INT
+           )
+           ENGINE=OLAP
+           UNIQUE KEY(`test`, `id`)
+           DISTRIBUTED BY HASH(id) BUCKETS 1
+           PROPERTIES (
+               "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+    sql "create role role_select;"
+    sql "GRANT Select_priv, Load_priv ON *.* TO ROLE 'role_select';"
+    sql "create user user1;"
+    sql "grant select_priv on *.* to user1;"
+    sql "GRANT Select_priv(id1) ON ${dbName}.${tableName} TO user1;"
+    sql """ create workload group wg2 properties ("max_concurrency"="5","max_queue_size" = "50"); """
+
+
+    sql """
+        RESTORE GLOBAL SNAPSHOT ${snapshotName}
+        FROM `${repoName}`
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true",
+            "reserve_privilege"="true"
+        )
+    """
+
+    syncer.waitAllRestoreFinish("__internal_schema")
+
+    // restore failed
+    records = sql_return_maparray "SHOW global restore"
+    row = records[records.size() - 1]
+    assertTrue(row.Status.contains("table:${tableName1} does not exist"))
+
+    qt_order_after_restore8 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
+
+    result = sql_return_maparray """show grants for user1"""
+    log.info(result as String)
+    commonAuth result, "'user1'@'%'", "No", "", "internal: Select_priv"
+    assertEquals("internal.${dbName}.${tableName}: Select_priv[id1]" as String, result.ColPrivs[0] as String)
+
+    result = showRoles.call("role_select")
+    log.info(result as String)
+    assertEquals(result.Users, "")
+    assertEquals(result.CatalogPrivs, "internal.*.*: Select_priv,Load_priv")
 
     //cleanup
     sql "drop user if exists user1;"

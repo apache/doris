@@ -31,3 +31,6 @@
 -- !order_after_restore7 --
 %	user1	N	N	N	N	N	N	N	N	N	N	N	N					0	0	0	100			864000	NO_RESTRICTION		3	86400	0	
 
+-- !order_after_restore8 --
+%	user1	N	N	N	N	N	N	N	N	N	N	N	N					0	0	0	100			864000	NO_RESTRICTION		3	86400	0	
+

@@ -660,13 +660,8 @@ public class Auth implements Writable {
     public void grant(Role role, Set<UserIdentity> userIdentities) throws DdlException {
         // table priv
         for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(), null,
+            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(), role.getColPrivMap(),
                     true /* err on non exist */, false /* not replay */);
-        }
-        // col priv
-        if (!role.getColPrivMap().isEmpty()) {
-            grantInternal(null, role.getRoleName(), null, null, role.getColPrivMap(),
-                    true /* err on non exist */, false/* not replay */);
         }
         // resource priv
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {

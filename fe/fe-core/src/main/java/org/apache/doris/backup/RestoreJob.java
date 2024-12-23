@@ -1434,11 +1434,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         List<Role> roles = jobInfo.newBackupObjects.backupGlobalInfo.getRoleList();
         for (Role role : roles) {
-            Role oldRule = Env.getCurrentEnv().getAuth().getRoleByName(role.getRoleName());
+            Role oldRole = Env.getCurrentEnv().getAuth().getRoleByName(role.getRoleName());
             Set<UserIdentity> userIdentities = null;
-            if (oldRule != null) {
-                oldRule = oldRule.clone();
-                userIdentities = Env.getCurrentEnv().getAuth().getRoleUsers(oldRule.getRoleName());
+            if (oldRole != null) {
+                oldRole = oldRole.clone();
+                userIdentities = Env.getCurrentEnv().getAuth().getRoleUsers(oldRole.getRoleName());
             }
             try {
                 Env.getCurrentEnv().getAuth().createRoleInternal(role.getRoleName(),
@@ -1451,8 +1451,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         + role.getRoleName() + " failed:" + e.getMessage());
                 return;
             }
-            Role newRule = Env.getCurrentEnv().getAuth().getRoleByName(role.getRoleName());
-            restoredRoles.add(Pair.of(Pair.of(oldRule, userIdentities), newRule));
+            Role newRole = Env.getCurrentEnv().getAuth().getRoleByName(role.getRoleName());
+            restoredRoles.add(Pair.of(Pair.of(oldRole, userIdentities), newRole));
         }
     }
 
