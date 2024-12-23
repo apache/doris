@@ -34,25 +34,26 @@ namespace segment_v2 {
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
                                     OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    _index_load_stats = index_load_stats;
-    return _load_once.call([this, use_page_cache, kept_in_memory] {
-        return _load(use_page_cache, kept_in_memory);
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+        return _load(use_page_cache, kept_in_memory, index_load_stats);
     });
 }
 
-Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory) {
+Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                     OlapReaderStatistics* index_load_stats) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
     _bloom_filter_reader.reset(new IndexedColumnReader(_file_reader, bf_index_meta));
-    RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, _index_load_stats));
+    RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, index_load_stats));
     return Status::OK();
 }
 
-Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator) {
+Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator,
+                                            OlapReaderStatistics* index_load_stats) {
     DBUG_EXECUTE_IF("BloomFilterIndexReader::new_iterator.fail", {
         return Status::InternalError("new_iterator for bloom filter index failed");
     });
-    iterator->reset(new BloomFilterIndexIterator(this));
+    iterator->reset(new BloomFilterIndexIterator(this, index_load_stats));
     return Status::OK();
 }
 
