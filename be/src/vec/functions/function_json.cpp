@@ -833,7 +833,7 @@ struct FunctionJsonQuoteImpl {
 };
 
 struct FunctionJsonExtractImpl {
-    static constexpr auto name = "json_extract";
+    static constexpr auto name = "json_extract_old";
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
                                        rapidjson::Document::AllocatorType& allocator,

@@ -1313,7 +1313,7 @@ struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
-    static constexpr auto name = "jsonb_extract";
+    static constexpr auto name = "json_extract";
     static constexpr auto alias = "jsonb_extract";
 };
 
