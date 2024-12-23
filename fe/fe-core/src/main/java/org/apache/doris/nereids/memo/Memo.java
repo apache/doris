@@ -31,7 +31,10 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -93,6 +97,11 @@ public class Memo {
 
     public Memo(ConnectContext connectContext, Plan plan) {
         this.root = init(plan);
+        this.connectContext = connectContext;
+    }
+
+    public Memo(ConnectContext connectContext, List<Plan> plans) {
+        this.root = init(plans);
         this.connectContext = connectContext;
     }
 
@@ -347,6 +356,49 @@ public class Memo {
         }
         groupExpressions.put(newGroupExpression, newGroupExpression);
         return group;
+    }
+
+
+    public Group init(List<Plan> plans) {
+        List<Group> rootGroups = Lists.newArrayList();
+        for (Plan plan : plans) {
+            Preconditions.checkArgument(!(plan instanceof GroupPlan), "Cannot init memo by a GroupPlan");
+
+            // initialize children recursively
+            List<Group> childrenGroups = new ArrayList<>(plan.arity());
+            for (Plan child : plan.children()) {
+                childrenGroups.add(init(child));
+            }
+
+            plan = replaceChildrenToGroupPlan(plan, childrenGroups);
+            GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
+            Group group = new Group(groupIdGenerator.getNextId(), newGroupExpression, plan.getLogicalProperties());
+            rootGroups.add(group);
+            groups.put(group.getGroupId(), group);
+            if (groupExpressions.containsKey(newGroupExpression)) {
+                throw new IllegalStateException("groupExpression already exists in memo, maybe a bug");
+            }
+            groupExpressions.put(newGroupExpression, newGroupExpression);
+        }
+        if (plans.size() > 1) {
+            Group cap = new Group(groupIdGenerator.getNextId(), plans.get(0).getLogicalProperties());
+            int arity = plans.get(0).getOutput().size();
+            List<Slot> output = plans.get(0).getOutput();
+            List<LogicalProject> projects = Lists.newArrayList();
+            for (int i=0; i < plans.size(); i++) {
+                Plan plan = plans.get(i);
+                List<NamedExpression> projections = new ArrayList<>();
+                for (int j = 0; j < arity; j++) {
+                    projections.add(new Alias(plan.getOutput().get(j), output.get(j).getName()));
+                }
+                LogicalProject project = new LogicalProject(projections, new GroupPlan(rootGroups.get(i)));
+                GroupExpression projGroupExpression = new GroupExpression(project, Lists.newArrayList(rootGroups.get(i)));
+                cap.addGroupExpression(projGroupExpression);
+            }
+            return cap;
+        } else {
+            return rootGroups.get(0);
+        }
     }
 
     /**

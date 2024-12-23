@@ -1,0 +1,153 @@
++----------------------------------------------------------------------------------------------------------------------------------+
+| Explain String(Nereids Planner)                                                                                                  |
++----------------------------------------------------------------------------------------------------------------------------------+
+| PLAN FRAGMENT 0                                                                                                                  |
+|   OUTPUT EXPRS:                                                                                                                  |
+|     a[#21]                                                                                                                       |
+|   PARTITION: UNPARTITIONED                                                                                                       |
+|                                                                                                                                  |
+|   HAS_COLO_PLAN_NODE: false                                                                                                      |
+|                                                                                                                                  |
+|   VRESULT SINK                                                                                                                   |
+|      MYSQL_PROTOCAL                                                                                                              |
+|                                                                                                                                  |
+|   7:VEXCHANGE                                                                                                                    |
+|      offset: 0                                                                                                                   |
+|      distribute expr lists:                                                                                                      |
+|      tuple ids: 6                                                                                                                |
+|                                                                                                                                  |
+| PLAN FRAGMENT 1                                                                                                                  |
+|                                                                                                                                  |
+|   PARTITION: RANDOM                                                                                                              |
+|                                                                                                                                  |
+|   HAS_COLO_PLAN_NODE: false                                                                                                      |
+|                                                                                                                                  |
+|   STREAM DATA SINK                                                                                                               |
+|     EXCHANGE ID: 07                                                                                                              |
+|     UNPARTITIONED                                                                                                                |
+|                                                                                                                                  |
+|   6:VUNION(332)                                                                                                                  |
+|   |  child exprs:                                                                                                                |
+|   |      a[#19]                                                                                                                  |
+|   |      a[#20]                                                                                                                  |
+|   |  tuple ids: 6                                                                                                                |
+|   |                                                                                                                              |
+|   |----5:VEXCHANGE                                                                                                               |
+|   |       offset: 0                                                                                                              |
+|   |       distribute expr lists:                                                                                                 |
+|   |       tuple ids: 5N                                                                                                          |
+|   |                                                                                                                              |
+|   4:VEXCHANGE                                                                                                                    |
+|      offset: 0                                                                                                                   |
+|      distribute expr lists:                                                                                                      |
+|      tuple ids: 4N                                                                                                               |
+|                                                                                                                                  |
+| PLAN FRAGMENT 2                                                                                                                  |
+|   OUTPUT EXPRS:                                                                                                                  |
+|     a[#18]                                                                                                                       |
+|   PARTITION: UNPARTITIONED                                                                                                       |
+|                                                                                                                                  |
+|   HAS_COLO_PLAN_NODE: true                                                                                                       |
+|                                                                                                                                  |
+|   MultiCastDataSinks                                                                                                             |
+|   STREAM DATA SINK                                                                                                               |
+|     EXCHANGE ID: 04                                                                                                              |
+|     RANDOM                                                                                                                       |
+|     PROJECTIONS: a[#18]                                                                                                          |
+|     PROJECTION TUPLE: 4                                                                                                          |
+|   STREAM DATA SINK                                                                                                               |
+|     EXCHANGE ID: 05                                                                                                              |
+|     RANDOM                                                                                                                       |
+|     PROJECTIONS: a[#18]                                                                                                          |
+|     PROJECTION TUPLE: 5                                                                                                          |
+|                                                                                                                                  |
+|   3:VAGGREGATE (merge finalize)(310)                                                                                             |
+|   |  output: count(partial_count(*)[#17])[#18]                                                                                   |
+|   |  group by:                                                                                                                   |
+|   |  sortByGroupKey:false                                                                                                        |
+|   |  cardinality=1                                                                                                               |
+|   |  distribute expr lists:                                                                                                      |
+|   |  tuple ids: 3                                                                                                                |
+|   |                                                                                                                              |
+|   2:VEXCHANGE                                                                                                                    |
+|      offset: 0                                                                                                                   |
+|      distribute expr lists:                                                                                                      |
+|      tuple ids: 2                                                                                                                |
+|                                                                                                                                  |
+| PLAN FRAGMENT 3                                                                                                                  |
+|                                                                                                                                  |
+|   PARTITION: HASH_PARTITIONED: orderkey[#0]                                                                                      |
+|                                                                                                                                  |
+|   HAS_COLO_PLAN_NODE: false                                                                                                      |
+|                                                                                                                                  |
+|   STREAM DATA SINK                                                                                                               |
+|     EXCHANGE ID: 02                                                                                                              |
+|     UNPARTITIONED                                                                                                                |
+|                                                                                                                                  |
+|   1:VAGGREGATE (update serialize)(300)                                                                                           |
+|   |  output: partial_count(*)[#17]                                                                                               |
+|   |  group by:                                                                                                                   |
+|   |  sortByGroupKey:false                                                                                                        |
+|   |  cardinality=1                                                                                                               |
+|   |  distribute expr lists:                                                                                                      |
+|   |  tuple ids: 2                                                                                                                |
+|   |                                                                                                                              |
+|   0:VOlapScanNode(289)                                                                                                           |
+|      TABLE: regression_test_query_p0_common_cte.lineitem(lineitem), PREAGGREGATION: ON                                           |
+|      partitions=1/1 (lineitem)                                                                                                   |
+|      tablets=3/3, tabletList=1596501,1596503,1596505                                                                             |
+|      cardinality=60175, avgRowSize=185.1336, numNodes=1                                                                          |
+|      pushAggOp=COUNT                                                                                                             |
+|      final projections: 1                                                                                                        |
+|      final project output tuple id: 1                                                                                            |
+|      tuple ids: 0                                                                                                                |
+|                                                                                                                                  |
+| Tuples:                                                                                                                          |
+| TupleDescriptor{id=0, tbl=lineitem}                                                                                              |
+|   SlotDescriptor{id=0, col=orderkey, colUniqueId=0, type=bigint, nullable=true, isAutoIncrement=false, subColPath=null}          |
+|                                                                                                                                  |
+| TupleDescriptor{id=1, tbl=lineitem}                                                                                              |
+|   SlotDescriptor{id=16, col=null, colUniqueId=null, type=tinyint, nullable=false, isAutoIncrement=false, subColPath=null}        |
+|                                                                                                                                  |
+| TupleDescriptor{id=2, tbl=null}                                                                                                  |
+|   SlotDescriptor{id=17, col=null, colUniqueId=null, type=varchar(65533), nullable=false, isAutoIncrement=false, subColPath=null} |
+|                                                                                                                                  |
+| TupleDescriptor{id=3, tbl=null}                                                                                                  |
+|   SlotDescriptor{id=18, col=null, colUniqueId=null, type=bigint, nullable=false, isAutoIncrement=false, subColPath=null}         |
+|                                                                                                                                  |
+| TupleDescriptor{id=4, tbl=null}                                                                                                  |
+|   SlotDescriptor{id=19, col=null, colUniqueId=null, type=bigint, nullable=false, isAutoIncrement=false, subColPath=null}         |
+|                                                                                                                                  |
+| TupleDescriptor{id=5, tbl=null}                                                                                                  |
+|   SlotDescriptor{id=20, col=null, colUniqueId=null, type=bigint, nullable=false, isAutoIncrement=false, subColPath=null}         |
+|                                                                                                                                  |
+| TupleDescriptor{id=6, tbl=null}                                                                                                  |
+|   SlotDescriptor{id=21, col=null, colUniqueId=null, type=bigint, nullable=false, isAutoIncrement=false, subColPath=null}         |
+|                                                                                                                                  |
+|                                                                                                                                  |
+|                                                                                                                                  |
+|                                                                                                                                  |
+| ========== STATISTICS ==========                                                                                                 |
++----------------------------------------------------------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Explain String(Nereids Planner)                                                                                                                                                                                                                                  |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| cost = 162475.56900000002                                                                                                                                                                                                                                        |
+| PhysicalCTEAnchor ( cteId=CTEId#0 )                                                                                                                                                                                                                              |
+| |--PhysicalCTEProducer[315] ( stats=1, cteId=CTEId#0 )                                                                                                                                                                                                           |
+| |  +--PhysicalHashAggregate[310]@2 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#23) AS `a`#16], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )          |
+| |     +--PhysicalDistribute[305]@9 ( stats=1, distributionSpec=DistributionSpecGather )                                                                                                                                                                          |
+| |        +--PhysicalHashAggregate[300]@9 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#23], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
+| |           +--PhysicalProject[295]@1 ( stats=60,175, projects=[1 AS `1`#22] )                                                                                                                                                                                   |
+| |              +--PhysicalStorageLayerAggregate[2]@ ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=60,175 ), stats=null )                                                                                                                   |
+| +--PhysicalResultSink[342] ( outputExprs=[a#19] )                                                                                                                                                                                                                |
+|    +--PhysicalDistribute[337]@6 ( stats=2, distributionSpec=DistributionSpecGather )                                                                                                                                                                             |
+|       +--PhysicalUnion[332]@6 ( stats=2, qualifier=ALL, outputs=[a#19], regularChildrenOutputs=[[a#17], [a#18]], constantExprsList=[] )                                                                                                                          |
+|          |--PhysicalDistribute[321]@4 ( stats=1, distributionSpec=DistributionSpecExecutionAny )                                                                                                                                                                 |
+|          |  +--PhysicalCTEConsumer[316] ( stats=1, cteId=CTEId#0, map={a#17=a#16} )                                                                                                                                                                              |
+|          +--PhysicalDistribute[327]@5 ( stats=1, distributionSpec=DistributionSpecExecutionAny )                                                                                                                                                                 |
+|             +--PhysicalCTEConsumer[322] ( stats=1, cteId=CTEId#0, map={a#18=a#16} )                                                                                                                                                                              |
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+15 rows in set (0.03 sec)

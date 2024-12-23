@@ -212,6 +212,10 @@ public class PlanTranslatorContext {
     }
 
     public void addExprIdSlotRefPair(ExprId exprId, SlotRef slotRef) {
+
+        if (exprIdToSlotRef.get(exprId) != null) {
+            System.out.println("eeee");
+        }
         exprIdToSlotRef.put(exprId, slotRef);
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }

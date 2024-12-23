@@ -46,6 +46,10 @@ public class Optimizer {
     public void execute() {
         // init memo
         cascadesContext.toMemo();
+        cascadesContext.memos.put(cascadesContext.plan, cascadesContext.getMemo());
+        // if (cascadesContext.cteplan != null) {
+        //     cascadesContext.getMemo().copyIn(cascadesContext.cteplan, cascadesContext.getMemo().getRoot(), false);
+        // }
         // stats derive
         cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
                 cascadesContext.getCurrentJobContext()));

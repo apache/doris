@@ -2240,6 +2240,13 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableCompressMaterialize = false;
 
     @VariableMgr.VarAttr(
+            name = "enable_common_cte",
+            needForward = true, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL
+    )
+    public boolean enableCommonCte = true;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_AGG_SPILL,
             description = {"控制是否启用聚合算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of aggregation operation. "

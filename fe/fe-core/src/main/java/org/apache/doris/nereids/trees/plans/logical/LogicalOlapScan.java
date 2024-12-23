@@ -228,7 +228,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalOlapScan",
+        return Utils.toSqlString("LogicalOlapScan[" + id.asInt() + "]",
                 "qualified", qualifiedName(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,

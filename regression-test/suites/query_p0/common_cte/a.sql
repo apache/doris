@@ -1,0 +1,1 @@
+explain memo plan select * from (select count() a from lineitem union all select count() b from lineitem) T;

@@ -1,6 +1,7 @@
 package org.apache.doris.nereids.commonCTE;
 
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -12,11 +13,11 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
 
-public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<Plan, TableSignature>>{
+public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<AbstractLogicalPlan, TableSignature>>{
 
     @Override
     public TableSignature visitLogicalCatalogRelation(LogicalCatalogRelation relation,
-                Map<Plan, TableSignature> signatureMap) {
+                Map<AbstractLogicalPlan, TableSignature> signatureMap) {
         TableSignature signature =  new TableSignature(true, false,
                 ImmutableSet.of(relation.getTable().getId()));
         signatureMap.put(relation, signature);
@@ -25,7 +26,7 @@ public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<Pl
 
     @Override
     public TableSignature visitLogicalFilter(LogicalFilter<? extends Plan> filter,
-                Map<Plan, TableSignature> signatureMap) {
+                Map<AbstractLogicalPlan, TableSignature> signatureMap) {
         TableSignature childSignature = filter.child().accept(this, signatureMap);
         if (filter.child() instanceof LogicalAggregate) {
             return TableSignature.EMPTY;
@@ -36,7 +37,7 @@ public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<Pl
 
     @Override
     public TableSignature visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-                Map<Plan, TableSignature> signatureMap) {
+                Map<AbstractLogicalPlan, TableSignature> signatureMap) {
         TableSignature signature = TableSignature.EMPTY;
         TableSignature leftSignature = join.left().accept(this, signatureMap);
 
@@ -56,7 +57,7 @@ public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<Pl
 
     @Override
     public TableSignature visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
-                Map<Plan, TableSignature> signatureMap) {
+                Map<AbstractLogicalPlan, TableSignature> signatureMap) {
         TableSignature signature = TableSignature.EMPTY;
         TableSignature childSignature = aggregate.child().accept(this, signatureMap);
         if (childSignature != TableSignature.EMPTY) {
@@ -68,7 +69,7 @@ public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<Pl
 
     @Override
     public TableSignature visitLogicalProject(LogicalProject<? extends Plan> project,
-                Map<Plan, TableSignature> signatureMap) {
+                Map<AbstractLogicalPlan, TableSignature> signatureMap) {
         TableSignature childSignature = project.child().accept(this, signatureMap);
         if (childSignature != TableSignature.EMPTY) {
             signatureMap.put(project, childSignature);
@@ -77,7 +78,7 @@ public class SignatureVisitor extends DefaultPlanVisitor <TableSignature, Map<Pl
     }
 
     @Override
-    public TableSignature visit(Plan plan, Map<Plan, TableSignature> signatureMap) {
+    public TableSignature visit(Plan plan, Map<AbstractLogicalPlan, TableSignature> signatureMap) {
         for (Plan child : plan.children()) {
             child.accept(this, signatureMap);
         }

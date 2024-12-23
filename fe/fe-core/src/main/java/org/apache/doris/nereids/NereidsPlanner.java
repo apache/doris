@@ -30,7 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.FieldInfo;
-import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.commonCTE.CteExtractor;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -118,6 +117,8 @@ public class NereidsPlanner extends Planner {
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
+
+    private CteExtractor cteExtractor;
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -269,6 +270,7 @@ public class NereidsPlanner extends Planner {
             }
         }
         extractCommonCTE();
+
         optimize();
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
@@ -278,6 +280,17 @@ public class NereidsPlanner extends Planner {
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
         PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        double cost1 = cost;
+
+
+        cascadesContext.plan = cascadesContext.cteplan;
+        optimize();
+        PhysicalPlan physicalPlan2 = chooseNthPlan(getRoot(), requireProperties, nth);
+        double cost2 = cost;
+
+        if (cost2 < cost1) {
+            physicalPlan = physicalPlan2;
+        }
 
         physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -301,8 +314,17 @@ public class NereidsPlanner extends Planner {
     }
 
     private void extractCommonCTE() {
-        CteExtractor commonCTE = new CteExtractor((AbstractLogicalPlan) cascadesContext.getRewritePlan());
-        commonCTE.execute();
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableCommonCte) {
+            CteExtractor commonCTE = new CteExtractor(
+                    (AbstractLogicalPlan) cascadesContext.getRewritePlan(),
+                    cascadesContext);
+            List<Plan> plans = commonCTE.execute();
+            //cascadesContext.setRewritePlan(plans.get(0));
+            if (!plans.isEmpty()) {
+                cascadesContext.cteplan = plans.get(0);
+            }
+            cteExtractor = commonCTE;
+        }
     }
 
     /**
@@ -682,6 +704,7 @@ public class NereidsPlanner extends Planner {
                 break;
             case REWRITTEN_PLAN:
                 plan = rewrittenPlan.treeString();
+                plan += "\n common cte info \n" + cteExtractor;
                 break;
             case OPTIMIZED_PLAN:
                 plan = "cost = " + cost + "\n" + optimizedPlan.treeString() + mvSummary;
