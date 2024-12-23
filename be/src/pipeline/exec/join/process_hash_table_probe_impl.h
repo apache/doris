@@ -165,10 +165,10 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     // may over batch size 1 for some outer join case
     _probe_indexs.resize(_batch_size + 1);
     _build_indexs.resize(_batch_size + 1);
-    if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
+    if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+         JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+        with_other_join_conjuncts) {
         _null_flags.resize(_batch_size + 1);
-        memset(_null_flags.data(), 0, _batch_size + 1);
     }
 
     if (!_parent->_ready_probe) {
@@ -382,41 +382,33 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     auto& mark_column = assert_cast<vectorized::ColumnNullable&>(*mark_column_mutable);
     vectorized::IColumn::Filter& filter =
             assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column()).get_data();
-    uint8_t* mark_filter_data = nullptr;
-    uint8_t* mark_null_map = nullptr;
+    RETURN_IF_ERROR(
+            vectorized::VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
+                                                        mark_column.get_null_map_column(), filter));
+    uint8_t* mark_filter_data = filter.data();
+    uint8_t* mark_null_map = mark_column.get_null_map_data().data();
 
     if (is_null_aware_join) {
         // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
         // the result should be null. Like:
         // select 4 not in (2, 3, null) => null, select 4 not in (2, 3) => true
         // select 4 in (2, 3, null) => null, select 4 in (2, 3) => false
-        mark_column.resize(row_count);
-        mark_filter_data = filter.data();
-        mark_null_map = mark_column.get_null_map_data().data();
-
         for (size_t i = 0; i != row_count; ++i) {
             mark_filter_data[i] = _build_indexs[i] != 0;
-            if constexpr (with_other_conjuncts) {
-                mark_null_map[i] = _null_flags[i];
-            } else {
-                mark_null_map[i] = false;
-            }
         }
 
-        if (null_map) {
-            // null_map[_probe_indexs[i]] is null, which means that the probe side of the line is null, so the mark sign should also be null.
+        if constexpr (with_other_conjuncts) {
+            // _null_flags is true means build or probe side of the row is null
+            memcpy(mark_null_map, _null_flags.data(), row_count);
+        } else if (null_map) {
+            // probe side of the row is null, so the mark sign should also be null.
             for (size_t i = 0; i != row_count; ++i) {
                 mark_null_map[i] |= null_map[_probe_indexs[i]];
             }
         }
     } else {
-        RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
-                _parent->_mark_join_conjuncts, output_block, mark_column.get_null_map_column(),
-                filter));
-
-        mark_filter_data = filter.data();
-        mark_null_map = mark_column.get_null_map_data().data();
-        // build_indexs is 0, which means there is no match, and null will be returned in conjunct, but it should not actually be null.
+        // for non null aware join, build_indexs is 0 which means there is no match
+        // sometimes null will be returned in conjunct, but it should not actually be null.
         for (size_t i = 0; i != row_count; ++i) {
             mark_null_map[i] &= _build_indexs[i] != 0;
         }
