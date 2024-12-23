@@ -120,9 +120,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
 
-    private HoodieTableMetaClient hudiClient = null;
-    private final byte[] hudiClientLock = new byte[0];
-
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -1026,16 +1023,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public HoodieTableMetaClient getHudiClient() {
-        if (hudiClient != null) {
-            return hudiClient;
-        }
-        synchronized (hudiClientLock) {
-            if (hudiClient != null) {
-                return hudiClient;
-            }
-            hudiClient = HudiUtils.buildHudiTableMetaClient(
-                    getRemoteTable().getSd().getLocation(), catalog.getConfiguration());
-            return hudiClient;
-        }
+        return Env.getCurrentEnv()
+            .getExtMetaCacheMgr()
+            .getMetaClientProcessor(getCatalog())
+            .getHoodieTableMetaClient(
+                getDbName(),
+                getName(),
+                getRemoteTable().getSd().getLocation(),
+                getCatalog().getConfiguration());
     }
 }

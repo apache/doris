@@ -28,6 +28,8 @@ import java.util.concurrent.ExecutorService;
 public class HudiMetadataCacheMgr {
     private final Map<Long, HudiPartitionProcessor> partitionProcessors = Maps.newConcurrentMap();
     private final Map<Long, HudiCachedFsViewProcessor> fsViewProcessors = Maps.newConcurrentMap();
+    private final Map<Long, HudiCachedMetaClientProcessor> metaClientProcessors = Maps.newConcurrentMap();
+
     private final ExecutorService executor;
 
     public HudiMetadataCacheMgr(ExecutorService executor) {
@@ -54,6 +56,16 @@ public class HudiMetadataCacheMgr {
         });
     }
 
+    public HudiCachedMetaClientProcessor getHudiMetaClientProcessor(ExternalCatalog catalog) {
+        return metaClientProcessors.computeIfAbsent(catalog.getId(), catalogId -> {
+            if (catalog instanceof HMSExternalCatalog) {
+                return new HudiCachedMetaClientProcessor(executor);
+            } else {
+                throw new RuntimeException("Hudi only supports hive(or compatible) catalog now");
+            }
+        });
+    }
+
     public void removeCache(long catalogId) {
         HudiPartitionProcessor partitionProcessor = partitionProcessors.remove(catalogId);
         if (partitionProcessor != null) {
@@ -62,6 +74,10 @@ public class HudiMetadataCacheMgr {
         HudiCachedFsViewProcessor fsViewProcessor = fsViewProcessors.remove(catalogId);
         if (fsViewProcessor != null) {
             fsViewProcessor.cleanUp();
+        }
+        HudiCachedMetaClientProcessor metaClientProcessor = metaClientProcessors.remove(catalogId);
+        if (metaClientProcessor != null) {
+            metaClientProcessor.cleanUp();
         }
     }
 
@@ -74,6 +90,10 @@ public class HudiMetadataCacheMgr {
         if (fsViewProcessor != null) {
             fsViewProcessor.invalidateAll();
         }
+        HudiCachedMetaClientProcessor metaClientProcessor = metaClientProcessors.get(catalogId);
+        if (metaClientProcessor != null) {
+            metaClientProcessor.invalidateAll();
+        }
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
@@ -84,6 +104,10 @@ public class HudiMetadataCacheMgr {
         HudiCachedFsViewProcessor fsViewProcessor = fsViewProcessors.get(catalogId);
         if (fsViewProcessor != null) {
             fsViewProcessor.invalidateDbCache(dbName);
+        }
+        HudiCachedMetaClientProcessor metaClientProcessor = metaClientProcessors.get(catalogId);
+        if (metaClientProcessor != null) {
+            metaClientProcessor.invalidateDbCache(dbName);
         }
     }
 
@@ -96,6 +120,10 @@ public class HudiMetadataCacheMgr {
         if (fsViewProcessor != null) {
             fsViewProcessor.invalidateTableCache(dbName, tblName);
         }
+        HudiCachedMetaClientProcessor metaClientProcessor = metaClientProcessors.get(catalogId);
+        if (metaClientProcessor != null) {
+            metaClientProcessor.invalidateTableCache(dbName, tblName);
+        }
     }
 
     public Map<String, Map<String, String>> getCacheStats(ExternalCatalog catalog) {
@@ -106,6 +134,10 @@ public class HudiMetadataCacheMgr {
 
         HudiCachedFsViewProcessor fsViewProcessor = getFsViewProcessor(catalog);
         res.putAll(fsViewProcessor.getCacheStats());
+
+        HudiCachedMetaClientProcessor metaClientProcessor = getHudiMetaClientProcessor(catalog);
+        res.putAll(metaClientProcessor.getCacheStats());
+
         return res;
     }
 }

@@ -807,6 +807,15 @@ public class HiveMetaStoreClientHelper {
         HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
         Schema hudiSchema;
+
+        // Here, the timestamp should be reloaded again.
+        // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
+        // which is saved in the `metaClient`.
+        // But the `metaClient` is obtained from cache, so the file obtained may be an old file.
+        // This file may be deleted by hudi clean task, and an error will be reported.
+        // So, we should reload timeline so that we can read the latest commit files.
+        metaClient.reloadActiveTimeline();
+
         try {
             hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
         } catch (Exception e) {

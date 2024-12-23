@@ -26,6 +26,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hudi.source.HudiCachedFsViewProcessor;
+import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
 import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
@@ -171,6 +172,10 @@ public class ExternalMetaCacheMgr {
 
     public HudiCachedFsViewProcessor getFsViewProcessor(ExternalCatalog catalog) {
         return hudiMetadataCacheMgr.getFsViewProcessor(catalog);
+    }
+
+    public HudiCachedMetaClientProcessor getMetaClientProcessor(ExternalCatalog catalog) {
+        return hudiMetadataCacheMgr.getHudiMetaClientProcessor(catalog);
     }
 
     public HudiMetadataCacheMgr getHudiMetadataCacheMgr() {
