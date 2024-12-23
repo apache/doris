@@ -842,6 +842,9 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         if (!res.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
             LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: "
                       << res;
+        } else {
+            VLOG_DEBUG << "will downgrade without index to evaluate predicate, because of res: "
+                       << res;
         }
         return true;
     }
