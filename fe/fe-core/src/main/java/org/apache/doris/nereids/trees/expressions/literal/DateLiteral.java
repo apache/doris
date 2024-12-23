@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
@@ -269,8 +270,8 @@ public class DateLiteral extends Literal {
     }
 
     /** parseDateLiteral */
-    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
-        Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
+    public static Result<DateLiteral, ? extends Exception> parseDateLiteral(String s) {
+        Result<TemporalAccessor, ? extends Exception> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
         }
@@ -286,17 +287,24 @@ public class DateLiteral extends Literal {
     }
 
     /** parseDateTime */
-    public static Result<TemporalAccessor, AnalysisException> parseDateTime(String s) {
-        // fast parse '2022-01-01'
-        if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
-            TemporalAccessor date = fastParseDate(s);
-            if (date != null) {
-                return Result.ok(date);
-            }
-        }
-
+    public static Result<TemporalAccessor, ? extends Exception> parseDateTime(String s) {
         String originalString = s;
         try {
+            // fast parse '2022-01-01'
+            if ((s.length() == 10 || s.length() == 19) && s.charAt(4) == '-' && s.charAt(7) == '-') {
+                if (s.length() == 10) {
+                    TemporalAccessor date = fastParseDate(s);
+                    if (date != null) {
+                        return Result.ok(date);
+                    }
+                } else if (s.charAt(10) == ' ' && s.charAt(13) == ':' && s.charAt(16) == ':') {
+                    TemporalAccessor date = fastParseDateTime(s);
+                    if (date != null) {
+                        return Result.ok(date);
+                    }
+                }
+            }
+
             TemporalAccessor dateTime;
 
             // remove suffix/prefix ' '
@@ -342,6 +350,10 @@ public class DateLiteral extends Literal {
             }
 
             return Result.ok(dateTime);
+        } catch (DateTimeException e) {
+            return Result.err(() ->
+                    new DateTimeException("date/datetime literal [" + originalString + "] is invalid", e)
+            );
         } catch (Exception ex) {
             return Result.err(() -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid"));
         }
@@ -561,6 +573,21 @@ public class DateLiteral extends Literal {
         Integer day = readNextInt(date, 8, 2);
         if (year != null && month != null && day != null) {
             return LocalDate.of(year, month, day);
+        } else {
+            return null;
+        }
+    }
+
+    private static TemporalAccessor fastParseDateTime(String date) {
+        Integer year = readNextInt(date, 0, 4);
+        Integer month = readNextInt(date, 5, 2);
+        Integer day = readNextInt(date, 8, 2);
+        Integer hour = readNextInt(date, 11, 2);
+        Integer minute = readNextInt(date, 14, 2);
+        Integer second = readNextInt(date, 17, 2);
+
+        if (year != null && month != null && day != null && hour != null && minute != null && second != null) {
+            return LocalDateTime.of(year, month, day, hour, minute, second);
         } else {
             return null;
         }
