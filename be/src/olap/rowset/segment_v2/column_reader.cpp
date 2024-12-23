@@ -236,7 +236,8 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
             target_col.has_path_info() ? _subcolumn_readers->find_exact(relative_path) : nullptr;
 
     if (node != nullptr) {
-        if (node->is_leaf_node()) {
+        // relative_path means the root node, should always use HierarchicalDataReader
+        if (node->is_leaf_node() && !relative_path.empty()) {
             // Node contains column without any child sub columns and no corresponding sparse columns
             // Direct read extracted columns
             const auto* node = _subcolumn_readers->find_leaf(relative_path);
