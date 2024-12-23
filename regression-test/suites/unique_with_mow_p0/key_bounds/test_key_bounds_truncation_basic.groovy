@@ -82,8 +82,7 @@ suite("test_key_bounds_truncation_basic", "nonConcurrent") {
 
     // 1. turn off enable_segments_key_bounds_truncation, should not do truncation
     def customBeConfig = [
-        enable_segments_key_bounds_truncation : false,
-        segments_key_bounds_truncation_threshold : 5
+        segments_key_bounds_truncation_threshold : -1
     ]
 
     setBeConfigTemporary(customBeConfig) {
@@ -95,7 +94,6 @@ suite("test_key_bounds_truncation_basic", "nonConcurrent") {
 
     // 2. turn on enable_segments_key_bounds_truncation, should do truncation
     customBeConfig = [
-        enable_segments_key_bounds_truncation : true,
         segments_key_bounds_truncation_threshold : 6
     ]
 
