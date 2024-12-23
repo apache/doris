@@ -93,9 +93,19 @@ Status ColumnChunkReader::next_page() {
     }
 
     RETURN_IF_ERROR(_page_reader->next_page_header());
-    const tparquet::PageHeader* header;
-    RETURN_IF_ERROR(_page_reader->get_page_header(header));
-    DCHECK(header->type != tparquet::PageType::DICTIONARY_PAGE);
+
+    if (!_dict_checked) {
+        _dict_checked = true;
+        const tparquet::PageHeader* header;
+        RETURN_IF_ERROR(_page_reader->get_page_header(header));
+        if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
+            // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
+            // so we should parse the directory page in next_page()
+            RETURN_IF_ERROR(_decode_dict_page());
+            // parse the real first data page
+            return next_page();
+        }
+    }
 
     RETURN_IF_ERROR(_page_reader->get_num_values(_remaining_num_values));
     _chunk_parsed_values += _remaining_num_values;
