@@ -2752,7 +2752,8 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
-                                                                        disableInvertedIndexV1ForVariant);
+                        olapTable.getInvertedIndexFileStorageFormat(),
+                        disableInvertedIndexV1ForVariant);
                 indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);

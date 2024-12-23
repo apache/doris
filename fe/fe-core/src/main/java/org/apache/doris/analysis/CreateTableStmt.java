@@ -599,8 +599,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
+                    .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            boolean disableInvertedIndexV1ForVariant =
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
                             && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
@@ -611,8 +613,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(),
-                                                    enableUniqueKeyMergeOnWrite, disableInvertedIndexV1ForVariant);
+                            indexDef.checkColumn(column,
+                                    getKeysDesc().getKeysType(),
+                                    enableUniqueKeyMergeOnWrite,
+                                    invertedIndexFileStorageFormat,
+                                    disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -93,7 +94,9 @@ public class IndexDefinition {
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite, boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
+            boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -129,7 +132,8 @@ public class IndexDefinition {
             if (indexType == IndexType.INVERTED) {
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                            colType.toCatalogDataType().getPrimitiveType(), properties);
+                            colType.toCatalogDataType().getPrimitiveType(), properties,
+                            invertedIndexFileStorageFormat);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
                 }
