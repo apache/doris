@@ -544,10 +544,10 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     INT_GAUGE_METRIC_REGISTER(_entity, cache_capacity);
     INT_GAUGE_METRIC_REGISTER(_entity, cache_usage);
     INT_GAUGE_METRIC_REGISTER(_entity, cache_element_count);
-    INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
-    INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
+    DOUBLE_GAUGE_METRIC_REGISTER(_entity, cache_usage_ratio);
+    INT_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
+    INT_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
+    DOUBLE_GAUGE_METRIC_REGISTER(_entity, cache_hit_ratio);
 
     _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
     _hit_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
