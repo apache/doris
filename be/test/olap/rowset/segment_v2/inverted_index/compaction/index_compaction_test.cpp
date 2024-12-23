@@ -56,7 +56,9 @@ protected:
         _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
-        config::inverted_index_dict_path = std::getenv("DORIS_HOME") + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+        config::inverted_index_dict_path =
+                std::getenv("DORIS_HOME") +
+                "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
