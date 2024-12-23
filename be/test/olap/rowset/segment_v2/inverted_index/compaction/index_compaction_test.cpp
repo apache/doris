@@ -57,7 +57,7 @@ protected:
         static_cast<void>(_data_dir->update_capacity());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::inverted_index_dict_path =
-                _absolute_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+                _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
