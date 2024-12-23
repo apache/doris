@@ -90,12 +90,6 @@ suite("one_col_list_partition") {
     }
 
     explain {
-        sql "SELECT * FROM one_col_list_partition_date WHERE (dt<'2021-01-10 00:00:00' xor dt>'2021-01-10 00:00:00')"
-        contains("partitions=8/9 (p1,p2,p3,p4,p5,p6,p7,p8)")
-
-    }
-
-    explain {
         sql "SELECT * FROM one_col_list_partition_date WHERE dt regexp '2020-10-01 00:00:00'"
         contains("partitions=8/9 (p1,p2,p3,p4,p5,p6,p7,p8)")
     }

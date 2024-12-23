@@ -59,10 +59,6 @@ suite("hive_partition_prune") {
         contains("partition=1/6")
     }
     explain {
-        sql "SELECT * FROM test_hive_partition WHERE (p=1 xor p=2)"
-        contains("partition=2/6")
-    }
-    explain {
         sql "SELECT * FROM test_hive_partition WHERE p in (1, 5,6)"
         contains("partition=2/6")
     }

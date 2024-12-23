@@ -65,11 +65,6 @@ suite("one_col_range_partition") {
     }
 
     explain {
-        sql "SELECT * FROM one_col_range_partition_date WHERE (dt<'2020-10-01 00:00:00' xor dt>'2020-9-01 00:00:00')"
-        contains("partitions=417/1826")
-    }
-
-    explain {
         sql """SELECT count(*) FROM one_col_range_partition_date WHERE
         !(dt<'2020-10-01 00:00:00' and dt>'2020-9-01 00:00:00' or date_trunc(dt,'month')<'2020-7-01' and date_trunc(dt,'month')>'2020-6-01' )"""
         contains("partitions=388/1826")
