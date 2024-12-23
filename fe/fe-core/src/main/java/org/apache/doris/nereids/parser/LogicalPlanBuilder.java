@@ -324,6 +324,7 @@ import org.apache.doris.nereids.DorisParser.UnsupportedContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
 import org.apache.doris.nereids.DorisParser.UpdateContext;
+import org.apache.doris.nereids.DorisParser.UseDatabaseContext;
 import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
@@ -683,6 +684,7 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogComma
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -5178,12 +5180,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitSwitchCatalog(SwitchCatalogContext ctx) {
-        String catalogName = ctx.catalog.getText();
-        if (catalogName != null) {
-            return new SwitchCommand(catalogName);
+    public LogicalPlan visitSwitchCatalog(SwitchCatalogContext ctx) {
+        if (ctx.catalog != null) {
+            return new SwitchCommand(ctx.catalog.getText());
         }
-        throw new AnalysisException("catalog name can not be null");
+        throw new ParseException("catalog name can not be null");
+    }
+
+    @Override
+    public LogicalPlan visitUseDatabase(UseDatabaseContext ctx) {
+        if (ctx.database == null) {
+            throw new ParseException("database name can not be null");
+        }
+        return ctx.catalog != null ? new UseCommand(ctx.catalog.getText(), ctx.database.getText())
+                : new UseCommand(ctx.database.getText());
     }
 }
 
