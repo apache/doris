@@ -70,6 +70,7 @@ public class SyncJobManagerTest {
 
     @Before
     public void setUp() throws DdlException {
+        Config.enable_feature_data_sync_job = true;
         new Expectations() {
             {
                 env.getEditLog();
