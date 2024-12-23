@@ -157,9 +157,9 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) > '2000-01-01 00:00:00.1234'", "(c_datetime_3 > '2000-01-01 00:00:00.123')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) <= '2000-01-01 00:00:00.1234'", "(c_datetime_3 <= '2000-01-01 00:00:00.123')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) < '2000-01-01 00:00:00.1234'", "(c_datetime_3 < '2000-01-01 00:00:00.124')"
-        // testSimplify false, false, "c_date = '2000-01-01 00:00:01'", 'FALSE'
-        // testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", 'AND[c_date_null IS NULL,NULL]'
-        // testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) <=> '2000-01-01 00:00:01'", 'FALSE'
+        testSimplify false, false, "c_date = '2000-01-01 00:00:01'", 'FALSE'
+        testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", 'AND[c_date_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) <=> '2000-01-01 00:00:01'", 'FALSE'
         testSimplify false, false, "CAST(c_date AS DATETIME(5)) > '2000-01-01 00:00:01'", "c_date > '2000-01-01'"
         testSimplify false, false, "CAST(c_date AS DATETIME(5)) >= '2000-01-01 00:00:01'", "c_date >= '2000-01-02'"
         testSimplify false, false, "CAST(c_date AS DATETIME(5)) <= '2000-01-01 00:00:01'", "c_date <= '2000-01-01'"
