@@ -679,6 +679,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
+    public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
+    public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
@@ -2303,6 +2305,18 @@ public class SessionVariable implements Serializable, Writable {
                 + " It is recommended to keep this enabled in the production environment."
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_SEARCHER_CACHE, description = {
+        "开启后会缓存倒排索引searcher",
+        "Enabling this will cache the inverted index searcher."
+    })
+    public boolean enableInvertedIndexSearcherCache = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY_CACHE, description = {
+        "开启后会缓存倒排索引查询结果",
+        "Enabling this will cache the results of inverted index queries."
+    })
+    public boolean enableInvertedIndexQueryCache = true;
 
     @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in条件value数量大于这个threshold后将不会走fast_execute",
@@ -3990,6 +4004,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
+        tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
+        tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
