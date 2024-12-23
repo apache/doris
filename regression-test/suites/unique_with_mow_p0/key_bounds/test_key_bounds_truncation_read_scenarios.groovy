@@ -68,7 +68,6 @@ suite("test_key_bounds_truncation_read_scenarios", "nonConcurrent") {
 
 
     def customBeConfig = [
-        enable_segments_key_bounds_truncation : true,
         segments_key_bounds_truncation_threshold : 2
     ]
 

@@ -69,6 +69,10 @@ public:
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
+    void disable_segments_key_bounds_truncation() {
+        config::segments_key_bounds_truncation_threshold = -1;
+    }
+
     TabletSchemaSPtr create_schema(int varchar_length) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
@@ -242,8 +246,7 @@ public:
     }
 
     bool segments_key_bounds_truncation_enabled() {
-        return (config::enable_segments_key_bounds_truncation &&
-                config::segments_key_bounds_truncation_threshold > 0);
+        return (config::segments_key_bounds_truncation_threshold > 0);
     }
 
     void check_key_bounds(const std::vector<std::vector<std::string>>& data,
@@ -280,7 +283,6 @@ public:
         for (size_t i {0}; i < data.size(); i++) {
             const auto rows = data[i];
             if (!truncate_lengths.empty()) {
-                config::enable_segments_key_bounds_truncation = true;
                 config::segments_key_bounds_truncation_threshold = truncate_lengths[i];
             }
             std::vector<std::vector<std::string>> rowset_data {rows};
@@ -385,8 +387,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, CompareFuncTest) {
 TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
     {
         // 1. don't do segments key bounds truncation when the config is off
-        config::enable_segments_key_bounds_truncation = false;
-        config::segments_key_bounds_truncation_threshold = 36;
+        config::segments_key_bounds_truncation_threshold = -1;
 
         auto tablet_schema = create_schema(100);
         std::vector<std::vector<std::string>> data {{std::string(2, 'x'), std::string(3, 'y')},
@@ -406,7 +407,6 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BasicTruncationTest) {
 
     {
         // 2. do segments key bounds truncation when the config is on
-        config::enable_segments_key_bounds_truncation = true;
         config::segments_key_bounds_truncation_threshold = 10;
 
         auto tablet_schema = create_schema(100);
@@ -437,14 +437,13 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                     {"eeeeeee", "fffffff"},
                                                     {"xxxxxxx", "yyyyyyyy"}};
         {
-            config::enable_segments_key_bounds_truncation = false;
+            disable_segments_key_bounds_truncation();
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
-            config::enable_segments_key_bounds_truncation = true;
             config::segments_key_bounds_truncation_threshold = 3;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
@@ -462,14 +461,13 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                     {"cceeeeeeee", "fffffff"},
                                                     {"xxxxxxx", "yyyyyyyy"}};
         {
-            config::enable_segments_key_bounds_truncation = false;
+            disable_segments_key_bounds_truncation();
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
-            config::enable_segments_key_bounds_truncation = true;
             config::segments_key_bounds_truncation_threshold = 6;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
@@ -477,7 +475,6 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
         }
 
         {
-            config::enable_segments_key_bounds_truncation = true;
             config::segments_key_bounds_truncation_threshold = 3;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
@@ -494,14 +491,13 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                     {"cccccccc", "xxxxxxx"},
                                                     {"xxxxxxx", "yyyyyyyy"}};
         {
-            config::enable_segments_key_bounds_truncation = false;
+            disable_segments_key_bounds_truncation();
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
-            config::enable_segments_key_bounds_truncation = true;
             config::segments_key_bounds_truncation_threshold = 3;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
             vectorized::BlockReader block_reader;
@@ -643,7 +639,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, OrderedCompactionTest) {
     config::ordered_data_compaction_min_segment_size = 1;
 
     {
-        config::enable_segments_key_bounds_truncation = false;
+        disable_segments_key_bounds_truncation();
         TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
         std::vector<std::vector<std::string>> data {{"aaaaaaaaa", "bbbbbcccccc"},
