@@ -56,9 +56,10 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "3");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF", properties, "comment");
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+                                                  properties, "comment");
         def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-            KeysType.DUP_KEYS, false, false);
+            KeysType.DUP_KEYS, false, null, false);
     }
 
     @Test
@@ -67,10 +68,11 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "3");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF", properties, "comment");
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+                                                  properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
             def.checkColumn(new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, false));
+                KeysType.DUP_KEYS, false, null, false));
     }
 
     @Test
@@ -79,10 +81,11 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "256");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF", properties, "comment");
+        IndexDefinition def = new IndexDefinition("ngram_bf_index",false, Lists.newArrayList("col1"), "NGRAM_BF",
+                                                  properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
             def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, false));
+                KeysType.DUP_KEYS, false, null, false));
     }
 
     @Test
@@ -91,9 +94,10 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "3");
         properties.put("bf_size", "65536");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF", properties, "comment");
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+                                                  properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
             def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, false));
+                KeysType.DUP_KEYS, false, null, false));
     }
 }
