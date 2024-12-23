@@ -611,14 +611,14 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     // EXTRA
     {
         StringRef str = StringRef("", 0);
-        std::vector<void*> datas_(columns_num, &str);
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas_));
+        std::vector<void*> filled_values(columns_num, &str);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, filled_values));
     }
     // PRIVILEGES
     {
         StringRef str = StringRef("", 0);
-        std::vector<void*> datas_(columns_num, &str);
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas_));
+        std::vector<void*> filled_values(columns_num, &str);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, filled_values));
     }
     // COLUMN_COMMENT
     {
