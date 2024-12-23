@@ -344,8 +344,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
         def trigger_status = parseJson(stdout.trim())
         if (trigger_status.status.toLowerCase() != "success") {
-            if (auto_compaction_disabled) {
-                // ignore the error if auto compaction is disabled
+            if (!auto_compaction_disabled) {
+                // ignore the error if auto compaction enabled
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
             }
