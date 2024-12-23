@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -32,6 +33,7 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Jdbc external table.
@@ -76,11 +79,13 @@ public class JdbcExternalTable extends ExternalTable {
      *
      * @param id Table id.
      * @param name Table name.
-     * @param dbName Database name.
-     * @param catalog HMSExternalDataSource.
+     * @param remoteName Remote table name.
+     * @param catalog JdbcExternalCatalog.
+     * @param db JdbcExternalDatabase.
      */
-    public JdbcExternalTable(long id, String name, String dbName, JdbcExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.JDBC_EXTERNAL_TABLE);
+    public JdbcExternalTable(long id, String name, String remoteName, JdbcExternalCatalog catalog,
+            JdbcExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.JDBC_EXTERNAL_TABLE);
     }
 
     @Override
@@ -105,21 +110,60 @@ public class JdbcExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema() {
-        return Optional.of(new SchemaCacheValue(((JdbcExternalCatalog) catalog).getJdbcClient()
-                .getColumnsFromJdbc(dbName, name)));
+        String remoteDbName = ((ExternalDatabase<?>) this.getDatabase()).getRemoteName();
+        List<Column> columns = ((JdbcExternalCatalog) catalog).listColumns(remoteDbName, remoteName);
+        List<String> remoteColumnNames = columns.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
+
+        // Checks whether remoteColumnNames contains duplicate column names that differ only in case
+        Map<String, String> lowerCaseColumnNameMap = Maps.newHashMap();
+        for (String remoteColumnName : remoteColumnNames) {
+            String lowerCaseColumnName = remoteColumnName.toLowerCase();
+            if (lowerCaseColumnNameMap.containsKey(lowerCaseColumnName)) {
+                throw new RuntimeException(String.format(
+                        "Found conflicting column names under case-insensitive conditions. "
+                                + "Conflicting remote column names: '%s' and '%s' in remote table '%s.%s' "
+                                + "under catalog '%s'. "
+                                + "Please use meta_names_mapping to handle name mapping.",
+                        lowerCaseColumnNameMap.get(lowerCaseColumnName), remoteColumnName, remoteDbName, remoteName,
+                        catalog.getName()));
+            }
+            lowerCaseColumnNameMap.put(lowerCaseColumnName, remoteColumnName);
+        }
+
+        List<String> localColumnNames = remoteColumnNames.stream()
+                .map(remoteColumnName -> ((JdbcExternalCatalog) catalog).getIdentifierMapping()
+                        .fromRemoteColumnName(remoteDbName, remoteName, remoteColumnName))
+                .collect(Collectors.toList());
+        for (int i = 0; i < columns.size(); i++) {
+            columns.get(i).setName(localColumnNames.get(i));
+        }
+        Map<String, String> remoteColumnNamesMap = Maps.newHashMap();
+        for (int i = 0; i < remoteColumnNames.size(); i++) {
+            remoteColumnNamesMap.put(localColumnNames.get(i), remoteColumnNames.get(i));
+        }
+        return Optional.of(new JdbcSchemaCacheValue(columns, remoteColumnNamesMap));
     }
 
     private JdbcTable toJdbcTable() {
         List<Column> schema = getFullSchema();
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
-        String fullDbName = this.dbName + "." + this.name;
-        JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
-        jdbcCatalog.configureJdbcTable(jdbcTable, fullDbName);
+        String fullTableName = this.dbName + "." + this.name;
+        JdbcTable jdbcTable = new JdbcTable(this.id, fullTableName, schema, TableType.JDBC_EXTERNAL_TABLE);
+        jdbcCatalog.configureJdbcTable(jdbcTable, fullTableName);
 
         // Set remote properties
-        jdbcTable.setRemoteDatabaseName(jdbcCatalog.getJdbcClient().getRemoteDatabaseName(this.dbName));
-        jdbcTable.setRemoteTableName(jdbcCatalog.getJdbcClient().getRemoteTableName(this.dbName, this.name));
-        jdbcTable.setRemoteColumnNames(jdbcCatalog.getJdbcClient().getRemoteColumnNames(this.dbName, this.name));
+        jdbcTable.setRemoteDatabaseName(((ExternalDatabase<?>) this.getDatabase()).getRemoteName());
+        jdbcTable.setRemoteTableName(this.getRemoteName());
+        Map<String, String> remoteColumnNames = Maps.newHashMap();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        for (Column column : schema) {
+            String remoteColumnName = schemaCacheValue.map(value -> ((JdbcSchemaCacheValue) value)
+                    .getremoteColumnName(column.getName())).orElse(column.getName());
+            remoteColumnNames.put(column.getName(), remoteColumnName);
+        }
+        jdbcTable.setRemoteColumnNames(remoteColumnNames);
 
         return jdbcTable;
     }

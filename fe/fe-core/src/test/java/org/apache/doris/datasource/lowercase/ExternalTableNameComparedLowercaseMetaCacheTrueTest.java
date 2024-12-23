@@ -19,6 +19,7 @@ package org.apache.doris.datasource.lowercase;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -27,6 +28,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -39,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ExternalTableNameStoredLowercaseTest extends TestWithFeService {
+public class ExternalTableNameComparedLowercaseMetaCacheTrueTest extends TestWithFeService {
     private static Env env;
     private ConnectContext rootCtx;
 
@@ -50,8 +52,9 @@ public class ExternalTableNameStoredLowercaseTest extends TestWithFeService {
         // 1. create test catalog
         CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
                         + "    \"type\" = \"test\",\n"
+                        + "    \"use_meta_cache\" = \"true\",\n"
                         + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameStoredLowercaseTest$ExternalTableNameStoredLowercaseProvider\"\n"
+                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameComparedLowercaseMetaCacheTrueTest$ExternalTableNameComparedLowercaseProvider\"\n"
                         + ");",
                 rootCtx);
         env.getCatalogMgr().createCatalog(testCatalog);
@@ -59,7 +62,7 @@ public class ExternalTableNameStoredLowercaseTest extends TestWithFeService {
 
     @Override
     protected void beforeCluster() {
-        Config.lower_case_table_names = 1;
+        Config.lower_case_table_names = 2;
         FeConstants.runningUnitTest = true;
     }
 
@@ -74,17 +77,29 @@ public class ExternalTableNameStoredLowercaseTest extends TestWithFeService {
 
     @Test
     public void testGlobalVariable() {
-        Assertions.assertEquals(1, GlobalVariable.lowerCaseTableNames);
+        Assertions.assertEquals(2, GlobalVariable.lowerCaseTableNames);
+    }
+
+    @Test
+    public void testGetTableWithOutList() {
+        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test1", null);
+        try {
+            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+        } catch (Exception e) {
+            // Do nothing
+        }
+        String tblName = env.getCatalogMgr().getCatalog("test1").getDbNullable("db1").getTableNullable("table1").getName();
+        Assertions.assertEquals("TABLE1", tblName);
+        String tblName2 = env.getCatalogMgr().getCatalog("test1").getDbNullable("db1").getTableNullable("table2").getName();
+        Assertions.assertEquals("TABLE2", tblName2);
     }
 
     @Test
     public void testTableNameLowerCase() {
         Set<String> tableNames = env.getCatalogMgr().getCatalog("test1").getDbNullable("db1").getTableNamesWithLock();
-        Assertions.assertEquals(3, tableNames.size());
-        Assertions.assertTrue(tableNames.contains("table1"));
-        Assertions.assertTrue(tableNames.contains("table2"));
-        Assertions.assertTrue(tableNames.contains("table3"));
-        Assertions.assertFalse(tableNames.contains("TABLE1"));
+        Assertions.assertEquals(2, tableNames.size());
+        Assertions.assertTrue(tableNames.contains("TABLE1"));
+        Assertions.assertTrue(tableNames.contains("TABLE2"));
     }
 
     private void switchTest() throws Exception {
@@ -92,25 +107,19 @@ public class ExternalTableNameStoredLowercaseTest extends TestWithFeService {
         Env.getCurrentEnv().changeCatalog(connectContext, switchTest.getCatalogName());
     }
 
-    public static class ExternalTableNameStoredLowercaseProvider implements TestExternalCatalog.TestCatalogProvider {
+    public static class ExternalTableNameComparedLowercaseProvider implements TestExternalCatalog.TestCatalogProvider {
         public static final Map<String, Map<String, List<Column>>> MOCKED_META;
 
         static {
             MOCKED_META = Maps.newHashMap();
             Map<String, List<Column>> tblSchemaMap1 = Maps.newHashMap();
             // db1
-            tblSchemaMap1.put("table1", Lists.newArrayList(
+            tblSchemaMap1.put("TABLE1", Lists.newArrayList(
                     new Column("siteid", PrimitiveType.INT),
                     new Column("citycode", PrimitiveType.SMALLINT),
                     new Column("username", PrimitiveType.VARCHAR),
                     new Column("pv", PrimitiveType.BIGINT)));
-            tblSchemaMap1.put("table2", Lists.newArrayList(
-                    new Column("k1", PrimitiveType.INT),
-                    new Column("k2", PrimitiveType.VARCHAR),
-                    new Column("k3", PrimitiveType.VARCHAR),
-                    new Column("k4", PrimitiveType.INT),
-                    new Column("k5", PrimitiveType.LARGEINT)));
-            tblSchemaMap1.put("TABLE3", Lists.newArrayList(
+            tblSchemaMap1.put("TABLE2", Lists.newArrayList(
                     new Column("k1", PrimitiveType.INT),
                     new Column("k2", PrimitiveType.VARCHAR),
                     new Column("k3", PrimitiveType.VARCHAR),

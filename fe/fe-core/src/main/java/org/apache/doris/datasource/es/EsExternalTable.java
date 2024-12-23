@@ -42,11 +42,12 @@ public class EsExternalTable extends ExternalTable {
      *
      * @param id Table id.
      * @param name Table name.
-     * @param dbName Database name.
-     * @param catalog HMSExternalDataSource.
+     * @param remoteName Remote table name.
+     * @param catalog EsExternalDataSource.
+     * @param db Database.
      */
-    public EsExternalTable(long id, String name, String dbName, EsExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.ES_EXTERNAL_TABLE);
+    public EsExternalTable(long id, String name, String remoteName, EsExternalCatalog catalog, EsExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.ES_EXTERNAL_TABLE);
     }
 
     protected synchronized void makeSureInitialized() {

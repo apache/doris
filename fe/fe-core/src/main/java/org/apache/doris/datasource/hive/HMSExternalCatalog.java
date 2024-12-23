@@ -263,7 +263,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
 
-        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType, false);
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null,  dbId, logType, false);
         if (useMetaCache.get()) {
             if (isInitialized()) {
                 metaCache.updateCache(dbName, db, Util.genIdByName(getQualifiedName(dbName)));

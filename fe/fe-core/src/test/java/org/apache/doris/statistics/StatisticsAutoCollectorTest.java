@@ -117,7 +117,7 @@ public class StatisticsAutoCollectorTest {
         OlapTable table1 = new OlapTable(200, "testTable", schema, null, null, null);
         Assertions.assertTrue(collector.supportAutoAnalyze(table1));
 
-        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbcdb", null);
+        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbcdb", null, null);
         Assertions.assertFalse(collector.supportAutoAnalyze(externalTable));
 
         new MockUp<HMSExternalTable>() {
@@ -126,7 +126,7 @@ public class StatisticsAutoCollectorTest {
                 return DLAType.ICEBERG;
             }
         };
-        ExternalTable icebergExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
+        ExternalTable icebergExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null, null);
         Assertions.assertFalse(collector.supportAutoAnalyze(icebergExternalTable));
 
         new MockUp<HMSExternalTable>() {
@@ -135,7 +135,7 @@ public class StatisticsAutoCollectorTest {
                 return DLAType.HIVE;
             }
         };
-        ExternalTable hiveExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
+        ExternalTable hiveExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null, null);
         Assertions.assertTrue(collector.supportAutoAnalyze(hiveExternalTable));
     }
 
