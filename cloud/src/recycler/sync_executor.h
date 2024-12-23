@@ -48,6 +48,7 @@ public:
         return *this;
     }
     std::vector<T> when_all(bool* finished) {
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) { _reset(); });
         timespec current_time;
         auto current_time_second = time(nullptr);
         current_time.tv_sec = current_time_second + 300;
@@ -65,11 +66,21 @@ public:
                 *finished = false;
                 return res;
             }
-            res.emplace_back((*task).get());
+            auto status = task->wait_for(10);
+            if (status == std::future_status::ready) {
+                res.emplace_back(task->get());
+            } else {
+                *finished = false;
+                LOG(WARNING) << _name_tag << " task timed out after 10 seconds";
+                return res;
+            }
         }
         return res;
     }
-    void reset() {
+
+private:
+    void _reset() {
+        _count.reset(0);
         _res.clear();
         _stop_token = false;
     }
@@ -97,6 +108,9 @@ private:
                 stop_token = true;
             }
             _pro.set_value(std::move(t));
+        }
+        std::future_status wait_for(size_t seconds) {
+            return _fut.wait_for(std::chrono::seconds(seconds));
         }
         bool valid() { return _valid; }
         T get() { return _fut.get(); }

@@ -734,6 +734,8 @@ int InstanceRecycler::recycle_indexes() {
 
     LOG_INFO("begin to recycle indexes").tag("instance_id", instance_id_);
 
+    throw std::exception();
+
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
 
@@ -1278,7 +1280,6 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
             return -1;
         }
-        sync_executor.reset();
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
         // sort the vector using key's order
         std::sort(tablet_keys.begin(), tablet_keys.end(),
