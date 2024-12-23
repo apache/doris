@@ -34,11 +34,11 @@ public class SimpleJobScheduler implements JobScheduler {
         CascadesContext context = (CascadesContext) scheduleContext;
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         while (!pool.isEmpty()) {
+            long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
             if (sessionVariable.enableNereidsTimeout
-                    && context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS)
-                    > sessionVariable.nereidsTimeoutSecond * 1000L) {
-                throw new DoNotFallbackException(
-                        "Nereids cost too much time ( > " + sessionVariable.nereidsTimeoutSecond + "s )");
+                    && elapsedS > sessionVariable.nereidsTimeoutSecond) {
+                throw new DoNotFallbackException(String.format("Nereids cost too much time ( %ds > %ds",
+                        elapsedS, sessionVariable.nereidsTimeoutSecond));
             }
             Job job = pool.pop();
             job.execute();
