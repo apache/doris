@@ -15,22 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_rewrite_mtmv", "p0,external,mtmv,external_docker,external_docker_doris") {
+suite("test_paimon_olap_rewrite_mtmv", "p0,external,mtmv,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disabled paimon test")
         return
     }
-    String suiteName = "test_paimon_rewrite_mtmv"
+    String suiteName = "test_paimon_olap_rewrite_mtmv"
     String catalogName = "${suiteName}_catalog"
     String mvName = "${suiteName}_mv"
     String dbName = context.config.getDbNameByFile(context.file)
+    String tableName = "${suiteName}_table"
+    sql """drop table if exists ${tableName}"""
+     sql """
+        CREATE TABLE ${tableName} (
+          `user_id` INT,
+          `num` INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`)
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+       """
+     sql """
+        insert into ${tableName} values(1,2);
+        """
+
+    sql """analyze table internal.`${dbName}`. ${tableName} with sync"""
+    sql """alter table internal.`${dbName}`. ${tableName} modify column user_id set stats ('row_count'='1');"""
 
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-    String mvSql = "SELECT par,count(*) as num FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format group by par;";
+    String mvSql = "SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join ${tableName} b on a.id=b.user_id;";
 
     sql """drop catalog if exists ${catalogName}"""
     sql """CREATE CATALOG ${catalogName} PROPERTIES (
@@ -76,7 +93,7 @@ suite("test_paimon_rewrite_mtmv", "p0,external,mtmv,external_docker,external_doc
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_rewrite_fail("SELECT par,count(*) as num FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format where par='b' group by par;", "${mvName}")
+    mv_rewrite_fail("SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
 
     //refresh auto
     sql """
