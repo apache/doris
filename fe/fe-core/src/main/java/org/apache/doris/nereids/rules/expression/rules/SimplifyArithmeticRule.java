@@ -133,12 +133,15 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
         }
     }
 
+    // isAddOrSub: true for extract only "+" or "-" sub expressions, false for extract only "*" or "/" sub expressions
     private static List<Operand> flatten(Expression expr, boolean isAddOrSub) {
         List<Operand> result = Lists.newArrayList();
         doFlatten(true, expr, isAddOrSub, result, Optional.empty());
         return result;
     }
 
+    // flag: true for '+' or '*', false for '-' or '/'
+    // isAddOrSub: true for extract only "+" or "-" sub expressions, false for extract only "*" or "/" sub expressions
     private static void doFlatten(boolean flag, Expression expr, boolean isAddOrSub, List<Operand> result,
             Optional<DataType> castType) {
         // cast (a * 10 as double)  *  (cast 20 as double)
