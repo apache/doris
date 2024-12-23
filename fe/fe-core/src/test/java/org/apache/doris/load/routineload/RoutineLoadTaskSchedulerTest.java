@@ -69,7 +69,7 @@ public class RoutineLoadTaskSchedulerTest {
 
         LinkedBlockingDeque<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = new LinkedBlockingDeque<>();
         KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
-                partitionIdToOffset, false);
+                partitionIdToOffset, false, -1, false);
         routineLoadTaskInfoQueue.addFirst(routineLoadTaskInfo1);
 
         Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
