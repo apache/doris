@@ -50,36 +50,18 @@ struct SpillContext {
 
     ~SpillContext() {
         if (running_tasks_count.load() != 0) {
-            LOG_EVERY_T(WARNING, 60) << "Query: " << print_id(query_id)
-                                     << " not all spill tasks finished, remaining tasks: "
-                                     << running_tasks_count.load();
-        }
-
-        if (_running_non_sink_tasks_count.load() != 0) {
-            LOG_EVERY_T(WARNING, 60)
-                    << "Query: " << print_id(query_id)
-                    << " not all spill tasks(non sink tasks) finished, remaining tasks: "
-                    << _running_non_sink_tasks_count.load();
+            LOG(WARNING) << "Query: " << print_id(query_id)
+                         << " not all spill tasks finished, remaining tasks: "
+                         << running_tasks_count.load();
         }
     }
 
     void on_task_finished() {
         auto count = running_tasks_count.fetch_sub(1);
-        if (count == 1 && _running_non_sink_tasks_count.load() == 0) {
+        if (count == 1) {
             all_tasks_finished_callback(this);
         }
     }
-
-    void on_non_sink_task_started() { _running_non_sink_tasks_count.fetch_add(1); }
-    void on_non_sink_task_finished() {
-        const auto count = _running_non_sink_tasks_count.fetch_sub(1);
-        if (count == 1 && running_tasks_count.load() == 0) {
-            all_tasks_finished_callback(this);
-        }
-    }
-
-private:
-    std::atomic_int _running_non_sink_tasks_count {0};
 };
 
 class SpillRunnable : public Runnable {
@@ -233,20 +215,13 @@ public:
 
 class SpillNonSinkRunnable : public SpillRunnable {
 public:
-    SpillNonSinkRunnable(RuntimeState* state, std::shared_ptr<SpillContext> spill_context,
-                         std::shared_ptr<Dependency> spill_dependency, RuntimeProfile* profile,
+    SpillNonSinkRunnable(RuntimeState* state, std::shared_ptr<Dependency> spill_dependency,
+                         RuntimeProfile* profile,
                          const std::shared_ptr<BasicSpillSharedState>& shared_state,
                          std::function<Status()> spill_exec_func,
                          std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, spill_context, spill_dependency, profile, shared_state, true,
+            : SpillRunnable(state, nullptr, spill_dependency, profile, shared_state, true,
                             spill_exec_func, spill_fin_cb) {}
-
-protected:
-    void _on_task_finished() override {
-        if (_spill_context) {
-            _spill_context->on_non_sink_task_finished();
-        }
-    }
 };
 
 class SpillRecoverRunnable : public SpillRunnable {

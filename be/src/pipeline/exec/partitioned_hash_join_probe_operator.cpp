@@ -172,8 +172,7 @@ Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
-        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* state) {
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     auto query_id = state->query_id();
 
@@ -208,7 +207,9 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
                         std::numeric_limits<size_t>::max(), _runtime_profile.get()));
             }
 
-            auto merged_block = vectorized::MutableBlock::create_unique(blocks[0].clone_empty());
+            auto merged_block = vectorized::MutableBlock::create_unique(std::move(blocks.back()));
+            blocks.pop_back();
+
             while (!blocks.empty() && !state->is_cancelled()) {
                 auto block = std::move(blocks.back());
                 blocks.pop_back();
@@ -218,17 +219,9 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
                     return Status::Error<INTERNAL_ERROR>(
                             "fault_inject partitioned_hash_join_probe spill_probe_blocks failed");
                 });
-
-                if (merged_block->allocated_bytes() >=
-                    vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
-                    COUNTER_UPDATE(_spill_probe_rows, merged_block->rows());
-                    RETURN_IF_ERROR(
-                            spilling_stream->spill_block(state, merged_block->to_block(), false));
-                    COUNTER_UPDATE(_spill_probe_blocks, 1);
-                }
             }
 
-            if (!merged_block->empty()) {
+            if (!merged_block->empty()) [[likely]] {
                 COUNTER_UPDATE(_spill_probe_rows, merged_block->rows());
                 RETURN_IF_ERROR(
                         spilling_stream->spill_block(state, merged_block->to_block(), false));
@@ -256,9 +249,6 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
         return status;
     };
 
-    if (spill_context) {
-        spill_context->on_non_sink_task_started();
-    }
     _spill_dependency->block();
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks_submit_func", {
         return Status::Error<INTERNAL_ERROR>(
@@ -266,8 +256,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
     });
 
     auto spill_runnable = std::make_shared<SpillNonSinkRunnable>(
-            state, spill_context, _spill_dependency, _runtime_profile.get(),
-            _shared_state->shared_from_this(), exception_catch_func);
+            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
+            exception_catch_func);
     return spill_io_pool->submit(std::move(spill_runnable));
 }
 
@@ -856,27 +846,6 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
     return size_to_reserve;
 }
 
-Status PartitionedHashJoinProbeOperatorX::revoke_memory(
-        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
-    auto& local_state = get_local_state(state);
-    VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
-               << ", task: " << state->task_id() << ", child eos: " << local_state._child_eos;
-
-    if (local_state._child_eos) {
-        VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
-                   << ", task: " << state->task_id() << ", child eos: " << local_state._child_eos
-                   << ", will not revoke size: " << revocable_mem_size(state);
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(local_state.spill_probe_blocks(state, spill_context));
-
-    if (_child) {
-        return _child->revoke_memory(state, spill_context);
-    }
-    return Status::OK();
-}
-
 Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
@@ -891,7 +860,15 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
     if (local_state._shared_state->need_to_spill) {
         const auto revocable_size = _revocable_mem_size(state);
         const auto min_revocable_size = state->min_revocable_mem();
-        return revocable_size > min_revocable_size;
+
+        if (state->get_query_ctx()->low_memory_mode()) {
+            return revocable_size >
+                   std::min<int64_t>(min_revocable_size,
+                                     static_cast<int64_t>(
+                                             vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM));
+        } else {
+            return vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+        }
     }
     return false;
 }
