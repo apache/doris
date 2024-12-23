@@ -308,7 +308,6 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                                    "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
-    RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
 
