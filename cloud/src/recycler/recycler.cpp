@@ -734,8 +734,6 @@ int InstanceRecycler::recycle_indexes() {
 
     LOG_INFO("begin to recycle indexes").tag("instance_id", instance_id_);
 
-    throw std::exception();
-
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
 
