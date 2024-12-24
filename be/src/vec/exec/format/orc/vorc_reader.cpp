@@ -732,6 +732,11 @@ bool OrcReader::_init_search_argument(
         }
     }
 
+    // check if all column names in predicates are same as orc file
+    DCHECK(std::all_of(predicates.begin(), predicates.end(), [&](const OrcPredicate& predicate) {
+        return type_map.contains(predicate.col_name);
+    }));
+
     std::unique_ptr<orc::SearchArgumentBuilder> builder = orc::SearchArgumentFactory::newBuilder();
     if (build_search_argument(predicates, 0, builder)) {
         std::unique_ptr<orc::SearchArgument> sargs = builder->build();
