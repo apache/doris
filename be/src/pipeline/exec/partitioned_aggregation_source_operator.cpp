@@ -29,6 +29,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
@@ -295,4 +296,5 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
             std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
                                             exception_catch_func));
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

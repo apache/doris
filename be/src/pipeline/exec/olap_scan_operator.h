@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewOlapScanner;
@@ -183,6 +184,33 @@ private:
 
     RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
+    // timer about tablet reader
+    RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
+    RuntimeProfile::Counter* _tablet_reader_init_delete_condition_param_timer = nullptr;
+
+    // timer about block reader
+    RuntimeProfile::Counter* _block_reader_vcollect_iter_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_reader_rs_readers_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_reader_build_heap_init_timer = nullptr;
+
+    RuntimeProfile::Counter* _rowset_reader_get_segment_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_create_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_init_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
+
+    RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_inverted_index_iterators_timer = nullptr;
+
+    RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
+    RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
+
     std::mutex _profile_mtx;
 };
 
@@ -198,4 +226,5 @@ private:
     TQueryCacheParam _cache_param;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

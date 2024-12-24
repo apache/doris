@@ -80,7 +80,8 @@ public:
     BlockSerializer() : _batch_size(0) {};
 #endif
     Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
-                                 bool eos, const std::vector<uint32_t>* rows = nullptr);
+                                 bool eos, const uint32_t* data = nullptr,
+                                 const uint32_t offset = 0, const uint32_t size = 0);
     Status serialize_block(PBlock* dest, size_t num_receivers = 1);
     Status serialize_block(const Block* src, PBlock* dest, size_t num_receivers = 1);
 
@@ -150,7 +151,8 @@ public:
     Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
     Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
 
-    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
+    Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
+                    bool eos) {
         if (_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
@@ -160,7 +162,7 @@ public:
             _pblock = std::make_unique<PBlock>();
         }
         RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
-                                                          &rows));
+                                                          data, offset, size));
         if (serialized) {
             RETURN_IF_ERROR(_send_current_block(eos));
         }

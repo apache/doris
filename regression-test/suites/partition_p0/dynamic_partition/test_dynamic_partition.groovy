@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_dynamic_partition") {
-    config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'force_olap_table_replication_allocation'; """
+    def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'force_olap_table_replication_allocation'; """
     String old_conf_value = config_row[0][1]
     sql """ ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_allocation" = ""); """
     // todo: test dynamic partition

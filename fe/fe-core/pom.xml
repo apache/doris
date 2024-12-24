@@ -347,6 +347,7 @@ under the License.
             <groupId>com.alibaba.otter</groupId>
             <artifactId>canal.client</artifactId>
             <version>1.1.6</version>
+            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>
@@ -410,6 +411,7 @@ under the License.
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
             <version>${huaweiobs.version}</version>
+            <scope>${obs.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <artifactId>jackson-databind</artifactId>
@@ -421,6 +423,7 @@ under the License.
             <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
+            <scope>${cos.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <groupId>org.json</groupId>
@@ -758,6 +761,20 @@ under the License.
             <groupId>com.qcloud</groupId>
             <artifactId>cos_api</artifactId>
             <version>5.6.211</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.thoughtworks.xstream</groupId>
+                    <artifactId>xstream</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.qcloud</groupId>
@@ -768,6 +785,7 @@ under the License.
             <groupId>com.huaweicloud</groupId>
             <artifactId>esdk-obs-java-bundle</artifactId>
             <version>[3.21.11,)</version>
+            <scope>${obs.dependency.scope}</scope>
         </dependency>
         <dependency>
             <groupId>com.baidubce</groupId>
@@ -791,6 +809,7 @@ under the License.
             <artifactId>gcs-connector</artifactId>
             <version>hadoop3-2.2.21</version>
             <classifier>shaded</classifier>
+            <scope>${gcs.dependency.scope}</scope>
             <exclusions>
                 <exclusion>
                     <groupId>*</groupId>

@@ -314,4 +314,7 @@ suite("window_function") {
     sql "select last_value(c1,false) over() from window_test"
     sql "select first_value(c1,1) over() from window_test"
     sql "select last_value(c1,0) over() from window_test"
+
+    qt_first_value_false "select last_value(c1,false) over(partition by c2 order by c1) from window_test order by 1"
+    qt_last_value_false "select first_value(c1,false) over(partition by c2 order by c1) from window_test order by 1"
 }

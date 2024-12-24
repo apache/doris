@@ -596,7 +596,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-        DCHECK(column_ptr != nullptr);
+        DCHECK(column_ptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
@@ -879,17 +879,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr;
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
-                static std::vector<orc::TypeKind> paimon_unsupport_type =
-                        std::vector<orc::TypeKind> {orc::TypeKind::CHAR};
-                unsupported_pushdown_types = &paimon_unsupport_type;
-            }
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
-                    unsupported_pushdown_types);
+                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());

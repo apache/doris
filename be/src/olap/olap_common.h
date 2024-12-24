@@ -36,6 +36,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
@@ -388,6 +389,30 @@ struct OlapReaderStatistics {
     int64_t collect_iterator_merge_next_timer = 0;
     int64_t collect_iterator_normal_next_timer = 0;
     int64_t delete_bitmap_get_agg_ns = 0;
+
+    int64_t tablet_reader_init_timer_ns = 0;
+    int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
+    int64_t tablet_reader_init_return_columns_timer_ns = 0;
+    int64_t tablet_reader_init_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_conditions_param_timer_ns = 0;
+    int64_t tablet_reader_init_delete_condition_param_timer_ns = 0;
+    int64_t block_reader_vcollect_iter_init_timer_ns = 0;
+    int64_t block_reader_rs_readers_init_timer_ns = 0;
+    int64_t block_reader_build_heap_init_timer_ns = 0;
+
+    int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
+    int64_t rowset_reader_create_iterators_timer_ns = 0;
+    int64_t rowset_reader_init_iterators_timer_ns = 0;
+    int64_t rowset_reader_load_segments_timer_ns = 0;
+
+    int64_t segment_iterator_init_timer_ns = 0;
+    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
+
+    int64_t segment_create_column_readers_timer_ns = 0;
+    int64_t segment_load_index_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;
@@ -419,7 +444,8 @@ struct RowsetId {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
                     high = next_rowset_id().hi;
                 } else {
-                    LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+                    throw Exception(
+                            Status::FatalError("failed to init rowset id: {}", rowset_id_str));
                 }
             }
             init(1, high, 0, 0);
@@ -440,7 +466,7 @@ struct RowsetId {
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
-            LOG(FATAL) << "inc rowsetid is too large:" << high;
+            throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
         hi = (id_version << 56) + (high & LOW_56_BITS);
         mi = middle;
