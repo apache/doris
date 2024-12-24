@@ -23,6 +23,8 @@ FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
 PROBE_TIMEOUT=60
 # interval time to probe fe.
 PROBE_INTERVAL=2
+NEED_PRE_STOP=${NEED_PRE_STOP:-"false"}
+
 # rpc port for fe communicate with be.
 HEARTBEAT_PORT=9050
 # fqdn or ip
@@ -112,7 +114,7 @@ enable_query_and_load(){
     set_enable_query_and_load=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\",\"disable_load\"=\"false\");" 2>&1`
     log_stderr "[info] use root no password set enable query and load result $set_enable_query_and_load ."
     if echo $set_enable_query_and_load | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
-        log_stderr "[info] use username and password that configured to enable query and load."
+        log_stderr "[info] use username($DB_ADMIN_USER) and password that configured to enable query and load."
         set_enable_query_and_load=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\",\"disable_load\"=\"false\");"`
     fi
     log_stderr "[info] set enable query and load return $set_enable_query_and_load"
@@ -157,6 +159,17 @@ collect_env_info()
     fi
 }
 
+check_enable(){
+    local memlist=$1
+    if echo "$memlist" | grep "$MY_SELF" | grep "isQueryDisabled\":false" | grep -q -w "isLoadDisabled\":false" &>/dev/null ; then
+        log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) enable_query_and_load success "
+        echo "true"
+    else
+        log_stderr "[error] Check myself ($MY_SELF:$HEARTBEAT_PORT) enble_query_and_load failed "
+        echo "false"
+    fi
+}
+
 add_self()
 {
     local svc=$1
@@ -168,8 +181,23 @@ add_self()
         memlist=`show_backends $svc`
         if echo "$memlist" | grep -q -w "$MY_SELF" &>/dev/null ; then
             log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) exist in FE, start be directly ..."
+            if [[ "x$NEED_PRE_STOP" == "xfalse" ]] ; then
+                break;
+            fi
             enable_query_and_load $svc
-            break;
+            res=`check_enable $memlist`
+            if [[ "x$res" == "xtrue" ]] ; then
+                break;
+            else
+                sleep $PROBE_INTERVAL
+                let "expire=start+timeout"
+                now=`date +%s`
+                if [[ $expire -le $now ]] ; then
+                    log_stderr "[error] exit probe master for probing timeout."
+                    return 0
+                fi
+                continue;
+            fi
         fi
 
         # check fe cluster have master, if fe have not master wait.
