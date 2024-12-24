@@ -17,21 +17,32 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.catalog.PartitionItem;
 
-import java.util.List;
+import com.google.common.collect.Maps;
 
-public class PaimonSchemaCacheValue extends SchemaCacheValue {
+import java.util.Map;
 
-    private List<Column> partitionColumns;
+public class PaimonPartitionInfo {
+    private final Map<String, PartitionItem> nameToPartitionItem;
+    private final Map<String, PaimonPartition> nameToPartition;
 
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+    public PaimonPartitionInfo() {
+        this.nameToPartitionItem = Maps.newHashMap();
+        this.nameToPartition = Maps.newHashMap();
     }
 
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+    public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, PaimonPartition> nameToPartition) {
+        this.nameToPartitionItem = nameToPartitionItem;
+        this.nameToPartition = nameToPartition;
+    }
+
+    public Map<String, PartitionItem> getNameToPartitionItem() {
+        return nameToPartitionItem;
+    }
+
+    public Map<String, PaimonPartition> getNameToPartition() {
+        return nameToPartition;
     }
 }
