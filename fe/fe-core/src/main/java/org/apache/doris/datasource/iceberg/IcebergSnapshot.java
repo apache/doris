@@ -17,21 +17,20 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+public class IcebergSnapshot {
+    private final long snapshotId;
+    private final long schemaId;
 
-import java.util.List;
-
-public class IcebergSchemaCacheValue extends SchemaCacheValue {
-
-    private final List<Column> partitionColumns;
-
-    public IcebergSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+    public IcebergSnapshot(long snapshotId, long schemaId) {
+        this.snapshotId = snapshotId;
+        this.schemaId = schemaId;
     }
 
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+    public long getSnapshotId() {
+        return snapshotId;
+    }
+
+    public long getSchemaId() {
+        return schemaId;
     }
 }
