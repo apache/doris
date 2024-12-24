@@ -164,7 +164,7 @@ suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
     qt_count1 """ SELECT COUNT() from ${tableName}; """
 
     // ADD INDEX
-    sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
+    sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
 
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
