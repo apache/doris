@@ -21,7 +21,7 @@ suite("regression_test_variant_nested", "p0"){
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
     try {
- 
+
         def table_name = "var_nested"
         sql "DROP TABLE IF EXISTS ${table_name}"
 
@@ -58,7 +58,7 @@ suite("regression_test_variant_nested", "p0"){
             insert into var_nested values (21, '{"nested": [{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
             insert into var_nested values (22, '{"nested": [{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}, {"zzz11" : "123333"}]}');
             insert into var_nested values (23, '{"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}');
-        """   
+        """
 
         sql """
             insert into var_nested values (24, '{"xx" : 10}');
@@ -72,64 +72,19 @@ suite("regression_test_variant_nested", "p0"){
         qt_sql """DESC var_nested"""
         qt_sql """
             select * from var_nested order by k limit 101
-        """ 
+        """
         for (int i = 101; i < 121; ++i) {
             sql """insert into var_nested values (${i}, '{"nested${i}" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');"""
         }
-        def trigger_full_compaction_on_tablets = { tablets ->
-            for (def tablet : tablets) {
-                String tablet_id = tablet.TabletId
-                String backend_id = tablet.BackendId
-                int times = 1
 
-                String compactionStatus;
-                do{
-                    def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                    ++times
-                    sleep(2000)
-                    compactionStatus = parseJson(out.trim()).status.toLowerCase();
-                } while (compactionStatus!="success" && times<=10)
-
-
-                if (compactionStatus == "fail") {
-                    logger.info("Compaction was done automatically!")
-                }
-            }
-        }
-
-        def wait_full_compaction_done = { tablets ->
-            for (def tablet in tablets) {
-                boolean running = true
-                do {
-                    Thread.sleep(1000)
-                    String tablet_id = tablet.TabletId
-                    String backend_id = tablet.BackendId
-                    def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
-            }
-        } 
-        def triger_compaction = { ->
-            // triger compaction
-            def tablets = sql_return_maparray """ show tablets from var_nested; """
-
-            
-            trigger_full_compaction_on_tablets.call(tablets)
-            wait_full_compaction_done.call(tablets)
-        }
-        triger_compaction.call()
+        trigger_and_wait_compaction("var_nested", "full")
 
         qt_sql """
             select * from var_nested order by k limit 101
-        """ 
+        """
         sql """INSERT INTO var_nested SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]], "nested1" : {"nested2" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "1000") where number > 200 limit 100;"""
         sql """INSERT INTO var_nested SELECT *, '{"k2":1, "k3": "nice", "k4" : [1234], "k5" : 1.10000, "k6" : [[123]], "nested2" : {"nested1" : [{"a" : 10, "b" : 1.1, "c" : "1111"}]}}' FROM numbers("number" = "5013") where number >= 400 limit 1024;"""
-        triger_compaction.call()
+        trigger_and_wait_compaction("var_nested", "full")
 
         qt_sql """select  /*+SET_VAR(batch_size=1024,broker_load_batch_size=16352,disable_streaming_preaggregations=true,enable_distinct_streaming_aggregation=true,parallel_fragment_exec_
 parallel_pipeline_task_num=7,parallel_fragment_exec_instance_num=4,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=false,parallel_scan_max_scanners_count=16
@@ -146,7 +101,7 @@ parallel_pipeline_task_num=7,parallel_fragment_exec_instance_num=4,profile_level
         // type change case
         sql """INSERT INTO var_nested SELECT *, '{"k1":"1", "k2": 1.1, "k3" : [1234.0], "k4" : 1.10000, "k5" : [["123"]], "nested1" : {"nested2" : [{"a" : "10", "b" : "1.1", "c" : 1111.111}]}}' FROM numbers("number" = "8000") where number > 7000 limit 100;"""
         qt_sql """select * from var_nested where v['k2'] = 'what'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
-        triger_compaction.call()
+        trigger_and_wait_compaction("var_nested", "full")
         qt_sql """select * from var_nested where v['k2'] = 'nested'  and array_contains(cast(v['nested1']['nested2']['a'] as array<tinyint>), 10) order by k limit 1;"""
         sql """select * from var_nested where v['k2'] = 'some' or v['k3'] = 'nice' limit 100;"""
 
@@ -205,12 +160,12 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
         order_qt_explode_sql """select count(),cast(vv as int) from var_nested_explode_variant_with_abnomal lateral view explode_variant_array(v['nested']['x']) tmp as vv where vv = 10 group by cast(vv as int)"""
         // 2. v['nested']['xx'] is normal array
         order_qt_explode_sql """select count(),cast(vv as int) from var_nested_explode_variant_with_abnomal lateral view explode_variant_array(v['nested']['xx']) tmp as vv where vv = 10 group by cast(vv as int)"""
-        // 3. v['xx'] is none array scalar type 
+        // 3. v['xx'] is none array scalar type
         test {
             sql """select count(),cast(vv as int) from var_nested_explode_variant_with_abnomal lateral view explode_variant_array(v['xx']) tmp as vv where vv = 10 group by cast(vv as int)"""
             exception("explode not support none array type")
         }
-        // 4. v['k1'] is json scalar type 
+        // 4. v['k1'] is json scalar type
         test {
             sql """select count(),cast(vv as int) from var_nested_explode_variant_with_abnomal lateral view explode_variant_array(v['k1']) tmp as vv where vv = 10 group by cast(vv as int)"""
             exception("explode not support none array type")
