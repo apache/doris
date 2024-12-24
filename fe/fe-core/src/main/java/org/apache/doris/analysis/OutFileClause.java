@@ -266,7 +266,7 @@ public class OutFileClause {
         if (brokerDesc != null && isLocalOutput) {
             throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
         } else if (brokerDesc == null && !isLocalOutput) {
-            throw new AnalysisException("Must specify BROKER properties or current local file path in OUTFILE clause");
+            throw new AnalysisException("Please specify BROKER properties or check out your local file path.");
         }
         isAnalyzed = true;
 
