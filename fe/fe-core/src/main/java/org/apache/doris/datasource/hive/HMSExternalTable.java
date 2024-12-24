@@ -37,6 +37,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -549,10 +550,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
     }
 
-    private Optional<SchemaCacheValue> getIcebergSchema() {
-        List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
-        List<Column> partitionColumns = initPartitionColumns(columns);
-        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
+    private Optional<SchemaCacheValue> getIcebergSchema(SchemaCacheKey key) {
+        return IcebergUtils.loadSchemaCacheValue(catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId());
     }
 
     private Optional<SchemaCacheValue> getHudiSchema() {
