@@ -358,8 +358,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     mowTableList, backendToPartitionInfos);
         } catch (Exception e) {
             if (!mowTableList.isEmpty()) {
-                LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId
-                        , e.getMessage());
+                LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId,
+                        e.getMessage());
                 removeDeleteBitmapUpdateLock(mowTableList, transactionId);
             }
             throw e;
@@ -827,6 +827,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
                 cumulativePoints, partitionToSubTxnIds);
     }
+
     private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
             Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
                     Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
@@ -1127,8 +1128,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     backendToPartitionInfos);
         } catch (Exception e) {
             if (!mowTableList.isEmpty()) {
-                LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId
-                        , e.getMessage());
+                LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId,
+                        e.getMessage());
                 removeDeleteBitmapUpdateLock(mowTableList, transactionId);
             }
             throw e;
