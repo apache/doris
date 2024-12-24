@@ -63,6 +63,7 @@ statementBase
     | supportedRecoverStatement         #supportedRecoverStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
+    | supportedOtherStatement           #supportedOtherStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -290,9 +291,12 @@ supportedLoadStatement
     | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
-unsupportedOtherStatement
+supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
-    | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
+    ;
+
+unsupportedOtherStatement 
+    : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | UNLOCK TABLES                                                                 #unlockTables
