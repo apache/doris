@@ -98,7 +98,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder builder = new StringBuilder();
         builder.append(Utils.qualifiedName(qualifier, "*"));
         if (!exceptedSlots.isEmpty()) {

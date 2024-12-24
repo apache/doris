@@ -128,7 +128,7 @@ public:
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
             ColumnPtr& cur_column = src_columns[i];
             const ColumnArray* array =
-                    check_and_get_column<ColumnArray>(remove_nullable(cur_column->get_ptr()));
+                    check_and_get_column<ColumnArray>(remove_nullable(cur_column->get_ptr()).get());
             if (!array) {
                 return Status::RuntimeError(
                         fmt::format("Illegal column {}, of first argument of function {}",
@@ -151,7 +151,7 @@ public:
         const NullMapType* null_map = nullptr;
         if (arguments.size() == 1 && data_columns[0]->is_nullable()) {
             const ColumnNullable* nullable = check_and_get_column<ColumnNullable>(*data_columns[0]);
-            data_columns[0] = nullable->get_nested_column_ptr();
+            data_columns[0] = nullable->get_nested_column_ptr().get();
             null_map = &nullable->get_null_map_column().get_data();
         }
 
@@ -219,7 +219,8 @@ public:
         if (arguments.size() == 1 && block.get_by_position(arguments[0]).column->is_nullable()) {
             auto left_column =
                     block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-            const ColumnNullable* nullable = check_and_get_column<ColumnNullable>(left_column);
+            const ColumnNullable* nullable =
+                    check_and_get_column<ColumnNullable>(left_column.get());
             res_column = ColumnNullable::create(
                     res_column, nullable->get_null_map_column().clone_resized(nullable->size()));
         }

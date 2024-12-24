@@ -371,7 +371,7 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
         _need_null_map_for_probe = _need_probe_null_map(block, res_col_ids);
     }
     if (_need_null_map_for_probe) {
-        if (_null_map_column == nullptr) {
+        if (!_null_map_column) {
             _null_map_column = vectorized::ColumnUInt8::create();
         }
         _null_map_column->get_data().assign(block.rows(), (uint8_t)0);
@@ -389,7 +389,7 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
-            DCHECK(_null_map_column != nullptr);
+            DCHECK(_null_map_column);
             vectorized::VectorizedUtils::update_null_map(_null_map_column->get_data(), col_nullmap);
             _probe_columns[i] = &col_nested;
         } else {
