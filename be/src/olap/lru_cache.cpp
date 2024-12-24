@@ -306,6 +306,17 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
                                           it->second);
         }
     }
+
+    // If key not exist in cache, and is lru k cache, and key in visits list,
+    // then move the key to beginning of the visits list.
+    // key in visits list indicates that the key has been inserted once after the cache is full.
+    if (e == nullptr && _is_lru_k) {
+        auto it = _visits_lru_cache_map.find(hash);
+        if (it != _visits_lru_cache_map.end()) {
+            _visits_lru_cache_list.splice(_visits_lru_cache_list.begin(), _visits_lru_cache_list,
+                                          it->second);
+        }
+    }
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
