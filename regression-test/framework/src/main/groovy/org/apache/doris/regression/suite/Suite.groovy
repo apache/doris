@@ -264,7 +264,7 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
-                            String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
+                        String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
     }
 
@@ -960,15 +960,15 @@ class Suite implements GroovyInterceptable {
     }
 
     /*
-        * download trino connectors, and sends to every fe and be.
-        * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
-        * fe and be's config must satisfy regression-conf.groovy's config.
-        * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
-        *
-        * this function must be not reentrant.
-        *
-        * If failed, will call assertTrue(false).
-        */
+     * download trino connectors, and sends to every fe and be.
+     * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
+     * fe and be's config must satisfy regression-conf.groovy's config.
+     * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
+     *
+     * this function must be not reentrant.
+     *
+     * If failed, will call assertTrue(false).
+     */
     static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url) {
         if (isTrinoConnectorDownloaded == true) {
             staticLogger.info("trino connector downloaded")
@@ -1336,7 +1336,7 @@ class Suite implements GroovyInterceptable {
             }
         }
     }
-    
+
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
         if (tag.contains("hive_docker")) {
