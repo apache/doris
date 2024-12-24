@@ -42,6 +42,15 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
+ * agg(group by[A])->filter(A>1)->scan(T)
+ *
+ * expressions:[
+ *  set1[A],
+ *  set2(A>1)
+ * ]
+ *
+ * filter(A>1)->agg(group by[A])->scan(T)
+ *
  * HyperGraph Node.
  */
 public class StructInfoNode extends AbstractNode {

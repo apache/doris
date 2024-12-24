@@ -280,16 +280,16 @@ public class NereidsPlanner extends Planner {
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
         PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
-        double cost1 = cost;
+        if (cascadesContext.cteplan != null) {
+            double cost1 = cost;
+            cascadesContext.plan = cascadesContext.cteplan;
+            optimize();
+            PhysicalPlan physicalPlan2 = chooseNthPlan(getRoot(), requireProperties, nth);
+            double cost2 = cost;
 
-
-        cascadesContext.plan = cascadesContext.cteplan;
-        optimize();
-        PhysicalPlan physicalPlan2 = chooseNthPlan(getRoot(), requireProperties, nth);
-        double cost2 = cost;
-
-        if (cost2 < cost1) {
-            physicalPlan = physicalPlan2;
+            if (cost2 < cost1) {
+                physicalPlan = physicalPlan2;
+            }
         }
 
         physicalPlan = postProcess(physicalPlan);
