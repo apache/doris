@@ -768,11 +768,13 @@ public:
         if (is_ipv4(addr_column_with_type_and_name.type)) {
             execute_impl_with_ip<PrimitiveType::TYPE_IPV4, ColumnIPv4>(
                     input_rows_count, addr_const, cidr_const,
-                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column, col_res);
+                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column,
+                    col_res.get());
         } else if (is_ipv6(addr_column_with_type_and_name.type)) {
             execute_impl_with_ip<PrimitiveType::TYPE_IPV6, ColumnIPv6>(
                     input_rows_count, addr_const, cidr_const,
-                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column, col_res);
+                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column,
+                    col_res.get());
         } else {
             const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
             const auto* str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());

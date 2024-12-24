@@ -886,7 +886,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
 
     if (column_ptr->is_nullable()) {
         nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
-        data_column_ptr = nullable_column->get_nested_column().get_ptr();
+        data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
         data_serde = serde->get_nested_serdes()[0];
 
         if (value_is_null) {
@@ -1010,7 +1010,8 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
             const auto& sub_col_type = type_desc.children[sub_col_idx];
 
             RETURN_IF_ERROR(_write_data_to_column(
-                    sub_value, sub_col_type, struct_column_ptr->get_column(sub_col_idx).get_ptr(),
+                    sub_value, sub_col_type,
+                    struct_column_ptr->get_column(sub_col_idx).get_ptr().get(),
                     column_name + "." + type_desc.field_names[sub_col_idx], sub_serdes[sub_col_idx],
                     valid));
         }
@@ -1026,12 +1027,12 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         for (const auto& member_value : object_value) {
             RETURN_IF_ERROR(_write_data_to_column(
                     &member_value.name, type_desc.children[0],
-                    map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr(),
+                    map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr().get(),
                     column_name + ".key", sub_serdes[0], valid));
 
             RETURN_IF_ERROR(_write_data_to_column(
                     &member_value.value, type_desc.children[1],
-                    map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr(),
+                    map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr().get(),
                     column_name + ".value", sub_serdes[1], valid));
         }
 
@@ -1048,7 +1049,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
 
         for (const auto& sub_value : array_value) {
             RETURN_IF_ERROR(_write_data_to_column(&sub_value, type_desc.children[0],
-                                                  array_column_ptr->get_data().get_ptr(),
+                                                  array_column_ptr->get_data().get_ptr().get(),
                                                   column_name + ".element", sub_serdes[0], valid));
         }
         auto& offsets = array_column_ptr->get_offsets();
@@ -1653,7 +1654,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     if (column_ptr->is_nullable()) {
         nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
 
-        data_column_ptr = nullable_column->get_nested_column().get_ptr();
+        data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
         data_serde = serde->get_nested_serdes()[0];
 
         // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
@@ -1727,7 +1728,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
             const auto& sub_col_type = type_desc.children[sub_column_idx];
             RETURN_IF_ERROR(_simdjson_write_data_to_column(
-                    sub.value(), sub_col_type, sub_column_ptr, column_name + "." + sub_key,
+                    sub.value(), sub_col_type, sub_column_ptr.get(), column_name + "." + sub_key,
                     sub_serdes[sub_column_idx], valid));
         }
 
@@ -1768,7 +1769,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                     auto nullable_column = static_cast<ColumnNullable*>(column_ptr);
 
                     nullable_column->get_null_map_data().push_back(0);
-                    data_column_ptr = nullable_column->get_nested_column().get_ptr();
+                    data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
                     data_serde = serde->get_nested_serdes()[0];
                 }
                 Slice slice(key_view.data(), key_view.length());
@@ -1779,13 +1780,13 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             };
 
             RETURN_IF_ERROR(f(member_value.unescaped_key(), type_desc.children[0],
-                              map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr(),
+                              map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr().get(),
                               sub_serdes[0], _serde_options, valid));
 
             simdjson::ondemand::value field_value = member_value.value();
             RETURN_IF_ERROR(_simdjson_write_data_to_column(
                     field_value, type_desc.children[1],
-                    map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr(),
+                    map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr().get(),
                     column_name + ".value", sub_serdes[1], valid));
             field_count++;
         }
@@ -1807,7 +1808,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         int field_count = 0;
         for (simdjson::ondemand::value sub_value : array_value) {
             RETURN_IF_ERROR(_simdjson_write_data_to_column(
-                    sub_value, type_desc.children[0], array_column_ptr->get_data().get_ptr(),
+                    sub_value, type_desc.children[0], array_column_ptr->get_data().get_ptr().get(),
                     column_name + ".element", sub_serdes[0], valid));
             field_count++;
         }

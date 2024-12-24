@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -408,6 +409,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 auto rs_it = _stale_rs_version_map.find(v_ts->version());
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
+                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
+                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                              << " version=" << rs_it->first.to_string();
                     _stale_rs_version_map.erase(rs_it);
                 } else {
                     LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
@@ -657,11 +661,14 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
 }
 
 void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
+    if (new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point) {
+        _cumulative_point = new_point;
+        return;
+    }
     // cumulative point should only be reset to -1, or be increased
-    CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
-            << "Unexpected cumulative point: " << new_point
-            << ", origin: " << _cumulative_point.load();
-    _cumulative_point = new_point;
+    // FIXME: could happen in currently unresolved race conditions
+    LOG(WARNING) << "Unexpected cumulative point: " << new_point
+                 << ", origin: " << _cumulative_point.load();
 }
 
 std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {

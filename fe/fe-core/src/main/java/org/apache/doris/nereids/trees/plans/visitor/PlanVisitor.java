@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -99,6 +100,7 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
         return visit(command, context);
     }
 
+
     // *******************************
     // relations
     // *******************************
@@ -130,6 +132,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     // *******************************
     // Logical plans
     // *******************************
+    public R visitUnboundInlineTable(UnboundInlineTable unboundInlineTable, C context) {
+        return visit(unboundInlineTable, context);
+    }
+
     public R visitLogicalSqlCache(LogicalSqlCache sqlCache, C context) {
         return visit(sqlCache, context);
     }

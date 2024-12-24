@@ -48,6 +48,8 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
@@ -132,13 +134,13 @@ Status SchemaRowsetsScanner::get_next_block_internal(vectorized::Block* block, b
 Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     size_t fill_rowsets_num = std::min(1000UL, rowsets_.size() - _rowsets_idx);
-    auto fill_idx_begin = _rowsets_idx;
-    auto fill_idx_end = _rowsets_idx + fill_rowsets_num;
+    size_t fill_idx_begin = _rowsets_idx;
+    size_t fill_idx_end = _rowsets_idx + fill_rowsets_num;
     std::vector<void*> datas(fill_rowsets_num);
     // BACKEND_ID
     {
         int64_t src = backend_id_;
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             datas[i - fill_idx_begin] = &src;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
@@ -147,7 +149,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         std::vector<std::string> rowset_ids(fill_rowsets_num);
         std::vector<StringRef> strs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             rowset_ids[i - fill_idx_begin] = rowset->rowset_id().to_string();
             strs[i - fill_idx_begin] = StringRef(rowset_ids[i - fill_idx_begin].c_str(),
@@ -159,7 +161,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // TABLET_ID
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->rowset_meta()->tablet_id();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -169,7 +171,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // ROWSET_NUM_ROWS
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->num_rows();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -179,7 +181,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // TXN_ID
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->txn_id();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -189,7 +191,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // NUM_SEGMENTS
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->num_segments();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -199,7 +201,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // START_VERSION
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->start_version();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -209,7 +211,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // END_VERSION
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->end_version();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -219,7 +221,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // INDEX_DISK_SIZE
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->index_disk_size();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -229,7 +231,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // DATA_DISK_SIZE
     {
         std::vector<int64_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->data_disk_size();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
@@ -239,7 +241,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // CREATION_TIME
     {
         std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t creation_time = rowset->creation_time();
             srcs[i - fill_idx_begin].from_unixtime(creation_time, TimezoneUtils::default_time_zone);
@@ -250,7 +252,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // NEWEST_WRITE_TIMESTAMP
     {
         std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t newest_write_timestamp = rowset->newest_write_timestamp();
             srcs[i - fill_idx_begin].from_unixtime(newest_write_timestamp,
@@ -262,7 +264,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // SCHEMA_VERSION
     {
         std::vector<int32_t> srcs(fill_rowsets_num);
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->tablet_schema()->schema_version();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;

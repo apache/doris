@@ -989,7 +989,7 @@ public:
                 // check size
                 EXPECT_EQ(ptr->size(), *cl);
                 // check ptr is not the same
-                EXPECT_NE(ptr.get(), source_column);
+                EXPECT_NE(ptr.get(), source_column.get());
 
                 // check after clone_resized with assert_res
                 auto ser_col = ColumnString::create();
@@ -1042,7 +1042,7 @@ public:
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
                 // check ptr is not the same
-                EXPECT_NE(ptr.get(), source_column);
+                EXPECT_NE(ptr.get(), source_column.get());
                 // check after cut with assert_res
                 auto ser_col = ColumnString::create();
                 ser_col->reserve(ptr->size());
@@ -1095,7 +1095,7 @@ public:
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
                 // check ptr is not the same
-                EXPECT_NE(ptr.get(), source_column);
+                EXPECT_NE(ptr.get(), source_column.get());
                 // check after cut with assert_res
                 auto ser_col = ColumnString::create();
                 ser_col->reserve(ptr->size());

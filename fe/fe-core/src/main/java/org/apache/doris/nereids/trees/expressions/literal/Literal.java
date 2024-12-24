@@ -135,7 +135,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return toString();
     }
 
