@@ -423,7 +423,7 @@ public class DateLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "'" + getStringValue() + "'";
     }
 

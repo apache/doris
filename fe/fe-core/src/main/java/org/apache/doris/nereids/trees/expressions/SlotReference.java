@@ -183,7 +183,7 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         if (subPath.isEmpty()) {
             return name.get();
         } else {

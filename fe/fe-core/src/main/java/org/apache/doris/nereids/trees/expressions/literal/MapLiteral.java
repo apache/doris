@@ -114,7 +114,7 @@ public class MapLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("map(");
         if (!keys.isEmpty()) {

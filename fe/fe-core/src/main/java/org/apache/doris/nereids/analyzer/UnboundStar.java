@@ -52,7 +52,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return Utils.qualifiedName(qualifier, "*");
     }
 
