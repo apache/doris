@@ -39,12 +39,18 @@ Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
     });
 }
 
+int64_t BloomFilterIndexReader::get_metadata_size() const {
+    return sizeof(BloomFilterIndexReader) +
+           (_bloom_filter_index_meta ? _bloom_filter_index_meta->ByteSizeLong() : 0);
+}
+
 Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                      OlapReaderStatistics* index_load_stats) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
     _bloom_filter_reader.reset(new IndexedColumnReader(_file_reader, bf_index_meta));
     RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, index_load_stats));
+    update_metadata_size();
     return Status::OK();
 }
 

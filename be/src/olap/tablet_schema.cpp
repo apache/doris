@@ -55,8 +55,6 @@
 
 namespace doris {
 
-static bvar::Adder<size_t> g_total_tablet_schema_num("doris_total_tablet_schema_num");
-
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -855,13 +853,14 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
 }
 
-TabletSchema::TabletSchema() {
-    g_total_tablet_schema_num << 1;
-}
+TabletSchema::TabletSchema() = default;
 
 TabletSchema::~TabletSchema() {
-    g_total_tablet_schema_num << -1;
     clear_column_cache_handlers();
+}
+
+int64_t TabletSchema::get_metadata_size() const {
+    return sizeof(TabletSchema) + _vl_field_mem_size;
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -1005,7 +1004,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
         _cols.emplace_back(std::move(column));
         if (!_cols.back()->is_extracted_column()) {
+            _vl_field_mem_size += sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() +
+                                  sizeof(int32_t);
             _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
+            _vl_field_mem_size += sizeof(int32_t) * 2;
             _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
         }
         _num_columns++;
@@ -1049,6 +1051,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _variant_enable_flatten_nested = schema.variant_enable_flatten_nested();
+    _vl_field_mem_size += _row_store_column_unique_ids.capacity() * sizeof(int32_t);
+    update_metadata_size();
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {

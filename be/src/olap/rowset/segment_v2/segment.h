@@ -78,7 +78,7 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // NOTE: This segment is used to a specified TabletSchema, when TabletSchema
 // is changed, this segment can not be used any more. For example, after a schema
 // change finished, client should disable all cached Segment for old TabletSchema.
-class Segment : public std::enable_shared_from_this<Segment> {
+class Segment : public std::enable_shared_from_this<Segment>, public MetadataAdder<Segment> {
 public:
     static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                        uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -91,6 +91,8 @@ public:
     }
 
     ~Segment();
+
+    int64_t get_metadata_size() const override;
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);

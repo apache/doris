@@ -199,6 +199,7 @@ void RowsetMeta::_init() {
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
     }
+    update_metadata_size();
 }
 
 void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
@@ -256,6 +257,12 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         set_rowset_state(RowsetStatePB::COMMITTED);
     }
+
+    update_metadata_size();
+}
+
+int64_t RowsetMeta::get_metadata_size() const {
+    return sizeof(RowsetMeta) + _rowset_meta_pb.ByteSizeLong();
 }
 
 InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
