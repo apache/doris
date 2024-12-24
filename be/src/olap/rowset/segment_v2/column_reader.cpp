@@ -227,6 +227,24 @@ const SubcolumnColumnReaders::Node* VariantColumnReader::get_reader_by_path(
     return _subcolumn_readers->find_leaf(relative_path);
 }
 
+int64_t VariantColumnReader::get_metadata_size() const {
+    int64_t size = ColumnReader::get_metadata_size();
+    if (_statistics) {
+        for (const auto& [path, _] : _statistics->subcolumns_non_null_size) {
+            size += path.size() + sizeof(size_t);
+        }
+        for (const auto& [path, _] : _statistics->sparse_column_non_null_size) {
+            size += path.size() + sizeof(size_t);
+        }
+    }
+
+    for (const auto& reader : *_subcolumn_readers) {
+        size += reader->data.reader->get_metadata_size();
+        size += reader->path.get_path().size();
+    }
+    return size;
+}
+
 Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
                                          const TabletColumn& target_col) {
     // root column use unique id, leaf column use parent_unique_id
@@ -331,11 +349,11 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     if (self_column_pb.has_variant_statistics()) {
         _statistics = std::make_unique<VariantStatistics>();
         const auto& variant_stats = self_column_pb.variant_statistics();
-        for (const auto& [path, _] : variant_stats.sparse_column_non_null_size()) {
-            _statistics->sparse_column_non_null_size.emplace(path.data(), path.size());
+        for (const auto& [path, size] : variant_stats.sparse_column_non_null_size()) {
+            _statistics->sparse_column_non_null_size.emplace(path, size);
         }
-        for (const auto& [path, _] : variant_stats.subcolumn_non_null_size()) {
-            _statistics->subcolumns_non_null_size.emplace(path.data(), path.size());
+        for (const auto& [path, size] : variant_stats.subcolumn_non_null_size()) {
+            _statistics->subcolumns_non_null_size.emplace(path, size);
         }
     }
     return Status::OK();

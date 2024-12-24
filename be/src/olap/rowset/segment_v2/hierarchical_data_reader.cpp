@@ -353,7 +353,25 @@ Status HierarchicalDataReader::_process_sparse_column(vectorized::ColumnObject& 
                         auto sub_path = get_sub_path(path, path_prefix);
                         sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
                         sparse_data_values->insert_from(src_sparse_data_values, lower_bound_index);
+                    } else {
+                        // insert into root column, example:  access v['b'] and b is in sparse column
+                        // data example:
+                        // {"b" : 123}
+                        // {"b" : {"c" : 456}}
+                        // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
+                        // from "" which is empty path and root
+                        if (container_variant.is_null_root()) {
+                            container_variant.add_sub_column({}, sparse_data_offsets.size());
+                        }
+                        const auto& data = ColumnObject::deserialize_from_sparse_column(
+                                &src_sparse_data_values, lower_bound_index);
+                        container_variant.get_subcolumn({})->insert(data.first, data.second);
                     }
+                }
+                // if root was created, and not seen in sparse data, insert default
+                if (!container_variant.is_null_root() &&
+                    container_variant.get_subcolumn({})->size() == sparse_data_offsets.size()) {
+                    container_variant.get_subcolumn({})->insert_default();
                 }
                 sparse_data_offsets.push_back(sparse_data_paths->size());
             }

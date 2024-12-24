@@ -1308,6 +1308,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
     auto it = src_path_and_subcoumn_for_sparse_column.begin();
     auto end = src_path_and_subcoumn_for_sparse_column.end();
     while (it != end) {
+        VLOG_DEBUG << "pick " << it->first << " as sparse column";
         sorted_src_subcolumn_for_sparse_column.emplace_back(it->first, it->second);
         ++it;
     }
@@ -1967,6 +1968,10 @@ Status ColumnObject::finalize(FinalizeMode mode) {
 
         // 3. pick MAX_SUBCOLUMNS selected subcolumns
         for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
+            // if too many null values, then consider it as sparse column
+            if (sorted_by_size[i].second < num_rows * 0.95) {
+                continue;
+            }
             selected_path.insert(sorted_by_size[i].first);
         }
         std::map<std::string_view, Subcolumn> remaing_subcolumns;
@@ -1975,6 +1980,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
             if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
                 new_subcolumns.add(entry->path, entry->data);
             } else {
+                VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
                 remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
             }
         }
@@ -2143,7 +2149,15 @@ const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataT
         std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeObject>())));
 
+// const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
+#ifndef NDEBUG
+const size_t ColumnObject::MAX_SUBCOLUMNS = []() -> size_t {
+    std::srand(std::time(nullptr)); // 初始化随机数种子
+    return 1 + std::rand() % 10;    // 随机值范围 [1, 10]
+}();
+#else
 const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
+#endif
 
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();

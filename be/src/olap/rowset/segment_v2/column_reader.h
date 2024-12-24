@@ -217,6 +217,8 @@ public:
 
     virtual FieldType get_meta_type() { return _meta_type; }
 
+    int64_t get_metadata_size() const override;
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
@@ -254,8 +256,6 @@ private:
                                std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
-
-    int64_t get_metadata_size() const override;
 
 private:
     int64_t _meta_length;
@@ -311,6 +311,8 @@ public:
     FieldType get_meta_type() override { return FieldType::OLAP_FIELD_TYPE_VARIANT; }
 
     const VariantStatistics* get_stats() const { return _statistics.get(); }
+
+    int64_t get_metadata_size() const override;
 
 private:
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;

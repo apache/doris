@@ -110,6 +110,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         // reserve 1 for root column
         for (const auto& [size, path] : paths_with_sizes) {
             if (paths.size() < vectorized::ColumnObject::MAX_SUBCOLUMNS - 1) {
+                VLOG_DEBUG << "pick " << path << " as subcolumn";
                 paths.emplace(path);
             }
             // // todo : Add all remaining paths into shared data statistics until we reach its max size;
@@ -120,6 +121,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
     } else {
         // Use all dynamic paths from all source columns.
         for (const auto& [path, _] : path_to_total_number_of_non_null_values) {
+            VLOG_DEBUG << "pick " << path << " as subcolumn";
             paths.emplace(path);
         }
     }
