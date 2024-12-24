@@ -16,7 +16,7 @@
 -- under the License.
 drop table if exists customer_demographics;
 CREATE TABLE IF NOT EXISTS customer_demographics (
-    cd_demo_sk bigint not null,
+    cd_demo_sk integer not null,
     cd_gender char(1),
     cd_marital_status char(1),
     cd_education_status char(20),
@@ -27,13 +27,13 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 DUPLICATE KEY(cd_demo_sk)
-DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 12
+DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists reason;
 CREATE TABLE IF NOT EXISTS reason (
-    r_reason_sk bigint not null,
+    r_reason_sk integer not null,
     r_reason_id char(16) not null,
     r_reason_desc char(100)
  )
@@ -44,9 +44,9 @@ PROPERTIES (
 );
 drop table if exists date_dim;
 CREATE TABLE IF NOT EXISTS date_dim (
-    d_date_sk bigint not null,
+    d_date_sk integer not null,
     d_date_id char(16) not null,
-    d_date datev2,
+    d_date date,
     d_month_seq integer,
     d_week_seq integer,
     d_quarter_seq integer,
@@ -74,13 +74,13 @@ CREATE TABLE IF NOT EXISTS date_dim (
     d_current_year char(1)
 )
 DUPLICATE KEY(d_date_sk)
-DISTRIBUTED BY HASH(d_date_sk) BUCKETS 12
+DISTRIBUTED BY HASH(d_date_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists warehouse;
 CREATE TABLE IF NOT EXISTS warehouse (
-    w_warehouse_sk bigint not null,
+    w_warehouse_sk integer not null,
     w_warehouse_id char(16) not null,
     w_warehouse_name varchar(20),
     w_warehouse_sq_ft integer,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS warehouse (
     w_state char(2),
     w_zip char(10),
     w_country varchar(20),
-    w_gmt_offset decimalv3(5,2)
+    w_gmt_offset decimal(5,2)
 )
 DUPLICATE KEY(w_warehouse_sk)
 DISTRIBUTED BY HASH(w_warehouse_sk) BUCKETS 1
@@ -102,86 +102,52 @@ PROPERTIES (
 );
 drop table if exists catalog_sales;
 CREATE TABLE IF NOT EXISTS catalog_sales (
-    cs_item_sk bigint not null,
-    cs_order_number bigint not null,
-    cs_sold_date_sk bigint,
-    cs_sold_time_sk bigint,
-    cs_ship_date_sk bigint,
-    cs_bill_customer_sk bigint,
-    cs_bill_cdemo_sk bigint,
-    cs_bill_hdemo_sk bigint,
-    cs_bill_addr_sk bigint,
-    cs_ship_customer_sk bigint,
-    cs_ship_cdemo_sk bigint,
-    cs_ship_hdemo_sk bigint,
-    cs_ship_addr_sk bigint,
-    cs_call_center_sk bigint,
-    cs_catalog_page_sk bigint,
-    cs_ship_mode_sk bigint,
-    cs_warehouse_sk bigint,
-    cs_promo_sk bigint,
+    cs_sold_date_sk integer,
+    cs_item_sk integer not null,
+    cs_order_number integer not null,
+    cs_sold_time_sk integer,
+    cs_ship_date_sk integer,
+    cs_bill_customer_sk integer,
+    cs_bill_cdemo_sk integer,
+    cs_bill_hdemo_sk integer,
+    cs_bill_addr_sk integer,
+    cs_ship_customer_sk integer,
+    cs_ship_cdemo_sk integer,
+    cs_ship_hdemo_sk integer,
+    cs_ship_addr_sk integer,
+    cs_call_center_sk integer,
+    cs_catalog_page_sk integer,
+    cs_ship_mode_sk integer,
+    cs_warehouse_sk integer,
+    cs_promo_sk integer,
     cs_quantity integer,
-    cs_wholesale_cost decimalv3(7,2),
-    cs_list_price decimalv3(7,2),
-    cs_sales_price decimalv3(7,2),
-    cs_ext_discount_amt decimalv3(7,2),
-    cs_ext_sales_price decimalv3(7,2),
-    cs_ext_wholesale_cost decimalv3(7,2),
-    cs_ext_list_price decimalv3(7,2),
-    cs_ext_tax decimalv3(7,2),
-    cs_coupon_amt decimalv3(7,2),
-    cs_ext_ship_cost decimalv3(7,2),
-    cs_net_paid decimalv3(7,2),
-    cs_net_paid_inc_tax decimalv3(7,2),
-    cs_net_paid_inc_ship decimalv3(7,2),
-    cs_net_paid_inc_ship_tax decimalv3(7,2),
-    cs_net_profit decimalv3(7,2)
+    cs_wholesale_cost decimal(7,2),
+    cs_list_price decimal(7,2),
+    cs_sales_price decimal(7,2),
+    cs_ext_discount_amt decimal(7,2),
+    cs_ext_sales_price decimal(7,2),
+    cs_ext_wholesale_cost decimal(7,2),
+    cs_ext_list_price decimal(7,2),
+    cs_ext_tax decimal(7,2),
+    cs_coupon_amt decimal(7,2),
+    cs_ext_ship_cost decimal(7,2),
+    cs_net_paid decimal(7,2),
+    cs_net_paid_inc_tax decimal(7,2),
+    cs_net_paid_inc_ship decimal(7,2),
+    cs_net_paid_inc_ship_tax decimal(7,2),
+    cs_net_profit decimal(7,2)
 )
-DUPLICATE KEY(cs_item_sk, cs_order_number)
-PARTITION BY RANGE(cs_sold_date_sk)
-(
-PARTITION `p1` VALUES LESS THAN ("2450878"),
-PARTITION `p2` VALUES LESS THAN ("2450939"),
-PARTITION `p3` VALUES LESS THAN ("2451000"),
-PARTITION `p4` VALUES LESS THAN ("2451061"),
-PARTITION `p5` VALUES LESS THAN ("2451122"),
-PARTITION `p6` VALUES LESS THAN ("2451183"),
-PARTITION `p7` VALUES LESS THAN ("2451244"),
-PARTITION `p8` VALUES LESS THAN ("2451305"),
-PARTITION `p9` VALUES LESS THAN ("2451366"),
-PARTITION `p10` VALUES LESS THAN ("2451427"),
-PARTITION `p11` VALUES LESS THAN ("2451488"),
-PARTITION `p12` VALUES LESS THAN ("2451549"),
-PARTITION `p13` VALUES LESS THAN ("2451610"),
-PARTITION `p14` VALUES LESS THAN ("2451671"),
-PARTITION `p15` VALUES LESS THAN ("2451732"),
-PARTITION `p16` VALUES LESS THAN ("2451793"),
-PARTITION `p17` VALUES LESS THAN ("2451854"),
-PARTITION `p18` VALUES LESS THAN ("2451915"),
-PARTITION `p19` VALUES LESS THAN ("2451976"),
-PARTITION `p20` VALUES LESS THAN ("2452037"),
-PARTITION `p21` VALUES LESS THAN ("2452098"),
-PARTITION `p22` VALUES LESS THAN ("2452159"),
-PARTITION `p23` VALUES LESS THAN ("2452220"),
-PARTITION `p24` VALUES LESS THAN ("2452281"),
-PARTITION `p25` VALUES LESS THAN ("2452342"),
-PARTITION `p26` VALUES LESS THAN ("2452403"),
-PARTITION `p27` VALUES LESS THAN ("2452464"),
-PARTITION `p28` VALUES LESS THAN ("2452525"),
-PARTITION `p29` VALUES LESS THAN ("2452586"),
-PARTITION `p30` VALUES LESS THAN ("2452657")
-)
-DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 32
+DUPLICATE KEY(cs_sold_date_sk, cs_item_sk, cs_order_number)
+DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 96
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "catalog"
+  "replication_num" = "1"
 );
 drop table if exists call_center;
 CREATE TABLE IF NOT EXISTS call_center (
-  cc_call_center_sk bigint not null,
+  cc_call_center_sk integer not null,
   cc_call_center_id char(16) not null,
-  cc_rec_start_date datev2,
-  cc_rec_end_date datev2,
+  cc_rec_start_date date,
+  cc_rec_end_date date,
   cc_closed_date_sk integer,
   cc_open_date_sk integer,
   cc_name varchar(50),
@@ -207,8 +173,8 @@ CREATE TABLE IF NOT EXISTS call_center (
   cc_state char(2),
   cc_zip char(10),
   cc_country varchar(20),
-  cc_gmt_offset decimalv3(5,2),
-  cc_tax_percentage decimalv3(5,2)
+  cc_gmt_offset decimal(5,2),
+  cc_tax_percentage decimal(5,2)
 )
 DUPLICATE KEY(cc_call_center_sk)
 DISTRIBUTED BY HASH(cc_call_center_sk) BUCKETS 1
@@ -217,68 +183,67 @@ PROPERTIES (
 );
 drop table if exists inventory;
 CREATE TABLE IF NOT EXISTS inventory (
-    inv_date_sk bigint not null,
-    inv_item_sk bigint not null,
-    inv_warehouse_sk bigint,
+    inv_date_sk integer not null,
+    inv_item_sk integer not null,
+    inv_warehouse_sk integer,
     inv_quantity_on_hand integer
 )
 DUPLICATE KEY(inv_date_sk, inv_item_sk, inv_warehouse_sk)
-DISTRIBUTED BY HASH(inv_date_sk, inv_item_sk, inv_warehouse_sk) BUCKETS 32
+DISTRIBUTED BY HASH(inv_item_sk, inv_warehouse_sk) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists catalog_returns;
 CREATE TABLE IF NOT EXISTS catalog_returns (
-  cr_item_sk bigint not null,
-  cr_order_number bigint not null,
-  cr_returned_date_sk bigint,
-  cr_returned_time_sk bigint,
-  cr_refunded_customer_sk bigint,
-  cr_refunded_cdemo_sk bigint,
-  cr_refunded_hdemo_sk bigint,
-  cr_refunded_addr_sk bigint,
-  cr_returning_customer_sk bigint,
-  cr_returning_cdemo_sk bigint,
-  cr_returning_hdemo_sk bigint,
-  cr_returning_addr_sk bigint,
-  cr_call_center_sk bigint,
-  cr_catalog_page_sk bigint,
-  cr_ship_mode_sk bigint,
-  cr_warehouse_sk bigint,
-  cr_reason_sk bigint,
+  cr_returned_date_sk integer,
+  cr_item_sk integer not null,
+  cr_order_number integer not null,
+  cr_returned_time_sk integer,
+  cr_refunded_customer_sk integer,
+  cr_refunded_cdemo_sk integer,
+  cr_refunded_hdemo_sk integer,
+  cr_refunded_addr_sk integer,
+  cr_returning_customer_sk integer,
+  cr_returning_cdemo_sk integer,
+  cr_returning_hdemo_sk integer,
+  cr_returning_addr_sk integer,
+  cr_call_center_sk integer,
+  cr_catalog_page_sk integer,
+  cr_ship_mode_sk integer,
+  cr_warehouse_sk integer,
+  cr_reason_sk integer,
   cr_return_quantity integer,
-  cr_return_amount decimalv3(7,2),
-  cr_return_tax decimalv3(7,2),
-  cr_return_amt_inc_tax decimalv3(7,2),
-  cr_fee decimalv3(7,2),
-  cr_return_ship_cost decimalv3(7,2),
-  cr_refunded_cash decimalv3(7,2),
-  cr_reversed_charge decimalv3(7,2),
-  cr_store_credit decimalv3(7,2),
-  cr_net_loss decimalv3(7,2)
+  cr_return_amount decimal(7,2),
+  cr_return_tax decimal(7,2),
+  cr_return_amt_inc_tax decimal(7,2),
+  cr_fee decimal(7,2),
+  cr_return_ship_cost decimal(7,2),
+  cr_refunded_cash decimal(7,2),
+  cr_reversed_charge decimal(7,2),
+  cr_store_credit decimal(7,2),
+  cr_net_loss decimal(7,2)
 )
-DUPLICATE KEY(cr_item_sk, cr_order_number)
-DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 32
+DUPLICATE KEY(cr_returned_date_sk, cr_item_sk, cr_order_number)
+DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 16
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "catalog"
+  "replication_num" = "1"
 );
 drop table if exists household_demographics;
 CREATE TABLE IF NOT EXISTS household_demographics (
-    hd_demo_sk bigint not null,
-    hd_income_band_sk bigint,
+    hd_demo_sk integer not null,
+    hd_income_band_sk integer,
     hd_buy_potential char(15),
     hd_dep_count integer,
     hd_vehicle_count integer
 )
 DUPLICATE KEY(hd_demo_sk)
-DISTRIBUTED BY HASH(hd_demo_sk) BUCKETS 3
+DISTRIBUTED BY HASH(hd_demo_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists customer_address;
 CREATE TABLE IF NOT EXISTS customer_address (
-    ca_address_sk bigint not null,
+    ca_address_sk integer not null,
     ca_address_id char(16) not null,
     ca_street_number char(10),
     ca_street_name varchar(60),
@@ -289,17 +254,17 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_state char(2),
     ca_zip char(10),
     ca_country varchar(20),
-    ca_gmt_offset decimalv3(5,2),
+    ca_gmt_offset decimal(5,2),
     ca_location_type char(20)
 )
 DUPLICATE KEY(ca_address_sk)
-DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 12
+DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists income_band;
 CREATE TABLE IF NOT EXISTS income_band (
-    ib_income_band_sk bigint not null,
+    ib_income_band_sk integer not null,
     ib_lower_bound integer,
     ib_upper_bound integer
 )
@@ -310,7 +275,7 @@ PROPERTIES (
 );
 drop table if exists catalog_page;
 CREATE TABLE IF NOT EXISTS catalog_page (
-  cp_catalog_page_sk bigint not null,
+  cp_catalog_page_sk integer not null,
   cp_catalog_page_id char(16) not null,
   cp_start_date_sk integer,
   cp_end_date_sk integer,
@@ -327,13 +292,13 @@ PROPERTIES (
 );
 drop table if exists item;
 CREATE TABLE IF NOT EXISTS item (
-    i_item_sk bigint not null,
+    i_item_sk integer not null,
     i_item_id char(16) not null,
-    i_rec_start_date datev2,
-    i_rec_end_date datev2,
+    i_rec_start_date date,
+    i_rec_end_date date,
     i_item_desc varchar(200),
-    i_current_price decimalv3(7,2),
-    i_wholesale_cost decimalv3(7,2),
+    i_current_price decimal(7,2),
+    i_wholesale_cost decimal(7,2),
     i_brand_id integer,
     i_brand char(50),
     i_class_id integer,
@@ -351,52 +316,51 @@ CREATE TABLE IF NOT EXISTS item (
     i_product_name char(50)
 )
 DUPLICATE KEY(i_item_sk)
-DISTRIBUTED BY HASH(i_item_sk) BUCKETS 12
+DISTRIBUTED BY HASH(i_item_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists web_returns;
 CREATE TABLE IF NOT EXISTS web_returns (
-    wr_item_sk bigint not null,
-    wr_order_number bigint not null,
-    wr_returned_date_sk bigint,
-    wr_returned_time_sk bigint,
-    wr_refunded_customer_sk bigint,
-    wr_refunded_cdemo_sk bigint,
-    wr_refunded_hdemo_sk bigint,
-    wr_refunded_addr_sk bigint,
-    wr_returning_customer_sk bigint,
-    wr_returning_cdemo_sk bigint,
-    wr_returning_hdemo_sk bigint,
-    wr_returning_addr_sk bigint,
-    wr_web_page_sk bigint,
-    wr_reason_sk bigint,
+    wr_returned_date_sk integer,
+    wr_item_sk integer not null,
+    wr_order_number integer not null,
+    wr_returned_time_sk integer,
+    wr_refunded_customer_sk integer,
+    wr_refunded_cdemo_sk integer,
+    wr_refunded_hdemo_sk integer,
+    wr_refunded_addr_sk integer,
+    wr_returning_customer_sk integer,
+    wr_returning_cdemo_sk integer,
+    wr_returning_hdemo_sk integer,
+    wr_returning_addr_sk integer,
+    wr_web_page_sk integer,
+    wr_reason_sk integer,
     wr_return_quantity integer,
-    wr_return_amt decimalv3(7,2),
-    wr_return_tax decimalv3(7,2),
-    wr_return_amt_inc_tax decimalv3(7,2),
-    wr_fee decimalv3(7,2),
-    wr_return_ship_cost decimalv3(7,2),
-    wr_refunded_cash decimalv3(7,2),
-    wr_reversed_charge decimalv3(7,2),
-    wr_account_credit decimalv3(7,2),
-    wr_net_loss decimalv3(7,2)
+    wr_return_amt decimal(7,2),
+    wr_return_tax decimal(7,2),
+    wr_return_amt_inc_tax decimal(7,2),
+    wr_fee decimal(7,2),
+    wr_return_ship_cost decimal(7,2),
+    wr_refunded_cash decimal(7,2),
+    wr_reversed_charge decimal(7,2),
+    wr_account_credit decimal(7,2),
+    wr_net_loss decimal(7,2)
 )
-DUPLICATE KEY(wr_item_sk, wr_order_number)
-DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 32
+DUPLICATE KEY(wr_returned_date_sk, wr_item_sk, wr_order_number)
+DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 16
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "web"
+  "replication_num" = "1"
 );
 drop table if exists web_site;
 CREATE TABLE IF NOT EXISTS web_site (
-    web_site_sk bigint not null,
+    web_site_sk integer not null,
     web_site_id char(16) not null,
-    web_rec_start_date datev2,
-    web_rec_end_date datev2,
+    web_rec_start_date date,
+    web_rec_end_date date,
     web_name varchar(50),
-    web_open_date_sk bigint,
-    web_close_date_sk bigint,
+    web_open_date_sk integer,
+    web_close_date_sk integer,
     web_class varchar(50),
     web_manager varchar(40),
     web_mkt_id integer,
@@ -414,8 +378,8 @@ CREATE TABLE IF NOT EXISTS web_site (
     web_state char(2),
     web_zip char(10),
     web_country varchar(20),
-    web_gmt_offset decimalv3(5,2),
-    web_tax_percentage decimalv3(5,2)
+    web_gmt_offset decimal(5,2),
+    web_tax_percentage decimal(5,2)
 )
 DUPLICATE KEY(web_site_sk)
 DISTRIBUTED BY HASH(web_site_sk) BUCKETS 1
@@ -424,12 +388,12 @@ PROPERTIES (
 );
 drop table if exists promotion;
 CREATE TABLE IF NOT EXISTS promotion (
-    p_promo_sk bigint not null,
+    p_promo_sk integer not null,
     p_promo_id char(16) not null,
-    p_start_date_sk bigint,
-    p_end_date_sk bigint,
-    p_item_sk bigint,
-    p_cost decimalv3(15,2),
+    p_start_date_sk integer,
+    p_end_date_sk integer,
+    p_item_sk integer,
+    p_cost decimal(15,2),
     p_response_targe integer,
     p_promo_name char(50),
     p_channel_dmail char(1),
@@ -451,87 +415,53 @@ PROPERTIES (
 );
 drop table if exists web_sales;
 CREATE TABLE IF NOT EXISTS web_sales (
-    ws_item_sk bigint not null,
-    ws_order_number bigint not null,
-    ws_sold_date_sk bigint,
-    ws_sold_time_sk bigint,
-    ws_ship_date_sk bigint,
-    ws_bill_customer_sk bigint,
-    ws_bill_cdemo_sk bigint,
-    ws_bill_hdemo_sk bigint,
-    ws_bill_addr_sk bigint,
-    ws_ship_customer_sk bigint,
-    ws_ship_cdemo_sk bigint,
-    ws_ship_hdemo_sk bigint,
-    ws_ship_addr_sk bigint,
-    ws_web_page_sk bigint,
-    ws_web_site_sk bigint,
-    ws_ship_mode_sk bigint,
-    ws_warehouse_sk bigint,
-    ws_promo_sk bigint,
+    ws_sold_date_sk integer,
+    ws_item_sk integer not null,
+    ws_order_number integer not null,
+    ws_sold_time_sk integer,
+    ws_ship_date_sk integer,
+    ws_bill_customer_sk integer,
+    ws_bill_cdemo_sk integer,
+    ws_bill_hdemo_sk integer,
+    ws_bill_addr_sk integer,
+    ws_ship_customer_sk integer,
+    ws_ship_cdemo_sk integer,
+    ws_ship_hdemo_sk integer,
+    ws_ship_addr_sk integer,
+    ws_web_page_sk integer,
+    ws_web_site_sk integer,
+    ws_ship_mode_sk integer,
+    ws_warehouse_sk integer,
+    ws_promo_sk integer,
     ws_quantity integer,
-    ws_wholesale_cost decimalv3(7,2),
-    ws_list_price decimalv3(7,2),
-    ws_sales_price decimalv3(7,2),
-    ws_ext_discount_amt decimalv3(7,2),
-    ws_ext_sales_price decimalv3(7,2),
-    ws_ext_wholesale_cost decimalv3(7,2),
-    ws_ext_list_price decimalv3(7,2),
-    ws_ext_tax decimalv3(7,2),
-    ws_coupon_amt decimalv3(7,2),
-    ws_ext_ship_cost decimalv3(7,2),
-    ws_net_paid decimalv3(7,2),
-    ws_net_paid_inc_tax decimalv3(7,2),
-    ws_net_paid_inc_ship decimalv3(7,2),
-    ws_net_paid_inc_ship_tax decimalv3(7,2),
-    ws_net_profit decimalv3(7,2)
+    ws_wholesale_cost decimal(7,2),
+    ws_list_price decimal(7,2),
+    ws_sales_price decimal(7,2),
+    ws_ext_discount_amt decimal(7,2),
+    ws_ext_sales_price decimal(7,2),
+    ws_ext_wholesale_cost decimal(7,2),
+    ws_ext_list_price decimal(7,2),
+    ws_ext_tax decimal(7,2),
+    ws_coupon_amt decimal(7,2),
+    ws_ext_ship_cost decimal(7,2),
+    ws_net_paid decimal(7,2),
+    ws_net_paid_inc_tax decimal(7,2),
+    ws_net_paid_inc_ship decimal(7,2),
+    ws_net_paid_inc_ship_tax decimal(7,2),
+    ws_net_profit decimal(7,2)
 )
-DUPLICATE KEY(ws_item_sk, ws_order_number)
-PARTITION BY RANGE(ws_sold_date_sk)
-(
-PARTITION `p1` VALUES LESS THAN ("2450878"),
-PARTITION `p2` VALUES LESS THAN ("2450939"),
-PARTITION `p3` VALUES LESS THAN ("2451000"),
-PARTITION `p4` VALUES LESS THAN ("2451061"),
-PARTITION `p5` VALUES LESS THAN ("2451122"),
-PARTITION `p6` VALUES LESS THAN ("2451183"),
-PARTITION `p7` VALUES LESS THAN ("2451244"),
-PARTITION `p8` VALUES LESS THAN ("2451305"),
-PARTITION `p9` VALUES LESS THAN ("2451366"),
-PARTITION `p10` VALUES LESS THAN ("2451427"),
-PARTITION `p11` VALUES LESS THAN ("2451488"),
-PARTITION `p12` VALUES LESS THAN ("2451549"),
-PARTITION `p13` VALUES LESS THAN ("2451610"),
-PARTITION `p14` VALUES LESS THAN ("2451671"),
-PARTITION `p15` VALUES LESS THAN ("2451732"),
-PARTITION `p16` VALUES LESS THAN ("2451793"),
-PARTITION `p17` VALUES LESS THAN ("2451854"),
-PARTITION `p18` VALUES LESS THAN ("2451915"),
-PARTITION `p19` VALUES LESS THAN ("2451976"),
-PARTITION `p20` VALUES LESS THAN ("2452037"),
-PARTITION `p21` VALUES LESS THAN ("2452098"),
-PARTITION `p22` VALUES LESS THAN ("2452159"),
-PARTITION `p23` VALUES LESS THAN ("2452220"),
-PARTITION `p24` VALUES LESS THAN ("2452281"),
-PARTITION `p25` VALUES LESS THAN ("2452342"),
-PARTITION `p26` VALUES LESS THAN ("2452403"),
-PARTITION `p27` VALUES LESS THAN ("2452464"),
-PARTITION `p28` VALUES LESS THAN ("2452525"),
-PARTITION `p29` VALUES LESS THAN ("2452586"),
-PARTITION `p30` VALUES LESS THAN ("2452657")
-)
-DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 32
+DUPLICATE KEY(ws_sold_date_sk, ws_item_sk, ws_order_number)
+DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 96
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "web"
+  "replication_num" = "1"
 );
 drop table if exists store;
 CREATE TABLE IF NOT EXISTS store (
-    s_store_sk bigint not null,
+    s_store_sk integer not null,
     s_store_id char(16) not null,
-    s_rec_start_date datev2,
-    s_rec_end_date datev2,
-    s_closed_date_sk bigint,
+    s_rec_start_date date,
+    s_rec_end_date date,
+    s_closed_date_sk integer,
     s_store_name varchar(50),
     s_number_employees integer,
     s_floor_space integer,
@@ -554,8 +484,8 @@ CREATE TABLE IF NOT EXISTS store (
     s_state char(2),
     s_zip char(10),
     s_country varchar(20),
-    s_gmt_offset decimalv3(5,2),
-    s_tax_precentage decimalv3(5,2)
+    s_gmt_offset decimal(5,2),
+    s_tax_precentage decimal(5,2)
 )
 DUPLICATE KEY(s_store_sk)
 DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1
@@ -564,7 +494,7 @@ PROPERTIES (
 );
 drop table if exists time_dim;
 CREATE TABLE IF NOT EXISTS time_dim (
-    t_time_sk bigint not null,
+    t_time_sk integer not null,
     t_time_id char(16) not null,
     t_time integer,
     t_hour integer,
@@ -576,20 +506,20 @@ CREATE TABLE IF NOT EXISTS time_dim (
     t_meal_time char(20)
 )
 DUPLICATE KEY(t_time_sk)
-DISTRIBUTED BY HASH(t_time_sk) BUCKETS 12
+DISTRIBUTED BY HASH(t_time_sk) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
 drop table if exists web_page;
 CREATE TABLE IF NOT EXISTS web_page (
-        wp_web_page_sk bigint not null,
+        wp_web_page_sk integer not null,
         wp_web_page_id char(16) not null,
-        wp_rec_start_date datev2,
-        wp_rec_end_date datev2,
-        wp_creation_date_sk bigint,
-        wp_access_date_sk bigint,
+        wp_rec_start_date date,
+        wp_rec_end_date date,
+        wp_creation_date_sk integer,
+        wp_access_date_sk integer,
         wp_autogen_flag char(1),
-        wp_customer_sk bigint,
+        wp_customer_sk integer,
         wp_url varchar(100),
         wp_type char(50),
         wp_char_count integer,
@@ -604,101 +534,66 @@ PROPERTIES (
 );
 drop table if exists store_returns;
 CREATE TABLE IF NOT EXISTS store_returns (
-    sr_item_sk bigint not null,
-    sr_ticket_number bigint not null,
-    sr_returned_date_sk bigint,
-    sr_return_time_sk bigint,
-    sr_customer_sk bigint,
-    sr_cdemo_sk bigint,
-    sr_hdemo_sk bigint,
-    sr_addr_sk bigint,
-    sr_store_sk bigint,
-    sr_reason_sk bigint,
+    sr_returned_date_sk integer,
+    sr_item_sk integer not null,
+    sr_ticket_number integer not null,
+    sr_return_time_sk integer,
+    sr_customer_sk integer,
+    sr_cdemo_sk integer,
+    sr_hdemo_sk integer,
+    sr_addr_sk integer,
+    sr_store_sk integer,
+    sr_reason_sk integer,
     sr_return_quantity integer,
-    sr_return_amt decimalv3(7,2),
-    sr_return_tax decimalv3(7,2),
-    sr_return_amt_inc_tax decimalv3(7,2),
-    sr_fee decimalv3(7,2),
-    sr_return_ship_cost decimalv3(7,2),
-    sr_refunded_cash decimalv3(7,2),
-    sr_reversed_charge decimalv3(7,2),
-    sr_store_credit decimalv3(7,2),
-    sr_net_loss decimalv3(7,2)
+    sr_return_amt decimal(7,2),
+    sr_return_tax decimal(7,2),
+    sr_return_amt_inc_tax decimal(7,2),
+    sr_fee decimal(7,2),
+    sr_return_ship_cost decimal(7,2),
+    sr_refunded_cash decimal(7,2),
+    sr_reversed_charge decimal(7,2),
+    sr_store_credit decimal(7,2),
+    sr_net_loss decimal(7,2)
 )
-duplicate key(sr_item_sk, sr_ticket_number)
-distributed by hash (sr_item_sk, sr_ticket_number) buckets 32
-properties (
-  "replication_num" = "1",
-  "colocate_with" = "store"
+DUPLICATE KEY(sr_returned_date_sk, sr_item_sk, sr_ticket_number)
+DISTRIBUTED BY HASH(sr_item_sk, sr_ticket_number) BUCKETS 16
+PROPERTIES (
+  "replication_num" = "1"
 );
 drop table if exists store_sales;
 CREATE TABLE IF NOT EXISTS store_sales (
-    ss_item_sk bigint not null,
-    ss_ticket_number bigint not null,
-    ss_sold_date_sk bigint,
-    ss_sold_time_sk bigint,
-    ss_customer_sk bigint,
-    ss_cdemo_sk bigint,
-    ss_hdemo_sk bigint,
-    ss_addr_sk bigint,
-    ss_store_sk bigint,
-    ss_promo_sk bigint,
+    ss_sold_date_sk integer,
+    ss_item_sk integer not null,
+    ss_ticket_number integer not null,
+    ss_sold_time_sk integer,
+    ss_customer_sk integer,
+    ss_cdemo_sk integer,
+    ss_hdemo_sk integer,
+    ss_addr_sk integer,
+    ss_store_sk integer,
+    ss_promo_sk integer,
     ss_quantity integer,
-    ss_wholesale_cost decimalv3(7,2),
-    ss_list_price decimalv3(7,2),
-    ss_sales_price decimalv3(7,2),
-    ss_ext_discount_amt decimalv3(7,2),
-    ss_ext_sales_price decimalv3(7,2),
-    ss_ext_wholesale_cost decimalv3(7,2),
-    ss_ext_list_price decimalv3(7,2),
-    ss_ext_tax decimalv3(7,2),
-    ss_coupon_amt decimalv3(7,2),
-    ss_net_paid decimalv3(7,2),
-    ss_net_paid_inc_tax decimalv3(7,2),
-    ss_net_profit decimalv3(7,2)
+    ss_wholesale_cost decimal(7,2),
+    ss_list_price decimal(7,2),
+    ss_sales_price decimal(7,2),
+    ss_ext_discount_amt decimal(7,2),
+    ss_ext_sales_price decimal(7,2),
+    ss_ext_wholesale_cost decimal(7,2),
+    ss_ext_list_price decimal(7,2),
+    ss_ext_tax decimal(7,2),
+    ss_coupon_amt decimal(7,2),
+    ss_net_paid decimal(7,2),
+    ss_net_paid_inc_tax decimal(7,2),
+    ss_net_profit decimal(7,2)
 )
-DUPLICATE KEY(ss_item_sk, ss_ticket_number)
-PARTITION BY RANGE(ss_sold_date_sk)
-(
-PARTITION `p1` VALUES LESS THAN ("2450878"),
-PARTITION `p2` VALUES LESS THAN ("2450939"),
-PARTITION `p3` VALUES LESS THAN ("2451000"),
-PARTITION `p4` VALUES LESS THAN ("2451061"),
-PARTITION `p5` VALUES LESS THAN ("2451122"),
-PARTITION `p6` VALUES LESS THAN ("2451183"),
-PARTITION `p7` VALUES LESS THAN ("2451244"),
-PARTITION `p8` VALUES LESS THAN ("2451305"),
-PARTITION `p9` VALUES LESS THAN ("2451366"),
-PARTITION `p10` VALUES LESS THAN ("2451427"),
-PARTITION `p11` VALUES LESS THAN ("2451488"),
-PARTITION `p12` VALUES LESS THAN ("2451549"),
-PARTITION `p13` VALUES LESS THAN ("2451610"),
-PARTITION `p14` VALUES LESS THAN ("2451671"),
-PARTITION `p15` VALUES LESS THAN ("2451732"),
-PARTITION `p16` VALUES LESS THAN ("2451793"),
-PARTITION `p17` VALUES LESS THAN ("2451854"),
-PARTITION `p18` VALUES LESS THAN ("2451915"),
-PARTITION `p19` VALUES LESS THAN ("2451976"),
-PARTITION `p20` VALUES LESS THAN ("2452037"),
-PARTITION `p21` VALUES LESS THAN ("2452098"),
-PARTITION `p22` VALUES LESS THAN ("2452159"),
-PARTITION `p23` VALUES LESS THAN ("2452220"),
-PARTITION `p24` VALUES LESS THAN ("2452281"),
-PARTITION `p25` VALUES LESS THAN ("2452342"),
-PARTITION `p26` VALUES LESS THAN ("2452403"),
-PARTITION `p27` VALUES LESS THAN ("2452464"),
-PARTITION `p28` VALUES LESS THAN ("2452525"),
-PARTITION `p29` VALUES LESS THAN ("2452586"),
-PARTITION `p30` VALUES LESS THAN ("2452657")
-)
-DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 32
+DUPLICATE KEY(ss_sold_date_sk, ss_item_sk, ss_ticket_number)
+DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 96
 PROPERTIES (
-  "replication_num" = "1",
-  "colocate_with" = "store"
+  "replication_num" = "1"
 );
 drop table if exists ship_mode;
 CREATE TABLE IF NOT EXISTS ship_mode (
-    sm_ship_mode_sk bigint not null,
+    sm_ship_mode_sk integer not null,
     sm_ship_mode_id char(16) not null,
     sm_type char(30),
     sm_code char(10),
@@ -712,13 +607,13 @@ PROPERTIES (
 );
 drop table if exists customer;
 CREATE TABLE IF NOT EXISTS customer (
-    c_customer_sk bigint not null,
+    c_customer_sk integer not null,
     c_customer_id char(16) not null,
-    c_current_cdemo_sk bigint,
-    c_current_hdemo_sk bigint,
-    c_current_addr_sk bigint,
-    c_first_shipto_date_sk bigint,
-    c_first_sales_date_sk bigint,
+    c_current_cdemo_sk integer,
+    c_current_hdemo_sk integer,
+    c_current_addr_sk integer,
+    c_first_shipto_date_sk integer,
+    c_first_sales_date_sk integer,
     c_salutation char(10),
     c_first_name char(20),
     c_last_name char(30),
@@ -729,10 +624,10 @@ CREATE TABLE IF NOT EXISTS customer (
     c_birth_country varchar(20),
     c_login char(13),
     c_email_address char(50),
-    c_last_review_date_sk bigint
+    c_last_review_date_sk integer
 )
 DUPLICATE KEY(c_customer_sk)
-DISTRIBUTED BY HASH(c_customer_id) BUCKETS 12
+DISTRIBUTED BY HASH(c_customer_id) BUCKETS 9
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -740,7 +635,7 @@ drop table if exists dbgen_version;
 CREATE TABLE IF NOT EXISTS dbgen_version
 (
     dv_version                varchar(16)                   ,
-    dv_create_date            datev2                        ,
+    dv_create_date            date                        ,
     dv_create_time            datetime                      ,
     dv_cmdline_args           varchar(200)                  
 )
