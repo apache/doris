@@ -1,1 +1,0 @@
--- SELECT count(distinct repo_name) FROM github_events

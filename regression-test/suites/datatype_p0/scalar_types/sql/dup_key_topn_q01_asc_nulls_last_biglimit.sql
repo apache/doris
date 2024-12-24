@@ -1,1 +1,0 @@
-SET topn_opt_limit_threshold = 5000; SELECT * FROM tbl_scalar_types_dup_3keys ORDER BY c_datetimev2 ASC NULLS LAST LIMIT 3070, 300;

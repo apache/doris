@@ -1,1 +1,0 @@
-SELECT * FROM `information_schema`.`COLUMNS` WHERE TABLE_SCHEMA = 'regression_test_datatype_p0_scalar_types' AND TABLE_NAME = 'tbl_scalar_types_dup' ORDER BY ORDINAL_POSITION;

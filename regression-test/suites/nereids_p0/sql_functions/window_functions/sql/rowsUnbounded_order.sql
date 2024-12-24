@@ -1,2 +1,0 @@
---- Nereids does't support window function
---- SELECT nationkey, min(nationkey) OVER (PARTITION BY regionkey ORDER BY comment ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS min FROM tpch_tiny_nation

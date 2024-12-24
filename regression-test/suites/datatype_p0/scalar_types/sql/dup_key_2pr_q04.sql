@@ -1,1 +1,0 @@
-SELECT * FROM tbl_scalar_types_dup_3keys where c_largeint = '1753599187';

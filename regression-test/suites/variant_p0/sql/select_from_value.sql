@@ -1,1 +1,0 @@
-select cast('{"a":"b"}' as variant)['a'];

@@ -1,1 +1,0 @@
-select * from (select count(a.nationkey), a.name from tpch_tiny_nation a  join[shuffle] tpch_tiny_nation b on a.name = b.name group by a.name union select sum(c.nationkey), c.name from tpch_tiny_nation c  join[shuffle] tpch_tiny_nation d on c.name = d.name group by c.name) t order by 1,2 limit 50;

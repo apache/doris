@@ -1,1 +1,0 @@
-SET topn_opt_limit_threshold = 5000; SELECT * FROM tbl_scalar_types_unique1 ORDER BY c_datetimev2, c_bigint ASC LIMIT 2048, 1025;

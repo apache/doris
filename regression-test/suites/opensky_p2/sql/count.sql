@@ -1,1 +1,0 @@
-SELECT count() FROM opensky;
