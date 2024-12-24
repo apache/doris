@@ -292,7 +292,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
-            DCHECK(null_map != nullptr);
+            DCHECK(null_map);
             vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
         } else {

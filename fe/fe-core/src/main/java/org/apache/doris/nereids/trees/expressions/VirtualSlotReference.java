@@ -82,7 +82,7 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return getName();
     }
 
