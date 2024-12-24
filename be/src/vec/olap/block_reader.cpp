@@ -90,9 +90,9 @@ bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params
         }
         bool cur_rs_key_bounds_truncated {
                 rs_split.rs_reader->rowset()->is_segments_key_bounds_truncated()};
-        if (!Slice::origin_is_strictly_less_than(Slice {pre_rs_last_key},
-                                                 pre_rs_key_bounds_truncated, Slice {rs_first_key},
-                                                 cur_rs_key_bounds_truncated)) {
+        if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_rs_last_key},
+                                                  pre_rs_key_bounds_truncated, Slice {rs_first_key},
+                                                  cur_rs_key_bounds_truncated)) {
             return true;
         }
         bool has_last_key = rs_split.rs_reader->rowset()->last_key(&pre_rs_last_key);
