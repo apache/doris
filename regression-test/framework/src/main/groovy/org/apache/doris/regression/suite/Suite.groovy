@@ -2229,6 +2229,20 @@ class Suite implements GroovyInterceptable {
         mv_rewrite_fail(query_sql, mv_name, true)
     }
 
+    def async_create_mv = { db, mv_sql, mv_name ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+    }
+
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
     def get_be_metric = { ip, port, field ->

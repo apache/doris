@@ -3703,6 +3703,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return last;
     }
 
+    private List<List<String>> getTableList(List<MultipartIdentifierContext> ctx) {
+        List<List<String>> tableList = new ArrayList<>();
+        for (MultipartIdentifierContext tableCtx : ctx) {
+            tableList.add(visitMultipartIdentifier(tableCtx));
+        }
+        return tableList;
+    }
+
     private LogicalPlan withSelectHint(LogicalPlan logicalPlan, List<ParserRuleContext> hintContexts) {
         if (hintContexts.isEmpty()) {
             return logicalPlan;
@@ -3711,6 +3719,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (ParserRuleContext hintContext : hintContexts) {
             SelectHintContext selectHintContext = (SelectHintContext) hintContext;
             for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
+                if (hintStatement.USE_MV() != null) {
+                    hints.add(new SelectHintUseMv("USE_MV", getTableList(hintStatement.tableList), true));
+                    continue;
+                } else if (hintStatement.NO_USE_MV() != null) {
+                    hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
+                    continue;
+                }
                 String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
                 switch (hintName) {
                     case "set_var":
@@ -3765,26 +3780,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             }
                         }
                         hints.add(new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
-                        break;
-                    case "use_mv":
-                        List<String> useIndexParameters = new ArrayList<String>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            String parameterName = visitIdentifierOrText(kv.key);
-                            if (kv.key != null) {
-                                useIndexParameters.add(parameterName);
-                            }
-                        }
-                        hints.add(new SelectHintUseMv(hintName, useIndexParameters, true));
-                        break;
-                    case "no_use_mv":
-                        List<String> noUseIndexParameters = new ArrayList<String>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            String parameterName = visitIdentifierOrText(kv.key);
-                            if (kv.key != null) {
-                                noUseIndexParameters.add(parameterName);
-                            }
-                        }
-                        hints.add(new SelectHintUseMv(hintName, noUseIndexParameters, false));
                         break;
                     default:
                         break;
