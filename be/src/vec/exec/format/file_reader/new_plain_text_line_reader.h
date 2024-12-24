@@ -32,6 +32,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 struct IOContext;
 }
@@ -337,4 +338,5 @@ private:
     RuntimeProfile::Counter* _bytes_decompress_counter = nullptr;
     RuntimeProfile::Counter* _decompress_timer = nullptr;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

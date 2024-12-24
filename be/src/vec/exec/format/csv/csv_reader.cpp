@@ -54,6 +54,7 @@
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 namespace vectorized {
 class IColumn;
@@ -1019,4 +1020,5 @@ Status CsvReader::close() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

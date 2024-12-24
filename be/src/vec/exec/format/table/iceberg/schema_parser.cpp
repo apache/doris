@@ -27,6 +27,7 @@
 #include "vec/exec/format/table/iceberg/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 const char* SchemaParser::SCHEMA_ID = "schema-id";
@@ -160,4 +161,5 @@ std::unordered_set<int> SchemaParser::_get_integer_set(const char* key,
 }
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -25,6 +25,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace io {
 struct IOContext;
@@ -211,4 +212,5 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

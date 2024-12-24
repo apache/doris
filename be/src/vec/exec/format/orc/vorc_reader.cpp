@@ -82,6 +82,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace io {
@@ -2714,4 +2715,5 @@ void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) 
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

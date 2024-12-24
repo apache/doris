@@ -55,6 +55,7 @@
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace cctz {
+#include "common/compile_check_begin.h"
 class time_zone;
 } // namespace cctz
 namespace doris {
@@ -717,4 +718,5 @@ Status IcebergOrcReader::_gen_col_name_maps(OrcReader* orc_reader) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -68,6 +68,7 @@
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
@@ -2158,4 +2159,5 @@ void NewJsonReader::_collect_profile_before_close() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

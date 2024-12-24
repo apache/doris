@@ -28,6 +28,7 @@
 #include "common/exception.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 class PrimitiveType;
@@ -404,4 +405,5 @@ public:
 };
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <cstdint>
+
+#include "common/cast_set.h"
 #include "gutil/strings/numbers.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"
@@ -25,6 +28,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized::converter {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType type>
 constexpr bool is_decimal_type_const() {
@@ -234,9 +238,14 @@ struct SafeCastString<TYPE_TINYINT> {
                                  PrimitiveTypeTraits<TYPE_TINYINT>::ColumnType::value_type* value) {
         int32 cast_to_int = 0;
         bool can_cast = safe_strto32(startptr, buffer_size, &cast_to_int);
-        *value = cast_to_int;
-        return can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
-               cast_to_int >= std::numeric_limits<int8>::min();
+        if (can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
+            cast_to_int >= std::numeric_limits<int8>::min()) {
+            // has checked the cast_to_int is in the range of int8
+            *value = cast_set<int8_t>(cast_to_int);
+            return true;
+        } else {
+            return false;
+        }
     }
 };
 
@@ -247,9 +256,14 @@ struct SafeCastString<TYPE_SMALLINT> {
             PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnType::value_type* value) {
         int32 cast_to_int = 0;
         bool can_cast = safe_strto32(startptr, buffer_size, &cast_to_int);
-        *value = cast_to_int;
-        return can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
-               cast_to_int >= std::numeric_limits<int16>::min();
+        if (can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
+            cast_to_int >= std::numeric_limits<int16>::min()) {
+            // has checked the cast_to_int is in the range of int16
+            *value = cast_set<int16_t>(cast_to_int);
+            return true;
+        } else {
+            return false;
+        }
     }
 };
 
@@ -532,4 +546,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter

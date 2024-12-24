@@ -32,6 +32,7 @@
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 } // namespace doris
 
@@ -119,4 +120,5 @@ Status ArrowStreamReader::get_columns(std::unordered_map<std::string, TypeDescri
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

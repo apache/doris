@@ -56,6 +56,7 @@
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 class TFileRangeDesc;
 class TFileScanRangeParams;
@@ -701,4 +702,5 @@ private:
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
