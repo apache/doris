@@ -82,6 +82,7 @@ int __llvm_profile_write_file();
 
 namespace doris {
 extern bool k_doris_exit;
+extern bool k_doris_start;
 
 static void thrift_output(const char* x) {
     LOG(WARNING) << "thrift internal message: " << x;
@@ -463,6 +464,7 @@ int main(int argc, char** argv) {
 
     // init exec env
     auto exec_env = doris::ExecEnv::GetInstance();
+    doris::k_doris_start = true;
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
 

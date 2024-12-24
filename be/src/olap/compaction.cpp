@@ -524,6 +524,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             auto& fs = _output_rowset->rowset_meta()->fs();
             auto& tablet_path = _tablet->tablet_path();
 
+            // After doing index compaction, need to add this size to rowset->total_size
+            int64_t compacted_index_file_size = 0;
+
             // we choose the first destination segment name as the temporary index writer path
             // Used to distinguish between different index compaction
             auto index_writer_path = tablet_path + "/" + dest_index_files[0];
@@ -536,7 +539,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                     ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
                     [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
                      &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
-                     &status, this](int32_t column_uniq_id) {
+                     &status, &compacted_index_file_size, this](int32_t column_uniq_id) {
                         auto error_handler = [this](int64_t index_id, int64_t column_uniq_id) {
                             LOG(WARNING) << "failed to do index compaction"
                                          << ". tablet=" << _tablet->tablet_id()
@@ -584,6 +587,25 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                 error_handler(index_id, column_uniq_id);
                                 status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
                                         st.msg());
+                            } else {
+                                for (int i = 0; i < dest_segment_num; ++i) {
+                                    // format: rowsetId_segmentId_columnId
+                                    auto seg_path =
+                                            std::static_pointer_cast<BetaRowset>(_output_rowset)
+                                                    ->segment_file_path(i);
+                                    std::string index_path =
+                                            InvertedIndexDescriptor::get_index_file_name(seg_path,
+                                                                                         index_id);
+                                    int64_t current_size = 0;
+                                    st = fs->file_size(index_path, &current_size);
+                                    if (!st.ok()) {
+                                        error_handler(index_id, column_uniq_id);
+                                        status = Status::Error<
+                                                ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                                                st.msg());
+                                    }
+                                    compacted_index_file_size += current_size;
+                                }
                             }
                         } catch (CLuceneError& e) {
                             error_handler(index_id, column_uniq_id);
@@ -596,6 +618,41 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             if (!status.ok()) {
                 return status;
             }
+
+            // index compaction should update total disk size and index disk size=
+            _output_rowset->rowset_meta()->set_data_disk_size(
+                    _output_rowset->rowset_meta()->data_disk_size() + compacted_index_file_size);
+            _output_rowset->rowset_meta()->set_total_disk_size(
+                    _output_rowset->rowset_meta()->total_disk_size() + compacted_index_file_size);
+            _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
+                                                               compacted_index_file_size);
+
+            DBUG_EXECUTE_IF("check_after_compaction_file_size", {
+                int64_t total_file_size = 0;
+                for (int i = 0; i < dest_segment_num; ++i) {
+                    auto seg_path = std::static_pointer_cast<BetaRowset>(_output_rowset)
+                                            ->segment_file_path(i);
+                    int64_t current_size = 0;
+                    RETURN_IF_ERROR(fs->file_size(seg_path, &current_size));
+                    total_file_size += current_size;
+                    for (auto& column : _cur_tablet_schema->columns()) {
+                        const TabletIndex* index_meta =
+                                _cur_tablet_schema->get_inverted_index(column.unique_id());
+                        if (index_meta) {
+                            std::string index_path = InvertedIndexDescriptor::get_index_file_name(
+                                    seg_path, index_meta->index_id());
+                            RETURN_IF_ERROR(fs->file_size(index_path, &current_size));
+                            total_file_size += current_size;
+                        }
+                    }
+                }
+                if (total_file_size != _output_rowset->rowset_meta()->data_disk_size()) {
+                    Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                            "total file size {} is not equal rowset meta size {}", total_file_size,
+                            _output_rowset->rowset_meta()->data_disk_size());
+                }
+                LOG(INFO) << "succeed to check index compaction file size";
+            })
 
             LOG(INFO) << "succeed to do index compaction"
                       << ". tablet=" << _tablet->full_name()

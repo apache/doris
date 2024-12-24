@@ -37,6 +37,7 @@
 #include "task/engine_clone_task.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
+#include "util/security.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 
@@ -390,7 +391,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
     // name may have different versions.
     VLOG_DEBUG << "single replica compaction begin to download files, remote path="
-               << remote_url_prefix << " local_path=" << local_path;
+               << mask_token(remote_url_prefix) << " local_path=" << local_path;
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(local_path));
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
@@ -448,9 +449,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
 
         std::string local_file_path = local_path + file_name;
 
-        LOG(INFO) << "single replica compaction begin to download file from: " << remote_file_url
-                  << " to: " << local_file_path << ". size(B): " << file_size
-                  << ", timeout(s): " << estimate_timeout;
+        LOG(INFO) << "single replica compaction begin to download file from: "
+                  << mask_token(remote_file_url) << " to: " << local_file_path
+                  << ". size(B): " << file_size << ", timeout(s): " << estimate_timeout;
 
         auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
@@ -462,7 +463,8 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                             << ", remote_path=" << mask_token(remote_file_url)
+                             << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }

@@ -58,7 +58,7 @@ private:
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
-    Status _finish_clone(const string& clone_dir, const Version& version);
+    Status _finish_clone(const std::string& clone_dir, const Version& version);
     CompactionType _compaction_type;
 
     DISALLOW_COPY_AND_ASSIGN(SingleReplicaCompaction);

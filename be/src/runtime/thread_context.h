@@ -100,6 +100,7 @@ class MemTracker;
 class RuntimeState;
 
 extern bool k_doris_exit;
+extern bool k_doris_start;
 extern bthread_key_t btls_key;
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
@@ -388,17 +389,17 @@ private:
 // which is different from the previous behavior.
 #define CONSUME_MEM_TRACKER(size)                                                                  \
     do {                                                                                           \
-        if (doris::thread_context_ptr.init) {                                                      \
+        if (doris::k_doris_start && doris::thread_context_ptr.init) {                              \
             doris::thread_context()->consume_memory(size);                                         \
-        } else if (doris::ExecEnv::GetInstance()->initialized()) {                                 \
+        } else if (doris::k_doris_start && doris::ExecEnv::GetInstance()->initialized()) {         \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
     } while (0)
 #define RELEASE_MEM_TRACKER(size)                                                            \
     do {                                                                                     \
-        if (doris::thread_context_ptr.init) {                                                \
+        if (doris::k_doris_start && doris::thread_context_ptr.init) {                        \
             doris::thread_context()->consume_memory(-size);                                  \
-        } else if (doris::ExecEnv::GetInstance()->initialized()) {                           \
+        } else if (doris::k_doris_start && doris::ExecEnv::GetInstance()->initialized()) {   \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
                     -size);                                                                  \
         }                                                                                    \

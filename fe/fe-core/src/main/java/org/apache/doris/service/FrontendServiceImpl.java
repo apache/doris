@@ -2826,12 +2826,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (snapshot == null) {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s not exist", label));
+        } else if (snapshot.isExpired()) {
+            result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
+            result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
             byte[] meta = snapshot.getMeta();
             byte[] jobInfo = snapshot.getJobInfo();
+            long expiredAt = snapshot.getExpiredAt();
+            long commitSeq = snapshot.getCommitSeq();
 
-            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}",
-                    label, meta.length, jobInfo.length);
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
+                    + "expired at: {}, commit seq: {}", label, meta.length, jobInfo.length, expiredAt, commitSeq);
             if (request.isEnableCompress()) {
                 meta = GZIPUtils.compress(meta);
                 jobInfo = GZIPUtils.compress(jobInfo);
@@ -2843,6 +2848,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             result.setMeta(meta);
             result.setJobInfo(jobInfo);
+            result.setExpiredAt(expiredAt);
+            result.setCommitSeq(commitSeq);
         }
 
         return result;

@@ -1490,6 +1490,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backup_restore_job_num_per_db = 10;
 
+    /*
+     * whether to ignore table that not support type when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean ignore_backup_not_support_table_type = false;
+
     /**
      * A internal config, to reduce the restore job size during serialization by compress.
      *
@@ -2457,6 +2463,12 @@ public class Config extends ConfigBase {
         "The max number work threads of http upload submitter."
     })
     public static int http_load_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "缓存的最大Query数量，用于响应http请求/api/query_detail。",
+            "The max capacity of queries for query_detail api."
+    })
+    public static int http_query_detail_capacity = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"

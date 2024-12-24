@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -31,9 +33,12 @@ import java.util.Map;
 public class QueryDetailQueue {
     private static Map<String, QueryDetail> runningQueries = Maps.newHashMap();
     private static LinkedList<QueryDetail> totalQueries = new LinkedList<QueryDetail>();
-    private static int queryCapacity = 10000;
+    private static int queryCapacity = Config.http_query_detail_capacity;
 
     public static synchronized void addOrUpdateQueryDetail(QueryDetail queryDetail) {
+        if (queryCapacity <= 0) {
+            return;
+        }
         if (runningQueries.get(queryDetail.getQueryId()) == null) {
             if (queryDetail.getState() == QueryDetail.QueryMemState.RUNNING) {
                 runningQueries.put(queryDetail.getQueryId(), queryDetail);
