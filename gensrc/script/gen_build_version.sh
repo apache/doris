@@ -35,7 +35,7 @@ build_version_hotfix=0
 build_version_rc_version="rc03"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
-if [[ ${build_version_hotfix} > 0 ]]; then
+if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"
 fi
 build_version+="-${build_version_rc_version}"
@@ -225,7 +225,7 @@ fi
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 
-if [[ ${build_version_hotfix} > 0 ]]; then
+if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"
 fi
 
