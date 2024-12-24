@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
@@ -113,6 +114,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
+import org.apache.doris.nereids.DorisParser.CreateAliasFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
@@ -124,6 +126,7 @@ import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CreateTableLikeContext;
+import org.apache.doris.nereids.DorisParser.CreateUserDefineFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateViewContext;
 import org.apache.doris.nereids.DorisParser.CreateWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
@@ -138,6 +141,7 @@ import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropDatabaseContext;
 import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
+import org.apache.doris.nereids.DorisParser.DropFunctionContext;
 import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
 import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
@@ -159,6 +163,8 @@ import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.FunctionArgumentContext;
+import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
@@ -516,6 +522,7 @@ import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -535,6 +542,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
@@ -664,6 +672,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgsDefInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -4156,6 +4165,111 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 new TableNameInfo(nameParts), new TableNameInfo(existedTableNameParts),
                 rollupNames, withAllRollUp);
         return new CreateTableLikeCommand(info);
+    }
+
+    @Override
+    public Command visitCreateUserDefineFunction(CreateUserDefineFunctionContext ctx) {
+        SetType setType;
+        if (ctx.GLOBAL() != null) {
+            setType = SetType.GLOBAL;
+        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+            setType = SetType.SESSION;
+        } else {
+            setType = SetType.DEFAULT;
+        }
+        boolean ifNotExists = ctx.EXISTS() != null;
+        boolean isAggFunction = ctx.AGGREGATE() != null;
+        boolean isTableFunction = ctx.TABLES() != null;
+        String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
+        String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
+        FunctionName function = new FunctionName(dbName, functionName);
+        FunctionArgsDefInfo functionArgsDefInfo;
+        if (ctx.functionArguments() != null) {
+            functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+        } else {
+            functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
+        }
+        DataType returnType = typedVisit(ctx.returnType);
+        DataType intermediateType = ctx.intermediateType != null ? typedVisit(ctx.intermediateType) : null;
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
+                : Maps.newHashMap();
+        if (isTableFunction) {
+            return new CreateFunctionCommand(setType, ifNotExists, function, functionArgsDefInfo, returnType,
+                    intermediateType, properties);
+        } else {
+            return new CreateFunctionCommand(setType, ifNotExists, isAggFunction, function, functionArgsDefInfo,
+                    returnType, intermediateType, properties);
+        }
+    }
+
+    @Override
+    public Command visitCreateAliasFunction(CreateAliasFunctionContext ctx) {
+        SetType setType;
+        if (ctx.GLOBAL() != null) {
+            setType = SetType.GLOBAL;
+        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+            setType = SetType.SESSION;
+        } else {
+            setType = SetType.DEFAULT;
+        }
+        boolean ifNotExists = ctx.EXISTS() != null;
+        String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
+        String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
+        FunctionName function = new FunctionName(dbName, functionName);
+        FunctionArgsDefInfo functionArgsDefInfo;
+        if (ctx.functionArguments() != null) {
+            functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+        } else {
+            functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
+        }
+        List<String> parameters = ctx.parameters != null ? visitIdentifierSeq(ctx.parameters) : new ArrayList<>();
+        Expression originFunction = getExpression(ctx.expression());
+        return new CreateFunctionCommand(setType, ifNotExists, function, functionArgsDefInfo, parameters,
+                originFunction);
+    }
+
+    @Override
+    public Command visitDropFunction(DropFunctionContext ctx) {
+        SetType setType;
+        if (ctx.GLOBAL() != null) {
+            setType = SetType.GLOBAL;
+        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+            setType = SetType.SESSION;
+        } else {
+            setType = SetType.DEFAULT;
+        }
+        boolean ifExists = ctx.EXISTS() != null;
+        String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
+        String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
+        FunctionName function = new FunctionName(dbName, functionName);
+        FunctionArgsDefInfo functionArgsDefInfo = null;
+        if (ctx.functionArguments() != null) {
+            functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+        }
+        return new DropFunctionCommand(setType, ifExists, function, functionArgsDefInfo);
+    }
+
+    @Override
+    public FunctionArgsDefInfo visitFunctionArguments(FunctionArgumentsContext ctx) {
+        boolean isVariadic = false;
+        List<DataType> argTypeDefs = new ArrayList<>(4);
+        for (Object child : ctx.children) {
+            if (child instanceof FunctionArgumentContext) {
+                DataType dataType = visitFunctionArgument((FunctionArgumentContext) child);
+                if (dataType != null) {
+                    argTypeDefs.add(dataType);
+                } else {
+                    isVariadic = true;
+                }
+            }
+        }
+        return new FunctionArgsDefInfo(argTypeDefs, isVariadic);
+    }
+
+    @Override
+    public DataType visitFunctionArgument(FunctionArgumentContext ctx) {
+        return ctx.dataType() != null ? typedVisit(ctx.dataType()) : null;
     }
 
     @Override
