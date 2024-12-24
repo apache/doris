@@ -154,11 +154,11 @@ public:
     Status _init_select_types(const orc::Type& type, int idx);
 
     Status _fill_partition_columns(
-            Block* block, size_t rows,
+            Block* block, uint16_t rows,
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns);
     Status _fill_missing_columns(
-            Block* block, size_t rows,
+            Block* block, uint16_t rows,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
@@ -294,7 +294,7 @@ private:
     std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
             const VSlotRef* slot_ref, const VLiteral* literal);
     bool _check_slot_can_push_down(const VExprSPtr& expr);
-    bool _check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id);
+    bool _check_literal_can_push_down(const VExprSPtr& expr, size_t child_id);
     bool _check_rest_children_can_push_down(const VExprSPtr& expr);
     bool _check_expr_can_push_down(const VExprSPtr& expr);
     void _build_less_than(const VExprSPtr& expr,

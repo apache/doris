@@ -86,11 +86,11 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
 
     // convert arrow batch to block
     auto columns = block->mutate_columns();
-    int batch_size = out_batches.size();
-    for (int i = 0; i < batch_size; i++) {
+    size_t batch_size = out_batches.size();
+    for (size_t i = 0; i < batch_size; i++) {
         arrow::RecordBatch& batch = *out_batches[i];
-        int num_rows = batch.num_rows();
-        int num_columns = batch.num_columns();
+        auto num_rows = batch.num_rows();
+        auto num_columns = batch.num_columns();
         for (int c = 0; c < num_columns; ++c) {
             arrow::Array* column = batch.column(c).get();
 

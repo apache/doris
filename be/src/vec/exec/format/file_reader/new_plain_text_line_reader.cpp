@@ -328,7 +328,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
         return Status::OK();
     }
     _line_reader_ctx->refresh();
-    int found_line_delimiter = 0;
+    size_t found_line_delimiter = 0;
     size_t offset = 0;
     bool stream_end = true;
     while (!done()) {

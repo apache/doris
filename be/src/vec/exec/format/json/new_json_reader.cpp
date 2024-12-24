@@ -22,19 +22,18 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <inttypes.h>
 #include <rapidjson/error/en.h>
 #include <rapidjson/reader.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stdio.h>
-#include <string.h>
 
 #include <algorithm>
+#include <cinttypes>
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
-#include <ostream>
 #include <string_view>
 #include <utility>
 
@@ -50,9 +49,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/defer_op.h"
 #include "util/slice.h"
-#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
@@ -60,12 +57,9 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/typeid_cast.h"
-#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vec/json/simd_json_parser.h"
 
 namespace doris::io {
 #include "common/compile_check_begin.h"
@@ -808,7 +802,8 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             }
         } else {
             it = objectValue.FindMember(
-                    rapidjson::Value(slot_desc->col_name().c_str(), slot_desc->col_name().size()));
+                    rapidjson::Value(slot_desc->col_name().c_str(),
+                                     cast_set<rapidjson::SizeType>(slot_desc->col_name().size())));
         }
 
         if (it != objectValue.MemberEnd()) {
@@ -978,7 +973,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         const auto& struct_value = value->GetObject();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
+        auto* struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
 
         std::map<std::string, size_t> sub_col_name_to_idx;
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
@@ -992,7 +987,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
                         "Json file struct column `{}` subfield name isn't a String", column_name);
             }
 
-            auto sub_key_char = sub.name.GetString();
+            const auto* sub_key_char = sub.name.GetString();
             auto sub_key_length = sub.name.GetStringLength();
 
             std::string sub_key(sub_key_char, sub_key_length);
@@ -1006,7 +1001,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         }
 
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
-            auto sub_value = sub_values[sub_col_idx];
+            const auto* sub_value = sub_values[sub_col_idx];
 
             const auto& sub_col_type = type_desc.children[sub_col_idx];
 
@@ -1023,7 +1018,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         }
         const auto& object_value = value->GetObject();
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
+        auto* map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
 
         for (const auto& member_value : object_value) {
             RETURN_IF_ERROR(_write_data_to_column(
@@ -1151,7 +1146,7 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
     buffer.Clear();
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     value.Accept(writer);
-    return std::string(buffer.GetString());
+    return {buffer.GetString()};
 }
 
 Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
@@ -1614,8 +1609,8 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                                               "partial update, missing key column: {}",
                                               slot_desc->col_name(), valid));
                     // remove this line in block
-                    for (int i = 0; i < block.columns(); ++i) {
-                        auto column = block.get_by_position(i).column->assume_mutable();
+                    for (size_t index = 0; index < block.columns(); ++index) {
+                        auto column = block.get_by_position(index).column->assume_mutable();
                         if (column->size() != cur_row_count) {
                             DCHECK(column->size() == cur_row_count + 1);
                             column->pop_back(1);
@@ -1700,7 +1695,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         auto sub_col_size = type_desc.children.size();
         simdjson::ondemand::object struct_value = value.get_object();
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
+        auto* struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
 
         std::map<std::string, size_t> sub_col_name_to_idx;
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
@@ -1733,7 +1728,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
         //fill missing subcolumn
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
-            if (has_value[sub_col_idx] == true) {
+            if (has_value[sub_col_idx]) {
                 continue;
             }
 
@@ -1762,10 +1757,10 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             auto f = [](std::string_view key_view, const TypeDescriptor& type_desc,
                         vectorized::IColumn* column_ptr, DataTypeSerDeSPtr serde,
                         vectorized::DataTypeSerDe::FormatOptions serde_options, bool* valid) {
-                auto data_column_ptr = column_ptr;
+                auto* data_column_ptr = column_ptr;
                 auto data_serde = serde;
                 if (column_ptr->is_nullable()) {
-                    auto nullable_column = static_cast<ColumnNullable*>(column_ptr);
+                    auto* nullable_column = static_cast<ColumnNullable*>(column_ptr);
 
                     nullable_column->get_null_map_data().push_back(0);
                     data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
@@ -1802,7 +1797,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         simdjson::ondemand::array array_value = value.get_array();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+        auto *array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
 
         int field_count = 0;
         for (simdjson::ondemand::value sub_value : array_value) {

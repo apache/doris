@@ -372,7 +372,7 @@ Status OrcReader::_init_read_columns() {
         if (iter == orc_cols_lower_case.end()) {
             _missing_cols.emplace_back(col_name);
         } else {
-            int pos = std::distance(orc_cols_lower_case.begin(), iter);
+            auto pos = std::distance(orc_cols_lower_case.begin(), iter);
             std::string read_col;
             if (_is_acid && i < _column_names->size() - TransactionalHive::READ_PARAMS.size()) {
                 read_col = fmt::format(
@@ -659,7 +659,7 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
 }
 
 // check if the literal of expr can be pushed down to orc reader and make orc literal
-bool OrcReader::_check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id) {
+bool OrcReader::_check_literal_can_push_down(const VExprSPtr& expr, size_t child_id) {
     if (!expr->children()[child_id]->is_literal()) {
         return false;
     }
@@ -1177,14 +1177,14 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
 }
 
 Status OrcReader::_fill_partition_columns(
-        Block* block, size_t rows,
+        Block* block, uint16_t rows,
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
-    for (auto& kv : partition_columns) {
+    for (const auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
-        IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
-        auto& [value, slot_desc] = kv.second;
+        auto* col_ptr = const_cast<IColumn*>(doris_column.get());
+        const auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
         int num_deserialized = 0;
@@ -1207,7 +1207,7 @@ Status OrcReader::_fill_partition_columns(
 }
 
 Status OrcReader::_fill_missing_columns(
-        Block* block, size_t rows,
+        Block* block, uint16_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     for (auto& kv : missing_columns) {
         if (kv.second == nullptr) {
@@ -1300,14 +1300,14 @@ TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
             return TypeDescriptor::create_decimalv3_type(decimal_precision_for_hive11,
                                                          decimal_scale_for_hive11);
         }
-        return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
-                                                     orc_type->getScale());
+        return TypeDescriptor::create_decimalv3_type(cast_set<int>(orc_type->getPrecision()),
+                                                     cast_set<int>(orc_type->getScale()));
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
-        return TypeDescriptor::create_varchar_type(orc_type->getMaximumLength());
+        return TypeDescriptor::create_varchar_type(cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::CHAR:
-        return TypeDescriptor::create_char_type(orc_type->getMaximumLength());
+        return TypeDescriptor::create_char_type(cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {

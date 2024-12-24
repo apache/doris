@@ -296,8 +296,8 @@ private:
     vectorized::DataTypeSerDeSPtrs _serdes;
     vectorized::DataTypeSerDe::FormatOptions _options;
 
-    int _value_separator_length;
-    int _line_delimiter_length;
+    size_t _value_separator_length;
+    size_t _line_delimiter_length;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes

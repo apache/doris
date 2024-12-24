@@ -16,11 +16,9 @@
 // under the License.
 
 #pragma once
-#include <stdint.h>
-
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,7 +27,6 @@
 #include "exec/line_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "util/slice.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -61,9 +58,9 @@ class BaseTextLineReaderContext : public TextLineReaderContextIf {
     using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
 
 public:
-    explicit BaseTextLineReaderContext(const std::string& line_delimiter_,
+    explicit BaseTextLineReaderContext(std::string line_delimiter_,
                                        const size_t line_delimiter_len_, const bool keep_cr_)
-            : line_delimiter(line_delimiter_),
+            : line_delimiter(std::move(line_delimiter_)),
               line_delimiter_len(line_delimiter_len_),
               keep_cr(keep_cr_) {
         use_memmem = line_delimiter_len != 1 || line_delimiter != "\n" || keep_cr;
@@ -114,9 +111,10 @@ public:
             int mask_carriage_return = _mm256_movemask_epi8(cmp_carriage_return);
 
             if (mask_newline != 0 || mask_carriage_return != 0) {
-                int pos_lf = (mask_newline != 0) ? i + __builtin_ctz(mask_newline) : INT32_MAX;
-                int pos_cr = (mask_carriage_return != 0) ? i + __builtin_ctz(mask_carriage_return)
-                                                         : INT32_MAX;
+                size_t pos_lf = (mask_newline != 0) ? i + __builtin_ctz(mask_newline) : INT32_MAX;
+                size_t pos_cr = (mask_carriage_return != 0)
+                                        ? i + __builtin_ctz(mask_carriage_return)
+                                        : INT32_MAX;
                 if (pos_lf < pos_cr) {
                     return start + pos_lf;
                 } else if (pos_cr < pos_lf) {
