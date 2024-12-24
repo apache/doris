@@ -193,6 +193,5 @@ suite("compress_materialize") {
     qt_sort "select * from compressSort order by k desc, v";
     qt_sort "select * from compressSort order by k desc nulls last";
     qt_sort "select * from compressSort order by k desc nulls last, v limit 3";
-
 }
 

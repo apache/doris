@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -35,6 +34,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -50,6 +51,8 @@ import java.util.stream.Collectors;
  * 2. push limit to local agg
  */
 public class LimitAggToTopNAgg implements RewriteRuleFactory {
+    public static final Logger LOG = LogManager.getLogger(LimitAggToTopNAgg.class);
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -122,6 +125,8 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                             LogicalTopN originTopn = topn;
                             LogicalProject<? extends Plan> project = topn.child();
                             LogicalAggregate<? extends Plan> agg = (LogicalAggregate) project.child();
+                            StringBuilder builder = new StringBuilder();
+                            builder.append("@@@@@###");
                             if (!project.isAllSlots()) {
                                 /*
                                     topn(orderKey=[a])
@@ -139,6 +144,9 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                         keyAsKey.put((SlotReference) e.toSlot(), (SlotReference) e.child(0));
                                     }
                                 }
+                                builder.append(topn);
+                                builder.append(project);
+
                                 List<OrderKey> projectOrderKeys = Lists.newArrayList();
                                 boolean hasNew = false;
                                 for (OrderKey orderKey : topn.getOrderKeys()) {
@@ -157,34 +165,22 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                     supplementOrderKeyByGroupKeyIfCompatible(topn, agg);
                             Plan result;
                             if (pair == null) {
+                                builder.append("|not compatible");
                                 result = originTopn;
                             } else {
+                                builder.append("|compatible");
                                 agg = agg.withGroupBy(pair.second);
                                 topn = (LogicalTopN) topn.withOrderKeys(pair.first);
-                                if (isOrderKeysInProject(topn, project)) {
-                                    project = (LogicalProject<? extends Plan>) project.withChildren(agg);
-                                    topn = (LogicalTopN<LogicalProject<LogicalAggregate<Plan>>>)
-                                            topn.withChildren(project);
-                                    result = topn;
-                                } else {
-                                    topn = (LogicalTopN) topn.withChildren(agg);
-                                    project = (LogicalProject<? extends Plan>) project.withChildren(topn);
-                                    result = project;
-                                }
+                                topn = (LogicalTopN) topn.withChildren(agg);
+                                project = (LogicalProject<? extends Plan>) project.withChildren(topn);
+                                result = project;
                             }
+                            LOG.warn(builder.toString());
+                            LOG.warn("@@@@@###originTopn " + originTopn.treeString());
+                            LOG.warn("@@@@@###result " + result.treeString());
                             return result;
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG)
         );
-    }
-
-    private boolean isOrderKeysInProject(LogicalTopN<? extends Plan> topn, LogicalProject project) {
-        Set<Slot> projectSlots = project.getOutputSet();
-        for (OrderKey orderKey : topn.getOrderKeys()) {
-            if (!projectSlots.contains(orderKey.getExpr())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private List<OrderKey> generateOrderKeyByGroupKey(LogicalAggregate<? extends Plan> agg) {

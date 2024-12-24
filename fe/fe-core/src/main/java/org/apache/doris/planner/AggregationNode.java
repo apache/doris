@@ -412,9 +412,9 @@ public class AggregationNode extends PlanNode {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
         }
-        output.append(detailPrefix).append("sortByGroupKey:").append(sortByGroupKey != null).append("\n");
         output.append(detailPrefix).append(String.format(
                 "cardinality=%,d", cardinality)).append("\n");
+        output.append(detailPrefix).append("sortInfo:").append(sortByGroupKey).append("\n");
         return output.toString();
     }
 

@@ -21,6 +21,7 @@ This file is used specifically to test the presence of AGGs under joins.
 suite("dimension_2_join_agg_replenish") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
+    sql "set enable_compress_materialize=false;"
 
     sql """
     drop table if exists orders

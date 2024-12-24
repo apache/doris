@@ -64,7 +64,7 @@ suite("eliminate_gby_key") {
         select t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18]")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19]")
     }
 
     explain {
@@ -84,7 +84,7 @@ suite("eliminate_gby_key") {
         select t2_c2
         from   temp;
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19], outputExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19]")
     }
 
     explain {
@@ -104,7 +104,7 @@ suite("eliminate_gby_key") {
         select c3
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18]")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19]")
     }
 
     explain {
@@ -124,7 +124,7 @@ suite("eliminate_gby_key") {
         select cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19")
     }
 
     explain {
@@ -144,7 +144,7 @@ suite("eliminate_gby_key") {
         select t2_c2, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19], outputExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19]")
     }
 
     explain {
@@ -164,7 +164,7 @@ suite("eliminate_gby_key") {
         select c3, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18]")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19]")
     }
 
     explain {
@@ -184,7 +184,7 @@ suite("eliminate_gby_key") {
         select c3, t2_c2
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19], outputExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19]")
     }	
 
     explain {
@@ -204,7 +204,7 @@ suite("eliminate_gby_key") {
         select t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19,")
     }
 
     explain {
@@ -224,7 +224,7 @@ suite("eliminate_gby_key") {
         select c3, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19")
     }
 
     explain {
@@ -244,7 +244,7 @@ suite("eliminate_gby_key") {
         select t2_c1, c3, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+	contains("groupByExpr=[c1#14, c3#19], outputExpr=[c1#14, c3#19")
     }
 
     explain {
@@ -264,7 +264,7 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19], outputExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19]")
     }
 
     explain {
@@ -284,6 +284,6 @@ suite("eliminate_gby_key") {
         select t2_c2, c3, t2_c1, cnt
         from   temp; 
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18,")
+	contains("groupByExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19], outputExpr=[encode_as_int(substring(c2, 1, 3))#20, c1#14, c3#19,")
     }
 }

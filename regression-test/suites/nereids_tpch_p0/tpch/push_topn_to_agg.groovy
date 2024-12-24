@@ -26,12 +26,12 @@ suite("push_topn_to_agg") {
     sql "set push_topn_to_agg=false"
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey limit 4;"
-        multiContains ("sortByGroupKey:false", 2)
+        multiContains ("sortInfo:[o_custkey]", 2)
     }
     sql "set push_topn_to_agg=true"
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey limit 4;"
-        multiContains ("sortByGroupKey:true", 2)
+        multiContains ("sortInfo:[o_custkey]", 2)
         notContains("STREAMING")
     }
 
@@ -39,14 +39,14 @@ suite("push_topn_to_agg") {
     // limit -> proj -> agg, 
     explain{
         sql "select sum(c_custkey), c_name from customer group by c_name limit 6;"
-        multiContains ("sortByGroupKey:true", 2)
+        multiContains ("sortInfo:[c_name]", 2)
         notContains("STREAMING")
     }
 
     // topn -> agg
     explain{
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey limit 8;"
-        multiContains ("sortByGroupKey:true", 2)
+        multiContains ("sortInfo:[o_custkey]", 2)
         notContains("STREAMING")
     }
 
@@ -55,9 +55,9 @@ suite("push_topn_to_agg") {
     // 2. append o_custkey to order key 
     explain{
         sql "select sum(o_shippriority)  from orders group by o_custkey, o_clerk order by o_clerk limit 11;"
-        contains("sortByGroupKey:true")
-        contains("group by: o_clerk[#10], o_custkey[#9]")
         contains("order by: o_clerk[#18] ASC, o_custkey[#19] ASC")
+        contains("group by: o_clerk[#12], o_custkey[#13]")
+        contains("sortInfo:[o_clerk, o_custkey]")
     }
 
 
@@ -66,7 +66,8 @@ suite("push_topn_to_agg") {
         sql "select sum(distinct o_shippriority) from orders group by o_orderkey limit 13; "
         contains("VTOP-N")
         contains("order by: o_orderkey")
-        multiContains("sortByGroupKey:true", 1)
+        multiContains("sortInfo:[o_orderkey]", 1) // the upper agg
+        contains("sortInfo:null") // the middle and bottom agg
     }
 
     // multi distinct 
@@ -74,31 +75,32 @@ suite("push_topn_to_agg") {
         sql "select count(distinct o_clerk), sum(distinct o_shippriority) from orders group by o_orderkey limit 14; "
         contains("VTOP-N")
         contains("order by: o_orderkey")
-        multiContains("sortByGroupKey:true", 2)
+        multiContains("sortInfo:[o_orderkey]", 3)
     }
 
     // use group key as sort key to enable topn-push opt
     explain {
         sql "select sum(o_shippriority) from orders group by o_clerk limit 14; "
-        contains("sortByGroupKey:true")
+        contains("sortInfo:[o_clerk]")
     }
 
     // group key is expression
     explain {
         sql "select sum(o_shippriority), o_clerk+1 from orders group by o_clerk+1 limit 15; "
-        contains("sortByGroupKey:true")
+        contains("order by: (cast(o_clerk as DOUBLE) + cast(1 as DOUBLE))")
+        contains("group by: (cast(o_clerk as DOUBLE) + cast(1 as DOUBLE))")
+        contains("sortInfo:[(cast(o_clerk as DOUBLE) + cast(1 as DOUBLE))]")
     }
 
     // order key is not part of group key
     explain {
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey+1 limit 16; "
-        contains("sortByGroupKey:false")
-        notContains("sortByGroupKey:true")
+        contains("sortInfo:null")
     }
 
     // topn + one phase agg
     explain {
         sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_partkey, ps_suppkey limit 18;"
-        contains("sortByGroupKey:true")
+        contains("sortInfo:[ps_partkey, ps_suppkey]")
     }
 }

@@ -207,7 +207,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
                 "topnFilter", topnPushInfo != null,
-                "topnPushDown", getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).isPresent()
+                "topnPushInfo", getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).isPresent()
+                        ? (TopnPushInfo) getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).get() : "false"
         );
     }
 
@@ -328,6 +329,15 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         public TopnPushInfo(List<OrderKey> orderkeys, long limit) {
             this.orderkeys = ImmutableList.copyOf(orderkeys);
             this.limit = limit;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder builder = new StringBuilder("[");
+            builder.append("orderkeys=").append(orderkeys);
+            builder.append(", limit=").append(limit);
+            builder.append("]");
+            return builder.toString();
         }
     }
 

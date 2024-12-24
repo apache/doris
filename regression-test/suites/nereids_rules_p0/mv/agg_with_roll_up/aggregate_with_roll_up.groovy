@@ -19,6 +19,7 @@ suite("aggregate_with_roll_up") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
+    sql "set enable_compress_materialize=false;"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
     sql """
