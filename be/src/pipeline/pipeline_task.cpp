@@ -437,11 +437,8 @@ Status PipelineTask::execute(bool* eos) {
                     }
                     LOG(INFO) << debug_msg;
 
-                    _state->get_query_ctx()->update_paused_reason(st);
-                    _state->get_query_ctx()->set_low_memory_mode();
-                    _state->get_query_ctx()->set_memory_sufficient(false);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                            _state->get_query_ctx()->shared_from_this(), reserve_size);
+                            _state->get_query_ctx()->shared_from_this(), reserve_size, st);
                     continue;
                 }
             }
@@ -484,11 +481,8 @@ Status PipelineTask::execute(bool* eos) {
                     DCHECK_EQ(_pending_block.get(), nullptr);
                     _pending_block = std::move(_block);
                     _block = vectorized::Block::create_unique(_pending_block->clone_empty());
-                    _state->get_query_ctx()->update_paused_reason(status);
-                    _state->get_query_ctx()->set_low_memory_mode();
-                    _state->get_query_ctx()->set_memory_sufficient(false);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                            _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
+                            _state->get_query_ctx()->shared_from_this(), sink_reserve_size, status);
                     _pending_eos = *eos;
                     *eos = false;
                     continue;

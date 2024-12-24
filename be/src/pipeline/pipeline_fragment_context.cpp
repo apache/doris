@@ -1821,8 +1821,9 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
             if (task->is_running() || task->is_revoking()) {
                 LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
                                       << " is running, task: " << (void*)task.get()
-                                      << ", task->is_revoking(): " << task->is_revoking() << ", "
-                                      << task->is_running();
+                                      << ", is_revoking: " << task->is_revoking()
+                                      << ", is_running: " << task->is_running()
+                                      << ", task info: " << task->debug_string();
                 *has_running_task = true;
                 return 0;
             }

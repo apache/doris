@@ -105,7 +105,8 @@ public:
         return _workload_groups[INTERNAL_WORKLOAD_GROUP_ID];
     }
 
-    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size);
+    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size,
+                          const Status& status);
 
     void handle_paused_queries();
 

@@ -251,6 +251,8 @@ public:
         return _memory_sufficient_dependency.get();
     }
 
+    void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();

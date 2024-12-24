@@ -271,9 +271,12 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
 }
 
 void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& query_ctx,
-                                        int64_t reserve_size) {
-    std::lock_guard<std::mutex> lock(_paused_queries_lock);
+                                        int64_t reserve_size, const Status& status) {
     DCHECK(query_ctx != nullptr);
+    query_ctx->update_paused_reason(status);
+    query_ctx->set_low_memory_mode();
+    query_ctx->set_memory_sufficient(false);
+    std::lock_guard<std::mutex> lock(_paused_queries_lock);
     auto wg = query_ctx->workload_group();
     auto&& [it, inserted] = _paused_queries_list[wg].emplace(
             query_ctx, doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted,
@@ -281,7 +284,6 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
     // Check if this is an invalid reserve, for example, if the reserve size is too large, larger than the query limit
     // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
-        query_ctx->set_memory_sufficient(false);
         LOG(INFO) << "Insert one new paused query: " << query_ctx->debug_string()
                   << ", workload group: " << wg->debug_string();
     }
@@ -399,8 +401,13 @@ void WorkloadGroupMgr::handle_paused_queries() {
                               << PrettyPrinter::print_bytes(query_it->reserve_size_)
                               << ") failed due to workload group memory exceed, "
                                  "should set the workload group work in memory insufficent mode, "
-                                 "so that other query will reduce their memory. wg: "
-                              << wg->debug_string();
+                                 "so that other query will reduce their memory."
+                              << " Query mem limit: "
+                              << PrettyPrinter::print_bytes(query_ctx->get_mem_limit())
+                              << " mem usage: "
+                              << PrettyPrinter::print_bytes(
+                                         query_ctx->get_mem_tracker()->consumption())
+                              << ", wg: " << wg->debug_string();
                 }
                 if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::NONE) {
                     // If not enable slot memory policy, then should spill directly
@@ -657,11 +664,12 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
         return false;
     }
 
+    const auto wg = query_ctx->workload_group();
     auto revocable_tasks = query_ctx->get_revocable_tasks();
     if (revocable_tasks.empty()) {
+        const auto limit = query_ctx->get_mem_limit();
+        const auto reserved_size = query_ctx->query_mem_tracker->reserved_consumption();
         if (paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-            const auto limit = query_ctx->get_mem_limit();
-            const auto reserved_size = query_ctx->query_mem_tracker->reserved_consumption();
             // During waiting time, another operator in the query may finished and release
             // many memory and we could run.
             if ((memory_usage + size_to_reserve) < limit) {
@@ -674,43 +682,44 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
             } else if (time_in_queue >= config::spill_in_paused_queue_timeout_ms) {
                 // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
                 auto msg1 = fmt::format(
-                        "Query {} reserve memory failed, but could not find memory that could "
-                        "release or spill to disk. Query memory usage: {}, reserved size: {}, try "
-                        "to reserve: {} "
-                        ", limit: {} ,process memory info: {}, wg info: {}.",
+                        "Query {} failed beause query limit is exceeded, but could "
+                        "not find memory that could release or spill to disk. Query memory usage: "
+                        "{}, limit: {}, reserved "
+                        "size: {}, try to reserve: {}, wg info: {}.",
                         query_id, PrettyPrinter::print_bytes(memory_usage),
+                        PrettyPrinter::print_bytes(limit),
                         PrettyPrinter::print_bytes(reserved_size),
-                        PrettyPrinter::print_bytes(size_to_reserve),
-                        PrettyPrinter::print_bytes(query_ctx->get_mem_limit()),
-                        GlobalMemoryArbitrator::process_memory_used_details_str(),
-                        query_ctx->workload_group()->memory_debug_string());
-                auto msg2 = msg1 + fmt::format(
-                                           " Query Memory Tracker Summary: {}."
-                                           " Load Memory Tracker Summary: {}",
-                                           MemTrackerLimiter::make_type_trackers_profile_str(
-                                                   MemTrackerLimiter::Type::QUERY),
-                                           MemTrackerLimiter::make_type_trackers_profile_str(
-                                                   MemTrackerLimiter::Type::LOAD));
-                LOG(INFO) << msg2;
+                        PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string());
+                LOG(INFO) << fmt::format("{}.\n{}", msg1,
+                                         doris::ProcessProfile::instance()
+                                                 ->memory_profile()
+                                                 ->process_memory_detail_str());
                 query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
             } else {
                 return false;
             }
         } else if (paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
-            if (!query_ctx->workload_group()->exceed_limit()) {
+            if (!wg->exceed_limit()) {
                 LOG(INFO) << "Query: " << query_id
                           << " paused caused by WORKLOAD_GROUP_MEMORY_EXCEEDED, now resume it.";
                 query_ctx->set_memory_sufficient(true);
                 return true;
             } else if (time_in_queue > config::spill_in_paused_queue_timeout_ms) {
-                LOG(INFO) << "Query: " << query_id << ", workload group exceeded, info: "
-                          << GlobalMemoryArbitrator::process_memory_used_details_str()
-                          << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
-                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                        "The query({}) reserved memory failed because workload group limit "
-                        "exceeded, and there is no cache now. And could not find task to spill. "
-                        "Maybe you should set the workload group's limit to a lower value.",
-                        query_id));
+                auto msg1 = fmt::format(
+                        "Query {} failed because workload group memory is exceeded"
+                        ", and there is no cache now. And could not find task to spill. "
+                        "Query memory usage: {}, limit: {}, reserved "
+                        "size: {}, try to reserve: {}, wg info: {}."
+                        " Maybe you should set the workload group's limit to a lower value.",
+                        query_id, PrettyPrinter::print_bytes(memory_usage),
+                        PrettyPrinter::print_bytes(limit),
+                        PrettyPrinter::print_bytes(reserved_size),
+                        PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string());
+                LOG(INFO) << fmt::format("{}.\n{}", msg1,
+                                         doris::ProcessProfile::instance()
+                                                 ->memory_profile()
+                                                 ->process_memory_detail_str());
+                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
             } else {
                 return false;
             }
@@ -724,21 +733,25 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                           << ", process limit not exceeded now, resume this query"
                           << ", process memory info: "
                           << GlobalMemoryArbitrator::process_memory_used_details_str()
-                          << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
+                          << ", wg info: " << wg->debug_string();
                 query_ctx->set_memory_sufficient(true);
                 return true;
             } else if (time_in_queue > config::spill_in_paused_queue_timeout_ms) {
-                LOG(INFO) << "Query: " << query_id << ", process limit exceeded, info: "
-                          << GlobalMemoryArbitrator::process_memory_used_details_str()
-                          << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
-                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                        "The query({}) reserved memory failed because process limit exceeded, "
-                        "and "
-                        "there is no cache now. And could not find task to spill. Maybe you "
-                        "should "
-                        "set "
-                        "the workload group's limit to a lower value.",
-                        query_id));
+                auto msg1 = fmt::format(
+                        "Query {} failed because process memory is exceeded"
+                        ", and there is no cache now. And could not find task to spill. "
+                        "Query memory usage: {}, limit: {}, reserved "
+                        "size: {}, try to reserve: {}, wg info: {}."
+                        " Maybe you should set the workload group's limit to a lower value.",
+                        query_id, PrettyPrinter::print_bytes(memory_usage),
+                        PrettyPrinter::print_bytes(limit),
+                        PrettyPrinter::print_bytes(reserved_size),
+                        PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string());
+                LOG(INFO) << fmt::format("{}.\n{}", msg1,
+                                         doris::ProcessProfile::instance()
+                                                 ->memory_profile()
+                                                 ->process_memory_detail_str());
+                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
             } else {
                 return false;
             }
