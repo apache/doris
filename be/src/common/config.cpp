@@ -1491,7 +1491,7 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 // the max length of segments key bounds, in bytes
-DEFINE_mInt32(segments_key_bounds_truncation_threshold, "100");
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 
 // clang-format off
 #ifdef BE_TEST

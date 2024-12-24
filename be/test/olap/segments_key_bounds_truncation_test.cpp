@@ -333,7 +333,7 @@ public:
 };
 
 TEST_F(SegmentsKeyBoundsTruncationTest, CompareFuncTest) {
-    // test `Slice::origin_is_strictly_less_than`
+    // test `Slice::lhs_is_strictly_less_than_rhs`
     // enumerating all possible combinations
     // this test is reduntant, n = 3 is enough
     constexpr int n = 8;
@@ -363,8 +363,8 @@ TEST_F(SegmentsKeyBoundsTruncationTest, CompareFuncTest) {
                         b.truncate(l2);
                     }
 
-                    bool res1 = Slice::origin_is_strictly_less_than(a, X_is_truncated, b,
-                                                                    Y_is_truncated);
+                    bool res1 = Slice::lhs_is_strictly_less_than_rhs(a, X_is_truncated, b,
+                                                                     Y_is_truncated);
                     bool res2 = (X.compare(Y) < 0);
                     ++total;
                     if (res1 && res2) {

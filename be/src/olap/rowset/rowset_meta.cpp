@@ -226,18 +226,17 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
         *new_key_bounds = key_bounds;
     }
 
-    bool enable_truncated {config::segments_key_bounds_truncation_threshold > 0};
+    int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
     bool really_do_truncation {false};
-    if (enable_truncated) {
-        int32_t threshold = config::segments_key_bounds_truncation_threshold;
+    if (truncation_threshold > 0) {
         for (auto& segment_key_bounds : *_rowset_meta_pb.mutable_segments_key_bounds()) {
-            if (segment_key_bounds.min_key().size() > threshold) {
+            if (segment_key_bounds.min_key().size() > truncation_threshold) {
                 really_do_truncation = true;
-                segment_key_bounds.mutable_min_key()->resize(threshold);
+                segment_key_bounds.mutable_min_key()->resize(truncation_threshold);
             }
-            if (segment_key_bounds.max_key().size() > threshold) {
+            if (segment_key_bounds.max_key().size() > truncation_threshold) {
                 really_do_truncation = true;
-                segment_key_bounds.mutable_max_key()->resize(threshold);
+                segment_key_bounds.mutable_max_key()->resize(truncation_threshold);
             }
         }
     }
