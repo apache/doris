@@ -1375,4 +1375,20 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_overlaps_5 """select arrays_overlap(b, c) from fn_test_array_with_large_decimal order by id"""
     order_qt_sql_array_overlaps_6 """select arrays_overlap(c, b) from fn_test_array_with_large_decimal order by id"""
 
+    // tests for nereids array functions for number overflow cases
+    qt_sql """ SELECT array_position([1,258],257),array_position([2],258);"""
+    qt_sql """ select array_apply([258], '>' , 257), array_apply([1,2,3], '>', 258);"""
+    qt_sql """ select array_contains([258], 257), array_contains([1,2,3], 258);"""
+    // pushfront and pushback
+    qt_sql """ select array_pushfront([258], 257), array_pushfront([1,2,3], 258);"""
+    qt_sql """ select array_pushback([1,258], 257), array_pushback([1,2,3], 258);"""
+    // array_remove
+    qt_sql """ select array_remove([1,258], 257), array_remove([1,2,3], 258);"""
+    // countequal
+    qt_sql """ select countequal([1,258], 257), countequal([1,2,3], 258);"""
+    // map_contains_key
+    qt_sql """ select map_contains_key(map(1,258), 257), map_contains_key(map(2,1), 258);"""
+    // map_contains_value
+    qt_sql """ select map_contains_value(map(1,1), 257), map_contains_value(map(1,2), 258);"""
+
 }
