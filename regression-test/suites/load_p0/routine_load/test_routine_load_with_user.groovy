@@ -68,7 +68,7 @@ suite("test_routine_load_with_user","p0") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ DROP TABLE IF EXISTS ${tableName}"""
         sql """ CREATE TABLE IF NOT EXISTS ${tableName}
                 (

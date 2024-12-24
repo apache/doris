@@ -657,7 +657,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         Slice slice {value.data, value.size};
 
-        IColumn* col_ptr = columns[i];
+        IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
@@ -700,7 +700,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
                                    size_t* rows) {
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        IColumn* col_ptr = columns[i];
+        IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
@@ -928,9 +928,13 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                 _trim_tailing_spaces, _trim_double_quotes, _value_separator,
                 _value_separator_length);
     } else {
+        // If we pass `_file_slot_descs.size() - 1` to EncloseCsvTextFieldSplitter, it will cause BE core dump
+        // because currently _file_slot_descs is an empty vector.
+        // The _file_slot_descs.size() is only used to reserve space,
+        // so it's ok to pass 0 to EncloseCsvLineReaderContext
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
+                0, _enclose, _escape, _keep_cr);
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false,
                 std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),

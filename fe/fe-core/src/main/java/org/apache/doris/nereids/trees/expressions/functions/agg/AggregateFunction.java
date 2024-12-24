@@ -107,7 +107,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         StringBuilder sql = new StringBuilder(getName()).append("(");
         if (distinct) {
             sql.append("DISTINCT ");
@@ -129,6 +129,10 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
         return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
+    }
+
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        return true;
     }
 
     public List<Expression> getDistinctArguments() {

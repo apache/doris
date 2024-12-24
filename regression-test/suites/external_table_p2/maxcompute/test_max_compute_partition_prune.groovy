@@ -104,179 +104,191 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
         String mc_db = "mc_datalake"
         String mc_catalog_name = "test_max_compute_partition_prune"
 
-        sql """drop catalog if exists ${mc_catalog_name};"""
-        sql """
-            create catalog if not exists ${mc_catalog_name} properties (
-                "type" = "max_compute",
-                "mc.default.project" = "${mc_db}",
-                "mc.access_key" = "${ak}",
-                "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
-            );
-        """
-        sql """ switch ${mc_catalog_name} """
-        sql """ use ${mc_db}"""
 
-        qt_one_partition_1_1 one_partition_1_1
-        explain {
-            sql("${one_partition_1_1}")
-            contains "partition=1/2"
+        for (String  enable_profile : ["true","false"] ) {
+            sql """set enable_profile = ${enable_profile} """;
+
+            for (String num_partitions : ["1","10","100"] ) {
+                sql "set num_partitions_in_batch_mode =  ${num_partitions} "
+
+                for (String cross_partition : ["true","false"] ) {
+
+                    sql """drop catalog if exists ${mc_catalog_name};"""
+                    sql """
+                        create catalog if not exists ${mc_catalog_name} properties (
+                            "type" = "max_compute",
+                            "mc.default.project" = "${mc_db}",
+                            "mc.access_key" = "${ak}",
+                            "mc.secret_key" = "${sk}",
+                            "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                            "mc.split_cross_partition" = "${cross_partition}"
+                        );
+                    """
+                    sql """ switch ${mc_catalog_name} """
+                    sql """ use ${mc_db}"""
+
+                    qt_one_partition_1_1 one_partition_1_1
+                    explain {
+                        sql("${one_partition_1_1}")
+                        contains "partition=1/2"
+                    }
+
+                    qt_one_partition_2_1 one_partition_2_1
+                    explain {
+                        sql("${one_partition_2_1}")
+                        contains "partition=1/2"
+                    }
+
+                    qt_one_partition_3_all one_partition_3_all
+                    explain {
+                        sql("${one_partition_3_all}")
+                        contains "partition=2/2"
+                    }
+
+                    qt_one_partition_4_all one_partition_4_all
+                    explain {
+                        sql("${one_partition_4_all}")
+                        contains "partition=2/2"
+                    }
+
+                    qt_one_partition_5_1 one_partition_5_1
+                    explain {
+                        sql("${one_partition_5_1}")
+                        contains "partition=1/2"
+                    }
+
+
+                    qt_two_partition_1_1 two_partition_1_1
+                    explain {
+                        sql("${two_partition_1_1}")
+                        contains "partition=1/4"
+                    }
+
+                    qt_two_partition_2_1 two_partition_2_1
+                    explain {
+                        sql("${two_partition_2_1}")
+                        contains "partition=1/4"
+                    }
+
+                    qt_two_partition_3_2 two_partition_3_2
+                    explain {
+                        sql("${two_partition_3_2}")
+                        contains "partition=2/4"
+                    }
+
+                    qt_two_partition_4_all two_partition_4_all
+                    explain {
+                        sql("${two_partition_4_all}")
+                        contains "partition=4/4"
+                    }
+
+                    qt_two_partition_5_1 two_partition_5_1
+                    explain {
+                        sql("${two_partition_5_1}")
+                        contains "partition=1/4"
+                    }
+
+                    qt_two_partition_6_1 two_partition_6_1
+                    explain {
+                        sql("${two_partition_6_1}")
+                        contains "partition=1/4"
+                    }
+
+
+
+                    qt_three_partition_1_1 three_partition_1_1
+                    explain {
+                        sql("${three_partition_1_1}")
+                        contains "partition=1/10"
+                    }
+
+                    qt_three_partition_2_1 three_partition_2_1
+                    explain {
+                        sql("${three_partition_2_1}")
+                        contains "partition=1/10"
+                    }
+
+                    qt_three_partition_3_3 three_partition_3_3
+                    explain {
+                        sql("${three_partition_3_3}")
+                        contains "partition=3/10"
+                    }
+
+                    qt_three_partition_4_2 three_partition_4_2
+                    explain {
+                        sql("${three_partition_4_2}")
+                        contains "partition=2/10"
+                    }
+
+                    qt_three_partition_5_all three_partition_5_all
+                    explain {
+                        sql("${three_partition_5_all}")
+                        contains "partition=10/10"
+                    }
+
+                    qt_three_partition_6_1 three_partition_6_1
+                    explain {
+                        sql("${three_partition_6_1}")
+                        contains "partition=1/10"
+                    }
+
+                    qt_three_partition_7_7 three_partition_7_7
+                    explain {
+                        sql("${three_partition_7_7}")
+                        contains "partition=7/10"
+                    }
+
+                    qt_three_partition_8_2 three_partition_8_2
+                    explain {
+                        sql("${three_partition_8_2}")
+                        contains "partition=2/10"
+                    }
+
+
+                    // 0 partitions
+                    def one_partition_6_0 = """SELECT * FROM one_partition_tb WHERE part1 = 2023 ORDER BY id;"""
+                    qt_one_partition_6_0 one_partition_6_0
+                    explain {
+                        sql("${one_partition_6_0}")
+                        contains "partition=0/2"
+                    }
+
+                    def two_partition_7_0 = """SELECT * FROM two_partition_tb WHERE part1 = 'CN' AND part2 = 1 ORDER BY id;"""
+                    qt_two_partition_7_0 two_partition_7_0
+                    explain {
+                        sql("${two_partition_7_0}")
+                        contains "partition=0/4"
+                    }
+
+                    def two_partition_8_0 = """SELECT * FROM two_partition_tb WHERE part1 = 'US' AND part2 = 3 ORDER BY id;"""
+                    qt_two_partition_8_0 two_partition_8_0
+                    explain {
+                        sql("${two_partition_8_0}")
+                        contains "partition=0/4"
+                    }
+
+                    def three_partition_9_0 = """SELECT * FROM three_partition_tb WHERE part1 = 'US' AND part2 = 2023 AND part3 = 'Q1' ORDER BY id;"""
+                    qt_three_partition_9_0 three_partition_9_0
+                    explain {
+                        sql("${three_partition_9_0}")
+                        contains "partition=0/10"
+                    }
+
+                    def three_partition_10_0 = """SELECT * FROM three_partition_tb WHERE part1 = 'EU' AND part2 = 2024 AND part3 = 'Q4' ORDER BY id;"""
+                    qt_three_partition_10_0 three_partition_10_0
+                    explain {
+                        sql("${three_partition_10_0}")
+                        contains "partition=0/10"
+                    }
+
+                    def three_partition_11_0 = """SELECT * FROM three_partition_tb WHERE part1 = 'AS' AND part2 = 2025 AND part3 = 'Q4' ORDER BY id;"""
+                    qt_three_partition_11_0 three_partition_11_0
+                    explain {
+                        sql("${three_partition_11_0}")
+                        contains "partition=0/10"
+                    }
+                }
+            }
         }
-
-        qt_one_partition_2_1 one_partition_2_1
-        explain {
-            sql("${one_partition_2_1}")
-            contains "partition=1/2"
-        }
-
-        qt_one_partition_3_all one_partition_3_all
-        explain {
-            sql("${one_partition_3_all}")
-            contains "partition=2/2"
-        }
-
-        qt_one_partition_4_all one_partition_4_all
-        explain {
-            sql("${one_partition_4_all}")
-            contains "partition=2/2"
-        }
-
-        qt_one_partition_5_1 one_partition_5_1
-        explain {
-            sql("${one_partition_5_1}")
-            contains "partition=1/2"
-        }
-
-
-        qt_two_partition_1_1 two_partition_1_1
-        explain {
-            sql("${two_partition_1_1}")
-            contains "partition=1/4"
-        }
-
-        qt_two_partition_2_1 two_partition_2_1
-        explain {
-            sql("${two_partition_2_1}")
-            contains "partition=1/4"
-        }
-
-        qt_two_partition_3_2 two_partition_3_2
-        explain {
-            sql("${two_partition_3_2}")
-            contains "partition=2/4"
-        }
-
-        qt_two_partition_4_all two_partition_4_all
-        explain {
-            sql("${two_partition_4_all}")
-            contains "partition=4/4"
-        }
-
-        qt_two_partition_5_1 two_partition_5_1
-        explain {
-            sql("${two_partition_5_1}")
-            contains "partition=1/4"
-        }
-
-        qt_two_partition_6_1 two_partition_6_1
-        explain {
-            sql("${two_partition_6_1}")
-            contains "partition=1/4"
-        }
-
-
-
-        qt_three_partition_1_1 three_partition_1_1
-        explain {
-            sql("${three_partition_1_1}")
-            contains "partition=1/10"
-        }
-
-        qt_three_partition_2_1 three_partition_2_1
-        explain {
-            sql("${three_partition_2_1}")
-            contains "partition=1/10"
-        }
-
-        qt_three_partition_3_3 three_partition_3_3
-        explain {
-            sql("${three_partition_3_3}")
-            contains "partition=3/10"
-        }
-
-        qt_three_partition_4_2 three_partition_4_2
-        explain {
-            sql("${three_partition_4_2}")
-            contains "partition=2/10"
-        }
-
-        qt_three_partition_5_all three_partition_5_all
-        explain {
-            sql("${three_partition_5_all}")
-            contains "partition=10/10"
-        }
-
-        qt_three_partition_6_1 three_partition_6_1
-        explain {
-            sql("${three_partition_6_1}")
-            contains "partition=1/10"
-        }
-
-        qt_three_partition_7_7 three_partition_7_7
-        explain {
-            sql("${three_partition_7_7}")
-            contains "partition=7/10"
-        }
-
-        qt_three_partition_8_2 three_partition_8_2
-        explain {
-            sql("${three_partition_8_2}")
-            contains "partition=2/10"
-        }
-
-
-        // 0 partitions
-        def one_partition_6_0 = """SELECT * FROM one_partition_tb WHERE part1 = 2023 ORDER BY id;"""
-        qt_one_partition_6_0 one_partition_6_0
-        explain {
-            sql("${one_partition_6_0}")
-            contains "partition=0/2"
-        }
-
-        def two_partition_7_0 = """SELECT * FROM two_partition_tb WHERE part1 = 'CN' AND part2 = 1 ORDER BY id;"""
-        qt_two_partition_7_0 two_partition_7_0
-        explain {
-            sql("${two_partition_7_0}")
-            contains "partition=0/4"
-        }
-
-        def two_partition_8_0 = """SELECT * FROM two_partition_tb WHERE part1 = 'US' AND part2 = 3 ORDER BY id;"""
-        qt_two_partition_8_0 two_partition_8_0
-        explain {
-            sql("${two_partition_8_0}")
-            contains "partition=0/4"
-        }
-
-        def three_partition_9_0 = """SELECT * FROM three_partition_tb WHERE part1 = 'US' AND part2 = 2023 AND part3 = 'Q1' ORDER BY id;"""
-        qt_three_partition_9_0 three_partition_9_0
-        explain {
-            sql("${three_partition_9_0}")
-            contains "partition=0/10"
-        }
-
-        def three_partition_10_0 = """SELECT * FROM three_partition_tb WHERE part1 = 'EU' AND part2 = 2024 AND part3 = 'Q4' ORDER BY id;"""
-        qt_three_partition_10_0 three_partition_10_0
-        explain {
-            sql("${three_partition_10_0}")
-            contains "partition=0/10"
-        }
-
-        def three_partition_11_0 = """SELECT * FROM three_partition_tb WHERE part1 = 'AS' AND part2 = 2025 AND part3 = 'Q4' ORDER BY id;"""
-        qt_three_partition_11_0 three_partition_11_0
-        explain {
-            sql("${three_partition_11_0}")
-            contains "partition=0/10"
-        }
-
     }
 }

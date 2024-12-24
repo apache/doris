@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_case_function_null", "query,p0") {
+suite("test_case_function_null", "query,p0,arrow_flight_sql") {
     sql """ drop table if exists case_null0 """
     sql """ create table case_null0 (
                 `c0` decimalv3(17, 1) NULL,

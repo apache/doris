@@ -123,3 +123,1367 @@
 
 -- !three_partition_11_0 --
 
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+
+-- !one_partition_1_1 --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+
+-- !one_partition_2_1 --
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_3_all --
+1	Alice	2024
+2	Bob	2024
+3	Charlie	2024
+4	David	2025
+5	Eva	2025
+
+-- !one_partition_4_all --
+5	Eva	2025
+
+-- !one_partition_5_1 --
+3	Charlie	2024
+
+-- !two_partition_1_1 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+
+-- !two_partition_2_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_3_2 --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+
+-- !two_partition_4_all --
+1	Alice	US	1
+2	Bob	US	1
+3	Charlie	US	1
+4	David	US	2
+5	Eva	US	2
+6	Frank	EU	1
+7	Grace	EU	1
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !two_partition_5_1 --
+
+-- !two_partition_6_1 --
+8	Hannah	EU	2
+9	Ivy	EU	2
+10	Jack	EU	2
+
+-- !three_partition_1_1 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+
+-- !three_partition_2_1 --
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+
+-- !three_partition_3_3 --
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_4_2 --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+6	Frank	US	2025	Q1
+
+-- !three_partition_5_all --
+1	Alice	US	2024	Q1
+2	Bob	US	2024	Q1
+3	Charlie	US	2024	Q1
+4	David	US	2024	Q2
+5	Eva	US	2024	Q2
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_6_1 --
+8	Hannah	EU	2024	Q1
+9	Ivy	EU	2024	Q1
+
+-- !three_partition_7_7 --
+6	Frank	US	2025	Q1
+7	Grace	US	2025	Q2
+10	Jack	EU	2025	Q2
+11	Leo	EU	2025	Q2
+12	Mia	EU	2025	Q3
+13	Nina	AS	2025	Q1
+14	Oscar	AS	2025	Q2
+15	Paul	AS	2025	Q3
+
+-- !three_partition_8_2 --
+7	Grace	US	2025	Q2
+
+-- !one_partition_6_0 --
+
+-- !two_partition_7_0 --
+
+-- !two_partition_8_0 --
+
+-- !three_partition_9_0 --
+
+-- !three_partition_10_0 --
+
+-- !three_partition_11_0 --
+

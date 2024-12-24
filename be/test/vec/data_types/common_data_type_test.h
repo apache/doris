@@ -45,7 +45,7 @@
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
 //         get_field
-//         is_null_literal, is_value_represented_by_number, is_value_represented_by_integer, is_value_represented_by_unsigned_integer, is_value_unambiguously_represented_in_contiguous_memory_region, is_value_unambiguously_represented_in_fixed_size_contiguous_memory_region
+//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region, is_value_unambiguously_represented_in_fixed_size_contiguous_memory_region
 // 2. datatype creation with column: create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size),  get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
@@ -114,7 +114,6 @@ public:
         size_t scale = -1;
         bool is_null_literal = true;
         bool is_value_represented_by_number = false;
-        bool is_value_represented_by_unsigned_integer = false;
         PColumnMeta* pColumnMeta = nullptr;
         DataTypeSerDeSPtr serde = nullptr;
         //        bool is_value_unambiguously_represented_in_contiguous_memory_region = false;
@@ -146,8 +145,6 @@ public:
         ASSERT_EQ(data_type->is_null_literal(), meta_info.is_null_literal);
         ASSERT_EQ(data_type->is_value_represented_by_number(),
                   meta_info.is_value_represented_by_number);
-        ASSERT_EQ(data_type->is_value_represented_by_unsigned_integer(),
-                  meta_info.is_value_represented_by_unsigned_integer);
         //        ASSERT_EQ(data_type->is_value_unambiguously_represented_in_contiguous_memory_region(), meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
     }
 

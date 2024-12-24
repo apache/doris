@@ -23,6 +23,7 @@ import jsonpickle
 import os
 import os.path
 import utils
+import time
 
 DOCKER_DORIS_PATH = "/opt/apache-doris"
 LOCAL_DORIS_PATH = os.getenv("LOCAL_DORIS_PATH", "/tmp/doris")
@@ -139,11 +140,15 @@ def gen_subnet_prefix16():
 
 def get_master_fe_endpoint(cluster_name):
     master_fe_ip_file = get_cluster_path(cluster_name) + "/status/master_fe_ip"
-    if os.path.exists(master_fe_ip_file):
-        with open(master_fe_ip_file, "r") as f:
-            return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+    max_retries = 10
+    for attempt in range(max_retries):
+        if os.path.exists(master_fe_ip_file):
+            with open(master_fe_ip_file, "r") as f:
+                return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+        time.sleep(1)
     try:
         cluster = Cluster.load(cluster_name)
+        LOG.info("master file not exist, master ip get from node 1")
         return "{}:{}".format(
             cluster.get_node(Node.TYPE_FE, 1).get_ip(), FE_QUERY_PORT)
     except:
@@ -468,6 +473,7 @@ class FE(Node):
             for key in ("JAVA_OPTS", "JAVA_OPTS_FOR_JDK_17"):
                 value = parser["dummy_section"].get(key)
                 if value:
+                    value = value.strip().strip('"')
                     cfg.append(
                         f"{key} = \"{value} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:{FE_JAVA_DBG_PORT}\""
                     )

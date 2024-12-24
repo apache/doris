@@ -20,12 +20,11 @@
 
 #pragma once
 
-#include <limits.h>
-#include <stddef.h>
-
 #include <boost/intrusive/detail/algo_type.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
+#include <climits>
+#include <cstddef>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <condition_variable>
@@ -50,7 +49,7 @@ class ThreadPoolToken;
 class Runnable {
 public:
     virtual void run() = 0;
-    virtual ~Runnable() {}
+    virtual ~Runnable() = default;
 };
 
 // ThreadPool takes a lot of arguments. We provide sane defaults with a builder.
@@ -127,6 +126,9 @@ public:
         return Status::OK();
     }
 
+    ThreadPoolBuilder(const ThreadPoolBuilder&) = delete;
+    void operator=(const ThreadPoolBuilder&) = delete;
+
 private:
     friend class ThreadPool;
     const std::string _name;
@@ -135,9 +137,6 @@ private:
     int _max_queue_size;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::chrono::milliseconds _idle_timeout;
-
-    ThreadPoolBuilder(const ThreadPoolBuilder&) = delete;
-    void operator=(const ThreadPoolBuilder&) = delete;
 
     template <typename T>
     static constexpr bool always_false_v = false;
@@ -256,12 +255,21 @@ public:
         return _total_queued_tasks;
     }
 
-    std::vector<int> debug_info() {
+    std::vector<int> debug_info() const {
         std::lock_guard<std::mutex> l(_lock);
         std::vector<int> arr = {_num_threads, static_cast<int>(_threads.size()), _min_threads,
                                 _max_threads};
         return arr;
     }
+
+    std::string get_info() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return fmt::format("ThreadPool(name={}, threads(active/pending)=({}/{}), queued_task={})",
+                           _name, _active_threads, _num_threads_pending_start, _total_queued_tasks);
+    }
+
+    ThreadPool(const ThreadPool&) = delete;
+    void operator=(const ThreadPool&) = delete;
 
 private:
     friend class ThreadPoolBuilder;
@@ -372,7 +380,7 @@ private:
     //
     // Protected by _lock.
     struct IdleThread : public boost::intrusive::list_base_hook<> {
-        explicit IdleThread() {}
+        explicit IdleThread() = default;
 
         // Condition variable for "queue is not empty". Waiters wake up when a new
         // task is queued.
@@ -384,9 +392,6 @@ private:
 
     // ExecutionMode::CONCURRENT token used by the pool for tokenless submission.
     std::unique_ptr<ThreadPoolToken> _tokenless;
-
-    ThreadPool(const ThreadPool&) = delete;
-    void operator=(const ThreadPool&) = delete;
 };
 
 // Entry point for token-based task submission and blocking for a particular
@@ -433,6 +438,9 @@ public:
         std::lock_guard<std::mutex> l(_pool->_lock);
         return _entries.size();
     }
+
+    ThreadPoolToken(const ThreadPoolToken&) = delete;
+    void operator=(const ThreadPoolToken&) = delete;
 
 private:
     // All possible token states. Legal state transitions:
@@ -516,9 +524,6 @@ private:
     int _num_submitted_tasks;
     // Number of tasks which has not been submitted to the thread pool's queue.
     int _num_unsubmitted_tasks;
-
-    ThreadPoolToken(const ThreadPoolToken&) = delete;
-    void operator=(const ThreadPoolToken&) = delete;
 };
 
 } // namespace doris

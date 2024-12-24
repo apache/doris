@@ -64,11 +64,11 @@ suite("test_grant_show_view_priv_auth","p0,auth_call") {
 
     sql """grant grant_priv on *.*.* to '${user}'"""
     sql """grant SHOW_VIEW_PRIV on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE USER ${user_derive} IDENTIFIED BY '${pwd}';"""
         sql """grant select_priv on regression_test to ${user_derive}"""
 
-        connect(user=user_derive, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user_derive, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """show create table ${dbName}.${viewName};"""
                 exception "denied"
@@ -79,7 +79,7 @@ suite("test_grant_show_view_priv_auth","p0,auth_call") {
             }
         }
         sql """grant SHOW_VIEW_PRIV on ${dbName}.${viewName} to ${user_derive}"""
-        connect(user=user_derive, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user_derive, "${pwd}", context.config.jdbcUrl) {
             sql """show create table ${dbName}.${viewName};"""
             test {
                 sql """select * from ${dbName}.${viewName};"""

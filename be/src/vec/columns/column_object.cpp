@@ -645,8 +645,8 @@ void ColumnObject::resize(size_t n) {
     num_rows = n;
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
+bool ColumnObject::Subcolumn::check_if_sparse_column(size_t arg_num_rows) {
+    if (arg_num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -1484,7 +1484,7 @@ Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::Str
 #endif
     for (const auto& subcolumn : subcolumns) {
         RETURN_IF_ERROR(find_and_set_leave_value(
-                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_finalized_column_ptr().get(), subcolumn->path,
                 subcolumn->data.get_least_common_type_serde(),
                 subcolumn->data.get_least_common_type(),
                 subcolumn->data.least_common_type.get_base_type_id(), root,
@@ -1558,7 +1558,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
                 continue;
             }
             bool succ = find_and_set_leave_value(
-                    column, subcolumn->path, subcolumn->data.get_least_common_type_serde(),
+                    column.get(), subcolumn->path, subcolumn->data.get_least_common_type_serde(),
                     subcolumn->data.get_least_common_type(),
                     subcolumn->data.least_common_type.get_base_type_id(), root,
                     doc_structure->GetAllocator(), mem_pool, i);
@@ -1603,7 +1603,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
     return Status::OK();
 }
 
-void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
@@ -1634,7 +1634,7 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) co
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-        subcolumns.add(path_builder.build(), subcolumn);
+        arg_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
 
@@ -1705,7 +1705,7 @@ bool ColumnObject::empty() const {
 }
 
 ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
+    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
         return column_array->get_data_ptr();
     }
     return column;
@@ -1953,6 +1953,7 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
+#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
@@ -1967,6 +1968,7 @@ Status ColumnObject::sanitize() const {
     }
 
     VLOG_DEBUG << "sanitized " << debug_string();
+#endif
     return Status::OK();
 }
 

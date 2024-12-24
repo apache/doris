@@ -56,7 +56,7 @@ suite('nereids_insert_auth') {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
 
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         try {
             sql """ insert into ${db}.${t1} values (1, 1) """
             fail()
@@ -67,7 +67,7 @@ suite('nereids_insert_auth') {
 
     sql """GRANT LOAD_PRIV ON ${db}.${t1} TO ${user}"""
 
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         try {
             sql """ insert into ${db}.${t1} values (1, 1) """
         } catch (Exception e) {
@@ -76,7 +76,7 @@ suite('nereids_insert_auth') {
         }
     }
 
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         try {
             sql """ insert overwrite table ${db}.${t1} values (2, 2) """
         } catch (Exception e) {

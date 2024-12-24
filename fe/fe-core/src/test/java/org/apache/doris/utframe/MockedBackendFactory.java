@@ -95,6 +95,7 @@ import io.grpc.stub.StreamObserver;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
@@ -305,6 +306,10 @@ public class MockedBackendFactory {
                     tabletInfo.setPathHash(pathHash);
                     tabletInfo.setUsed(true);
                     tabletInfos.add(tabletInfo);
+                    if (DebugPointUtil.isEnable("MockedBackendFactory.handleCloneTablet.failed")) {
+                        finishTaskRequest.setTaskStatus(new TStatus(TStatusCode.CANCELLED));
+                        finishTaskRequest.getTaskStatus().setErrorMsgs(Collections.singletonList("debug point set"));
+                    }
                     finishTaskRequest.setFinishTabletInfos(tabletInfos);
                 }
 

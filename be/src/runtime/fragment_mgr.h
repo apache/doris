@@ -21,9 +21,8 @@
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
-#include <stdint.h>
 
-#include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <iosfwd>
 #include <memory>

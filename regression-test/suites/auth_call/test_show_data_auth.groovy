@@ -55,7 +55,7 @@ suite("test_show_data_auth","p0,auth_call") {
                 "replication_num" = "1"
             );"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """show data from ${dbName}.${tableName}"""
             exception "denied"
@@ -68,7 +68,7 @@ suite("test_show_data_auth","p0,auth_call") {
     }
 
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show data from ${dbName}.${tableName}"""
         test {
@@ -80,7 +80,7 @@ suite("test_show_data_auth","p0,auth_call") {
     sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
 
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """SHOW DATA;"""
     }
 

@@ -145,7 +145,8 @@ void StreamLoadAction::handle(HttpRequest* req) {
               << ctx->commit_and_publish_txn_cost_nanos / 1000000
               << ", number_total_rows=" << ctx->number_total_rows
               << ", number_loaded_rows=" << ctx->number_loaded_rows
-              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes;
+              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes
+              << ", error_url=" << ctx->error_url;
 
     // update statistics
     streaming_load_requests_total->increment(1);

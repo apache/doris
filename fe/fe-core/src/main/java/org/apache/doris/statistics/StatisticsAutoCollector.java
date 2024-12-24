@@ -26,7 +26,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -37,7 +36,6 @@ import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -92,10 +90,11 @@ public class StatisticsAutoCollector extends MasterDaemon {
     }
 
     protected void collect() {
-        while (canCollect()) {
+        while (StatisticsUtil.canCollect()) {
             Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.
+                LOG.info("No auto analyze jobs to process.");
                 break;
             }
             try {
@@ -112,11 +111,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
     }
 
-    protected boolean canCollect() {
-        return StatisticsUtil.enableAutoAnalyze()
-            && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
-    }
-
     protected Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         Optional<Entry<TableName, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
@@ -128,7 +122,11 @@ public class StatisticsAutoCollector extends MasterDaemon {
             return Pair.of(job.get(), JobPriority.MID);
         }
         job = fetchJobFromMap(manager.lowPriorityJobs);
-        return job.map(entry -> Pair.of(entry, JobPriority.LOW)).orElse(null);
+        if (job.isPresent()) {
+            return Pair.of(job.get(), JobPriority.LOW);
+        }
+        job = fetchJobFromMap(manager.veryLowPriorityJobs);
+        return job.map(tableNameSetEntry -> Pair.of(tableNameSetEntry, JobPriority.VERY_LOW)).orElse(null);
     }
 
     protected Optional<Map.Entry<TableName, Set<Pair<String, String>>>> fetchJobFromMap(
@@ -142,9 +140,10 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected void processOneJob(TableIf table, Set<Pair<String, String>> columns,
             JobPriority priority) throws DdlException {
-        // appendMvColumn(table, columns);
         appendAllColumns(table, columns);
-        columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
+        columns = columns.stream().filter(
+                c -> StatisticsUtil.needAnalyzeColumn(table, c) || StatisticsUtil.isLongTimeColumn(table, c))
+            .collect(Collectors.toSet());
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
         if (analyzeJob == null) {
             return;
@@ -176,15 +175,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
                     .collect(Collectors.toSet());
             columns.addAll(olapTable.getColumnIndexPairs(allColumnPairs));
         }
-    }
-
-    protected void appendMvColumn(TableIf table, Set<String> columns) {
-        if (!(table instanceof OlapTable)) {
-            return;
-        }
-        OlapTable olapTable = (OlapTable) table;
-        Set<String> mvColumns = olapTable.getMvColumns(false).stream().map(Column::getName).collect(Collectors.toSet());
-        columns.addAll(mvColumns);
     }
 
     protected boolean supportAutoAnalyze(TableIf tableIf) {
@@ -248,9 +238,10 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
                 .setJobType(JobType.SYSTEM)
-                .setTblUpdateTime(System.currentTimeMillis())
+                .setTblUpdateTime(table.getUpdateTime())
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
+                .setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0)
                 .setPriority(priority)
                 .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
                 .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
@@ -274,5 +265,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
         for (Future future : futures) {
             future.get();
         }
+    }
+
+    public boolean isReady() {
+        return waited;
     }
 }

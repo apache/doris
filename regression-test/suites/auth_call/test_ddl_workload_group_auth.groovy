@@ -39,7 +39,7 @@ suite("test_ddl_workload_group_auth","p0,auth_call") {
     sql """create database ${dbName}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE WORKLOAD GROUP "${workloadGroupName}"
                     PROPERTIES (
@@ -64,7 +64,7 @@ suite("test_ddl_workload_group_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE WORKLOAD GROUP "${workloadGroupName}"
                 PROPERTIES (
                     "cpu_share"="10"

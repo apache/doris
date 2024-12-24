@@ -675,5 +675,43 @@ public class HmsCommitTest {
         Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
         assertNumRows(3, pa);
     }
-}
 
+    @Test
+    public void testCommitWithRollback() {
+        genQueryID();
+        List<THivePartitionUpdate> pus = new ArrayList<>();
+        try {
+            pus.add(createRandomAppend(null));
+            pus.add(createRandomAppend(null));
+            pus.add(createRandomAppend(null));
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+
+        mockDoOther(() -> {
+            Table table = hmsClient.getTable(dbName, tbWithoutPartition);
+            assertNumRows(3, table);
+        });
+
+        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider, fileSystemExecutor);
+        try {
+            hmsTransaction.setHivePartitionUpdates(pus);
+            HiveInsertCommandContext ctx = new HiveInsertCommandContext();
+            String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+            ctx.setQueryId(queryId);
+            ctx.setWritePath(getWritePath());
+            hmsTransaction.beginInsertTable(ctx);
+            hmsTransaction.finishInsertTable(new SimpleTableInfo(dbName, tbWithoutPartition));
+            hmsTransaction.commit();
+            Assert.fail();
+        } catch (Throwable t) {
+            Assert.assertTrue(t.getMessage().contains("failed to do nothing"));
+        }
+
+        try {
+            hmsTransaction.rollback();
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+    }
+}

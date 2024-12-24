@@ -38,14 +38,6 @@ namespace doris {
 // Utility class to compute hash values.
 class HashUtil {
 public:
-    template <typename T>
-    static uint32_t fixed_len_to_uint32(T value) {
-        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
-            return (uint32_t)value;
-        }
-        return std::hash<T>()(value);
-    }
-
     static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         return crc32(hash, (const unsigned char*)data, bytes);
     }
@@ -305,7 +297,7 @@ public:
 #endif
     }
 
-    static uint64_t hash64(const void* data, uint32_t bytes, uint64_t seed) {
+    static uint64_t hash64(const void* data, uint64_t bytes, uint64_t seed) {
 #ifdef _SSE4_2_
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
             return crc_hash64(data, bytes, seed);

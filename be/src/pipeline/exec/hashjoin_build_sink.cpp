@@ -135,26 +135,16 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos) {
         return Base::close(state, exec_status);
     }
 
     try {
-        if (state->get_task()->wake_up_by_downstream()) {
-            if (_should_build_hash_table) {
-                // partitial ignore rf to make global rf work
-                RETURN_IF_ERROR(
-                        _runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
-                RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
-            } else {
-                // do not publish filter coz local rf not inited and useless
-                return Base::close(state, exec_status);
-            }
+        if (state->get_task()->wake_up_early()) {
+            // partitial ignore rf to make global rf work or ignore useless rf
+            RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
+            RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
         } else if (_should_build_hash_table) {
-            if (p._shared_hashtable_controller &&
-                !p._shared_hash_table_context->complete_build_stage) {
-                return Status::InternalError("close before sink meet eos");
-            }
             auto* block = _shared_state->build_block.get();
             uint64_t hash_table_size = block ? block->rows() : 0;
             {
@@ -171,10 +161,20 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         SCOPED_TIMER(_publish_runtime_filter_timer);
         RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
     } catch (Exception& e) {
+        bool blocked_by_complete_build_stage = p._shared_hashtable_controller &&
+                                               !p._shared_hash_table_context->complete_build_stage;
+        bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
+                                                   p._shared_hashtable_controller &&
+                                                   !p._shared_hash_table_context->signaled;
+
         return Status::InternalError(
-                "rf process meet error: {}, wake_up_by_downstream: {}, should_build_hash_table: {}",
-                e.to_string(), state->get_task()->wake_up_by_downstream(),
-                _should_build_hash_table);
+                "rf process meet error: {}, wake_up_early: {}, should_build_hash_table: "
+                "{}, _finish_dependency: {}, blocked_by_complete_build_stage: {}, "
+                "blocked_by_shared_hash_table_signal: "
+                "{}",
+                e.to_string(), state->get_task()->wake_up_early(), _should_build_hash_table,
+                _finish_dependency->debug_string(), blocked_by_complete_build_stage,
+                blocked_by_shared_hash_table_signal);
     }
     return Base::close(state, exec_status);
 }
@@ -254,7 +254,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
-            DCHECK(null_map != nullptr);
+            DCHECK(null_map);
             vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
         } else {
@@ -303,9 +303,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
-                        LOG(FATAL) << "FATAL: uninited hash table";
-                        __builtin_unreachable();
-                        return Status::OK();
+                        throw Exception(Status::FatalError("FATAL: uninited hash table"));
                     },
                     [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
@@ -468,7 +466,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    local_state._eos = eos;
     if (local_state._should_build_hash_table) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from probe side.
@@ -573,6 +570,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     if (eos) {
+        local_state._eos = true;
         local_state.init_short_circuit_for_probe();
         // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
         // when the build side is not empty.

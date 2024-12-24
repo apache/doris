@@ -1071,7 +1071,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
                 LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                              "task, tablet_id="
-                          << tablet->tablet_id() << "tablet_state=" << tablet->tablet_state();
+                          << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
+                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                 return;
             }
             tablet->compaction_stage = CompactionStage::EXECUTING;

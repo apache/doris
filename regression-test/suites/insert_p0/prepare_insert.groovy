@@ -101,7 +101,7 @@ suite("prepare_insert") {
         }
     }
 
-    def result1 = connect(user = user, password = password, url = url) {
+    def result1 = connect(user, password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
         check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setInt(1, 1)
@@ -142,7 +142,7 @@ suite("prepare_insert") {
     }
 
     // insert with null
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
         check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setNull(1, java.sql.Types.INTEGER)
@@ -157,7 +157,7 @@ suite("prepare_insert") {
 
     // insert with label
     def label = "insert_" + System.currentTimeMillis()
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} with label ${label} values(?, ?, ?)"
         assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt.class)
         stmt.setInt(1, 5)
@@ -171,7 +171,7 @@ suite("prepare_insert") {
     }
 
     url += "&rewriteBatchedStatements=true"
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
         check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setInt(1, 10)
@@ -211,7 +211,7 @@ suite("prepare_insert") {
     }
 
     url += "&cachePrepStmts=true"
-    result1 = connect(user = user, password = password, url = url) {
+    result1 = connect(user,  password, url) {
         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
         check {assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)}
         stmt.setInt(1, 10)
