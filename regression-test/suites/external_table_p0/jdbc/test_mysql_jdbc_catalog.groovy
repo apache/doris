@@ -192,7 +192,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
-        connect(user=user, password="${pwd}", url=url) {
+        connect(user, "${pwd}", url) {
             try {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
                 fail()
@@ -203,7 +203,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
 
-        connect(user=user, password="${pwd}", url=url) {
+        connect(user, "${pwd}", url) {
             try {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
             } catch (Exception e) {

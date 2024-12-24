@@ -48,7 +48,7 @@ suite("column_authorization") {
 
     def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))
     logger.info("connect to ${defaultDbUrl}".toString())
-    connect(user = user1, password = null, url = defaultDbUrl) {
+    connect(user1, null, defaultDbUrl) {
         sql "set enable_fallback_to_original_planner=false"
 
         // no privilege to name

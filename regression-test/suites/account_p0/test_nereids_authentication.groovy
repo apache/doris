@@ -47,26 +47,26 @@ suite("test_nereids_authentication", "query") {
 
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
-    def result = connect(user=user, password='Doris_123456', url=url) {
+    def result = connect(user, 'Doris_123456', url) {
         sql "SELECT * FROM ${tableName1}"
     }
     assertEquals(result.size(), 0)
 
-    connect(user=user, password='Doris_123456', url=url) {
+    connect(user, 'Doris_123456', url) {
         test {
             sql "SELECT * FROM ${tableName2}"
             exception "denied"
         }
     }
 
-    connect(user=user, password='Doris_123456', url=url) {
+    connect(user, 'Doris_123456', url) {
         test {
             sql "SELECT count(*) FROM ${tableName2}"
             exception "denied"
         }
     }
 
-    connect(user=user, password='Doris_123456', url=url) {
+    connect(user, 'Doris_123456', url) {
         test {
             sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
             exception "denied"
@@ -74,14 +74,14 @@ suite("test_nereids_authentication", "query") {
     }
 
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName2} TO ${user}"
-    connect(user=user, password='Doris_123456', url=url) {
+    connect(user, 'Doris_123456', url) {
         sql "SELECT * FROM ${tableName2}"
     }
     assertEquals(result.size(), 0)
-    connect(user=user, password='Doris_123456', url=url) {
+    connect(user, 'Doris_123456', url) {
         sql "SELECT count(*) FROM ${tableName2}"
     }
-    connect(user=user, password='Doris_123456', url=url) {
+    connect(user, 'Doris_123456', url) {
         sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
     }
     assertEquals(result.size(), 0)

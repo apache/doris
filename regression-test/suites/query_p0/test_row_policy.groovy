@@ -29,12 +29,12 @@ suite("test_row_policy") {
     sql """DROP ROW POLICY IF EXISTS policy_01 ON ${tableName} FOR ${user}"""
     sql """CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO ${user} USING(id=1)"""
 
-    connect(user=user, password='123456', url=url) {
+    connect(user, '123456', url) {
         sql "set enable_nereids_planner = false"
         sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"
     }
 
-    connect(user=user, password='123456', url=url) {
+    connect(user, '123456', url) {
         sql "set enable_nereids_planner = true"
         sql "set enable_fallback_to_original_planner = false"
         sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"

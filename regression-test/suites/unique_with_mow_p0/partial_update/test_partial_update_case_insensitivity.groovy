@@ -23,7 +23,7 @@ suite("test_partial_update_case_insensitivity", "p0") {
     for (def use_row_store : [false, true]) {
         for (def use_nereids_planner : [false, true]) {
             logger.info("current params: use_row_store: ${use_row_store}, use_nereids_planner: ${use_nereids_planner}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
                 sql "use ${db};"
                 if (use_nereids_planner) {
                     sql """ set enable_nereids_dml = true; """
