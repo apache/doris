@@ -147,12 +147,12 @@ public:
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
 private:
-    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(const TUniqueId& query_id);
-
     struct BrpcItem {
         TNetworkAddress network_address;
         std::vector<std::weak_ptr<QueryContext>> queries;
     };
+
+    std::shared_ptr<QueryContext> _get_or_erase_query_ctx(const TUniqueId& query_id);
 
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
@@ -160,6 +160,9 @@ private:
     Status _get_or_create_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
                                     bool pipeline, QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
+
+    void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                               const BrpcItem& brpc_item);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
