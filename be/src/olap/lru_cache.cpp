@@ -289,30 +289,27 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
-    LRUHandle* e;
-    {
-        std::lock_guard l(_mutex);
-        ++_lookup_count;
-        e = _table.lookup(key, hash);
-        if (e != nullptr) {
-            // we get it from _table, so in_cache must be true
-            DCHECK(e->in_cache);
-            if (e->refs == 1) {
-                // only in LRU free list, remove it from list
-                _lru_remove(e);
-            }
-            e->refs++;
-            ++_hit_count;
-            e->last_visit_time = UnixMillis();
-        } else {
-            ++_miss_count;
+    std::lock_guard l(_mutex);
+    ++_lookup_count;
+    LRUHandle* e = _table.lookup(key, hash);
+    if (e != nullptr) {
+        // we get it from _table, so in_cache must be true
+        DCHECK(e->in_cache);
+        if (e->refs == 1) {
+            // only in LRU free list, remove it from list
+            _lru_remove(e);
         }
+        e->refs++;
+        ++_hit_count;
+        e->last_visit_time = UnixMillis();
+    } else {
+        ++_miss_count;
     }
+
     // If key not exist in cache, and is lru k cache, and key in visits list,
     // then move the key to beginning of the visits list.
     // key in visits list indicates that the key has been inserted once after the cache is full.
     if (e == nullptr && _is_lru_k) {
-        std::lock_guard l(_visits_lru_cache_mutex);
         auto it = _visits_lru_cache_map.find(hash);
         if (it != _visits_lru_cache_map.end()) {
             _visits_lru_cache_list.splice(_visits_lru_cache_list.begin(), _visits_lru_cache_list,
@@ -434,7 +431,6 @@ bool LRUCache::_check_element_count_limit() {
 bool LRUCache::_lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key visits_key) {
     if (_usage + total_size > _capacity ||
         _check_element_count_limit()) { // this line no lock required
-        std::lock_guard l(_visits_lru_cache_mutex);
         auto it = _visits_lru_cache_map.find(visits_key);
         if (it != _visits_lru_cache_map.end()) {
             _visits_lru_cache_usage -= it->second->second;
@@ -482,13 +478,13 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     memcpy(e->key_data, key.data(), key.size());
     e->last_visit_time = UnixMillis();
 
-    if (_is_lru_k && _lru_k_insert_visits_list(e->total_size, hash)) {
-        return reinterpret_cast<Cache::Handle*>(e);
-    }
-
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
+
+        if (_is_lru_k && _lru_k_insert_visits_list(e->total_size, hash)) {
+            return reinterpret_cast<Cache::Handle*>(e);
+        }
 
         // Free the space following strict LRU policy until enough space
         // is freed or the lru list is empty
