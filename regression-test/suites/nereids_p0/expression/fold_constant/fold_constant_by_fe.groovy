@@ -66,7 +66,7 @@ suite("test_fold_constant_by_fe") {
         qt_sql "select to_monday('${date}'), last_day('${date}'), to_date('${date}'), to_days('${date}'), date('${date}'), datev2('${date}')"
     }
 
-    test_year = [2001, 2013, 123, 1969, 2023]
+    def test_year = [2001, 2013, 123, 1969, 2023]
     for (year in test_year) {
         for (integer in test_int) {
             qt_sql "select /*+SET_VAR(time_zone=\"Asia/Shanghai\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"

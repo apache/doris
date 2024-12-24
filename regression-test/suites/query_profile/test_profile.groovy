@@ -35,7 +35,7 @@ def SUCCESS_MSG = 'success'
 def SUCCESS_CODE = 0
 def QUERY_NUM = 5
 
-random = new Random()
+def random = new Random()
 
 def getRandomNumber(int num){
     return random.nextInt(num)

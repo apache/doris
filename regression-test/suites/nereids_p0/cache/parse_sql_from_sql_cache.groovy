@@ -145,7 +145,7 @@ suite("parse_sql_from_sql_cache") {
             assertNoCache "select * from test_use_plan_cache5"
         }),
         extraThread("testUpdate",{
-            createTestTable "test_use_plan_cache6", uniqueTable=true
+            createTestTable("test_use_plan_cache6", true)
 
             // after partition changed 10s, the sql cache can be used
             sleep(10000)
