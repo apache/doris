@@ -1307,13 +1307,14 @@ struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
     static constexpr auto name = "json_extract_string";
     static constexpr auto alias = "jsonb_extract_string";
     static constexpr auto name2 = "get_json_string";
+    static constexpr auto name3 = "json_extract";
     static DataTypes get_variadic_argument_types_impl() {
         return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
     }
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
-    static constexpr auto name = "json_extract";
+    static constexpr auto name = "jsonb_extract";
     static constexpr auto alias = "jsonb_extract";
 };
 
@@ -2011,6 +2012,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbExtractString>();
     factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
     factory.register_function<FunctionJsonbExtractString>(JsonbExtractString::name2);
+    factory.register_function<FunctionJsonbExtractString>(JsonbExtractString::name3);
+
     factory.register_function<FunctionJsonbExtractJsonb>();
     // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 
