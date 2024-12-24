@@ -500,8 +500,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (null != transactionState && null != transactionState.getTransactionStatus()) {
                 if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                         || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                    LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ",
-                            transactionId,
+                    LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ", transactionId,
                             transactionState.getTransactionStatus().toString());
                     return;
                 } else {
@@ -530,8 +529,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 builder.setCommitAttachment(TxnUtil
                         .loadJobFinalOperationToPb(loadJobFinalOperation));
             } else if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
-                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
-                        = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
                 TxnStateChangeCallback cb = callbackFactory.getCallback(rlTaskTxnCommitAttachment.getJobId());
                 if (cb != null) {
                     // use a temporary transaction state to do before commit check,
@@ -865,7 +863,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-
         int totalRetryTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
@@ -990,6 +987,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
             long calculateDeleteBitmapTaskTimeoutSeconds) throws UserException {
+        if (backendToPartitionInfos == null) {
+            throw new UserException("failed to send calculate delete bitmap task to be,transactionId=" + transactionId
+                    + ",but backendToPartitionInfos is null");
+        }
         if (backendToPartitionInfos.isEmpty()) {
             return;
         }
@@ -1223,7 +1224,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
-        commitTransaction(db.getId(), tableList, transactionId, null, null, true);
+        List<OlapTable> mowTableList = getMowTableList(tableList, null);
+        commitTransaction(db.getId(), tableList, transactionId, null, null, true, mowTableList, null);
     }
 
     @Override
