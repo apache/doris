@@ -2,6 +2,45 @@ import org.apache.doris.regression.suite.Suite
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility;
 
+Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
+}
+
+Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+}
+
+Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
+    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id))
+}
+
+Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
+            ip, port, tablet_id, compact_type))
+}
+
+Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
+    return _be_run_compaction(ip, port, tablet_id, "base")
+}
+
+logger.info("Added 'be_run_base_compaction' function to Suite")
+
+Suite.metaClass.be_run_cumulative_compaction = { String ip, String port, String tablet_id  /* param */->
+    return _be_run_compaction(ip, port, tablet_id, "cumulative")
+}
+
+logger.info("Added 'be_run_cumulative_compaction' function to Suite")
+
+Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet_id  /* param */->
+    return _be_run_compaction(ip, port, tablet_id, "full")
+}
+
+Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+}
+
+logger.info("Added 'be_run_full_compaction' function to Suite")
+
 Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300 ->
     if (!(compaction_type in ["cumulative", "base", "full"])) {
         throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
