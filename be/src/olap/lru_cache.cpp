@@ -4,21 +4,21 @@
 
 #include "olap/lru_cache.h"
 
-#include <stdlib.h>
-
+#include <cstdlib>
 #include <mutex>
 #include <new>
 #include <sstream>
 #include <string>
 
 #include "gutil/bits.h"
-#include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/time.h"
 
 using std::string;
 using std::stringstream;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage, MetricUnit::BYTES);
@@ -35,7 +35,7 @@ uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     const uint32_t m = 0xc6a4a793;
     const uint32_t r = 24;
     const char* limit = data + n;
-    uint32_t h = seed ^ (n * m);
+    uint32_t h = seed ^ (static_cast<uint32_t>(n) * m);
 
     // Pick up four bytes at a time
     while (data + 4 <= limit) {
@@ -68,8 +68,6 @@ uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
 
     return h;
 }
-
-Cache::~Cache() {}
 
 HandleTable::~HandleTable() {
     delete[] _list;
@@ -140,7 +138,7 @@ void HandleTable::_resize() {
         new_length *= 2;
     }
 
-    LRUHandle** new_list = new (std::nothrow) LRUHandle*[new_length];
+    auto** new_list = new (std::nothrow) LRUHandle*[new_length];
     memset(new_list, 0, sizeof(new_list[0]) * new_length);
 
     uint32_t count = 0;
@@ -240,7 +238,7 @@ bool LRUCache::_unref(LRUHandle* e) {
     return e->refs == 0;
 }
 
-void LRUCache::_lru_remove(LRUHandle* e) {
+void LRUCache::_lru_remove(LRUHandle* e) const {
     e->next->prev = e->prev;
     e->prev->next = e->next;
     e->prev = e->next = nullptr;
@@ -262,7 +260,7 @@ void LRUCache::_lru_remove(LRUHandle* e) {
     }
 }
 
-void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
+void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) const {
     // Make "e" newest entry by inserting just before *list
     e->next = list;
     e->prev = list->prev;
@@ -323,7 +321,7 @@ void LRUCache::release(Cache::Handle* handle) {
     if (handle == nullptr) {
         return;
     }
-    LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
+    auto* e = reinterpret_cast<LRUHandle*>(handle);
     bool last_ref = false;
     {
         std::lock_guard l(_mutex);
@@ -647,7 +645,6 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t capacity, LRUCa
         : _name(name),
           _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
           _num_shards(num_shards),
-          _shards(nullptr),
           _last_id(1),
           _capacity(capacity) {
     CHECK(num_shards > 0) << "num_shards cannot be 0";
@@ -655,9 +652,9 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t capacity, LRUCa
             << "num_shards should be power of two, but got " << num_shards;
 
     const size_t per_shard = (capacity + (_num_shards - 1)) / _num_shards;
-    const size_t per_shard_element_count_capacity =
+    const uint32_t per_shard_element_count_capacity =
             (total_element_count_capacity + (_num_shards - 1)) / _num_shards;
-    LRUCache** shards = new (std::nothrow) LRUCache*[_num_shards];
+    auto** shards = new (std::nothrow) LRUCache*[_num_shards];
     for (int s = 0; s < _num_shards; s++) {
         shards[s] = new LRUCache(type, is_lru_k);
         shards[s]->set_capacity(per_shard);
@@ -740,7 +737,7 @@ Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
 }
 
 void ShardedLRUCache::release(Handle* handle) {
-    LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
+    auto* h = reinterpret_cast<LRUHandle*>(handle);
     _shards[_shard(h->hash)]->release(handle);
 }
 
