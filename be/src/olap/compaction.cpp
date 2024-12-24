@@ -107,8 +107,8 @@ bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
         return false;
     }
     bool cur_rs_key_bounds_truncated {rhs->is_segments_key_bounds_truncated()};
-    if (!Slice::origin_is_strictly_less_than(Slice {pre_max_key}, pre_rs_key_bounds_truncated,
-                                             Slice {min_key}, cur_rs_key_bounds_truncated)) {
+    if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_max_key}, pre_rs_key_bounds_truncated,
+                                              Slice {min_key}, cur_rs_key_bounds_truncated)) {
         return false;
     }
     CHECK(rhs->last_key(&pre_max_key));

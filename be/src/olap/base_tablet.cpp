@@ -449,10 +449,10 @@ bool BaseTablet::key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key
                                        bool is_segments_key_bounds_truncated) {
     Slice maybe_truncated_min_key {segment_key_bounds.min_key()};
     Slice maybe_truncated_max_key {segment_key_bounds.max_key()};
-    return Slice::origin_is_strictly_less_than(key, false, maybe_truncated_min_key,
-                                               is_segments_key_bounds_truncated) ||
-           Slice::origin_is_strictly_less_than(maybe_truncated_max_key,
-                                               is_segments_key_bounds_truncated, key, false);
+    return Slice::lhs_is_strictly_less_than_rhs(key, false, maybe_truncated_min_key,
+                                                is_segments_key_bounds_truncated) ||
+           Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
+                                                is_segments_key_bounds_truncated, key, false);
 }
 
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
