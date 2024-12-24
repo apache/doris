@@ -233,11 +233,8 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
     }
     LOG(INFO) << debug_msg;
 
-    state->get_query_ctx()->update_paused_reason(st);
-    state->get_query_ctx()->set_low_memory_mode();
-    state->get_query_ctx()->set_memory_sufficient(false);
     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-            state->get_query_ctx()->shared_from_this(), reserve_size);
+            state->get_query_ctx()->shared_from_this(), reserve_size, st);
 }
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
@@ -277,6 +274,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     bool eos = false;
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
+            // scanner->open may alloc plenty amount of memory(read blocks of data),
+            // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
             if (!scanner->is_init()) {

@@ -271,9 +271,12 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
 }
 
 void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& query_ctx,
-                                        int64_t reserve_size) {
-    std::lock_guard<std::mutex> lock(_paused_queries_lock);
+                                        int64_t reserve_size, const Status& status) {
     DCHECK(query_ctx != nullptr);
+    query_ctx->update_paused_reason(status);
+    query_ctx->set_low_memory_mode();
+    query_ctx->set_memory_sufficient(false);
+    std::lock_guard<std::mutex> lock(_paused_queries_lock);
     auto wg = query_ctx->workload_group();
     auto&& [it, inserted] = _paused_queries_list[wg].emplace(
             query_ctx, doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted,
@@ -281,7 +284,6 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
     // Check if this is an invalid reserve, for example, if the reserve size is too large, larger than the query limit
     // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
-        query_ctx->set_memory_sufficient(false);
         LOG(INFO) << "Insert one new paused query: " << query_ctx->debug_string()
                   << ", workload group: " << wg->debug_string();
     }
