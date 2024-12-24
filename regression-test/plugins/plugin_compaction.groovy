@@ -110,17 +110,22 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             // running is true means compaction is still running
             running = compactionStatus.run_status
 
-            if (!isCloudMode()) { // cloud mode doesn't show compaction success time in tablet status for the time being
+            if (!isCloudMode()) {
                 (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
                 assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
                 def tabletStatus = parseJson(stdout.trim())
                 def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
                 // last compaction success time isn't updated, indicates compaction is not started(so we treat it as running and wait)
                 running = running || (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
-            }
-            if (running) {
-                logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
-                return false
+                if (running) {
+                    logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
+                    return false
+                }
+            } else { // cloud mode doesn't show compaction success time in tablet status for the time being, so we solely check run_status
+                if (running) {
+                    logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
+                    return false
+                }
             }
         }
         return true
