@@ -140,15 +140,15 @@ suite("always_mono_func") {
     }
     explain {
         sql """select * from always_mono_func where to_monday(dt) ='2019-01-01' """
-        contains("partitions=1/5 (p4)")
+        contains("partitions=2/5 (p1,p4)")
     }
     explain {
         sql """select * from always_mono_func where to_monday(dt) >='2018-01-01' and to_monday(dt) <'2019-01-01' """
-        contains("partitions=3/5 (p2,p3,p4)")
+        contains("partitions=4/5 (p1,p2,p3,p4)")
     }
     explain {
         sql """ select * from always_mono_func where to_monday(dt) >= "2019-01-01" """
-        contains("partitions=2/5 (p4,p5)")
+        contains("partitions=3/5 (p1,p4,p5)")
     }
     // to_date
     explain {
@@ -203,7 +203,7 @@ suite("always_mono_func") {
 
     explain {
         sql """select * from always_mono_func  where date_format(to_monday(dt), 'yyyyMMdd') >= "20190101" """
-        contains("partitions=2/5 (p4,p5)")
+        contains("partitions=3/5 (p1,p4,p5)")
     }
     explain {
         sql """select * from always_mono_func  where date_format(last_day(to_monday(dt)), 'yyyyMMdd') < "20190101" """
@@ -216,6 +216,6 @@ suite("always_mono_func") {
 
     explain {
         sql """select * from always_mono_func  where date_format(date_trunc(last_day(to_monday(dt)),'month'), 'yyyyMMdd') > "20190101" """
-        contains("partitions=2/5 (p4,p5)")
+        contains("partitions=3/5 (p1,p4,p5)")
     }
 }
