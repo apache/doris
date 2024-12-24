@@ -95,3 +95,27 @@
 -- !sql_test_cache_true_lower_true_with_conf2_4 --
 1	UPPER
 
+-- !sql_test_cache_false_lower_false_with_conf0_1 --
+1	lower
+
+-- !sql_test_cache_false_lower_false_with_conf0_2 --
+1	UPPER
+
+-- !sql_test_cache_true_lower_false_with_conf0_1 --
+1	lower
+
+-- !sql_test_cache_true_lower_false_with_conf0_2 --
+1	UPPER
+
+-- !sql_test_cache_false_lower_true_with_conf0_1 --
+1	lower
+
+-- !sql_test_cache_false_lower_true_with_conf0_2 --
+1	UPPER
+
+-- !sql_test_cache_true_lower_true_with_conf0_1 --
+1	lower
+
+-- !sql_test_cache_true_lower_true_with_conf0_2 --
+1	UPPER
+

@@ -33,6 +33,7 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -111,38 +112,60 @@ public class JdbcExternalTable extends ExternalTable {
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         String remoteDbName = ((ExternalDatabase<?>) this.getDatabase()).getRemoteName();
+
+        // 1. Retrieve remote column information
         List<Column> columns = ((JdbcExternalCatalog) catalog).listColumns(remoteDbName, remoteName);
+        if (columns == null || columns.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // 2. Generate local column names from remote names
         List<String> remoteColumnNames = columns.stream()
                 .map(Column::getName)
                 .collect(Collectors.toList());
-
-        // Checks whether remoteColumnNames contains duplicate column names that differ only in case
-        Map<String, String> lowerCaseColumnNameMap = Maps.newHashMap();
-        for (String remoteColumnName : remoteColumnNames) {
-            String lowerCaseColumnName = remoteColumnName.toLowerCase();
-            if (lowerCaseColumnNameMap.containsKey(lowerCaseColumnName)) {
-                throw new RuntimeException(String.format(
-                        "Found conflicting column names under case-insensitive conditions. "
-                                + "Conflicting remote column names: '%s' and '%s' in remote table '%s.%s' "
-                                + "under catalog '%s'. "
-                                + "Please use meta_names_mapping to handle name mapping.",
-                        lowerCaseColumnNameMap.get(lowerCaseColumnName), remoteColumnName, remoteDbName, remoteName,
-                        catalog.getName()));
-            }
-            lowerCaseColumnNameMap.put(lowerCaseColumnName, remoteColumnName);
+        List<String> localColumnNames = Lists.newArrayListWithCapacity(remoteColumnNames.size());
+        for (String remoteColName : remoteColumnNames) {
+            String localName = ((JdbcExternalCatalog) catalog).getIdentifierMapping()
+                    .fromRemoteColumnName(remoteDbName, remoteName, remoteColName);
+            localColumnNames.add(localName);
         }
 
-        List<String> localColumnNames = remoteColumnNames.stream()
-                .map(remoteColumnName -> ((JdbcExternalCatalog) catalog).getIdentifierMapping()
-                        .fromRemoteColumnName(remoteDbName, remoteName, remoteColumnName))
+        // 3. Collect potential conflicts in a case-insensitive scenario
+        Map<String, List<String>> lowerCaseToLocalNames = Maps.newHashMap();
+        for (String localColName : localColumnNames) {
+            String lowerName = localColName.toLowerCase();
+            lowerCaseToLocalNames
+                    .computeIfAbsent(lowerName, k -> Lists.newArrayList())
+                    .add(localColName);
+        }
+
+        // 4. Check for conflicts
+        List<String> conflicts = lowerCaseToLocalNames.values().stream()
+                .filter(names -> names.size() > 1)
+                .flatMap(List::stream)
+                .distinct()
                 .collect(Collectors.toList());
+
+        if (!conflicts.isEmpty()) {
+            throw new RuntimeException(String.format(
+                    "Found conflicting column names under case-insensitive conditions. "
+                            + "Conflicting column names: %s in remote table '%s.%s' under catalog '%s'. "
+                            + "Please use meta_names_mapping to handle name mapping.",
+                    String.join(", ", conflicts), remoteDbName, remoteName, catalog.getName()));
+        }
+
+        // 5. Update column objects with local names
         for (int i = 0; i < columns.size(); i++) {
             columns.get(i).setName(localColumnNames.get(i));
         }
+
+        // 6. Build remote->local mapping
         Map<String, String> remoteColumnNamesMap = Maps.newHashMap();
-        for (int i = 0; i < remoteColumnNames.size(); i++) {
+        for (int i = 0; i < columns.size(); i++) {
             remoteColumnNamesMap.put(localColumnNames.get(i), remoteColumnNames.get(i));
         }
+
+        // 7. Return the SchemaCacheValue
         return Optional.of(new JdbcSchemaCacheValue(columns, remoteColumnNamesMap));
     }
 

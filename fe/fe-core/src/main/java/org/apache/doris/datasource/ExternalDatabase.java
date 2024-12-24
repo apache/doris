@@ -283,8 +283,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         } else {
             tableNames = extCatalog.listTableNames(null, remoteName).stream().map(tableName -> {
                 String localTableName = extCatalog.fromRemoteTableName(remoteName, tableName);
-                if (Env.isStoredTableNamesLowerCase()
-                        || extCatalog.getOnlyTestLowerCaseTableNames() == 1) {
+                if (this.isStoredTableNamesLowerCase()) {
                     localTableName = localTableName.toLowerCase();
                 }
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
@@ -292,10 +291,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }).collect(Collectors.toList());
         }
         // Check for conflicts when stored table names or meta names are case-insensitive
-        if ((Env.isStoredTableNamesLowerCase() || Env.isTableNamesCaseInsensitive())
-                || Boolean.parseBoolean(extCatalog.getLowerCaseMetaNames())
-                || (extCatalog.getOnlyTestLowerCaseTableNames() == 1
-                || extCatalog.getOnlyTestLowerCaseTableNames() == 2)) {
+        if (Boolean.parseBoolean(extCatalog.getLowerCaseMetaNames())
+                || this.isStoredTableNamesLowerCase()
+                || this.isTableNamesCaseInsensitive()) {
             // Map to track lowercased local names and their corresponding remote names
             Map<String, List<String>> lowerCaseToRemoteNames = Maps.newHashMap();
 
@@ -368,7 +366,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (remoteTableName == null && extCatalog.useMetaCache.get()) {
             if (Boolean.parseBoolean(extCatalog.getLowerCaseMetaNames())
                     || !Strings.isNullOrEmpty(extCatalog.getMetaNamesMapping())
-                    || extCatalog.getOnlyTestLowerCaseTableNames() == 1) {
+                    || this.isStoredTableNamesLowerCase()) {
                 remoteTableName = metaCache.getRemoteName(localTableName);
                 if (remoteTableName == null) {
                     LOG.warn("Could not resolve remote table name for local table: {}", localTableName);
@@ -469,7 +467,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public boolean isTableExist(String tableName) {
-        if (Env.isTableNamesCaseInsensitive() || extCatalog.getOnlyTestLowerCaseTableNames() == 2) {
+        if (this.isTableNamesCaseInsensitive()) {
             String realTableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (realTableName == null) {
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
@@ -533,10 +531,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
-        if (Env.isStoredTableNamesLowerCase() || extCatalog.getOnlyTestLowerCaseTableNames() == 1) {
+        if (this.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        if (Env.isTableNamesCaseInsensitive() || extCatalog.getOnlyTestLowerCaseTableNames() == 2) {
+        if (this.isTableNamesCaseInsensitive()) {
             String realTableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (realTableName == null) {
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
@@ -550,7 +548,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 tableName = realTableName;
             }
         }
-        if (extCatalog.getLowerCaseMetaNames().equalsIgnoreCase("true")) {
+        if (extCatalog.getLowerCaseMetaNames().equalsIgnoreCase("true")
+                && (this.isTableNamesCaseInsensitive())) {
             tableName = tableName.toLowerCase();
         }
         if (extCatalog.getUseMetaCache().get()) {
@@ -633,7 +632,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void unregisterTable(String tableName) {
         makeSureInitialized();
-        if (Env.isStoredTableNamesLowerCase() || extCatalog.getOnlyTestLowerCaseTableNames() == 1) {
+        if (this.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (LOG.isDebugEnabled()) {
@@ -693,5 +692,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public String getQualifiedName(String tblName) {
         return String.join(".", extCatalog.getName(), name, tblName);
+    }
+
+    private boolean isStoredTableNamesLowerCase() {
+        // Because we have added a test configuration item,
+        // it needs to be judged together with Env.isStoredTableNamesLowerCase()
+        return Env.isStoredTableNamesLowerCase() || extCatalog.getOnlyTestLowerCaseTableNames() == 1;
+    }
+
+    private boolean isTableNamesCaseInsensitive() {
+        // Because we have added a test configuration item,
+        // it needs to be judged together with Env.isTableNamesCaseInsensitive()
+        return Env.isTableNamesCaseInsensitive() || extCatalog.getOnlyTestLowerCaseTableNames() == 2;
     }
 }

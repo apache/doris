@@ -199,6 +199,8 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping") {
     qt_sql_meta_mapping_select_lower_lower_case_true "select * from test_conflict_meta_names.external_meta_names_mapping_lower.table_test_lower"
     qt_sql_meta_mapping_select_upper_lower_case_true "select * from test_conflict_meta_names.external_meta_names_mapping_lower.table_test_upper"
 
+    sql """drop catalog if exists test_conflict_meta_names """
+
     String error_mapping_db = """
     {
         "databases": [

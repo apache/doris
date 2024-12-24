@@ -33,6 +33,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
@@ -182,12 +183,7 @@ class StatisticsUtilTest {
         schema.add(column);
         OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
         HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
-
-        long dbId = 100;
-        String dbName = "testDb";
-        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, dbId, dbName, dbName);
-
-
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
         // Test olap table auto analyze disabled.
         Map<String, String> properties = new HashMap<>();
         properties.put(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "disable");
@@ -402,7 +398,8 @@ class StatisticsUtilTest {
                 return true;
             }
         };
-        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null, null);
+        IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
+        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null, icebergDatabase);
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName())));
 
         // Test table stats meta is null.

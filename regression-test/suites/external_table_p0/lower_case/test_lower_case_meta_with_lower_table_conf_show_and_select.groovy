@@ -358,6 +358,196 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql """drop catalog if exists test_cache_true_lower_true_with_conf2 """
 
 
+    // Test for cache false and lower false and lower conf 0
+    sql """drop catalog if exists test_cache_false_lower_false_with_conf0 """
+
+    sql """ CREATE CATALOG `test_cache_false_lower_false_with_conf0` PROPERTIES (
+            "user" = "${jdbcUser}",
+            "type" = "jdbc",
+            "password" = "${jdbcPassword}",
+            "jdbc_url" = "${jdbcUrl}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "use_meta_cache" = "false",
+            "lower_case_meta_names" = "false",
+            "only_specified_database" = "true",
+            "include_database_list" = "external_test_lower_with_conf",
+            "only_test_lower_case_table_names" = "0"
+        )"""
+
+    qt_sql_test_cache_false_lower_false_with_conf0_1 "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    qt_sql_test_cache_false_lower_false_with_conf0_2 "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    test {
+        sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    test {
+        sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
+        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    test {
+        sql """show tables from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf"""
+
+        // Verification results include lower and UPPER
+        check { result, ex, startTime, endTime ->
+            def expectedTables = ["lower_with_conf", "UPPER_with_conf"]
+            expectedTables.each { tableName ->
+                assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
+            }
+        }
+    }
+
+    sql """drop catalog if exists test_cache_false_lower_false_with_conf0 """
+
+
+    // Test for cache true and lower false and lower conf 0
+    sql """drop catalog if exists test_cache_true_lower_false_with_conf0 """
+
+    sql """ CREATE CATALOG `test_cache_true_lower_false_with_conf0` PROPERTIES (
+            "user" = "${jdbcUser}",
+            "type" = "jdbc",
+            "password" = "${jdbcPassword}",
+            "jdbc_url" = "${jdbcUrl}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "use_meta_cache" = "true",
+            "lower_case_meta_names" = "false",
+            "only_specified_database" = "true",
+            "include_database_list" = "external_test_lower_with_conf",
+            "only_test_lower_case_table_names" = "0"
+        )"""
+
+    qt_sql_test_cache_true_lower_false_with_conf0_1 "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    qt_sql_test_cache_true_lower_false_with_conf0_2 "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    test {
+        sql "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    test {
+        sql "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
+        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    test {
+        sql """show tables from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf"""
+
+        // Verification results include lower and UPPER
+        check { result, ex, startTime, endTime ->
+            def expectedTables = ["lower_with_conf", "UPPER_with_conf"]
+            expectedTables.each { tableName ->
+                assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
+            }
+        }
+    }
+
+    sql """drop catalog if exists test_cache_true_lower_false_with_conf0 """
+
+
+    // Test for cache false and lower true and lower conf 0
+    sql """drop catalog if exists test_cache_false_lower_true_with_conf0 """
+
+    sql """ CREATE CATALOG `test_cache_false_lower_true_with_conf0` PROPERTIES (
+            "user" = "${jdbcUser}",
+            "type" = "jdbc",
+            "password" = "${jdbcPassword}",
+            "jdbc_url" = "${jdbcUrl}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "use_meta_cache" = "false",
+            "lower_case_meta_names" = "true",
+            "only_specified_database" = "true",
+            "include_database_list" = "external_test_lower_with_conf",
+            "only_test_lower_case_table_names" = "0"
+        )"""
+
+    qt_sql_test_cache_false_lower_true_with_conf0_1 "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    qt_sql_test_cache_false_lower_true_with_conf0_2 "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    test {
+        sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    test {
+        sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    test {
+        sql """show tables from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf"""
+
+        // Verification results include lower and UPPER
+        check { result, ex, startTime, endTime ->
+            def expectedTables = ["lower_with_conf", "upper_with_conf"]
+            expectedTables.each { tableName ->
+                assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
+            }
+        }
+    }
+
+    sql """drop catalog if exists test_cache_false_lower_true_with_conf0 """
+
+
+    // Test for cache true and lower true and lower conf 0
+    sql """drop catalog if exists test_cache_true_lower_true_with_conf0 """
+
+    sql """ CREATE CATALOG `test_cache_true_lower_true_with_conf0` PROPERTIES (
+            "user" = "${jdbcUser}",
+            "type" = "jdbc",
+            "password" = "${jdbcPassword}",
+            "jdbc_url" = "${jdbcUrl}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "use_meta_cache" = "true",
+            "lower_case_meta_names" = "true",
+            "only_specified_database" = "true",
+            "include_database_list" = "external_test_lower_with_conf",
+            "only_test_lower_case_table_names" = "0"
+        )"""
+
+    qt_sql_test_cache_true_lower_true_with_conf0_1 "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    qt_sql_test_cache_true_lower_true_with_conf0_2 "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    test {
+        sql "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    test {
+        sql "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    test {
+        sql """show tables from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf"""
+
+        // Verification results include lower and UPPER
+        check { result, ex, startTime, endTime ->
+            def expectedTables = ["lower_with_conf", "upper_with_conf"]
+            expectedTables.each { tableName ->
+                assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
+            }
+        }
+    }
+
+    sql """drop catalog if exists test_cache_true_lower_true_with_conf0 """
 
     sql """drop database if exists internal.external_test_lower_with_conf; """
 }
