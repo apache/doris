@@ -395,7 +395,7 @@ suite("test_auto_partition_behavior") {
     logger.info("get table replica num: " + replicaNum)
 
     sql """ insert into test_change values ("20201212"); """
-    def part_result = sql " show tablets from test_change "
+    part_result = sql " show tablets from test_change "
     assertEquals(part_result.size, 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
