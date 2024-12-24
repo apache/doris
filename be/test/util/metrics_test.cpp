@@ -46,7 +46,7 @@ TEST_F(MetricsTest, Counter) {
         EXPECT_STREQ("100", counter.to_string().c_str());
     }
     {
-        IntAtomicCounter counter;
+        IntCounter counter;
         EXPECT_EQ(0, counter.value());
         counter.increment(100);
         EXPECT_EQ(100, counter.value());
@@ -99,7 +99,7 @@ TEST_F(MetricsTest, CounterPerf) {
     }
     // IntAtomicCounter
     {
-        IntAtomicCounter counter;
+        IntCounter counter;
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {
@@ -141,11 +141,11 @@ TEST_F(MetricsTest, CounterPerf) {
     }
     // multi-thread for IntAtomicCounter
     {
-        IntAtomicCounter mt_counter;
+        IntCounter mt_counter;
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntAtomicCounter>, kThreadLoopCount, &mt_counter,
+            updaters.emplace_back(&mt_updater<IntCounter>, kThreadLoopCount, &mt_counter,
                                   &used_time);
         }
         for (int i = 0; i < 8; ++i) {

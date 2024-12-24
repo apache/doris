@@ -658,7 +658,7 @@ public class ColumnDef {
         sb.append("`").append(name).append("` ");
         sb.append(typeDef.toSql()).append(" ");
 
-        if (aggregateType != null) {
+        if (aggregateType != null && aggregateType != AggregateType.NONE) {
             sb.append(aggregateType.name()).append(" ");
         }
 
@@ -693,7 +693,7 @@ public class ColumnDef {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
 
         return sb.toString();
     }

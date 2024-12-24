@@ -18,13 +18,25 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_cumu_compaction_with_delete") {
-    def tableName = "test_cumu_compaction_with_delete"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
+    set_be_config.call("enable_sleep_between_delete_cumu_compaction", "false")
+
+    def tableName = "test_cumu_compaction_with_delete1"
     def check_cumu_point = { cumu_point ->
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         int cumuPoint = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -50,15 +62,15 @@ suite("test_cumu_compaction_with_delete") {
             sql """ delete from ${tableName} where user_id = 1"""
         }
 
-        now = System.currentTimeMillis()
+        def now = System.currentTimeMillis()
 
         while(true){
             if(check_cumu_point(100)){
                 break;
             }
-            Thread.sleep(1000)
+            Thread.sleep(10000)
         }
-        time_diff = System.currentTimeMillis() - now
+        def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
         assertTrue(time_diff<200*1000)
 
@@ -70,19 +82,9 @@ suite("test_cumu_compaction_with_delete") {
         try_sql("DROP TABLE IF EXISTS ${tableName} FORCE")
     }
 
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     try {
         set_be_config.call("enable_sleep_between_delete_cumu_compaction", "true")
+        tableName = "test_cumu_compaction_with_delete2"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE ${tableName} (
@@ -99,15 +101,15 @@ suite("test_cumu_compaction_with_delete") {
             sql """ delete from ${tableName} where user_id = 1"""
         }
 
-        now = System.currentTimeMillis()
+        def now = System.currentTimeMillis()
 
         while(true){
             if(check_cumu_point(100)){
                 break;
             }
-            Thread.sleep(1000)
+            Thread.sleep(10000)
         }
-        time_diff = System.currentTimeMillis() - now
+        def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
         assertTrue(time_diff>=200*1000)
 

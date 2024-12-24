@@ -78,7 +78,7 @@ public class CompressedMaterialize implements AnalysisRuleFactory {
 
     private LogicalSort<Plan> compressMaterializeSort(LogicalSort<Plan> sort) {
         List<OrderKey> newOrderKeys = Lists.newArrayList();
-        boolean changed = false;
+        List<Expression> orderKeysToEncode = Lists.newArrayList();
         for (OrderKey orderKey : sort.getOrderKeys()) {
             Expression expr = orderKey.getExpr();
             Optional<Expression> encode = getEncodeExpression(expr);
@@ -86,12 +86,18 @@ public class CompressedMaterialize implements AnalysisRuleFactory {
                 newOrderKeys.add(new OrderKey(encode.get(),
                         orderKey.isAsc(),
                         orderKey.isNullFirst()));
-                changed = true;
+                orderKeysToEncode.add(expr);
             } else {
                 newOrderKeys.add(orderKey);
             }
         }
-        return changed ? sort.withOrderKeys(newOrderKeys) : sort;
+        if (orderKeysToEncode.isEmpty()) {
+            return sort;
+        } else {
+            sort = sort.withOrderKeys(newOrderKeys);
+            return sort;
+        }
+
     }
 
     private Optional<Expression> getEncodeExpression(Expression expression) {

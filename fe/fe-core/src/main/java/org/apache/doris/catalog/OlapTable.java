@@ -114,7 +114,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -885,7 +884,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (this.indexes != null) {
             List<Index> indexes = this.indexes.getIndexes();
             for (Index idx : indexes) {
-                idx.setIndexId(env.getNextId());
+                long newIdxId;
+                if (Config.restore_reset_index_id) {
+                    newIdxId = env.getNextId();
+                } else {
+                    // The index id from the upstream is used, if restore_reset_index_id is not set.
+                    //
+                    // This is because the index id is used as a part of inverted file name/header
+                    // in BE. During restore, the inverted file is copied from the upstream to the
+                    // downstream. If the index id is changed, it might cause the BE to fail to find
+                    // the inverted files.
+                    newIdxId = idx.getIndexId();
+                }
+                idx.setIndexId(newIdxId);
             }
             for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
                 entry.getValue().setIndexes(indexes);
@@ -3313,31 +3324,24 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
-            throws AnalysisException {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getAndCopyPartitionItems();
     }
 
-    public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
-        if (!tryReadLock(1, TimeUnit.MINUTES)) {
-            throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
-        }
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
+        readLock();
         try {
-            return getAndCopyPartitionItemsWithoutLock();
+            Map<String, PartitionItem> res = Maps.newHashMap();
+            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+                Partition partition = idToPartition.get(entry.getKey());
+                if (partition != null) {
+                    res.put(partition.getName(), entry.getValue());
+                }
+            }
+            return res;
         } finally {
             readUnlock();
         }
-    }
-
-    public Map<String, PartitionItem> getAndCopyPartitionItemsWithoutLock() throws AnalysisException {
-        Map<String, PartitionItem> res = Maps.newHashMap();
-        for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
-            Partition partition = idToPartition.get(entry.getKey());
-            if (partition != null) {
-                res.put(partition.getName(), entry.getValue());
-            }
-        }
-        return res;
     }
 
     @Override

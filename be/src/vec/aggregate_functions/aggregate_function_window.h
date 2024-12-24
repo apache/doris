@@ -402,7 +402,7 @@ public:
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
                 } else {
-                    _default_value.set_value(nullable_column->get_nested_column_ptr(), 0);
+                    _default_value.set_value(nullable_column->get_nested_column_ptr().get(), 0);
                 }
             } else {
                 _default_value.set_value(column, 0);
@@ -563,24 +563,19 @@ public:
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support add");
-        __builtin_unreachable();
+        throw doris::Exception(Status::FatalError("WindowFunctionLeadLagData do not support add"));
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support merge");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("WindowFunctionLeadLagData do not support merge"));
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support serialize");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("WindowFunctionLeadLagData do not support serialize"));
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support deserialize");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("WindowFunctionLeadLagData do not support deserialize"));
     }
 
 private:

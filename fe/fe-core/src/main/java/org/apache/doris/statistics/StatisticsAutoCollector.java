@@ -144,9 +144,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
         columns = columns.stream().filter(
                 c -> StatisticsUtil.needAnalyzeColumn(table, c) || StatisticsUtil.isLongTimeColumn(table, c))
             .collect(Collectors.toSet());
-        if (columns.isEmpty()) {
-            return;
-        }
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
         if (analyzeJob == null) {
             return;

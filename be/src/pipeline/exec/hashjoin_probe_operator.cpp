@@ -17,6 +17,8 @@
 
 #include "hashjoin_probe_operator.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <string>
 
 #include "common/cast_set.h"
@@ -240,7 +242,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         // If we use a short-circuit strategy, should return block directly by add additional null data.
         auto block_rows = local_state._probe_block.rows();
         if (local_state._probe_eos && block_rows == 0) {
-            *eos = local_state._probe_eos;
+            *eos = true;
             return Status::OK();
         }
 
@@ -369,7 +371,7 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
         _need_null_map_for_probe = _need_probe_null_map(block, res_col_ids);
     }
     if (_need_null_map_for_probe) {
-        if (_null_map_column == nullptr) {
+        if (!_null_map_column) {
             _null_map_column = vectorized::ColumnUInt8::create();
         }
         _null_map_column->get_data().assign(block.rows(), (uint8_t)0);
@@ -387,7 +389,7 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
-            DCHECK(_null_map_column != nullptr);
+            DCHECK(_null_map_column);
             vectorized::VectorizedUtils::update_null_map(_null_map_column->get_data(), col_nullmap);
             _probe_columns[i] = &col_nested;
         } else {
@@ -616,21 +618,34 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
         auto data_type = slot->get_data_type_ptr();
-        auto target_data_type = idx < right_col_idx ? _left_table_data_types[idx]
-                                                    : _right_table_data_types[idx - right_col_idx];
+        const auto slot_on_left = idx < right_col_idx;
+        auto target_data_type = slot_on_left ? _left_table_data_types[idx]
+                                             : _right_table_data_types[idx - right_col_idx];
         ++idx;
         if (data_type->equals(*target_data_type)) {
             continue;
         }
 
-        auto data_type_non_nullable = vectorized::remove_nullable(data_type);
-        if (data_type_non_nullable->equals(*target_data_type)) {
+        /// For outer join(left/right/full), the non-nullable columns may be converted to nullable.
+        const auto accept_nullable_not_match =
+                _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                (slot_on_left ? _join_op == TJoinOp::RIGHT_OUTER_JOIN
+                              : _join_op == TJoinOp::LEFT_OUTER_JOIN);
+
+        if (accept_nullable_not_match) {
+            auto data_type_non_nullable = vectorized::remove_nullable(data_type);
+            if (data_type_non_nullable->equals(*target_data_type)) {
+                continue;
+            }
+        } else if (data_type->equals(*target_data_type)) {
             continue;
         }
 
-        return Status::InternalError("intermediate slot({}) data type not match: '{}' vs '{}'",
-                                     slot->id(), data_type->get_name(),
-                                     _left_table_data_types[idx]->get_name());
+        return Status::InternalError(
+                "Join node(id={}, OP={}) intermediate slot({}, #{})'s on {} table data type not "
+                "match: '{}' vs '{}'",
+                _node_id, _join_op, slot->col_name(), slot->id(), (slot_on_left ? "left" : "right"),
+                data_type->get_name(), target_data_type->get_name());
     }
 
     _build_side_child.reset();

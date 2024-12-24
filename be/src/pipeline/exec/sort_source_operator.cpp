@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<SortSharedState>(state, parent) {}
@@ -79,4 +80,5 @@ Status SortSourceOperatorX::build_merger(RuntimeState* state,
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -1529,10 +1529,11 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
-    # CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-    #     --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
+    # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
+    # Maybe can use alias instead of overwrite.
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --enable-prof --disable-libdl --disable-shared
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
     make -j "${PARALLEL}"
     make install
