@@ -38,7 +38,7 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
                 "driver_class" = "com.mysql.jdbc.Driver",
                 "use_meta_cache" = "${useMetaCache}"
             );"""
-            def res = sql """ show databases from ${catalog_name}; """
+            def res = sql(""" show databases from ${catalog_name}; """).collect {x -> x[0] as String}
             def containedDb = ['mysql', 'doris_test', 'information_schema']
             for (final def db in containedDb) {
                 assertTrue(res.contains(db), 'Not contains db: `' + db + '` in mysql catalog')
