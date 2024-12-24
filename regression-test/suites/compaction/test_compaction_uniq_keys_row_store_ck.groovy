@@ -75,7 +75,7 @@ suite("test_compaction_uniq_keys_row_store_ck", "p0") {
             }
             // set server side prepared statment url
             def url="jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
-            def result1 = connect(user=user, password=password, url=url) {
+            def result1 = connect(user, password, url) {
                 def stmt = prepareStatement """ SELECT  /*+ SET_VAR(enable_nereids_planner=true,enable_fallback_to_original_planner=false) */ * FROM ${tableName} t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
                 setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.21', '2017-10-01 11:11:11.11', 'Beijing', 10, 1
                 qe_point_select stmt
@@ -95,7 +95,7 @@ suite("test_compaction_uniq_keys_row_store_ck", "p0") {
                 qe_point_select stmt
             }
 
-            def result2 = connect(user=user, password=password, url=url) {
+            def result2 = connect(user, password, url) {
                 def stmt = prepareStatement """ SELECT datetimev2_1,datetime_val1,datetime_val2,max_dwell_time FROM ${tableName} t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
                 setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.21', '2017-10-01 11:11:11.11', 'Beijing', 10, 1
                 qe_point_select stmt

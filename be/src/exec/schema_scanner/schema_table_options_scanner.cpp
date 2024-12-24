@@ -27,6 +27,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaTableOptionsScanner::_s_tbls_columns = {
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -110,7 +112,7 @@ Status SchemaTableOptionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     }
     _tableoptions_block->reserve(_block_rows_limit);
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>("table options schema is not match for FE and BE");
         }
@@ -150,7 +152,7 @@ Status SchemaTableOptionsScanner::get_next_block_internal(vectorized::Block* blo
         if (_db_index < _db_result.db_ids.size()) {
             RETURN_IF_ERROR(get_onedb_info_from_fe(_db_result.db_ids[_db_index]));
             _row_idx = 0; // reset row index so that it start filling for next block.
-            _total_rows = _tableoptions_block->rows();
+            _total_rows = (int)_tableoptions_block->rows();
             _db_index++;
         }
     }

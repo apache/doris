@@ -77,7 +77,7 @@ suite("test_vault_privilege", "nonConcurrent") {
 
         def vault2 = "test_privilege_vault2"
         // Only users with admin role can create storage vault
-        connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        connect(user1, 'Cloud12345', context.config.jdbcUrl) {
             expectExceptionLike({
                 sql """
                     CREATE STORAGE VAULT IF NOT EXISTS ${vault2}
@@ -91,14 +91,14 @@ suite("test_vault_privilege", "nonConcurrent") {
         }
 
         // Only users with admin role can set/unset default storage vault
-        connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        connect(user1, 'Cloud12345', context.config.jdbcUrl) {
             expectExceptionLike({
                 sql """
                     SET ${vault1} AS DEFAULT STORAGE VAULT
                 """
             }, "denied")
         }
-        connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        connect(user1, 'Cloud12345', context.config.jdbcUrl) {
             expectExceptionLike({
                 sql """
                     UNSET DEFAULT STORAGE VAULT
@@ -106,7 +106,7 @@ suite("test_vault_privilege", "nonConcurrent") {
             }, "denied")
         }
 
-        def result = connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        def result = connect(user1, 'Cloud12345', context.config.jdbcUrl) {
                 sql " SHOW STORAGE VAULT; "
         }
         assertTrue(result.isEmpty())
@@ -114,7 +114,7 @@ suite("test_vault_privilege", "nonConcurrent") {
         sql """
             DROP TABLE IF EXISTS ${table2};
         """
-        connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        connect(user1, 'Cloud12345', context.config.jdbcUrl) {
             expectExceptionLike({
                 sql """
                     CREATE TABLE IF NOT EXISTS ${table2} (
@@ -135,13 +135,13 @@ suite("test_vault_privilege", "nonConcurrent") {
             GRANT usage_priv ON STORAGE VAULT '${vault1}' TO '${user1}';
         """
 
-        result = connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        result = connect(user1, 'Cloud12345', context.config.jdbcUrl) {
                 sql " SHOW STORAGE VAULT; "
         }
         storageVaults = result.stream().map(row -> row[0]).collect(Collectors.toSet())
         assertTrue(storageVaults.contains(vault1))
 
-        connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        connect(user1, 'Cloud12345', context.config.jdbcUrl) {
             sql """
                 CREATE TABLE IF NOT EXISTS ${table2} (
                         C_CUSTKEY     INTEGER NOT NULL,
@@ -160,7 +160,7 @@ suite("test_vault_privilege", "nonConcurrent") {
             REVOKE usage_priv ON STORAGE VAULT '${vault1}' FROM '${user1}';
         """
 
-        result = connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        result = connect(user1, 'Cloud12345', context.config.jdbcUrl) {
                 sql " SHOW STORAGE VAULT; "
         }
         assertTrue(result.isEmpty())
@@ -168,7 +168,7 @@ suite("test_vault_privilege", "nonConcurrent") {
         sql """
             DROP TABLE IF EXISTS ${table3};
         """
-        connect(user = user1, password = 'Cloud12345', url = context.config.jdbcUrl) {
+        connect(user1, 'Cloud12345', context.config.jdbcUrl) {
             expectExceptionLike({
                 sql """
                     CREATE TABLE IF NOT EXISTS ${table3} (

@@ -141,11 +141,11 @@ void basic_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_i
                         size_t input_rows_count) {
     auto col_res = ColumnUInt8::create(input_rows_count);
     if (auto l = check_and_get_column<ColumnConst>(arguments[0])) {
-        vector_const<Op>(arguments[1], l, col_res, input_rows_count);
+        vector_const<Op>(arguments[1], l, col_res.get(), input_rows_count);
     } else if (auto r = check_and_get_column<ColumnConst>(arguments[1])) {
-        vector_const<Op>(arguments[0], r, col_res, input_rows_count);
+        vector_const<Op>(arguments[0], r, col_res.get(), input_rows_count);
     } else {
-        vector_vector<Op>(arguments[0], arguments[1], col_res, input_rows_count);
+        vector_vector<Op>(arguments[0], arguments[1], col_res.get(), input_rows_count);
     }
     result_info.column = std::move(col_res);
 }
@@ -156,11 +156,12 @@ void null_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_in
     auto col_nulls = ColumnUInt8::create(input_rows_count);
     auto col_res = ColumnUInt8::create(input_rows_count);
     if (auto l = check_and_get_column<ColumnConst>(arguments[0])) {
-        vector_const_null<Op>(arguments[1], l, col_res, col_nulls, input_rows_count);
+        vector_const_null<Op>(arguments[1], l, col_res.get(), col_nulls.get(), input_rows_count);
     } else if (auto r = check_and_get_column<ColumnConst>(arguments[1])) {
-        vector_const_null<Op>(arguments[0], r, col_res, col_nulls, input_rows_count);
+        vector_const_null<Op>(arguments[0], r, col_res.get(), col_nulls.get(), input_rows_count);
     } else {
-        vector_vector_null<Op>(arguments[0], arguments[1], col_res, col_nulls, input_rows_count);
+        vector_vector_null<Op>(arguments[0], arguments[1], col_res.get(), col_nulls.get(),
+                               input_rows_count);
     }
     result_info.column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
 }

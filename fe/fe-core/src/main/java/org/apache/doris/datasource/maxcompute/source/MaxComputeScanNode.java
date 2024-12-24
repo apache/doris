@@ -44,7 +44,7 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -107,21 +107,23 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
-            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv) {
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
+            SessionVariable sv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
-                selectedPartitions, needCheckColumnPriv);
+                selectedPartitions, needCheckColumnPriv, sv);
     }
 
     // For old planner
-    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
+            SessionVariable sv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
-                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv);
+                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv, sv);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             StatisticalType statisticalType, SelectedPartitions selectedPartitions,
-            boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
         this.selectedPartitions = selectedPartitions;
     }
@@ -214,7 +216,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             return false;
         }
 
-        int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
+        int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
         return numPartitions > 0
                 && selectedPartitions != SelectedPartitions.NOT_PRUNED
                 && selectedPartitions.selectedPartitions.size() >= numPartitions;
@@ -226,7 +228,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public void startSplit() {
+    public void startSplit(int numBackends) {
         this.totalPartitionNum = selectedPartitions.totalPartitionNum;
         this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
 
@@ -241,8 +243,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
         );
 
-
-        int batchNumPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
+        int batchNumPartitions = sessionVariable.getNumPartitionsInBatchMode();
 
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
@@ -546,7 +547,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         return new HashMap<>();
     }
 
-    List<Split> getSplitByTableSession(TableBatchReadSession tableBatchReadSession) throws java.io.IOException {
+    private List<Split> getSplitByTableSession(TableBatchReadSession tableBatchReadSession) throws IOException {
         List<Split> result = new ArrayList<>();
         String scanSessionSerialize =  serializeSession(tableBatchReadSession);
         InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
@@ -595,9 +596,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         return result;
     }
 
-
     @Override
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         List<Split> result = new ArrayList<>();
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {

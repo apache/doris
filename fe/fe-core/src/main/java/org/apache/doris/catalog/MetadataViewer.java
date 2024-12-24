@@ -401,7 +401,7 @@ public class MetadataViewer {
         return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
-    private static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
+    public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
 

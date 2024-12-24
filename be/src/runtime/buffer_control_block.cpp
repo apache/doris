@@ -30,12 +30,10 @@
 #include <utility>
 #include <vector>
 
-#include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
 #include "pipeline/dependency.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
-#include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "vec/core/block.h"
 
@@ -149,8 +147,8 @@ void GetArrowResultBatchCtx::on_data(
     delete this;
 }
 
-BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size, RuntimeState* state)
-        : _fragment_id(id),
+BufferControlBlock::BufferControlBlock(TUniqueId id, int buffer_size, RuntimeState* state)
+        : _fragment_id(std::move(id)),
           _is_close(false),
           _is_cancelled(false),
           _buffer_limit(buffer_size),

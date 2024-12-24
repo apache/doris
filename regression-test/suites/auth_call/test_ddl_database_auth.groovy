@@ -40,7 +40,7 @@ suite("test_ddl_database_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create database ${dbName};"""
             exception "denied"
@@ -51,7 +51,7 @@ suite("test_ddl_database_auth","p0,auth_call") {
     sql """create database ${dbName};"""
     sql """grant Create_priv on ${dbName}.* to ${user}"""
     sql """drop database ${dbName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """create database ${dbName};"""
         sql """show create database ${dbName}"""
         def db_res = sql """show databases;"""
@@ -60,14 +60,14 @@ suite("test_ddl_database_auth","p0,auth_call") {
 
     // ddl alter
     // user alter
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """ALTER database ${dbName} RENAME ${dbNameNew};"""
             exception "denied"
         }
     }
     sql """grant ALTER_PRIV on ${dbName}.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ALTER database ${dbName} RENAME ${dbNameNew};"""
         test {
             sql """show create database ${dbNameNew}"""
@@ -78,21 +78,21 @@ suite("test_ddl_database_auth","p0,auth_call") {
     }
     // root alter
     sql """ALTER database ${dbNameNew} RENAME ${dbName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """show create database ${dbName}"""
         def db_res = sql """show databases;"""
         assertTrue(db_res.size() == 4 || db_res.size() == 2)
     }
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """drop database ${dbName};"""
             exception "denied"
         }
     }
     sql """grant DROP_PRIV on ${dbName}.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """drop database ${dbName};"""
         def ctl_res = sql """show databases;"""
         assertTrue(ctl_res.size() == 3 || ctl_res.size() == 1)

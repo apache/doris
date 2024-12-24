@@ -55,6 +55,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<pipeline::Dependency> dep,
@@ -359,7 +360,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
         auto& partition_ids = row_part_tablet_ids[index_idx].partition_ids;
         auto& tablet_ids = row_part_tablet_ids[index_idx].tablet_ids;
 
-        for (int i = 0; i < row_ids.size(); i++) {
+        for (size_t i = 0; i < row_ids.size(); i++) {
             auto& tablet_id = tablet_ids[i];
             auto it = rows_for_tablet.find(tablet_id);
             if (it == rows_for_tablet.end()) {

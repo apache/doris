@@ -86,7 +86,7 @@ public class DropAndRecoverInfoTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        RecoverInfo info1 = new RecoverInfo(1, 2, 3, "a", "b", "c");
+        RecoverInfo info1 = new RecoverInfo(1, 2, 3, "a", "", "b", "", "c");
         info1.write(dos);
         dos.flush();
         dos.close();

@@ -52,7 +52,7 @@ suite("test_ddl_part_table_auth","p0,auth_call") {
     logger.info("insert_res: " + insert_res)
 
     def partition_info = sql """show partitions from ${dbName}.${tableName}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """show partitions from ${dbName}.${tableName}"""
             exception "denied"
@@ -63,14 +63,14 @@ suite("test_ddl_part_table_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """show partitions from ${dbName}.${tableName}"""
         sql """show query stats"""
     }
     sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
 
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """show partition ${partition_info[0][0]}"""
         assertTrue(res.size() == 1)
     }

@@ -38,7 +38,6 @@ public class PaimonSplit extends FileSplit {
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;
 
-
     public PaimonSplit(Split split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.split = split;
@@ -100,10 +99,14 @@ public class PaimonSplit extends FileSplit {
                 long start,
                 long length,
                 long fileLength,
+                long fileSplitSize,
                 long modificationTime,
                 String[] hosts,
                 List<String> partitionValues) {
-            return new PaimonSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues);
+            PaimonSplit split =  new PaimonSplit(path, start, length, fileLength,
+                    modificationTime, hosts, partitionValues);
+            split.setTargetSplitSize(fileSplitSize);
+            return split;
         }
     }
 }

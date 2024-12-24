@@ -132,6 +132,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
@@ -371,6 +372,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         //       generate one PhysicalLimit if current distribution is gather or two
                         //       PhysicalLimits with gather exchange
                         topDown(new LimitSortToTopN()),
+                        topDown(new SimplifyEncodeDecode()),
                         topDown(new LimitAggToTopNAgg()),
                         topDown(new MergeTopNs()),
                         topDown(new SplitLimit()),

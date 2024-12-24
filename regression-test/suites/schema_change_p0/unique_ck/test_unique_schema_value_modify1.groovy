@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_unique_schema_value_modify1","p0") {
-     def tbName = "test_unique_model_value_change1"
-     def tbName2 = "test_unique_model_value_change_1"
+     def tbName = "test_unique_model_value_change1_ck"
+     def tbName2 = "test_unique_model_value_change_1_ck"
      def on_write = true
      println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
      //Test the unique model by adding a value column

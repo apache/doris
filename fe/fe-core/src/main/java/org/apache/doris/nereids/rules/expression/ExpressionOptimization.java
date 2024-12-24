@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
 import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
@@ -58,6 +59,20 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     BetweenToEqual.INSTANCE
             )
     );
+
+    /**
+     * don't use it with PushDownFilterThroughJoin, it may cause dead loop:
+     *   LogicalFilter(origin expr)
+     *      => LogicalFilter((origin expr) and (add min max range))
+     *      => LogicalFilter((origin expr)) // use PushDownFilterThroughJoin
+     *      => ...
+     */
+    public static final List<ExpressionRewriteRule> ADD_RANGE = ImmutableList.of(
+            bottomUp(
+                    AddMinMax.INSTANCE
+            )
+    );
+
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
 
     public ExpressionOptimization() {

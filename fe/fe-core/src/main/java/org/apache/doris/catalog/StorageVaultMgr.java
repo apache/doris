@@ -168,6 +168,9 @@ public class StorageVaultMgr {
             }
             LOG.info("Succeed to alter storage vault {}, id {}, origin default vault replaced {}",
                     name, response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
+
+            // Make BE eagerly fetch the storage vault info from Meta Service
+            ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());

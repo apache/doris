@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_unique_schema_value_drop", "p0") {
-    def tbName = "test_unique_model_schema_value_drop"
-    def tbName2 = "test_unique_model_schema_value_drop_1"
+    def tbName = "test_unique_model_schema_value_drop_ck"
+    def tbName2 = "test_unique_model_schema_value_drop_1_ck"
     def on_write = true
     println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
     sql """ DROP TABLE IF EXISTS ${tbName} """

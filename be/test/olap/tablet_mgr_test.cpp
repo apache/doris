@@ -83,6 +83,7 @@ public:
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
         _tablet_mgr = nullptr;
+        config::compaction_num_per_round = 1;
     }
     std::unique_ptr<StorageEngine> k_engine;
 
@@ -463,9 +464,85 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_EQ(score, 25);
 
     // drop all tablets
-    for (int64_t id = 1; id <= 20; ++id) {
+    for (int64_t id = 1; id <= 21; ++id) {
         Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
         ASSERT_TRUE(drop_st.ok()) << drop_st;
+    }
+
+    {
+        config::compaction_num_per_round = 10;
+        for (int64_t i = 1; i <= 100; ++i) {
+            create_tablet(10000 + i, false, i);
+        }
+
+        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+                cumulative_compaction_policies);
+        ASSERT_EQ(compact_tablets.size(), 10);
+        int index = 0;
+        for (auto t : compact_tablets) {
+            ASSERT_EQ(t->tablet_id(), 10100 - index);
+            ASSERT_EQ(t->calc_compaction_score(), 100 - index);
+            index++;
+        }
+        config::compaction_num_per_round = 1;
+        // drop all tablets
+        for (int64_t id = 10001; id <= 10100; ++id) {
+            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
+            ASSERT_TRUE(drop_st.ok()) << drop_st;
+        }
+    }
+
+    {
+        config::compaction_num_per_round = 10;
+        for (int64_t i = 1; i <= 100; ++i) {
+            create_tablet(20000 + i, false, i);
+        }
+        create_tablet(20102, true, 200);
+
+        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+                cumulative_compaction_policies);
+        ASSERT_EQ(compact_tablets.size(), 11);
+        for (int i = 0; i < 10; ++i) {
+            ASSERT_EQ(compact_tablets[i]->tablet_id(), 20100 - i);
+            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 100 - i);
+        }
+        ASSERT_EQ(compact_tablets[10]->tablet_id(), 20102);
+        ASSERT_EQ(compact_tablets[10]->calc_compaction_score(), 200);
+
+        config::compaction_num_per_round = 1;
+        // drop all tablets
+        for (int64_t id = 20001; id <= 20100; ++id) {
+            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
+            ASSERT_TRUE(drop_st.ok()) << drop_st;
+        }
+
+        Status drop_st = _tablet_mgr->drop_tablet(20102, 20102 * 10, false);
+        ASSERT_TRUE(drop_st.ok()) << drop_st;
+    }
+
+    {
+        config::compaction_num_per_round = 10;
+        for (int64_t i = 1; i <= 5; ++i) {
+            create_tablet(30000 + i, false, i + 5);
+        }
+
+        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+                cumulative_compaction_policies);
+        ASSERT_EQ(compact_tablets.size(), 5);
+        for (int i = 0; i < 5; ++i) {
+            ASSERT_EQ(compact_tablets[i]->tablet_id(), 30000 + 5 - i);
+            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 10 - i);
+        }
+
+        config::compaction_num_per_round = 1;
+        // drop all tablets
+        for (int64_t id = 30001; id <= 30005; ++id) {
+            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
+            ASSERT_TRUE(drop_st.ok()) << drop_st;
+        }
     }
 
     Status trash_st = _tablet_mgr->start_trash_sweep();

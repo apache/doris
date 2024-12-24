@@ -201,7 +201,7 @@ public class MTMV extends OlapTable {
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
+                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true, true);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -323,7 +323,7 @@ public class MTMV extends OlapTable {
         MTMVCache mtmvCache;
         try {
             // Should new context with ADMIN user
-            mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
+            mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true, false);
         } finally {
             connectionContext.setThreadLocalInfo();
         }
@@ -362,7 +362,7 @@ public class MTMV extends OlapTable {
      *
      * @return mvPartitionName ==> mvPartitionKeyDesc
      */
-    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() throws AnalysisException {
+    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
         Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
         Map<String, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
@@ -392,7 +392,7 @@ public class MTMV extends OlapTable {
         Map<String, String> baseToMv = Maps.newHashMap();
         Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItemsWithoutLock();
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
                     Sets.newHashSet());

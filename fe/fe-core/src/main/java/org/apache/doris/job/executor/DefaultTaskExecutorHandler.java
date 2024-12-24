@@ -36,35 +36,23 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
 
     @Override
     public void onEvent(ExecuteTaskEvent<T> executeTaskEvent) {
-        T task = executeTaskEvent.getTask();
-        if (null == task) {
-            log.warn("task is null, ignore,maybe task has been canceled");
-            return;
-        }
-        if (task.isCancelled()) {
-            log.info("task is canceled, ignore. task id is {}", task.getTaskId());
-            return;
-        }
-        log.info("start to execute task, task id is {}", task.getTaskId());
         try {
+            T task = executeTaskEvent.getTask();
+            if (null == task) {
+                log.warn("task is null, ignore,maybe task has been canceled");
+                return;
+            }
+            if (task.isCancelled()) {
+                log.info("task is canceled, ignore. task id is {}", task.getTaskId());
+                return;
+            }
+            log.info("start to execute task, task id is {}", task.getTaskId());
             task.runTask();
         } catch (Exception e) {
-            //if task.onFail() throw exception, we will catch it here
-            log.warn("task before error, task id is {}", task.getTaskId(), e);
-        }
-        //todo we need discuss whether we need to use semaphore to control the concurrent task num
-        /* Semaphore semaphore = null;
-        // get token
-        try {
-            int maxConcurrentTaskNum = executeTaskEvent.getJobConfig().getMaxConcurrentTaskNum();
-            semaphore = TaskTokenManager.tryAcquire(task.getJobId(), maxConcurrentTaskNum);
-            task.runTask();
-        } catch (Exception e) {
-            task.onFail();
-            log.error("execute task error, task id is {}", task.getTaskId(), e);
+            log.error("execute task error, task id is {}", executeTaskEvent.getTask().getTaskId(), e);
         } finally {
-            if (null != semaphore) {
-                semaphore.release();
-            }*/
+            executeTaskEvent.clear();
+        }
+
     }
 }

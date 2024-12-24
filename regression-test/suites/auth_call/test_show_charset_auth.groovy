@@ -36,7 +36,7 @@ suite("test_show_no_auth","p0,auth_call") {
     sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """SHOW CHARSET"""
         sql """SHOW DATA TYPES"""
         sql """SHOW ENGINES"""
@@ -57,7 +57,7 @@ suite("test_show_no_auth","p0,auth_call") {
         }
     }
     sql """grant grant_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """show PROPERTY for ${user1}"""
         logger.info("res: " + res)
         assertTrue(res.size() > 0)
@@ -68,7 +68,7 @@ suite("test_show_no_auth","p0,auth_call") {
     }
     sql """revoke grant_priv on *.*.* from ${user}"""
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW TRASH;"""
         logger.info("res: " + res)
         assertTrue(res.size() >= 1)

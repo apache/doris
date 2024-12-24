@@ -34,7 +34,7 @@ suite("test_show_query_stats_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
 
     logger.info("context.config.jdbcUrl: " + context.config.jdbcUrl)
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """show query stats;"""
         logger.info("res:" + res)
     }

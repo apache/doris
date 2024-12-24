@@ -534,6 +534,11 @@ public class HMSTransaction implements Transaction {
             return partitions;
         }
 
+        public void clear() {
+            partitions.clear();
+            createdPartitionValues.clear();
+        }
+
         public void addPartition(HivePartitionWithStatistics partition) {
             partitions.add(partition);
         }
@@ -1143,6 +1148,7 @@ public class HMSTransaction implements Transaction {
             for (CompletableFuture<?> undoUpdateFuture : undoUpdateFutures.build()) {
                 MoreFutures.getFutureValue(undoUpdateFuture);
             }
+            updateStatisticsTasks.clear();
         }
 
         private void undoAddPartitionsTask() {
@@ -1157,6 +1163,7 @@ public class HMSTransaction implements Transaction {
                 LOG.warn("Failed to rollback: add_partition for partition values {}.{}",
                         tableInfo, rollbackFailedPartitions);
             }
+            addPartitionsTask.clear();
         }
 
         private void waitForAsyncFileSystemTaskSuppressThrowable() {
@@ -1169,6 +1176,7 @@ public class HMSTransaction implements Transaction {
                     // ignore
                 }
             }
+            asyncFileSystemTaskFutures.clear();
         }
 
         public void prepareInsertExistingTable(SimpleTableInfo tableInfo, TableAndMore tableAndMore) {
@@ -1319,6 +1327,7 @@ public class HMSTransaction implements Transaction {
             for (DirectoryCleanUpTask cleanUpTask : directoryCleanUpTasksForAbort) {
                 recursiveDeleteItems(cleanUpTask.getPath(), cleanUpTask.isDeleteEmptyDir(), false);
             }
+            directoryCleanUpTasksForAbort.clear();
         }
 
         private void runRenameDirTasksForAbort() {
@@ -1334,6 +1343,7 @@ public class HMSTransaction implements Transaction {
                     }
                 }
             }
+            renameDirectoryTasksForAbort.clear();
         }
 
         private void runClearPathsForFinish() {
@@ -1486,6 +1496,7 @@ public class HMSTransaction implements Transaction {
                             .build());
                 }, fileSystemExecutor));
             }
+            uncompletedMpuPendingUploads.clear();
         }
 
         public void doNothing() {
@@ -1520,6 +1531,7 @@ public class HMSTransaction implements Transaction {
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
+            asyncFileSystemTaskFutures.clear();
         }
 
         public void shutdownExecutorService() {

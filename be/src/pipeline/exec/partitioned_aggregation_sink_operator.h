@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 class PartitionedAggSinkOperatorX;
 class PartitionedAggSinkLocalState
         : public PipelineXSpillSinkLocalState<PartitionedAggSharedState> {
@@ -324,4 +325,5 @@ private:
 
     size_t _spill_partition_count_bits = 4;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
