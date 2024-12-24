@@ -309,7 +309,7 @@ suite("parse_sql_from_sql_cache") {
 
 
             extraThread("test_cache_user1_thread", {
-                connect(user = "test_cache_user1", password="DORIS@2024") {
+                connect("test_cache_user1", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -345,7 +345,7 @@ suite("parse_sql_from_sql_cache") {
             sql "sync"
 
             extraThread("test_cache_user2_thread", {
-                connect(user = "test_cache_user2", password="DORIS@2024") {
+                connect("test_cache_user2", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -367,7 +367,7 @@ suite("parse_sql_from_sql_cache") {
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user2_thread2", {
-                connect(user = "test_cache_user2", password="DORIS@2024") {
+                connect("test_cache_user2", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -409,7 +409,7 @@ suite("parse_sql_from_sql_cache") {
             sleep(10000)
 
             extraThread("test_cache_user3_thread", {
-                connect(user = "test_cache_user3", password="DORIS@2024") {
+                connect("test_cache_user3", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -430,7 +430,7 @@ suite("parse_sql_from_sql_cache") {
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user3_thread2", {
-                connect(user = "test_cache_user3", password="DORIS@2024") {
+                connect("test_cache_user3", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -463,7 +463,7 @@ suite("parse_sql_from_sql_cache") {
             sql "sync"
 
             extraThread("test_cache_user4_thread", {
-                connect(user = "test_cache_user4", password="DORIS@2024") {
+                connect("test_cache_user4", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -481,7 +481,7 @@ suite("parse_sql_from_sql_cache") {
 
             // after privileges changed, the cache is invalidate
             extraThread("test_cache_user4_thread2", {
-                connect(user = "test_cache_user4", password="DORIS@2024") {
+                connect("test_cache_user4", "DORIS@2024") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
@@ -638,7 +638,7 @@ suite("parse_sql_from_sql_cache") {
             def dbName = context.config.getDbNameByFile(context.file)
 
             log.info("connect to fe: ${fe1}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe1}") {
+            connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe1}") {
                 sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                 sql "use ${dbName}"
@@ -660,7 +660,7 @@ suite("parse_sql_from_sql_cache") {
             }
 
             log.info("connect to fe: ${fe2}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe2}") {
+            connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe2}") {
                 sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                 sql "use ${dbName}"

@@ -54,7 +54,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         (3, "333");
         """
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
             exception "denied"
@@ -64,7 +64,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         assertTrue(del_res.size() == 0)
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
             exception "denied"
@@ -73,7 +73,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         assertTrue(del_res.size() == 0)
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
         def del_res = sql """show DELETE from ${dbName}"""
         logger.info("del_res: " + del_res)
@@ -114,7 +114,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         (4),
         (5);"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DELETE FROM ${dbName}.${tableName1} 
                 USING ${dbName}.${tableName2} INNER JOIN ${dbName}.${tableName3} 
@@ -124,7 +124,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         }
     }
     sql """grant load_priv on ${dbName}.${tableName1} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DELETE FROM ${dbName}.${tableName1} 
                 USING ${dbName}.${tableName2} INNER JOIN ${dbName}.${tableName3} 
@@ -136,7 +136,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     sql """grant select_priv on ${dbName}.${tableName1} to ${user}"""
     sql """grant select_priv on ${dbName}.${tableName2} to ${user}"""
     sql """grant select_priv on ${dbName}.${tableName3} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """DELETE FROM ${dbName}.${tableName1} 
             USING ${dbName}.${tableName2} INNER JOIN ${dbName}.${tableName3} 
             ON ${dbName}.${tableName2}.id = ${dbName}.${tableName3}.id
