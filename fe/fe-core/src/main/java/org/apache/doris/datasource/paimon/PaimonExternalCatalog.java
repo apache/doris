@@ -194,7 +194,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         for (String requiredProperty : REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+            if (!catalogProperty.containsProperty(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }

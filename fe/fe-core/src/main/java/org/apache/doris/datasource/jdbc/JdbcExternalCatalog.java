@@ -93,7 +93,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         for (String requiredProperty : REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+            if (!catalogProperty.containsProperty(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
@@ -113,12 +113,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public void setDefaultPropsIfMissing(boolean isReplay) {
         super.setDefaultPropsIfMissing(isReplay);
         // Modify lower_case_table_names to lower_case_meta_names if it exists
-        if (catalogProperty.getProperties().containsKey("lower_case_table_names") && isReplay) {
-            String lowerCaseTableNamesValue = catalogProperty.getProperties().get("lower_case_table_names");
+        if (catalogProperty.containsProperty("lower_case_table_names") && isReplay) {
+            String lowerCaseTableNamesValue = catalogProperty.getOrDefault("lower_case_table_names", "");
             catalogProperty.addProperty("lower_case_meta_names", lowerCaseTableNamesValue);
             catalogProperty.deleteProperty("lower_case_table_names");
             LOG.info("Modify lower_case_table_names to lower_case_meta_names, value: {}", lowerCaseTableNamesValue);
-        } else if (catalogProperty.getProperties().containsKey("lower_case_table_names") && !isReplay) {
+        } else if (catalogProperty.containsProperty("lower_case_table_names") && !isReplay) {
             throw new IllegalArgumentException("Jdbc catalog property lower_case_table_names is not supported,"
                     + " please use lower_case_meta_names instead.");
         }
@@ -300,11 +300,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     public void checkWhenCreating() throws DdlException {
         super.checkWhenCreating();
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
-            String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
-            if (properties.containsKey(JdbcResource.CHECK_SUM)) {
-                String providedChecksum = properties.get(JdbcResource.CHECK_SUM);
+        if (catalogProperty.containsProperty(JdbcResource.DRIVER_URL)) {
+            String computedChecksum = JdbcResource.computeObjectChecksum(
+                    catalogProperty.getOrDefault(JdbcResource.DRIVER_URL, ""));
+            if (catalogProperty.containsProperty(JdbcResource.CHECK_SUM)) {
+                String providedChecksum = catalogProperty.getOrDefault(JdbcResource.CHECK_SUM, "");
                 if (!providedChecksum.equals(computedChecksum)) {
                     throw new DdlException(
                             "The provided checksum (" + providedChecksum

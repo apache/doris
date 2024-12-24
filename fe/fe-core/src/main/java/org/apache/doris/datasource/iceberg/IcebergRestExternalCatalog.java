@@ -67,7 +67,6 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     private Map<String, String> convertToRestCatalogProperties() {
-
         Map<String, String> props = catalogProperty.getProperties();
         Map<String, String> restProperties = new HashMap<>(props);
         restProperties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);

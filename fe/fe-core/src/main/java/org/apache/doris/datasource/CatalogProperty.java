@@ -19,9 +19,12 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -45,12 +48,14 @@ import java.util.Map;
 public class CatalogProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
+    @Deprecated
     @SerializedName(value = "resource")
     private String resource;
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    private volatile Resource catalogResource = null;
+    private MetastoreProperties metastoreProperties;
+    private StorageProperties storageProperties;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
         this.resource = Strings.nullToEmpty(resource);
@@ -60,38 +65,16 @@ public class CatalogProperty implements Writable {
         }
     }
 
-    private Resource catalogResource() {
-        if (!Strings.isNullOrEmpty(resource) && catalogResource == null) {
-            synchronized (this) {
-                if (catalogResource == null) {
-                    catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(resource);
-                }
-            }
-        }
-        return catalogResource;
+    public String getOrDefault(String key, String defaultVal) {
+        return properties.getOrDefault(key, defaultVal);
     }
 
-    public String getOrDefault(String key, String defaultVal) {
-        String val = properties.get(key);
-        if (val == null) {
-            Resource res = catalogResource();
-            if (res != null) {
-                val = res.getCopiedProperties().getOrDefault(key, defaultVal);
-            } else {
-                val = defaultVal;
-            }
-        }
-        return val;
+    public boolean containsProperty(String key) {
+        return properties.containsKey(key);
     }
 
     public Map<String, String> getProperties() {
         Map<String, String> mergedProperties = Maps.newHashMap();
-        if (!Strings.isNullOrEmpty(resource)) {
-            Resource res = catalogResource();
-            if (res != null) {
-                mergedProperties = res.getCopiedProperties();
-            }
-        }
         mergedProperties.putAll(properties);
         return mergedProperties;
     }
@@ -117,6 +100,22 @@ public class CatalogProperty implements Writable {
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
+    }
+
+    public void removeResource(String catalogName) {
+        if (Strings.isNullOrEmpty(this.resource)) {
+            return;
+        }
+        Resource resourceObj = Env.getCurrentEnv().getResourceMgr().getResource(this.resource);
+        if (resourceObj != null) {
+            Map<String, String> resourceProperties = resourceObj.getCopiedProperties();
+            for (Map.Entry<String, String> entry : resourceProperties.entrySet()) {
+                properties.put(entry.getKey(), entry.getValue());
+            }
+            this.resource = "";
+            resourceObj.removeReference(catalogName, ReferenceType.CATALOG);
+            LOG.warn("remove resource {} from catalog {}", resourceObj.getName(), catalogName);
+        }
     }
 
     @Override

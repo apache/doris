@@ -895,4 +895,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
     }
+
+    // In version 2.1.9, the resource in catalog is no longer supported.
+    // Here we do the following things:
+    // 1. if this catalog has resource, get all resource properties and add them to catalog properties.
+    // 2. remove resource from catalog property
+    public void removeCatalogResource() {
+        for (CatalogIf catalog : idToCatalog.values()) {
+            if (!(catalog instanceof ExternalCatalog)) {
+                continue;
+            }
+            ((ExternalCatalog) catalog).removeResource();
+        }
+    }
 }
