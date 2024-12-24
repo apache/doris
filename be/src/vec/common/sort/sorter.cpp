@@ -117,7 +117,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
     // process single element queue on merge_sort_read()
-    while (priority_queue_.size() > 1) {
+    while (priority_queue_.size() > 1 && merged_rows < batch_size) {
         auto current = priority_queue_.top();
         priority_queue_.pop();
 
@@ -134,19 +134,9 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             current->next();
             priority_queue_.push(current);
         }
-
-        if (merged_rows == batch_size) {
-            break;
-        }
     }
 
     block->set_columns(std::move(merged_columns));
-
-    if (merged_rows == 0) {
-        *eos = true;
-        return Status::OK();
-    }
-
     return Status::OK();
 }
 
