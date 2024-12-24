@@ -20,6 +20,7 @@ suite("outer_join") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set enable_compress_materialize=false;"
 
     sql """
     drop table if exists orders

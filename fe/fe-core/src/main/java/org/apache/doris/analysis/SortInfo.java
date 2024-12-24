@@ -342,4 +342,9 @@ public class SortInfo {
         }
         return sortInfo;
     }
+
+    @Override
+    public String toString() {
+        return orderingExprs.toString();
+    }
 }

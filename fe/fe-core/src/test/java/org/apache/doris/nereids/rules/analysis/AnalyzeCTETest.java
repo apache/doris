@@ -101,6 +101,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
         SSBUtils.createTables(this);
         createView("CREATE VIEW V1 AS SELECT * FROM part");
         createView("CREATE VIEW V2 AS SELECT * FROM part");
+        connectContext.getSessionVariable().enableCompressMaterialize = false;
     }
 
     @Override

@@ -18,8 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_substr") {
-    sql """set enable_nereids_planner=true"""
-    sql """SET enable_fallback_to_original_planner=false"""
+    sql "set enable_nereids_planner=true;"
+    sql "SET enable_fallback_to_original_planner=false;"
+    sql "set enable_compress_materialize=false;"
+
     sql """ drop table if exists dwd;"""
 
     sql """

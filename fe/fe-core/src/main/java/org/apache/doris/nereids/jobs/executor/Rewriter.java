@@ -55,6 +55,7 @@ import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
@@ -115,6 +116,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -253,6 +255,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new CountLiteralRewrite(),
                         new NormalizeSort()
                 ),
+
+                topDown(// must behind NormalizeAggregate/NormalizeSort
+                        new MergeProjects(),
+                        new PushDownEncodeSlot(),
+                        new DecoupleEncodeDecode()
+                ),
+
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
@@ -372,9 +381,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         //       generate one PhysicalLimit if current distribution is gather or two
                         //       PhysicalLimits with gather exchange
                         topDown(new LimitSortToTopN()),
-                        topDown(new SimplifyEncodeDecode()),
-                        topDown(new LimitAggToTopNAgg()),
                         topDown(new MergeTopNs()),
+                        topDown(new SimplifyEncodeDecode(),
+                                new MergeProjects()
+                        ),
+                        topDown(new LimitAggToTopNAgg()),
                         topDown(new SplitLimit()),
                         topDown(
                                 new PushDownLimit(),
