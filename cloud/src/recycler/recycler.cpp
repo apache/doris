@@ -1278,7 +1278,6 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
             return -1;
         }
-        sync_executor.reset();
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
         // sort the vector using key's order
         std::sort(tablet_keys.begin(), tablet_keys.end(),
