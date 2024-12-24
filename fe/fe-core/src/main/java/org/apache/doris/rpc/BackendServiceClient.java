@@ -189,9 +189,12 @@ public class BackendServiceClient {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
     }
 
+    // Shutdown will also interrupt the coordinators that are using this client to receive data.
+    // And the backend will be add to blacklist and will not serve read or write.
     public void shutdown() {
         ConnectivityState state = channel.getState(false);
-        LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
+        // Print the detail exception stack, so that we could find the reason why it is treat as bad.
+        LOG.warn("shut down backend service client: {}, channel state: {}", address, state, new Exception());
         if (!channel.isShutdown()) {
             channel.shutdown();
             try {
