@@ -64,29 +64,30 @@ DORIS_HOME="$(
 )"
 export DORIS_HOME
 
-if [[ "$(uname -s)" != 'Darwin' ]]; then
-    MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
-    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
-        exit 1
+if [[ "${SKIP_CHECK_ULIMIT:- "false"}" != "true" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
+        if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+            echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
+            exit 1
+        fi
+
+        if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+            echo "Please disable swap memory before installation."
+            exit 1
+        fi
     fi
 
-    if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        echo "Please disable swap memory before installation."
+    MAX_FILE_COUNT="$(ulimit -n)"
+    if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+        echo "Set max number of open file descriptors to a value greater than 60000."
+        echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
+        echo "  * soft nofile 655350"
+        echo "  * hard nofile 655350"
+        echo "and then run 'ulimit -n 655350' to take effect on current session."
         exit 1
     fi
 fi
-
-MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Set max number of open file descriptors to a value greater than 60000."
-    echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
-    echo "  * soft nofile 655350"
-    echo "  * hard nofile 655350"
-    echo "and then run 'ulimit -n 655350' to take effect on current session."
-    exit 1
-fi
-
 # add java libs
 # Must add hadoop libs, because we should load specified jars
 # instead of jars in hadoop libs, such as avro
