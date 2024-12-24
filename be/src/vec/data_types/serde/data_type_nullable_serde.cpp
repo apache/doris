@@ -263,7 +263,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                     Arena* mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
-    auto& nullable_col = assert_cast<const ColumnNullable&>(column);
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     if (nullable_col.is_null_at(row_num)) {
         result.writeNull();
@@ -298,11 +298,11 @@ void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const N
 }
 
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int start, int end,
+                                                   int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
-    for (size_t i = start; i < end; ++i) {
+    for (auto i = start; i < end; ++i) {
         auto is_null = arrow_array->IsNull(i);
         map_data.emplace_back(is_null);
     }
@@ -350,7 +350,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   std::vector<StringRef>& buffer_list) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
-    auto& null_map_tmp = column_nullable.get_null_map_data();
+    const auto& null_map_tmp = column_nullable.get_null_map_data();
     auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
     // because orc_col_batch->notNull.data() begins at 0
@@ -368,8 +368,8 @@ Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
                                                      rapidjson::Value& result,
                                                      rapidjson::Document::AllocatorType& allocator,
                                                      Arena& mem_pool, int64_t row_num) const {
-    auto& col = static_cast<const ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
+    const auto& col = static_cast<const ColumnNullable&>(column);
+    const auto& nested_col = col.get_nested_column();
     if (col.is_null_at(row_num)) {
         result.SetNull();
     } else {

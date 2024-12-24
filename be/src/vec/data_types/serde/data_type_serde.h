@@ -18,9 +18,9 @@
 #pragma once
 
 #include <rapidjson/document.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <vector>
@@ -31,12 +31,9 @@
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/pod_array.h"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace arrow {
 class ArrayBuilder;
@@ -171,7 +168,7 @@ public:
          *      null
          */
         const char* null_format = "\\N";
-        int null_len = 2;
+        size_t null_len = 2;
 
         /**
          * The wrapper char for string type in nested type.
@@ -335,8 +332,9 @@ public:
     virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                        arrow::ArrayBuilder* array_builder, int64_t start,
                                        int64_t end, const cctz::time_zone& ctz) const = 0;
-    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                        int end, const cctz::time_zone& ctz) const = 0;
+    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                        int64_t start, int64_t end,
+                                        const cctz::time_zone& ctz) const = 0;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,

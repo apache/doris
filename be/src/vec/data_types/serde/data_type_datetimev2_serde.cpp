@@ -130,8 +130,9 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
 }
 
 void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int start,
-                                                     int end, const cctz::time_zone& ctz) const {
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
@@ -159,7 +160,7 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             return;
         }
         }
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             auto utc_epoch = static_cast<UInt64>(concrete_array->Value(value_i));
 
             DateV2Value<DateTimeV2ValueType> v;

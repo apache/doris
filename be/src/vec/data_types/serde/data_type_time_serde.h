@@ -18,11 +18,10 @@
 #pragma once
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
+
+#include <cstdint>
 
 #include "data_type_number_serde.h"
-#include "vec/core/types.h"
 
 namespace doris {
 class JsonbOutStream;

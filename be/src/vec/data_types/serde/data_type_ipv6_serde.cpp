@@ -157,13 +157,13 @@ void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullM
 }
 
 void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                               int start, int end,
+                                               int64_t start, int64_t end,
                                                const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
-    for (size_t offset_i = start; offset_i < end; ++offset_i) {
+    for (auto offset_i = start; offset_i < end; ++offset_i) {
         if (!concrete_array->IsNull(offset_i)) {
             const char* raw_data = reinterpret_cast<const char*>(
                     buffer->data() + concrete_array->value_offset(offset_i));
@@ -186,7 +186,7 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
                                               int64_t end,
                                               std::vector<StringRef>& buffer_list) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
-    orc::StringVectorBatch* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
+    auto* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     INIT_MEMORY_FOR_ORC_WRITER()
 
