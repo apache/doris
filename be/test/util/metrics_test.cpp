@@ -107,8 +107,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         EXPECT_EQ(kLoopCount, counter.value());
-        LOG(INFO) << "IntCounter: elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / kLoopCount;
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
     // IntCounter
     {
