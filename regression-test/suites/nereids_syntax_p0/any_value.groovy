@@ -23,4 +23,7 @@ suite("any_value") {
     test {
         sql "select any(s_suppkey), any(s_name), any_value(s_address) from supplier;"
     }
+    qt_sql_max """select max(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
+    qt_sql_min """select min(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
+    sql """select any(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
 }

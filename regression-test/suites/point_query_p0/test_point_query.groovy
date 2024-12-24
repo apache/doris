@@ -27,31 +27,29 @@ suite("test_point_query", "nonConcurrent") {
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
+    def user = context.config.jdbcUser
+    def password = context.config.jdbcPassword
+    def realDb = "regression_test_serving_p0"
+    // Parse url
+    String jdbcUrl = context.config.jdbcUrl
+    String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+    def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+    def sql_port
+    if (urlWithoutSchema.indexOf("/") >= 0) {
+        // e.g: jdbc:mysql://locahost:8080/?a=b
+        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
+    } else {
+        // e.g: jdbc:mysql://locahost:8080
+        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+    }
+    // set server side prepared statement url
+    def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
     try {
         set_be_config.call("disable_storage_row_cache", "false")
-        // nereids do not support point query now
         sql "set global enable_fallback_to_original_planner = false"
         sql """set global enable_nereids_planner=true"""
-        def user = context.config.jdbcUser
-        def password = context.config.jdbcPassword
-        def realDb = "regression_test_serving_p0"
         def tableName = realDb + ".tbl_point_query"
         sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
-
-        // Parse url
-        String jdbcUrl = context.config.jdbcUrl
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
-        }
-        // set server side prepared statement url
-        def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
 
         def generateString = {len ->
             def str = ""
@@ -330,4 +328,60 @@ suite("test_point_query", "nonConcurrent") {
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
+
+    sql "DROP TABLE IF EXISTS test_partial_prepared_statement"
+    sql """
+        CREATE TABLE `test_partial_prepared_statement` (
+          `user_guid` varchar(64) NOT NULL,
+          `feature` varchar(256) NOT NULL,
+          `sk` varchar(256) NOT NULL,
+          `feature_value` text NULL,
+          `data_time` datetime NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`user_guid`, `feature`, `sk`)
+        DISTRIBUTED BY HASH(`user_guid`) BUCKETS 32
+        PROPERTIES (
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
+        "function_column.sequence_col" = "data_time",
+        "store_row_column" = "true",
+        "replication_num" = "1",
+        "row_store_page_size" = "16384"
+        );
+    """
+    sql "insert into test_partial_prepared_statement values ('user_guid', 'feature', 'sk','feature_value', '2021-01-01 00:00:00')"
+    def result2 = connect(user, password, prepare_url) {
+        def partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = ? "
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where user_guid = ? and  feature = 'feature' and sk = ?"
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "user_guid")
+        partial_prepared_stmt.setString(2, "sk")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where ? = user_guid and sk = 'sk'  and  feature = 'feature' "
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "user_guid")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where ? = user_guid and sk = 'sk'  and  feature = ? "
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "user_guid")
+        partial_prepared_stmt.setString(2, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where  sk = ? and  feature = ? and 'user_guid' = user_guid"
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "sk")
+        partial_prepared_stmt.setString(2, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+    }
 } 

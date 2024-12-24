@@ -75,7 +75,7 @@ public:
     virtual ~OrdinalIndexReader();
 
     // load and parse the index page into memory
-    Status load(bool use_page_cache, bool kept_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory, OlapReaderStatistics* index_load_stats);
 
     // the returned iter points to the largest element which is less than `ordinal`,
     // or points to the first element if all elements are greater than `ordinal`,
@@ -94,7 +94,8 @@ public:
 
 private:
     Status _load(bool use_page_cache, bool kept_in_memory,
-                 std::unique_ptr<OrdinalIndexPB> index_meta);
+                 std::unique_ptr<OrdinalIndexPB> index_meta,
+                 OlapReaderStatistics* index_load_stats);
 
     int64_t get_metadata_size() const override;
 

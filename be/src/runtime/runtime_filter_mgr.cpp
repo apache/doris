@@ -219,35 +219,14 @@ Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {
 
 Status RuntimeFilterMergeControllerEntity::_init_with_desc(
         const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
-        const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
-        const int producer_size) {
-    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
-    std::shared_ptr<RuntimeFilterCntlVal> cnt_val = std::make_shared<RuntimeFilterCntlVal>();
-    // runtime_filter_desc and target will be released,
-    // so we need to copy to cnt_val
-    cnt_val->producer_size = producer_size;
-    cnt_val->runtime_filter_desc = *runtime_filter_desc;
-    cnt_val->pool.reset(new ObjectPool());
-    cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
-
-    auto filter_id = runtime_filter_desc->filter_id;
-    RETURN_IF_ERROR(
-            cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options, -1));
-    cnt_val->filter->set_ignored();
-    _filter_map.emplace(filter_id, cnt_val);
-    return Status::OK();
-}
-
-Status RuntimeFilterMergeControllerEntity::_init_with_desc(
-        const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
-        const std::vector<doris::TRuntimeFilterTargetParamsV2>* targetv2_info,
+        const std::vector<doris::TRuntimeFilterTargetParamsV2>&& targetv2_info,
         const int producer_size) {
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cnt_val
     cnt_val->producer_size = producer_size;
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
-    cnt_val->targetv2_info = *targetv2_info;
+    cnt_val->targetv2_info = targetv2_info;
     cnt_val->pool.reset(new ObjectPool());
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
     auto filter_id = runtime_filter_desc->filter_id;
@@ -268,36 +247,21 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
         for (const auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
             int filter_id = filterid_to_desc.first;
-            const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
-            if (target_iter == runtime_filter_params.rid_to_target_param.end() &&
-                !runtime_filter_params.__isset.rid_to_target_paramv2) {
-                // This runtime filter has to target info
-                return Status::InternalError("runtime filter params meet error");
-            } else if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
-                const auto& targetv2_iter =
-                        runtime_filter_params.rid_to_target_paramv2.find(filter_id);
-                if (targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()) {
-                    // This runtime filter has to target info
-                    return Status::InternalError("runtime filter params meet error");
-                }
-                const auto& build_iter =
-                        runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-                if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                    // This runtime filter has to builder info
-                    return Status::InternalError("runtime filter params meet error");
-                }
-
-                RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
-                                                &targetv2_iter->second, build_iter->second));
-            } else {
-                const auto& build_iter =
-                        runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-                if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                    return Status::InternalError("runtime filter params meet error");
-                }
-                RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
-                                                &target_iter->second, build_iter->second));
+            const auto& targetv2_iter = runtime_filter_params.rid_to_target_paramv2.find(filter_id);
+            const auto& build_iter =
+                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
+            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
+                // This runtime filter has no builder info
+                return Status::InternalError(
+                        "Runtime filter has a wrong parameter. Maybe FE version is mismatched.");
             }
+
+            RETURN_IF_ERROR(_init_with_desc(
+                    &filterid_to_desc.second, &query_options,
+                    targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()
+                            ? std::vector<doris::TRuntimeFilterTargetParamsV2> {}
+                            : std::move(targetv2_iter->second),
+                    build_iter->second));
         }
     }
     return Status::OK();
