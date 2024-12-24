@@ -150,7 +150,7 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
                 /// TODO: maybe need a method to check if a column need to be converted to full
                 /// column.
                 if (is_column_const(*origin_column) ||
-                    check_column<vectorized::ColumnArray>(origin_column)) {
+                    check_column<vectorized::ColumnArray>(origin_column.get())) {
                     auto column_ptr = origin_column->convert_to_full_column_if_const();
                     insert_column_datas(mutable_columns[i], column_ptr, rows);
                 } else {

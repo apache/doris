@@ -165,7 +165,7 @@ public:
     static Status execute(ColumnPtr& res_ptr, ColumnArrayExecutionDatas datas,
                           std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         ColumnArrayMutableData dst =
-                create_mutable_data(datas[0].nested_col, datas[0].nested_nullmap_data);
+                create_mutable_data(datas[0].nested_col.get(), datas[0].nested_nullmap_data);
         if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row)) {
             res_ptr = assemble_column_array(dst);
             return Status::OK();
