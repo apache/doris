@@ -976,7 +976,7 @@ public class StmtExecutor {
                     throw e;
                 }
             } finally {
-                if (context.isReturnResultFromLocal()) {
+                if (context.isReturnResultFromLocal()) { //
                     finalizeQuery();
                 }
                 LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
@@ -2561,7 +2561,7 @@ public class StmtExecutor {
                 if (coord != null) {
                     coord.close();
                 }
-                finalizeQuery();
+                finalizeQuery(); //
             }
 
             // Go here, which means:

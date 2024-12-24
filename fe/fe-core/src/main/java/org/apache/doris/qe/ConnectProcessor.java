@@ -371,7 +371,7 @@ public abstract class ConnectProcessor {
                         }
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
-                            true);
+                            true); // 要放在 mysql 里面，arrow flight 不在这里
                     LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
