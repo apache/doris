@@ -54,7 +54,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     }
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
-    def check_rs_metas = { expected_rs_meta_size, check_func -> 
+    def check_rs_metas = { expected_rs_meta_size, check_func ->
         if (isCloudMode()) {
             return
         }

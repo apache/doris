@@ -26,7 +26,7 @@ suite("test_compaction_agg_keys") {
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
         backend_id = backendId_to_backendIP.keySet()[0]
-        
+
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
@@ -145,7 +145,7 @@ suite("test_compaction_agg_keys") {
 
             (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            
+
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List

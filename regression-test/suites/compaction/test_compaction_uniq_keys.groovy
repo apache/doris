@@ -28,7 +28,7 @@ suite("test_compaction_uniq_keys") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -137,7 +137,7 @@ suite("test_compaction_uniq_keys") {
 
         def replicaNum = get_table_replica_num(tableName)
         logger.info("get table replica num: " + replicaNum)
-        
+
         int rowCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId

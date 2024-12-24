@@ -94,7 +94,7 @@ suite ("test_dup_mv_schema_change") {
 
         // add column
         sql """
-            ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+            ALTER table ${tableName} ADD COLUMN new_column INT default "1"
             """
         waitForJob(tableName, 3000)
 

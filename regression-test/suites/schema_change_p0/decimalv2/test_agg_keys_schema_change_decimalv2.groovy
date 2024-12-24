@@ -113,7 +113,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
     }
     sql """sync"""
     qt_sql2 """select * from ${tbName} ORDER BY 1,2,3,4;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql3 """select * from ${tbName} ORDER BY 1,2,3,4;"""
 
