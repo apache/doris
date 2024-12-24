@@ -459,21 +459,21 @@ public class VariableMgr {
             }
             variablesToRead.readFields(in);
             GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
-            replayGlobalVariableV2(info);
+            replayGlobalVariableV2(info, true);
         } finally {
             wlock.unlock();
         }
     }
 
     // this method is used to replace the `replayGlobalVariable()`
-    public static void replayGlobalVariableV2(GlobalVarPersistInfo info) throws DdlException {
+    public static void replayGlobalVariableV2(GlobalVarPersistInfo info, boolean fromImage) throws DdlException {
         wlock.lock();
         try {
             String json = info.getPersistJsonString();
             JSONObject root = (JSONObject) JSONValue.parse(json);
             // if not variable version, we set it to 0 to ensure we could force set global variable.
             boolean hasVariableVersion = root.containsKey(GlobalVariable.VARIABLE_VERSION);
-            if (!hasVariableVersion) {
+            if (fromImage && !hasVariableVersion) {
                 GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_0;
             }
             for (Object varName : root.keySet()) {
