@@ -17,49 +17,30 @@
 
 import org.junit.Assert;
 
-suite("test_system_user","p0,auth") {
-    test {
-          sql """
-              create user `root`;
-          """
-          exception "root"
-    }
-    test {
-          sql """
-              drop user `root`;
-          """
-          exception "system"
-    }
-    test {
-          sql """
-              drop user `admin`;
-          """
-          exception "system"
-    }
-    test {
-          sql """
-              revoke "operator" from root;
-          """
-          exception "Can not revoke role"
-    }
-    test {
-          sql """
-              revoke 'admin' from `admin`;
-          """
-          exception "Unsupported operation"
-    }
+suite("test_system_db","p0,auth") {
+    String suiteName = "test_system_db"
+    String user = "${suiteName}_user"
+    String pwd = 'C123_567p'
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
     sql """
-        grant select_priv on *.*.* to  `root`;
+        grant select_priv on __internal_schema.* to `${user}`;
     """
     sql """
-        revoke select_priv on *.*.* from  `root`;
+        grant select_priv on information_schema.* to `${user}`;
     """
     sql """
-        grant select_priv on *.*.* to  `admin`;
+        grant select_priv on mysql.* to `${user}`;
     """
     sql """
-        revoke select_priv on *.*.* from  `admin`;
+        revoke select_priv on __internal_schema.* from `${user}`;
     """
-
+    sql """
+        revoke select_priv on information_schema.* from `${user}`;
+    """
+    sql """
+        revoke select_priv on mysql.* from `${user}`;
+    """
+    try_sql("DROP USER ${user}")
 }
