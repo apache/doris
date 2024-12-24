@@ -117,6 +117,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             // last compaction success time isn't updated, indicates compaction is not started(so we treat it as running and wait)
             running = running || (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
             if (running) {
+                logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                 return false
             }
         }
