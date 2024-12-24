@@ -189,11 +189,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    /**
-     * Drop policy through stmt.
-     **/
-    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
-        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
+    public void dropPolicy(DropPolicyLog dropPolicyLog, boolean ifExists) throws DdlException, AnalysisException {
         if (dropPolicyLog.getType() == PolicyTypeEnum.STORAGE) {
             List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
             for (Database db : databases) {
@@ -216,7 +212,7 @@ public class PolicyMgr implements Writable {
         writeLock();
         try {
             if (!existPolicy(dropPolicyLog)) {
-                if (stmt.isIfExists()) {
+                if (ifExists) {
                     return;
                 }
                 throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " not exist");
@@ -226,6 +222,14 @@ public class PolicyMgr implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Drop policy through stmt.
+     **/
+    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
+        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
+        dropPolicy(dropPolicyLog, stmt.isIfExists());
     }
 
     /**
