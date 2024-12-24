@@ -32,10 +32,10 @@ suite("test_nereids_row_policy") {
     }
 
     def assertQueryResult = { size ->
-        def result = connect(user=user, password='123abc!@#', url=url) {
+        def result = connect(user, '123abc!@#', url) {
             sql "SELECT * FROM ${tableName}"
         }
-        connect(user=user, password='123abc!@#', url=url) {
+        connect(user, '123abc!@#', url) {
             test {
                 sql "SELECT * FROM ${viewName}"
                 exception "does not have privilege for"

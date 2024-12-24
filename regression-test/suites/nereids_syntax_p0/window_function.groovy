@@ -279,4 +279,42 @@ suite("window_function") {
                 )t
             )a where rn=1
     """
+
+    // test first value second param is not constant
+    test {
+        sql "select first_value(c1,c1) over() from window_test"
+        exception "The second parameter of first_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+
+    test {
+        sql "select last_value(c1,c1) over() from window_test"
+        exception "The second parameter of last_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+
+    test {
+        sql "select first_value(c1,cast('abc' as boolean)) over() from window_test"
+        exception "The second parameter of first_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+    test {
+        sql "select first_value(c1,'') over() from window_test"
+        exception "The second parameter of first_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+    test {
+        sql "select last_value(c1,'345_a') over() from window_test"
+        exception "The second parameter of last_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+    sql "select last_value(c1,cast('67' as boolean)) over() from window_test"
+    sql "select first_value(c1,cast(56 as boolean)) over() from window_test"
+    sql "select last_value(c1,cast(56 as boolean)) over() from window_test"
+    sql "select first_value(c1,cast('true' as boolean)) over() from window_test"
+    sql "select last_value(c1,cast('false' as boolean)) over() from window_test"
+    sql "select first_value(c1,cast('1' as boolean)) over() from window_test"
+    sql "select last_value(c1,cast('0' as boolean)) over() from window_test"
+    sql "select first_value(c1,true) over() from window_test"
+    sql "select last_value(c1,false) over() from window_test"
+    sql "select first_value(c1,1) over() from window_test"
+    sql "select last_value(c1,0) over() from window_test"
+
+    qt_first_value_false "select last_value(c1,false) over(partition by c2 order by c1) from window_test order by 1"
+    qt_last_value_false "select first_value(c1,false) over(partition by c2 order by c1) from window_test order by 1"
 }

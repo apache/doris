@@ -22,8 +22,9 @@
 #include "runtime/group_commit_mgr.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class OlapTableBlockConvertor;
-}
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
@@ -125,4 +126,5 @@ private:
     TGroupCommitMode::type _group_commit_mode;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

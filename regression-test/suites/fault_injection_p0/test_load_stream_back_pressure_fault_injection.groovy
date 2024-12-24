@@ -71,64 +71,29 @@ suite("test_load_stream_back_pressure_fault_injection", "nonConcurrent") {
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("TabletStream.append_data.long_wait")
-        def thread1 = new Thread({
-            try {
-                def res = sql "insert into test select * from baseall where k1 <= 3"
-                logger.info(res.toString())
-            } catch(Exception e) {
-                logger.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Communications link failure"))
+        // the kill thread only means to end the test faster when the code does not behave as expected
+        def kill_thread = new Thread({
+            sleep(5000)
+            def processList = sql "show processlist"
+            logger.info(processList.toString())
+            processList.each { item ->
+                logger.info(item[1].toString())
+                logger.info(item[11].toString())
+                if (item[11].toString() == "insert into test select * from baseall where k1 <= 3".toString()){
+                    def res = sql "kill ${item[1]}"
+                    logger.info(res.toString())
+                }
             }
         })
-        thread1.start()
-
-        sleep(1000)
-
-        def processList = sql "show processlist"
-        logger.info(processList.toString())
-        processList.each { item ->
-            logger.info(item[1].toString())
-            logger.info(item[11].toString())
-            if (item[11].toString() == "insert into test select * from baseall where k1 <= 3".toString()){
-                def res = sql "kill ${item[1]}"
-                logger.info(res.toString())
-            }
-        }
+        kill_thread.start()
+        def res = sql "insert into test select * from baseall where k1 <= 3"
+        logger.info(res.toString())
+        assertTrue(false, "Expected exception to be thrown")
     } catch(Exception e) {
         logger.info(e.getMessage())
+        assertTrue(e.getMessage().contains("wait flush token back pressure time is more than load_stream_max_wait_flush_token_time"))
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("TabletStream.append_data.long_wait")
-    }
-
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs("TabletStream.add_segment.long_wait")
-        def thread1 = new Thread({
-            try {
-                def res = sql "insert into test select * from baseall where k1 <= 3"
-                logger.info(res.toString())
-            } catch(Exception e) {
-                logger.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Communications link failure"))
-            }
-        })
-        thread1.start()
-
-        sleep(1000)
-
-        def processList = sql "show processlist"
-        logger.info(processList.toString())
-        processList.each { item ->
-            logger.info(item[1].toString())
-            logger.info(item[11].toString())
-            if (item[11].toString() == "insert into test select * from baseall where k1 <= 3".toString()){
-                def res = sql "kill ${item[1]}"
-                logger.info(res.toString())
-            }
-        }
-    } catch(Exception e) {
-        logger.info(e.getMessage())
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("TabletStream.add_segment.long_wait")
     }
 
     sql """ DROP TABLE IF EXISTS `baseall` """

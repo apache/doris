@@ -156,10 +156,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
-            List<Integer> clusterKeyIndexes = null;
+            List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
-                // only base and shadow index need cluster key indexes
-                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(columns);
+                // only base and shadow index need cluster key unique column ids
+                clusterKeyUids = OlapTable.getClusterKeyUids(columns);
             }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
@@ -180,7 +180,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested(), clusterKeyIndexes,
+                        tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
@@ -231,7 +231,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested, List<Integer> clusterKeyIdxes,
+            boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
@@ -365,8 +365,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setRowStorePageSize(pageSize);
         schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
-        if (!CollectionUtils.isEmpty(clusterKeyIdxes)) {
-            schemaBuilder.addAllClusterKeyIdxes(clusterKeyIdxes);
+        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+            schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
         }
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -117,7 +118,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         // we need replace alias's child expr with corresponding alias's slot in output
         // so create a customNormalizeMap alias's child -> alias.toSlot to do it
         Map<Expression, Slot> customNormalizeMap = toBePushedDown.stream()
-                .filter(expr -> expr instanceof Alias)
+                .filter(expr -> expr instanceof Alias && !(expr.child(0) instanceof Literal))
                 .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
                         (oldExpr, newExpr) -> oldExpr));
 

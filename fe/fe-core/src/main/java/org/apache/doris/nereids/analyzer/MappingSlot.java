@@ -77,7 +77,7 @@ public class MappingSlot extends Slot {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return slot.toSql();
     }
 

@@ -424,6 +424,8 @@ protected:
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
+
+    bool _enable_fixed_len_to_uint32_v2 = false;
 };
 
 // avoid expose RuntimePredicateWrapper

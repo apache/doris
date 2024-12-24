@@ -84,7 +84,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
              "               (789012345, 'Grace', 2123483141, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
      //TODO Test the agg model by modify a key type from LARGEINT  to BOOLEAN
-     errorMessage = "errCode = 2, detailMessage = Can not change LARGEINT to BOOLEAN"
+     def errorMessage = "errCode = 2, detailMessage = Can not change LARGEINT to BOOLEAN"
      expectException({
           sql initTable
           sql initTableData
@@ -219,7 +219,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      }, insertSql, false, "${tbName1}")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
-     initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
+     def initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
              "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
@@ -237,7 +237,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
              "          \"replication_allocation\" = \"tag.location.default: 1\"\n" +
              "          );"
 
-     initTableData2 = "insert into ${tbName2} values(123456789, 'Alice', 2147483641, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+     def initTableData2 = "insert into ${tbName2} values(123456789, 'Alice', 2147483641, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (234567890, 'Bob', 214748364, 'Shanghai', 30, 1, 13998765432, 'No. 456 Street, Shanghai', '2022-02-02 12:00:00')," +
              "               (345678901, 'Carol', 2147483441, 'Guangzhou', 28, 0, 13724681357, 'No. 789 Street, Guangzhou', '2022-03-03 14:00:00')," +
              "               (456789012, 'Dave', 2147483141, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +

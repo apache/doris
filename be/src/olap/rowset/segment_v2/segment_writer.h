@@ -105,6 +105,7 @@ public:
                              const std::function<void(const RowLocation& loc)>& found_cb,
                              const std::function<Status()>& not_found_cb,
                              PartialUpdateStats& stats);
+    Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
     Status append_block_with_variant_subcolumns(vectorized::Block& data);

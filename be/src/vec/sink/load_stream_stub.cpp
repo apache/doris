@@ -65,13 +65,11 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
         if (response.failed_tablets_size() > 0) {
             ss << ", failed tablet ids:";
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                ss << " " << pb.id() << ":" << st;
+                ss << " " << pb.id() << ":" << Status::create(pb.status());
             }
             std::lock_guard<bthread::Mutex> lock(stub->_failed_tablets_mutex);
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                stub->_failed_tablets.emplace(pb.id(), st);
+                stub->_failed_tablets.emplace(pb.id(), Status::create(pb.status()));
             }
         }
         if (response.tablet_schemas_size() > 0) {
@@ -221,11 +219,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
         add_failed_tablet(tablet_id, _status);
         return _status;
     }
-    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
-        if (segment_id != 0) {
-            return Status::OK();
-        }
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -248,11 +242,7 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
         add_failed_tablet(tablet_id, _status);
         return _status;
     }
-    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
-        if (segment_id != 0) {
-            return Status::OK();
-        }
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -342,6 +332,10 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 
 Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
+    if (!_is_open.load()) {
+        // we don't need to close wait on non-open streams
+        return Status::OK();
+    }
     if (!_is_closing.load()) {
         return _status;
     }

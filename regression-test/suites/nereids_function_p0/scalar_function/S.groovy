@@ -126,6 +126,7 @@ suite("nereids_scalar_fn_S") {
 
 	sql "select space(10) from fn_test order by kint"
 	sql "select space(10) from fn_test_not_nullable order by kint"
+	sql """select k from (select length(space(number)) k from numbers("number" = "10"))t;""" // before #44919 will crash
 	qt_sql_split_part_Varchar_Varchar_Integer "select split_part(kvchrs1, ' ', 1) from fn_test order by kvchrs1"
 	qt_sql_split_part_Varchar_Varchar_Integer_notnull "select split_part(kvchrs1, ' ', 1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_split_part_String_String_Integer "select split_part(kstr, ' ', 1) from fn_test order by kstr"

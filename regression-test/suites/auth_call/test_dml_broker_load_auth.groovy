@@ -68,7 +68,7 @@ suite("test_dml_broker_load_auth","p0,auth_call") {
             );"""
 
     sql """use ${dbName}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """
             LOAD LABEL ${loadLabelName} (
@@ -104,7 +104,7 @@ suite("test_dml_broker_load_auth","p0,auth_call") {
         }
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName};"""
         sql """
         LOAD LABEL ${loadLabelName} (
@@ -149,7 +149,7 @@ suite("test_dml_broker_load_auth","p0,auth_call") {
     }
 
     sql """grant load_priv on ${dbName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW LOAD FROM ${dbName} WHERE LABEL LIKE '${loadLabelName}'"""
         logger.info("res: " + res)
         assertTrue(res.size() == 1)

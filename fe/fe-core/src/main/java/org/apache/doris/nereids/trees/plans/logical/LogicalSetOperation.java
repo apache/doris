@@ -216,7 +216,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         return children.size();
     }
 
-    private DataType getAssignmentCompatibleType(DataType left, DataType right) {
+    /** getAssignmentCompatibleType */
+    public static DataType getAssignmentCompatibleType(DataType left, DataType right) {
         if (left.isNullType()) {
             return right;
         }

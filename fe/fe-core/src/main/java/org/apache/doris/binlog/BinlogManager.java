@@ -34,6 +34,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
@@ -443,6 +444,32 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.DROP_ROLLUP;
         String data = info.toJson();
 
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+
+    private boolean supportedRecoverInfo(RecoverInfo info) {
+        //table name and partitionName added together.
+        // recover table case, tablename must exist in newer version
+        // recover partition case also table name must exist.
+        // so checking only table name here.
+        if (StringUtils.isEmpty(info.getTableName())) {
+            LOG.warn("skip recover info binlog, because tableName is empty. info: {}", info);
+            return false;
+        }
+        return true;
+    }
+
+    public void addRecoverTableRecord(RecoverInfo info, long commitSeq) {
+        if (supportedRecoverInfo(info) == false) {
+            return;
+        }
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RECOVER_INFO;
+        String data = info.toJson();
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 

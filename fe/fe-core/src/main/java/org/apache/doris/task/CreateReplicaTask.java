@@ -125,7 +125,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
-    private List<Integer> clusterKeyIndexes;
+    private List<Integer> clusterKeyUids;
 
     private Map<Object, Object> objectPool;
     private List<Integer> rowStoreColumnUniqueIds;
@@ -276,8 +276,8 @@ public class CreateReplicaTask extends AgentTask {
         this.invertedIndexFileStorageFormat = invertedIndexFileStorageFormat;
     }
 
-    public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
-        this.clusterKeyIndexes = clusterKeyIndexes;
+    public void setClusterKeyUids(List<Integer> clusterKeyUids) {
+        this.clusterKeyUids = clusterKeyUids;
     }
 
     public TCreateTabletReq toThrift() {
@@ -337,10 +337,10 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
-        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-            tSchema.setClusterKeyIdxes(clusterKeyIndexes);
+        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+            tSchema.setClusterKeyUids(clusterKeyUids);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
+                LOG.debug("cluster key uids={}, table_id={}, tablet_id={}", clusterKeyUids, tableId, tabletId);
             }
         }
         if (CollectionUtils.isNotEmpty(indexes)) {

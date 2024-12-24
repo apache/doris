@@ -130,9 +130,10 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
                                 LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
                                         DebugUtil.printId(queryId), backend, status.toString());
                             }
+                        } else {
+                            LOG.warn("Failed to cancel query {} backend: {} reason: {}",
+                                    DebugUtil.printId(queryId), backend, "without status");
                         }
-                        LOG.warn("Failed to cancel query {} backend: {} reason: {}",
-                                DebugUtil.printId(queryId), backend, "without status");
                     }
 
                     public void onFailure(Throwable t) {

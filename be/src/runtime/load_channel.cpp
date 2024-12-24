@@ -59,7 +59,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
                 fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()));
         if (wg_id > 0) {
             WorkloadGroupPtr workload_group_ptr =
-                    ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(wg_id);
+                    ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
             if (workload_group_ptr) {
                 wg_ptr = workload_group_ptr;
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);

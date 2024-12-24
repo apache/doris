@@ -85,12 +85,7 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
-    // for only use in pipelineX
-    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
-                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
-
-    // Used by pipelineX. This runtime state is only used for setup.
+    // Used by pipeline. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -590,6 +585,11 @@ public:
     bool enable_local_merge_sort() const {
         return _query_options.__isset.enable_local_merge_sort &&
                _query_options.enable_local_merge_sort;
+    }
+
+    bool enable_shared_exchange_sink_buffer() const {
+        return _query_options.__isset.enable_shared_exchange_sink_buffer &&
+               _query_options.enable_shared_exchange_sink_buffer;
     }
 
     int64_t min_revocable_mem() const {

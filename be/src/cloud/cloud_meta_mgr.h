@@ -27,6 +27,7 @@
 #include "util/s3_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DeleteBitmap;
 class StreamLoadContext;
@@ -124,4 +125,5 @@ private:
 };
 
 } // namespace cloud
+#include "common/compile_check_end.h"
 } // namespace doris

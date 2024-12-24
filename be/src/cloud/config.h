@@ -20,6 +20,7 @@
 #include "common/config.h"
 
 namespace doris::config {
+#include "common/compile_check_begin.h"
 
 DECLARE_String(deploy_mode);
 // deprecated do not configure directly
@@ -110,4 +111,5 @@ DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
 
+#include "common/compile_check_end.h"
 } // namespace doris::config

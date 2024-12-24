@@ -24,8 +24,8 @@ import com.google.common.collect.Maps;
 import java.util.Map;
 
 public class PaimonPartitionInfo {
-    private Map<String, PartitionItem> nameToPartitionItem;
-    private Map<String, PaimonPartition> nameToPartition;
+    private final Map<String, PartitionItem> nameToPartitionItem;
+    private final Map<String, PaimonPartition> nameToPartition;
 
     public PaimonPartitionInfo() {
         this.nameToPartitionItem = Maps.newHashMap();

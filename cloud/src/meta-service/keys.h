@@ -254,6 +254,12 @@ void stats_tablet_num_segs_key(const StatsTabletKeyInfo& in, std::string* out);
 void stats_tablet_index_size_key(const StatsTabletKeyInfo& in, std::string* out);
 void stats_tablet_segment_size_key(const StatsTabletKeyInfo& in, std::string* out);
 static inline std::string stats_tablet_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_key(in, &s); return s; }
+static inline std::string stats_tablet_data_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_data_size_key(in, &s); return s; }
+static inline std::string stats_tablet_num_rows_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_rows_key(in, &s); return s; }
+static inline std::string stats_tablet_num_rowsets_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_rowsets_key(in, &s); return s; }
+static inline std::string stats_tablet_num_segs_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_segs_key(in, &s); return s; }
+static inline std::string stats_tablet_index_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_index_size_key(in, &s); return s; }
+static inline std::string stats_tablet_segment_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_segment_size_key(in, &s); return s; }
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);

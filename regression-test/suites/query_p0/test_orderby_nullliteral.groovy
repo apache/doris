@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("orderby_nullliteral", "query") {
+suite("orderby_nullliteral", "query,arrow_flight_sql") {
 
     def tableName = "test_orderby_nullliteral"
     sql "DROP TABLE IF EXISTS ${tableName}"
