@@ -397,8 +397,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INTERNAL_SESSION = "internal_session";
 
-    public static final String PARTITIONED_HASH_AGG_ROWS_THRESHOLD = "partitioned_hash_agg_rows_threshold";
-
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
@@ -560,14 +558,17 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
 
     // for spill to disk
-    public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
-    public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
-    public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
-    public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
     public static final String ENABLE_SPILL = "enable_spill";
-    public static final String REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT = "revocable_memory_high_watermark_percent";
-    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
+    public static final String SPILL_MIN_REVOCABLE_MEM = "spill_min_revocable_mem";
+    public static final String SPILL_SORT_MEM_LIMIT = "spill_sort_mem_limit";
+    // spill_sort_batch_bytes controls the memory size of a sindle block data of spill sort.
+    public static final String SPILL_SORT_BATCH_BYTES = "spill_sort_batch_bytes";
+    public static final String SPILL_AGGREGATION_PARTITION_COUNT = "spill_aggregation_partition_count";
+    public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
+    public static final String SPILL_HASH_JOIN_PARTITION_COUNT = "spill_hash_join_partition_count";
+    public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT = "spill_revocable_memory_high_watermark_percent";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
@@ -1586,10 +1587,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 
-    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD, fuzzy = true)
-    public int partitionedHashAggRowsThreshold = 0;
-
     @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
     public int partitionPruningExpandThreshold = 10;
 
@@ -2187,24 +2184,12 @@ public class SessionVariable implements Serializable, Writable {
     public boolean disableEmptyPartitionPrune = false;
     // CLOUD_VARIABLES_END
 
-    // for spill to disk
-    @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
-    public long minRevocableMem = 32 * 1024 * 1024;
-
     // fetch remote schema rpc timeout
     @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
     public long fetchRemoteSchemaTimeoutSeconds = 120;
     // max tablet count for fetch remote schema
     @VariableMgr.VarAttr(name = MAX_FETCH_REMOTE_TABLET_COUNT, fuzzy = true)
     public int maxFetchRemoteTabletCount = 512;
-
-    @VariableMgr.VarAttr(
-            name = ENABLE_RESERVE_MEMORY,
-            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
-                    "Controls whether to enable reserve memory before allocating memory. "
-                            + "The default value is true."},
-            needForward = true, fuzzy = true)
-    public boolean enableReserveMemory = true;
 
     @VariableMgr.VarAttr(
             name = "ENABLE_COMPRESS_MATERIALIZE",
@@ -2215,6 +2200,14 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean enableCompressMaterialize = false;
 
+    @VariableMgr.VarAttr(
+            name = DATA_QUEUE_MAX_BLOCKS,
+            description = {"DataQueue 中每个子队列允许最大的 block 个数",
+                    "Max blocks in DataQueue."},
+            needForward = true, fuzzy = true)
+    public long dataQueueMaxBlocks = 1;
+
+    // for spill to disk
     @VariableMgr.VarAttr(
             name = ENABLE_SPILL,
             description = {"控制是否启用查询算子落盘。默认为 false。",
@@ -2233,32 +2226,39 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableForceSpill = false;
 
     @VariableMgr.VarAttr(
-            name = DATA_QUEUE_MAX_BLOCKS,
-            description = {"DataQueue 中每个子队列允许最大的 block 个数",
-                    "Max blocks in DataQueue."},
+            name = ENABLE_RESERVE_MEMORY,
+            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
+                    "Controls whether to enable reserve memory before allocating memory. "
+                            + "The default value is true."},
             needForward = true, fuzzy = true)
-    public long dataQueueMaxBlocks = 1;
+    public boolean enableReserveMemory = true;
 
-    @VariableMgr.VarAttr(name = REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
-    public int revocableMemoryHighWatermarkPercent = -1;
+    @VariableMgr.VarAttr(name = SPILL_MIN_REVOCABLE_MEM, fuzzy = true)
+    public long spillMinRevocableMem = 32 * 1024 * 1024;
 
-    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
-    // Set to 0 to disable; min: 128M
-    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 2097152;
-    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD,
-            checker = "checkExternalSortBytesThreshold", varType = VariableAnnotation.DEPRECATED)
-    public long externalSortBytesThreshold = 0;
+    // spill_sort_mem_limit controls the memory usage during merge sort phase of spill sort.
+    // During merge sort phase, mutiple sorted blocks will be read into memory and do merge sort,
+    // the count of blocks should be controlled or else will cause OOM, it's calculated as
+    // std::max(spill_sort_mem_limit / spill_sort_batch_bytes, 2)
+    @VariableMgr.VarAttr(name = SPILL_SORT_MEM_LIMIT)
+    public long spillSortMemLimit = 134217728; // 128M
+
+    @VariableMgr.VarAttr(name = SPILL_SORT_BATCH_BYTES)
+    public long spillSortBatchBytes = 8388608; // 8M
+
+    @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
+    public int spillAggregationPartitionCount = 32;
 
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
     @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
-    public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
-    public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
-    @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
-            checker = "checkExternalAggPartitionBits", fuzzy = true)
-    public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
+    @VariableMgr.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
+    public int spillHashJoinPartitionCount = 32;
+
+    @VariableMgr.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
+    public int spillRevocableMemoryHighWatermarkPercent = -1;
 
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
@@ -2372,7 +2372,6 @@ public class SessionVariable implements Serializable, Writable {
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
-        this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
@@ -2394,23 +2393,23 @@ public class SessionVariable implements Serializable, Writable {
         /*
         switch (randomInt) {
             case 0:
-                this.externalSortBytesThreshold = 0;
+                this.spillSortBytesThreshold = 0;
                 this.externalAggBytesThreshold = 0;
                 break;
             case 1:
-                this.externalSortBytesThreshold = 1;
+                this.spillSortBytesThreshold = 1;
                 this.externalAggBytesThreshold = 1;
-                this.externalAggPartitionBits = 6;
+                this.spillAggregationPartitionCount = 6;
                 break;
             case 2:
-                this.externalSortBytesThreshold = 1024 * 1024;
+                this.spillSortBytesThreshold = 1024 * 1024;
                 this.externalAggBytesThreshold = 1024 * 1024;
-                this.externalAggPartitionBits = 8;
+                this.spillAggregationPartitionCount = 8;
                 break;
             default:
-                this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
+                this.spillSortBytesThreshold = 100 * 1024 * 1024 * 1024;
                 this.externalAggBytesThreshold = 100 * 1024 * 1024 * 1024;
-                this.externalAggPartitionBits = 4;
+                this.spillAggregationPartitionCount = 4;
                 break;
         }
         */
@@ -2493,16 +2492,16 @@ public class SessionVariable implements Serializable, Writable {
                 randomInt = random.nextInt(4);
                 switch (randomInt) {
                     case 0:
-                        this.minRevocableMem = 0;
+                        this.spillMinRevocableMem = 0;
                         break;
                     case 1:
-                        this.minRevocableMem = 1;
+                        this.spillMinRevocableMem = 1;
                         break;
                     case 2:
-                        this.minRevocableMem = 1024 * 1024;
+                        this.spillMinRevocableMem = 1024 * 1024;
                         break;
                     default:
-                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
+                        this.spillMinRevocableMem = 100L * 1024 * 1024 * 1024;
                         break;
                 }
             } else {
@@ -3659,24 +3658,6 @@ public class SessionVariable implements Serializable, Writable {
         return dropTableIfCtasFailed;
     }
 
-    public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
-        long value = Long.valueOf(externalSortBytesThreshold);
-        if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
-            LOG.warn("external sort bytes threshold: {}, min: {}", value, MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
-            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
-        }
-    }
-
-    public void checkExternalAggPartitionBits(String externalAggPartitionBits) {
-        int value = Integer.valueOf(externalAggPartitionBits);
-        if (value < MIN_EXTERNAL_AGG_PARTITION_BITS || value > MAX_EXTERNAL_AGG_PARTITION_BITS) {
-            LOG.warn("external agg bytes threshold: {}, min: {}, max: {}",
-                    value, MIN_EXTERNAL_AGG_PARTITION_BITS, MAX_EXTERNAL_AGG_PARTITION_BITS);
-            throw new UnsupportedOperationException("min value is " + MIN_EXTERNAL_AGG_PARTITION_BITS + " max value is "
-                    + MAX_EXTERNAL_AGG_PARTITION_BITS);
-        }
-    }
-
     public void checkQueryTimeoutValid(String newQueryTimeout) {
         int value = Integer.valueOf(newQueryTimeout);
         if (value <= 0) {
@@ -3896,14 +3877,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
-        tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
-
-        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
-
-        tResult.setExternalAggBytesThreshold(0); // disable for now
-
-        tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
-
         tResult.setEnableFileCache(enableFileCache);
 
         tResult.setEnablePageCache(enablePageCache);
@@ -3941,12 +3914,19 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
-        tResult.setEnableReserveMemory(enableReserveMemory);
+        
+        // for spill
         tResult.setEnableSpill(enableSpill);
         tResult.setEnableForceSpill(enableForceSpill);
-        tResult.setExternalAggPartitionBits(externalAggPartitionBits);
-        tResult.setMinRevocableMem(minRevocableMem);
-        tResult.setRevocableMemoryHighWatermarkPercent(revocableMemoryHighWatermarkPercent);
+        tResult.setEnableReserveMemory(enableReserveMemory);
+        tResult.setMinRevocableMem(spillMinRevocableMem);
+        tResult.setSpillSortMemLimit(spillSortMemLimit);
+        tResult.setSpillSortBatchBytes(spillSortBatchBytes);
+        tResult.setSpillAggregationPartitionCount(spillAggregationPartitionCount);
+        tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
+        tResult.setSpillHashJoinPartitionCount(spillHashJoinPartitionCount);
+        tResult.setRevocableMemoryHighWatermarkPercent(spillRevocableMemoryHighWatermarkPercent);
+
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);

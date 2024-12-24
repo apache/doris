@@ -308,9 +308,8 @@ Status AggSharedState::reset_hash_table() {
             agg_data->method_variant);
 }
 
-void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count_bits) {
-    partition_count_bits = spill_partition_count_bits;
-    partition_count = (1 << spill_partition_count_bits);
+void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count) {
+    partition_count = spill_partition_count;
     max_partition_index = partition_count - 1;
 
     for (int i = 0; i < partition_count; ++i) {

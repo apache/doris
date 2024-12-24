@@ -155,7 +155,7 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
-        local_state._shared_state->update_spill_block_batch_row_count(in_block);
+        local_state._shared_state->update_spill_block_batch_row_count(state, in_block);
     }
     local_state._eos = eos;
     DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::sink",
@@ -201,8 +201,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
 
     auto status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             state, _spilling_stream, print_id(state->query_id()), "sort", _parent->node_id(),
-            _shared_state->spill_block_batch_row_count,
-            SpillSortSharedState::SORT_BLOCK_SPILL_BATCH_BYTES, profile());
+            _shared_state->spill_block_batch_row_count, state->spill_sort_batch_bytes(), profile());
     RETURN_IF_ERROR(status);
 
     _shared_state->sorted_streams.emplace_back(_spilling_stream);

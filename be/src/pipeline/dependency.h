@@ -453,24 +453,20 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
 
-    void init_spill_params(size_t spill_partition_count_bits);
+    void init_spill_params(size_t spill_partition_count);
 
     void close();
 
     AggSharedState* in_mem_shared_state = nullptr;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
-    size_t partition_count_bits;
     size_t partition_count;
     size_t max_partition_index;
     bool is_spilled = false;
     std::atomic_bool is_closed = false;
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
 
-    size_t get_partition_index(size_t hash_value) const {
-        // return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
-        return hash_value % partition_count;
-    }
+    size_t get_partition_index(size_t hash_value) const { return hash_value % partition_count; }
 };
 
 struct AggSpillPartition {
@@ -523,14 +519,12 @@ struct SpillSortSharedState : public BasicSharedState,
     SpillSortSharedState() = default;
     ~SpillSortSharedState() override = default;
 
-    // This number specifies the maximum size of sub blocks
-    static constexpr size_t SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
-    void update_spill_block_batch_row_count(const vectorized::Block* block) {
+    void update_spill_block_batch_row_count(RuntimeState* state, const vectorized::Block* block) {
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
             avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
             spill_block_batch_row_count =
-                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes;
+                    (state->spill_sort_batch_bytes() + avg_row_bytes - 1) / avg_row_bytes;
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }
