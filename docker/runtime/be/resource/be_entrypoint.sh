@@ -109,15 +109,15 @@ show_backends(){
     echo "$backends"
 }
 
-enable_query_and_load(){
+enable_query(){
     local svc=$1
-    set_enable_query_and_load=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\",\"disable_load\"=\"false\");" 2>&1`
-    log_stderr "[info] use root no password set enable query and load result $set_enable_query_and_load ."
-    if echo $set_enable_query_and_load | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
-        log_stderr "[info] use username($DB_ADMIN_USER) and password that configured to enable query and load."
-        set_enable_query_and_load=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\",\"disable_load\"=\"false\");"`
+    set_enable_query=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\");" 2>&1`
+    log_stderr "[info] use root no password set enable query result $set_enable_query ."
+    if echo $set_enable_query | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username($DB_ADMIN_USER) and password that configured to enable query."
+        set_enable_query=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\");"`
     fi
-    log_stderr "[info] set enable query and load return $set_enable_query_and_load"
+    log_stderr "[info] set enable query return $set_enable_query"
 }
 
 # get all registered fe in cluster, for check the fe have `MASTER`.
@@ -161,11 +161,11 @@ collect_env_info()
 
 check_enable(){
     local memlist=$1
-    if echo "$memlist" | grep "$MY_SELF" | grep "isQueryDisabled\":false" | grep -q -w "isLoadDisabled\":false" &>/dev/null ; then
-        log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) enable_query_and_load success "
+    if echo "$memlist" | grep "$MY_SELF" | grep -q -w "isQueryDisabled\":false" &>/dev/null ; then
+        log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) enable_query success "
         echo "true"
     else
-        log_stderr "[error] Check myself ($MY_SELF:$HEARTBEAT_PORT) enble_query_and_load failed "
+        log_stderr "[error] Check myself ($MY_SELF:$HEARTBEAT_PORT) enble_query failed "
         echo "false"
     fi
 }
@@ -184,7 +184,7 @@ add_self()
             if [[ "x$NEED_PRE_START" == "xfalse" ]] ; then
                 break;
             fi
-            enable_query_and_load $svc
+            enable_quer $svc
             res=`check_enable $memlist`
             if [[ "x$res" == "xtrue" ]] ; then
                 break;

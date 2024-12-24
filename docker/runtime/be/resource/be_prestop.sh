@@ -107,43 +107,43 @@ show_backends(){
 }
 
 
-disable_query_and_load(){
+disable_query(){
     local svc=$1
-    disable_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"true\",\"disable_load\"=\"true\");" 2>&1`
+    disable_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"true\");" 2>&1`
     if echo $disable_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-        log_stderr "[info] disable_query_and_load use pwd to run 'ALTER SYSTEM MODIFY BACKEND' sql ."
-        disable_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"true\",\"disable_load\"=\"true\");" 2>&1`
+        log_stderr "[info] disable_query use pwd to run 'ALTER SYSTEM MODIFY BACKEND' sql ."
+        disable_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"true\");" 2>&1`
     fi
     if [[ "x$disable_result" == "x" ]] ; then
-        log_stderr "[info] disable_query_and_load success ."
+        log_stderr "[info] disable_query success ."
     else
-        log_stderr "[error] disable_query_and_load failed: $disable_result ."
+        log_stderr "[error] disable_query failed: $disable_result ."
     fi
 }
 
 check_disable(){
     local svc=$1
     memlist=`show_backends $svc`
-    if echo "$memlist" | grep "$MY_SELF" | grep "isQueryDisabled\":true" | grep -q -w "isLoadDisabled\":true" &>/dev/null ; then
-        log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) disable_query_and_load success "
+    if echo "$memlist" | grep "$MY_SELF" | grep  -q -w "isQueryDisabled\":true" &>/dev/null ; then
+        log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) disable_query success "
         echo "true"
     else
-        log_stderr "[error] Check myself ($MY_SELF:$HEARTBEAT_PORT) disable_query_and_load failed "
+        log_stderr "[error] Check myself ($MY_SELF:$HEARTBEAT_PORT) disable_query failed "
         echo "false"
     fi
 }
 
-# disable query/load and check for stop
+# disable query and check for stop
 prepare_stop(){
     local svc=$1
     for ((i=1; i<=RETRY_TIMES; i++))
     do
-        disable_query_and_load $ENV_FE_ADDR
+        disable_query $ENV_FE_ADDR
         disable_res=`check_disable $ENV_FE_ADDR`
         if [[ "x$disable_res" == "xtrue" ]] ; then
             break
         else
-            log_stderr "[error] will retry to set be disable query and load "
+            log_stderr "[error] will retry to set be disable query "
             sleep $PROBE_INTERVAL
         fi
     done
