@@ -600,6 +600,7 @@ struct ConvertImplGenericFromString {
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
+            format_options.time_zone = &context->state()->timezone_obj();
             format_options.converted_from_string = true;
             format_options.escape_char = '\\';
 
