@@ -23,16 +23,16 @@ suite("test_nereids_row_policy") {
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
 
     def assertQueryResult = { size ->
-        def result1 = connect(user=user, password='123abc!@#', url=url) {
+        def result1 = connect(user, '123abc!@#', url) {
             sql "set enable_nereids_planner = false"
             sql "SELECT * FROM ${tableName}"
         }
-        def result2 = connect(user=user, password='123abc!@#', url=url) {
+        def result2 = connect(user, '123abc!@#', url) {
             sql "set enable_nereids_planner = true"
             sql "set enable_fallback_to_original_planner = false"
             sql "SELECT * FROM ${tableName}"
         }
-        connect(user=user, password='123abc!@#', url=url) {
+        connect(user, '123abc!@#', url) {
             sql "set enable_nereids_planner = true"
             sql "set enable_fallback_to_original_planner = false"
             test {

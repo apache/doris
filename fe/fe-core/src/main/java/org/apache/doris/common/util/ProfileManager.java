@@ -439,6 +439,7 @@ public class ProfileManager {
         try {
             queryIdToProfileMap.clear();
             queryIdDeque.clear();
+            queryIdToExecutionProfiles.clear();
         } finally {
             writeLock.unlock();
         }

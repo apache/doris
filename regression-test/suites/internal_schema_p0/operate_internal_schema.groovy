@@ -56,7 +56,7 @@ suite("operate_internal_schema") {
     sql """GRANT ADMIN_PRIV ON *.*.* TO ${user}"""
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "__internal_schema" + "?"
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
             sql "use __internal_schema;"
             try {
                 //alter db

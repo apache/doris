@@ -199,7 +199,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         """
     sql """grant select_priv on ${db}.${viewName} to ${user}"""
     // not have usage priv, can not select tvf with resource
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         sql """set enable_fallback_to_original_planner=false;"""
         test {
                 sql """set enable_fallback_to_original_planner=false;"""
@@ -216,7 +216,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     }
 
     // only have select_priv of view,can select view with resource
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
             sql """SELECT * FROM ${db}.${viewName};"""
     }
 

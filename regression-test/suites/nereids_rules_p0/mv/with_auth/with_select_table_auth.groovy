@@ -135,7 +135,7 @@ suite("with_select_table_auth","p0,auth") {
             l_suppkey;
     """)
 
-    connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user_name, "${pwd}", context.config.jdbcUrl) {
         sql "use ${db}"
         mv_rewrite_success(
             """
@@ -156,7 +156,7 @@ suite("with_select_table_auth","p0,auth") {
         )
     }
 
-    connect(user=user_name, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user_name, "${pwd}", context.config.jdbcUrl) {
         sql "use ${db}"
         test {
             sql """select * from mv1;"""

@@ -39,7 +39,7 @@ suite("test_create_view_auth","p0,auth") {
         );
         """
     sql """grant select_priv on regression_test to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "create view ${dbName}.v1 as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
@@ -48,7 +48,7 @@ suite("test_create_view_auth","p0,auth") {
         }
     }
     sql """grant create_priv on ${dbName}.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "create view ${dbName}.v1 as select * from ${dbName}.${tableName};"
         } catch (Exception e) {

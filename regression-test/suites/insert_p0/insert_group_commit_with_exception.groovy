@@ -195,7 +195,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(2, "f");
                     ps.setObject(3, 90);
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     logger.info("prepare insert result: " + result)
                 }
 
@@ -204,7 +204,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(1, 11);
                     ps.setObject(2, "f");
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     logger.info("prepare insert result: " + result)
                 }
 

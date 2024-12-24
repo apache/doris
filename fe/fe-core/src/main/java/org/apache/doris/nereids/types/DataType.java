@@ -648,6 +648,41 @@ public abstract class DataType {
         }
     }
 
+    /**
+     * whether the param dataType is same-like type for nested in complex type
+     *  same-like type means: string-like, date-like, number type
+     */
+    public boolean isSameTypeForComplexTypeParam(DataType paramType) {
+        if (this.isArrayType() && paramType.isArrayType()) {
+            return ((ArrayType) this).getItemType()
+                    .isSameTypeForComplexTypeParam(((ArrayType) paramType).getItemType());
+        } else if (this.isMapType() && paramType.isMapType()) {
+            MapType thisMapType = (MapType) this;
+            MapType otherMapType = (MapType) paramType;
+            return thisMapType.getKeyType().isSameTypeForComplexTypeParam(otherMapType.getKeyType())
+                    && thisMapType.getValueType().isSameTypeForComplexTypeParam(otherMapType.getValueType());
+        } else if (this.isStructType() && paramType.isStructType()) {
+            StructType thisStructType = (StructType) this;
+            StructType otherStructType = (StructType) paramType;
+            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
+                return false;
+            }
+            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                if (!thisStructType.getFields().get(i).getDataType().isSameTypeForComplexTypeParam(
+                        otherStructType.getFields().get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        } else if (this.isStringLikeType() && paramType.isStringLikeType()) {
+            return true;
+        } else if (this.isDateLikeType() && paramType.isDateLikeType()) {
+            return true;
+        } else {
+            return this.isNumericType() && paramType.isNumericType();
+        }
+    }
+
     /** getAllPromotions */
     public List<DataType> getAllPromotions() {
         if (this instanceof ArrayType) {

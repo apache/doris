@@ -73,7 +73,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     });
 
     // login as external_block_user1 
-    def result1 = connect(user = 'external_block_user1', password = '', url = context.config.jdbcUrl) {
+    def result1 = connect('external_block_user1', '', context.config.jdbcUrl) {
         sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
@@ -81,7 +81,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
         }
     }
     // login as external_block_user2
-    def result2 = connect(user = 'external_block_user2', password = '', url = context.config.jdbcUrl) {
+    def result2 = connect('external_block_user2', '', context.config.jdbcUrl) {
         sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
@@ -89,7 +89,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
         }
     }
     // login as external_block_user3
-    def result3 = connect(user = 'external_block_user3', password = '', url = context.config.jdbcUrl) {
+    def result3 = connect('external_block_user3', '', context.config.jdbcUrl) {
         def res = sql """show property;"""
         print "${res}"
         sql """set enable_fallback_to_original_planner=false;"""

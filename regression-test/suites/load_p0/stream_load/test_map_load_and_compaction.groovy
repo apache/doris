@@ -117,6 +117,8 @@ suite("test_map_load_and_compaction", "p0") {
         def compactJson = parseJson(out.trim())
         assertEquals("success", compactJson.status.toLowerCase())
 
+        def running = false
+
         // wait compactions done
         do {
             Thread.sleep(1000)
@@ -131,7 +133,7 @@ suite("test_map_load_and_compaction", "p0") {
         checkCompactionStatus.call(compactionStatus, 1)
 
         // finally check backend alive
-        backends = sql """ show backends; """
+        def backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] b : backends) {
             assertEquals("true", b[9])

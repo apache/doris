@@ -23,7 +23,7 @@ suite('test_new_partial_update_delete') {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
 
             sql "set enable_nereids_planner=true"
@@ -257,7 +257,7 @@ suite('test_new_partial_update_delete') {
         }
     }
 
-    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+    connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
         sql "use ${db};"
         try {
             def tableAggName = "test_new_partial_update_agg_delete"

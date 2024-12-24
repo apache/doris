@@ -171,6 +171,9 @@ void FunctionMatchBase::analyse_query_str_token(std::vector<std::string>* query_
                                                 const std::string& column_name) const {
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
+    if (inverted_index_ctx == nullptr) {
+        return;
+    }
     if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
         query_tokens->emplace_back(match_query_str);
         return;
