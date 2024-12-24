@@ -23,7 +23,7 @@ FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
 PROBE_TIMEOUT=60
 # interval time to probe fe.
 PROBE_INTERVAL=2
-NEED_PRE_STOP=${NEED_PRE_STOP:-"false"}
+NEED_PRE_START=${NEED_PRE_STOP:-"false"}
 
 # rpc port for fe communicate with be.
 HEARTBEAT_PORT=9050
@@ -181,7 +181,7 @@ add_self()
         memlist=`show_backends $svc`
         if echo "$memlist" | grep -q -w "$MY_SELF" &>/dev/null ; then
             log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) exist in FE, start be directly ..."
-            if [[ "x$NEED_PRE_STOP" == "xfalse" ]] ; then
+            if [[ "x$NEED_PRE_START" == "xfalse" ]] ; then
                 break;
             fi
             enable_query_and_load $svc
