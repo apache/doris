@@ -108,7 +108,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
                     qualifiedTable.asSchemaTableName(), Optional.empty(), Optional.empty()));
         }
         if (!connectorTableHandle.isPresent()) {
-            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", qualifiedTable));
+            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", trinoConnectorCatalog.getName(),
+                    dbName, name));
         }
 
         // 4. Get ColumnHandle

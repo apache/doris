@@ -254,7 +254,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
-            DCHECK(null_map != nullptr);
+            DCHECK(null_map);
             vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
         } else {
@@ -303,9 +303,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
-                        LOG(FATAL) << "FATAL: uninited hash table";
-                        __builtin_unreachable();
-                        return Status::OK();
+                        throw Exception(Status::FatalError("FATAL: uninited hash table"));
                     },
                     [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {

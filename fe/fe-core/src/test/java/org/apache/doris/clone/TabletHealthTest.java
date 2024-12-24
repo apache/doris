@@ -40,12 +40,14 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.MinMaxPriorityQueue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class TabletHealthTest extends TestWithFeService {
@@ -78,6 +80,8 @@ public class TabletHealthTest extends TestWithFeService {
 
     @Override
     protected void runBeforeEach() throws Exception {
+        // set back to default value
+        Config.max_scheduling_tablets = 2000;
         for (Table table : db.getTables()) {
             dropTable(table.getName(), true);
         }
@@ -357,5 +361,53 @@ public class TabletHealthTest extends TestWithFeService {
         Assertions.assertEquals(0, Env.getCurrentEnv().getTabletScheduler().getPendingNum());
 
         dropTable(table.getName(), true);
+    }
+
+    @Test
+    public void testAddTabletNoDeadLock() throws Exception {
+        Config.max_scheduling_tablets = 1;
+        createTable("CREATE TABLE tbl3 (k INT) DISTRIBUTED BY HASH(k) BUCKETS 2"
+                + " PROPERTIES ('replication_num' = '3')");
+        DebugPointUtil.addDebugPoint("MockedBackendFactory.handleCloneTablet.failed");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl3");
+        Partition partition = table.getPartitions().iterator().next();
+        List<Tablet> tablets = partition.getMaterializedIndices(IndexExtState.ALL).iterator().next().getTablets();
+        Assertions.assertEquals(2, tablets.size());
+
+        partition.updateVisibleVersion(10L);
+        tablets.forEach(tablet -> tablet.getReplicas().forEach(replica -> replica.updateVersion(10)));
+
+        Tablet tabletA = tablets.get(0);
+        Tablet tabletB = tablets.get(1);
+        TabletScheduler scheduler = Env.getCurrentEnv().getTabletScheduler();
+        tabletA.getReplicas().get(0).adminUpdateVersionInfo(8L, null, null, 0L);
+        checkTabletStatus(tabletA, TabletStatus.VERSION_INCOMPLETE, table, partition);
+        Env.getCurrentEnv().getTabletChecker().runAfterCatalogReady();
+        Env.getCurrentEnv().getTabletScheduler().runAfterCatalogReady();
+        Thread.sleep(1000);
+        MinMaxPriorityQueue<TabletSchedCtx> queue = scheduler.getPendingTabletQueue();
+        TabletSchedCtx tabletACtx = queue.peekFirst();
+        Assertions.assertNotNull(tabletACtx);
+        tabletACtx.setLastVisitedTime(System.currentTimeMillis() + 3600 * 1000L);
+        tabletB.getReplicas().get(0).adminUpdateVersionInfo(8L, null, null, 0L);
+        checkTabletStatus(tabletB, TabletStatus.VERSION_INCOMPLETE, table, partition);
+        Thread thread = new Thread(() -> {
+            try {
+                Env.getCurrentEnv().getTabletChecker().runAfterCatalogReady();
+                Env.getCurrentEnv().getTabletScheduler().runAfterCatalogReady();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+        thread.start();
+        Thread.sleep(1000);
+        Assertions.assertTrue(table.tryWriteLock(2, TimeUnit.SECONDS));
+        table.writeUnlock();
+        DebugPointUtil.clearDebugPoints();
+        doRepair();
+        Thread.sleep(1000);
+        doRepair();
+        checkTabletIsHealth(tabletA, table, partition);
+        checkTabletIsHealth(tabletB, table, partition);
     }
 }

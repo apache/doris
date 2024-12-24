@@ -73,6 +73,7 @@ public class DistributePlanner {
 
     /** plan */
     public FragmentIdMapping<DistributedPlan> plan() {
+        updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
         try {
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(statementContext, idToFragments);

@@ -272,8 +272,10 @@ public:
             auto col_res = ColumnUInt8::create(size);
             auto col_nulls = ColumnUInt8::create(size);
 
-            auto* __restrict res_datas = assert_cast<ColumnUInt8*>(col_res)->get_data().data();
-            auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
+            auto* __restrict res_datas =
+                    assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
+            auto* __restrict res_nulls =
+                    assert_cast<ColumnUInt8*>(col_nulls.get())->get_data().data();
             ColumnPtr temp_null_map = nullptr;
             // maybe both children are nullable / or one of children is nullable
             auto* __restrict lhs_null_map_tmp = create_null_map_column(temp_null_map, lhs_null_map);
