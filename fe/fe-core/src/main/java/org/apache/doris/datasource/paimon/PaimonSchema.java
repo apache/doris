@@ -17,21 +17,30 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.paimon.types.DataField;
 
 import java.util.List;
 
-public class PaimonSchemaCacheValue extends SchemaCacheValue {
+public class PaimonSchema {
+    private final long schemaId;
+    private final List<DataField> fields;
+    private final List<String> partitionKeys;
 
-    private List<Column> partitionColumns;
-
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+    public PaimonSchema(long schemaId, List<DataField> fields, List<String> partitionKeys) {
+        this.schemaId = schemaId;
+        this.fields = fields;
+        this.partitionKeys = partitionKeys;
     }
 
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+    public long getSchemaId() {
+        return schemaId;
+    }
+
+    public List<DataField> getFields() {
+        return fields;
+    }
+
+    public List<String> getPartitionKeys() {
+        return partitionKeys;
     }
 }

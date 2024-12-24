@@ -17,21 +17,21 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+public class PaimonSnapshotCacheValue {
 
-import java.util.List;
+    private final PaimonPartitionInfo partitionInfo;
+    private final PaimonSnapshot snapshot;
 
-public class PaimonSchemaCacheValue extends SchemaCacheValue {
-
-    private List<Column> partitionColumns;
-
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+    public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot) {
+        this.partitionInfo = partitionInfo;
+        this.snapshot = snapshot;
     }
 
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+    public PaimonPartitionInfo getPartitionInfo() {
+        return partitionInfo;
+    }
+
+    public PaimonSnapshot getSnapshot() {
+        return snapshot;
     }
 }
