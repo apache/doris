@@ -1344,13 +1344,10 @@ void FragmentMgr::cancel_worker() {
                             if (q_ctx->enable_pipeline_x_exec()) {
                                 queries_pipeline_task_leak.push_back(q_ctx->query_id());
                                 LOG_INFO(
-                                        "Query {}(fe process {} type {}) is not found on any "
-                                        "frontends, maybe it "
-                                        "is leaked.(arrival {}, last check {})",
-                                        print_id(q_ctx->query_id()), q_ctx->get_fe_process_uuid(),
-                                        toString(q_ctx->get_query_source()),
-                                        q_ctx->get_query_arrival_timestamp().tv_sec,
-                                        check_invalid_query_last_timestamp.tv_sec);
+                                        "Query {}, type {} is not found on any frontends, maybe it "
+                                        "is leaked.",
+                                        print_id(q_ctx->query_id()),
+                                        toString(q_ctx->get_query_source()));
                                 continue;
                             }
                         }
@@ -1413,21 +1410,6 @@ void FragmentMgr::cancel_worker() {
             cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT, "Query timeout");
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
                       << print_id(id);
-        }
-
-        if (!queries_pipeline_task_leak.empty()) {
-            // Print running_queries_on_all_fes in one line
-            std::string ss;
-            for (const auto& fe : running_queries_on_all_fes) {
-                ss += fmt::format("{}", fe.first);
-                ss += ": ";
-                for (const auto& qid : fe.second) {
-                    ss += print_id(qid);
-                    ss += " ";
-                }
-                ss += "\n";
-            }
-            LOG_INFO("Running queries on all fes: {}", ss);
         }
 
         for (const auto& qid : queries_pipeline_task_leak) {
