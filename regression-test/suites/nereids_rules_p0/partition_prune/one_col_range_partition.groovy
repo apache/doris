@@ -16,6 +16,7 @@
 // under the License.
 
 suite("one_col_range_partition") {
+    sql "set ENABLE_FOLD_CONSTANT_BY_BE=false"
     sql "drop table if exists one_col_range_partition_date"
     sql """
     create table one_col_range_partition_date(a int, dt datetime, d date, c varchar(100)) duplicate key(a)
