@@ -70,6 +70,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     def exit_code, stdout, stderr
 
     def auto_compaction_disabled = sql("show create table ${table_name}")[0][1].contains('"disable_auto_compaction" = "true"')
+    def is_time_series_compaction = sql("show create table ${table_name}")[0][1].contains('"compaction_policy" = "time_series"')
 
     // 1. cache compaction status
     def be_tablet_compaction_status = [:]
@@ -127,7 +128,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             // running is true means compaction is still running
             running = compactionStatus.run_status
 
-            if (!isCloudMode()) {
+            if (!isCloudMode() && !is_time_series_compaction) {
                 (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
                 assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
                 def tabletStatus = parseJson(stdout.trim())
@@ -138,7 +139,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                     return false
                 }
-            } else { // cloud mode doesn't show compaction success time in tablet status for the time being, so we solely check run_status
+            } else {
+                // 1. cloud mode doesn't show compaction success time in tablet status for the time being,
+                // 2. time series compaction sometimes doesn't update compaction success time
+                // so we solely check run_status for these two cases
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
                     return false
