@@ -346,7 +346,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
+        List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
+        try {
+            LOG.info("try to commit transaction, transactionId: {}", transactionId);
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
+            if (!mowTableList.isEmpty()) {
+                backendToPartitionInfos = getMowLock(mowTableList,
+                        tabletCommitInfos, transactionId, null);
+            }
+            commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
+                    mowTableList, backendToPartitionInfos);
+        } catch (Exception e) {
+            if (!mowTableList.isEmpty()) {
+                LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId
+                        , e.getMessage());
+                removeDeleteBitmapUpdateLock(mowTableList, transactionId);
+            }
+            throw e;
+        }
     }
 
     /**
@@ -465,16 +482,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void commitTransaction(long dbId, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC)
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
+            List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
             throws UserException {
-
-        LOG.info("try to commit transaction, transactionId: {}", transactionId);
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException(
                     "disable_load_job is set to true, all load jobs are not allowed");
         }
 
-        List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         if (!mowTableList.isEmpty()) {
             // may be this txn has been calculated by previously task but commit rpc is timeout,
             // and be will send another commit request to fe, so need to check txn status first
@@ -485,7 +500,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (null != transactionState && null != transactionState.getTransactionStatus()) {
                 if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                         || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                    LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ", transactionId,
+                    LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ",
+                            transactionId,
                             transactionState.getTransactionStatus().toString());
                     return;
                 } else {
@@ -493,7 +509,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             transactionState.getTransactionStatus().toString());
                 }
             }
-            calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos, null);
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+                    Config.calculate_delete_bitmap_task_timeout_seconds);
         }
 
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder();
@@ -513,7 +530,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 builder.setCommitAttachment(TxnUtil
                         .loadJobFinalOperationToPb(loadJobFinalOperation));
             } else if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
-                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
+                        = (RLTaskTxnCommitAttachment) txnCommitAttachment;
                 TxnStateChangeCallback cb = callbackFactory.getCallback(rlTaskTxnCommitAttachment.getJobId());
                 if (cb != null) {
                     // use a temporary transaction state to do before commit check,
@@ -657,37 +675,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return mowTableList;
     }
 
-    private void calcDeleteBitmapForMow(long dbId, List<OlapTable> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, List<SubTransactionState> subTransactionStates)
-            throws UserException {
-        Map<Long, Map<Long, Set<Long>>> backendToPartitionTablets = Maps.newHashMap();
-        Map<Long, Partition> partitions = Maps.newHashMap();
-        Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
-        Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
-        Map<Long, TabletMeta> tabletToTabletMeta = Maps.newHashMap();
-        getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets,
-                tableToTabletList, tabletToTabletMeta);
-        if (backendToPartitionTablets.isEmpty()) {
-            throw new UserException("The partition info is empty, table may be dropped, txnid=" + transactionId);
-        }
-
-        Map<Long, List<Long>> partitionToSubTxnIds = getPartitionSubTxnIds(subTransactionStates, tableToTabletList,
-                tabletToTabletMeta);
-        Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
-        Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
-        Map<Long, Long> cumulativePoints = Maps.newHashMap();
-        getDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
-                baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints);
-        Map<Long, Long> partitionVersions = getPartitionVersions(partitions);
-
-        Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
-                backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
-                cumulativePoints, partitionToSubTxnIds);
-        sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
-                subTransactionStates == null ? Config.calculate_delete_bitmap_task_timeout_seconds
-                        : Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
-    }
-
     private Map<Long, List<Long>> getPartitionSubTxnIds(List<SubTransactionState> subTransactionStates,
             Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta) {
         if (subTransactionStates == null) {
@@ -816,6 +803,32 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return backendToPartitionInfos;
     }
 
+    private Map<Long, List<TCalcDeleteBitmapPartitionInfo>> getMowLock(List<OlapTable> mowTableList,
+            List<TabletCommitInfo> tabletCommitInfos, long transactionId,
+            List<SubTransactionState> subTransactionStates) throws UserException {
+        Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
+        Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
+        Map<Long, Long> cumulativePoints = Maps.newHashMap();
+        Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
+        Map<Long, Partition> partitions = Maps.newHashMap();
+        Map<Long, Map<Long, Set<Long>>> backendToPartitionTablets = Maps.newHashMap();
+        Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
+        Map<Long, TabletMeta> tabletToTabletMeta = Maps.newHashMap();
+        getPartitionInfo(mowTableList, tabletCommitInfos, tableToPartitions, partitions,
+                backendToPartitionTablets,
+                tableToTabletList, tabletToTabletMeta);
+        getDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
+                baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints);
+        if (backendToPartitionTablets.isEmpty()) {
+            throw new UserException("The partition info is empty, table may be dropped, txnid=" + transactionId);
+        }
+        Map<Long, List<Long>> partitionToSubTxnIds = getPartitionSubTxnIds(subTransactionStates, tableToTabletList,
+                tabletToTabletMeta);
+        Map<Long, Long> partitionVersions = getPartitionVersions(partitions);
+        return getCalcDeleteBitmapInfo(
+                backendToPartitionTablets, partitionVersions, baseCompactionCnts, cumulativeCompactionCnts,
+                cumulativePoints, partitionToSubTxnIds);
+    }
     private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
             Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
                     Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
@@ -852,6 +865,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+
         int totalRetryTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
@@ -946,8 +960,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void removeDeleteBitmapUpdateLock(List<Table> tableList, long transactionId) {
-        for (Table table : tableList) {
+    private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
+        for (OlapTable table : tableList) {
             RemoveDeleteBitmapUpdateLockRequest.Builder builder = RemoveDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(table.getId())
                     .setLockId(transactionId)
@@ -1098,11 +1112,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .collect(Collectors.toList());
         List<Table> tableList = ((Database) db).getTablesOnIdOrderOrThrowException(tableIdList);
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
+        List<TabletCommitInfo> tabletCommitInfos = subTransactionStates.stream().map(
+                        SubTransactionState::getTabletCommitInfos).flatMap(Collection::stream)
+                .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId())).collect(Collectors.toList());
+        List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
-            commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates);
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
+            if (!mowTableList.isEmpty()) {
+                backendToPartitionInfos = getMowLock(mowTableList,
+                        tabletCommitInfos, transactionId, subTransactionStates);
+            }
+            commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
+                    backendToPartitionInfos);
         } catch (Exception e) {
-            LOG.info("release delete bitmap lock,commit txn=" + transactionId + ",catch exception=" + e.getMessage());
-            removeDeleteBitmapUpdateLock(tableList, transactionId);
+            if (!mowTableList.isEmpty()) {
+                LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId
+                        , e.getMessage());
+                removeDeleteBitmapUpdateLock(mowTableList, transactionId);
+            }
             throw e;
         } finally {
             afterCommitTransaction(tableList);
@@ -1111,13 +1138,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void commitTransactionWithSubTxns(long dbId, List<Table> tableList, long transactionId,
-            List<SubTransactionState> subTransactionStates) throws UserException {
-        List<TabletCommitInfo> tabletCommitInfos = subTransactionStates.stream().map(
-                        SubTransactionState::getTabletCommitInfos).flatMap(Collection::stream)
-                .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId())).collect(Collectors.toList());
-        List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
+            List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos) throws UserException {
         if (!mowTableList.isEmpty()) {
-            calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos, subTransactionStates);
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+                    Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
         }
 
         cleanSubTransactions(transactionId);
@@ -1189,10 +1214,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
-        } catch (Exception e) {
-            LOG.info("release delete bitmap lock,commit txn=" + transactionId + ",catch exception=" + e.getMessage());
-            removeDeleteBitmapUpdateLock(tableList, transactionId);
-            throw e;
         } finally {
             afterCommitTransaction(tableList);
         }
