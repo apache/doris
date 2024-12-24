@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <!--    Doris will periodically pull policies from the ranger and cache them locally-->
+    <property>
+        <!--        Cache in local location-->
+        <name>ranger.plugin.doris.policy.cache.dir</name>
+        <value>/path/to/ranger/cache/</value>
+    </property>
+    <property>
+        <!--        The shorter the interval between pulling policies, the faster the permission policies configured on the ranger will take effect on the Doris side, and at the same time, the greater the pressure faced by the ranger server-->
+        <name>ranger.plugin.doris.policy.pollIntervalMs</name>
+        <value>30000</value>
+    </property>
+    <property>
+        <name>ranger.plugin.doris.policy.rest.client.connection.timeoutMs</name>
+        <value>60000</value>
+    </property>
+    <property>
+        <name>ranger.plugin.doris.policy.rest.client.read.timeoutMs</name>
+        <value>60000</value>
+    </property>
+    <property>
+        <!--        The address of the ranger server-->
+        <name>ranger.plugin.doris.policy.rest.url</name>
+        <value>http://127.0.0.1:6080</value>
+    </property>
+    <property>
+        <name>ranger.plugin.doris.policy.source.impl</name>
+        <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+    </property>
+    <property>
+        <!--        The service name created in the ranger-->
+        <name>ranger.plugin.doris.service.name</name>
+        <value>doris</value>
+    </property>
+</configuration>
