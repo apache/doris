@@ -179,7 +179,10 @@ public class ResultReceiver {
                 status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
             } else {
                 status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-                SimpleScheduler.addToBlacklist(backendId, e.getMessage());
+                // Shutdown maybe called by other request, should ignore this case.
+                if (!e.getMessage().contains("shutdown")) {
+                    SimpleScheduler.addToBlacklist(backendId, e.getMessage());
+                }
             }
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
