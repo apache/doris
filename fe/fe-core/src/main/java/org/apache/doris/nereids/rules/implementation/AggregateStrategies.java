@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -1808,14 +1809,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private AggregateFunction tryConvertToMultiDistinct(AggregateFunction function) {
-        if (function instanceof Count && function.isDistinct()) {
-            return ((Count) function).convertToMultiDistinct();
-        } else if (function instanceof Sum && function.isDistinct()) {
-            return ((Sum) function).convertToMultiDistinct();
-        } else if (function instanceof Sum0 && function.isDistinct()) {
-            return ((Sum0) function).convertToMultiDistinct();
-        } else if (function instanceof GroupConcat && function.isDistinct()) {
-            return ((GroupConcat) function).convertToMultiDistinct();
+        if (function instanceof SupportMultiDistinct && function.isDistinct()) {
+            return ((SupportMultiDistinct) function).convertToMultiDistinct();
         }
         return function;
     }

@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-/** MultiDistinctTrait*/
+/** aggregate functions which have corresponding MultiDistinctXXX class,
+ * e.g. SUM,SUM0,COUNT,GROUP_CONCAT
+ * */
 public interface SupportMultiDistinct {
     AggregateFunction convertToMultiDistinct();
 }
