@@ -238,7 +238,7 @@ bool LRUCache::_unref(LRUHandle* e) {
     return e->refs == 0;
 }
 
-void LRUCache::_lru_remove(LRUHandle* e) const {
+void LRUCache::_lru_remove(LRUHandle* e) {
     e->next->prev = e->prev;
     e->prev->next = e->next;
     e->prev = e->next = nullptr;
@@ -260,7 +260,7 @@ void LRUCache::_lru_remove(LRUHandle* e) const {
     }
 }
 
-void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) const {
+void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
     // Make "e" newest entry by inserting just before *list
     e->next = list;
     e->prev = list->prev;
@@ -816,9 +816,11 @@ void ShardedLRUCache::update_cache_metrics() const {
     cache_hit_count->set_value(total_hit_count);
     cache_miss_count->set_value(total_miss_count);
     cache_stampede_count->set_value(total_stampede_count);
-    cache_usage_ratio->set_value(capacity == 0 ? 0 : ((double)total_usage / capacity));
-    cache_hit_ratio->set_value(
-            total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
+    cache_usage_ratio->set_value(
+            capacity == 0 ? 0 : (static_cast<double>(total_usage) / static_cast<double>(capacity)));
+    cache_hit_ratio->set_value(total_lookup_count == 0 ? 0
+                                                       : (static_cast<double>(total_hit_count) /
+                                                          static_cast<double>(total_lookup_count)));
 }
 
 Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
