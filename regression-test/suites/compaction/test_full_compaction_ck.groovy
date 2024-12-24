@@ -17,8 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_full_compaction") {
-    def tableName = "test_full_compaction"
+suite("test_full_compaction_ck") {
+    def tableName = "test_full_compaction_ck"
 
     try {
         String backend_id;
@@ -47,6 +47,7 @@ suite("test_full_compaction") {
             CREATE TABLE ${tableName} (
             `user_id` INT NOT NULL, `value` INT NOT NULL)
             UNIQUE KEY(`user_id`)
+            CLUSTER BY(`value`)
             DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
@@ -140,7 +141,12 @@ suite("test_full_compaction") {
         // make sure all hidden data has been deleted
         // (1,100)(2,200)
         qt_select_final """select * from ${tableName} order by user_id"""
+
+        sql "SET skip_delete_predicate = false"
+        sql "SET skip_delete_sign = false"
+        sql "SET skip_delete_bitmap = false"
+        qt_select_final2 """select * from ${tableName} order by user_id"""
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
+        // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
