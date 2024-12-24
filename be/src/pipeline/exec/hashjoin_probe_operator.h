@@ -92,6 +92,8 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
+    // For mark join, last probe index of null mark
+    int _last_probe_null_mark;
 
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;

@@ -432,27 +432,24 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             // null & false => false
             mark_null_map[i] &= other_filter_data[i];
         }
+    } else if (*_has_null_in_build_side && is_null_aware_join) {
+        memset(mark_null_map, 1, row_count);
     }
 
     auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
     auto* __restrict filter_map = filter_column->get_data().data();
-
-    /**
-     * Here need `!with_other_conjuncts` be true,
-     * because null aware join with other join conjuncts will process the `mark_null_map` after the
-     * other join conjuncts are executed.
-     */
-    const bool should_be_null_if_build_side_has_null =
-            *_has_null_in_build_side && is_null_aware_join && !with_other_conjuncts;
     for (size_t i = 0; i != row_count; ++i) {
         if (_parent->_last_probe_match == _probe_indexs[i]) {
             continue;
         }
         if (_build_indexs[i] == 0) {
+            bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
             filter_map[i] = true;
-            mark_null_map[i] |= should_be_null_if_build_side_has_null;
             mark_filter_data[i] = false;
-        } else if (mark_null_map[i] || mark_filter_data[i]) {
+            mark_null_map[i] |= has_null_mark_value;
+        } else if (mark_null_map[i]) {
+            _parent->_last_probe_null_mark = _probe_indexs[i];
+        } else if (mark_filter_data[i]) {
             filter_map[i] = true;
             _parent->_last_probe_match = _probe_indexs[i];
         }
