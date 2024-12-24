@@ -97,7 +97,7 @@ TEST_F(MetricsTest, CounterPerf) {
         EXPECT_EQ(kLoopCount, sum);
         LOG(INFO) << "int64_t: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
-    // IntAtomicCounter
+    // IntCounter
     {
         IntCounter counter;
         MonotonicStopWatch watch;
@@ -107,7 +107,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         EXPECT_EQ(kLoopCount, counter.value());
-        LOG(INFO) << "IntAtomicCounter: elapsed: " << elapsed
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed
                   << "ns, ns/iter:" << elapsed / kLoopCount;
     }
     // IntCounter
@@ -139,7 +139,7 @@ TEST_F(MetricsTest, CounterPerf) {
                   << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
         EXPECT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
-    // multi-thread for IntAtomicCounter
+    // multi-thread for IntCounter
     {
         IntCounter mt_counter;
         std::vector<std::thread> updaters;
@@ -151,7 +151,7 @@ TEST_F(MetricsTest, CounterPerf) {
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
-        LOG(INFO) << "IntAtomicCounter multi-thread elapsed: " << used_time.load()
+        LOG(INFO) << "IntCounter multi-thread elapsed: " << used_time.load()
                   << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
         EXPECT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
