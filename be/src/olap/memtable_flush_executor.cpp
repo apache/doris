@@ -184,12 +184,13 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
     DEFER_RELEASE_RESERVED();
 
+    auto reserve_size = memtable->get_flush_reserve_memory_size();
+    RETURN_IF_ERROR(_try_reserve_memory(memtable->query_thread_context(), reserve_size));
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 memtable->query_thread_context().query_mem_tracker->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
-        auto reserve_size = memtable->get_flush_reserve_memory_size();
-        RETURN_IF_ERROR(_try_reserve_memory(memtable->query_thread_context(), reserve_size));
+
         Defer defer {[&]() {
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
         }};

@@ -287,14 +287,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             if (!eos && !scanner->is_open()) {
-                if (state->enable_reserve_memory()) {
-                    size_t block_avg_bytes = scanner->get_block_avg_bytes();
-                    auto st = thread_context()->try_reserve_memory(block_avg_bytes);
-                    if (!st.ok()) {
-                        handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
-                        return;
-                    }
-                }
                 status = scanner->open(state);
                 if (!status.ok()) {
                     eos = true;
