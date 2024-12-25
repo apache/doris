@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-test_date_or_datetime_computation_negative
 suite("test_date_or_datetime_computation_negative") {
     sql """ CREATE TABLE IF NOT EXISTS test_date_or_datetime_computation_negative (
                 `row_id` LARGEINT NOT NULL,

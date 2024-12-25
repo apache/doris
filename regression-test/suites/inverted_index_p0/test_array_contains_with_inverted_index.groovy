@@ -67,7 +67,7 @@ suite("test_array_contains_with_inverted_index"){
 
     qt_sql """ select count() from ${indexTblName}"""
     def param_contains = ["\'s\'", "\'\'", null]
-    for (i = 0 ; i < param_contains.size(); ++i) {
+    for (int i = 0 ; i < param_contains.size(); ++i) {
         def p = param_contains[i]
         log.info("param: ${p}")
         order_qt_sql """ select * from tai where array_contains(inventors, ${p}) order by id; """
