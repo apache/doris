@@ -1367,7 +1367,7 @@ public abstract class RoutineLoadJob
 
         if (olapTable.isTemporary()) {
             throw new DdlException("Cannot create routine load for temporary table "
-                + Util.getTempTableOuterName(olapTable.getName()));
+                + Util.getTempTableDisplayName(olapTable.getName()));
         }
         // check partitions
         olapTable.readLock();

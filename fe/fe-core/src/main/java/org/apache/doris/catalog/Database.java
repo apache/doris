@@ -427,12 +427,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                 nameToTable.put(table.getName(), table);
                 if (table.isTemporary()) {
-                    if (isReplay) {
-                        // add to to-deleted list, and delete it after catalog is ready
-                        Env.getCurrentEnv().addPhantomTempTable(table);
-                    } else {
-                        ConnectContext.get().addTempTableToDB(table.getQualifiedDbName(), table.getName());
-                    }
+                    Env.getCurrentEnv().registerTempTableAndSession(table);
                 }
 
                 if (!isReplay) {
@@ -481,6 +476,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             this.nameToTable.remove(tableName);
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
             this.idToTable.remove(table.getId());
+            if (table.isTemporary()) {
+                Env.getCurrentEnv().unregisterTempTable(table);
+            }
             table.markDropped();
         }
     }
@@ -1037,8 +1035,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     try {
                         if (!olapTable.getBinlogConfig().isEnable()) {
                             String errMsg = String
-                                    .format("binlog is not enable in table[%s] in db [%s]", table.getName(),
-                                            getFullName());
+                                    .format("binlog is not enable in table[%s] in db [%s]",
+                                            Util.getTempTableDisplayName(table.getName()), getFullName());
                             throw new DdlException(errMsg);
                         }
                     } finally {

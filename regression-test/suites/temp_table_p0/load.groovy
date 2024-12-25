@@ -170,6 +170,39 @@ suite('load', 'p0,restart_fe,docker') {
     select_result3 = sql "select * from t_test_temp_table3"
     assertEquals(select_result3.size(), 0)
 
+    try {
+        sql """
+            CREATE TEMPORARY TABLE `t_test_temp_table_with_rollup` (
+              `id` INT,
+              `name` varchar(32),
+              `gender` boolean
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`, `name`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            ROLLUP (r1(name, id))
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Do not support temporary table with rollup"), ex.getMessage())
+    }
+
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String snapshotName = "snst_" + UUID.randomUUID().toString().replace("-", "")
+    def syncer = getSyncer()
+    syncer.createS3Repository(repoName)
+    try {
+        sql """
+            BACKUP SNAPSHOT regression_test_temp_table_p0.${snapshotName}
+            to ${repoName}
+        """
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("is a temporary table, do not support backup"), ex.getMessage())
+    }
+
     def show_data = sql "show data"
     def containTempTable = false
     for(int i = 0; i < show_data.size(); i++) {
@@ -221,6 +254,37 @@ suite('load', 'p0,restart_fe,docker') {
     sql "show column stats t_test_temp_table2;"
 
     sql "show data skew from t_test_temp_table2"
+
+    try {
+        sql """
+            CREATE TEMPORARY TABLE `t_test_temp_table_with_binlog` (
+              `id` INT,
+              `name` varchar(32),
+              `gender` boolean
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`, `name`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "binlog.enable" = "true"
+            );
+        """
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Cannot create temporary table with binlog enable"), ex.getMessage())
+    }
+    try {
+        sql """
+            CREATE TEMPORARY TABLE `t_test_temp_table_with_binlog2`
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "binlog.enable" = "true"
+            ) as select * from t_test_table_with_data;
+        """
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Cannot create temporary table with binlog enable"), ex.getMessage())
+    }
 
     def show_result = sql "show create table t_test_temp_table1"
     assertEquals(show_result[0][0], "t_test_temp_table1")

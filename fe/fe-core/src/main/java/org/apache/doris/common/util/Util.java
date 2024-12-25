@@ -691,19 +691,22 @@ public class Util {
         return Math.abs(sha256long(String.join(".", names)));
     }
 
-
     public static String generateTempTableInnerName(String tableName) {
+        if (tableName.indexOf("_#TEMP#_") != -1) {
+            return tableName;
+        }
+
         ConnectContext ctx = ConnectContext.get();
         // when replay edit log, no need to generate temp table name
-        return ctx == null ? tableName : ctx.getConnectionId() + "_#TEMP#_" + tableName;
+        return ctx == null ? tableName : ctx.getSessionId() + "_#TEMP#_" + tableName;
     }
 
-    public static String getTempTableOuterName(String tableName) {
+    public static String getTempTableDisplayName(String tableName) {
         return tableName.indexOf("_#TEMP#_") != -1 ? tableName.split("_#TEMP#_")[1] : tableName;
     }
 
-    public static int getTempTableConnectionId(String tableName) {
-        return tableName.indexOf("_#TEMP#_") != -1 ? new Integer(tableName.split("_#TEMP#_")[0]) : -1;
+    public static long getTempTableSessionId(String tableName) {
+        return tableName.indexOf("_#TEMP#_") != -1 ? new Long(tableName.split("_#TEMP#_")[0]) : -1;
     }
 
     public static boolean isTempTable(String tableName) {
@@ -711,6 +714,6 @@ public class Util {
     }
 
     public static boolean isTempTableInCurrentSession(String tableName) {
-        return getTempTableConnectionId(tableName) == ConnectContext.get().getConnectionId();
+        return ConnectContext.get().getSessionId() == getTempTableSessionId(tableName);
     }
 }
