@@ -134,7 +134,7 @@ public:
     }
 
 private:
-    uint32_t _get_idx(const std::string& key) {
+    uint32_t _get_idx(const std::string& key) const {
         return (uint32_t)std::hash<std::string>()(key) % _num_shards;
     }
 

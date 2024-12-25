@@ -43,7 +43,7 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     std::ostringstream columns_types;
     std::vector<std::string> column_names;
     int index = 0;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         std::string type = JniConnector::get_jni_type(desc->type());
         column_names.emplace_back(field);
@@ -73,7 +73,7 @@ Status MockJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
 Status MockJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();

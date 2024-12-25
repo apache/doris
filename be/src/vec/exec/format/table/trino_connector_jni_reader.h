@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
-#include <memory>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -30,7 +28,6 @@
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
@@ -41,7 +38,7 @@ struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class TrinoConnectorJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(TrinoConnectorJniReader);
 

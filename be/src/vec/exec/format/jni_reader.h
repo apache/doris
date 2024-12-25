@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_map>

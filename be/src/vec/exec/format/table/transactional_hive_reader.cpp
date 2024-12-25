@@ -64,7 +64,7 @@ Status TransactionalHiveReader::init_reader(
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-    OrcReader* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
+    auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
     _col_names.insert(_col_names.end(), column_names.begin(), column_names.end());
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
@@ -75,12 +75,12 @@ Status TransactionalHiveReader::init_reader(
 }
 
 Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    for (int i = 0; i < TransactionalHive::READ_PARAMS.size(); ++i) {
-        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
-                TypeDescriptor(TransactionalHive::READ_PARAMS[i].type), false);
+    for (const auto& i : TransactionalHive::READ_PARAMS) {
+        DataTypePtr data_type =
+                DataTypeFactory::instance().create_data_type(TypeDescriptor(i.type), false);
         MutableColumnPtr data_column = data_type->create_column();
-        block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
-                                            TransactionalHive::READ_PARAMS[i].column_lower_case));
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, i.column_lower_case));
     }
     auto res = _file_format_reader->get_next_block(block, read_rows, eof);
     Block::erase_useless_column(block, block->columns() - TransactionalHive::READ_PARAMS.size());
@@ -105,7 +105,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         }
     }
 
-    OrcReader* orc_reader = (OrcReader*)(_file_format_reader.get());
+    auto* orc_reader = (OrcReader*)(_file_format_reader.get());
     std::vector<std::string> delete_file_col_names;
     int64_t num_delete_rows = 0;
     int64_t num_delete_files = 0;
@@ -127,7 +127,8 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
     };
 
     SCOPED_TIMER(_transactional_orc_profile.delete_files_read_time);
-    for (auto& delete_delta : range.table_format_params.transactional_hive_params.delete_deltas) {
+    for (const auto& delete_delta :
+         range.table_format_params.transactional_hive_params.delete_deltas) {
         const std::string file_name = file_path.filename().string();
 
         //need opt.
@@ -167,13 +168,11 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         bool eof = false;
         while (!eof) {
             Block block;
-            for (int i = 0; i < TransactionalHive::DELETE_ROW_PARAMS.size(); ++i) {
-                DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
-                        TransactionalHive::DELETE_ROW_PARAMS[i].type, false);
+            for (const auto& i : TransactionalHive::DELETE_ROW_PARAMS) {
+                DataTypePtr data_type = DataTypeFactory::instance().create_data_type(i.type, false);
                 MutableColumnPtr data_column = data_type->create_column();
-                block.insert(ColumnWithTypeAndName(
-                        std::move(data_column), data_type,
-                        TransactionalHive::DELETE_ROW_PARAMS[i].column_lower_case));
+                block.insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                   i.column_lower_case));
             }
             eof = false;
             size_t read_rows = 0;
@@ -182,11 +181,11 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
                 static int ORIGINAL_TRANSACTION_INDEX = 0;
                 static int BUCKET_ID_INDEX = 1;
                 static int ROW_ID_INDEX = 2;
-                const ColumnInt64& original_transaction_column = assert_cast<const ColumnInt64&>(
+                const auto& original_transaction_column = assert_cast<const ColumnInt64&>(
                         *block.get_by_position(ORIGINAL_TRANSACTION_INDEX).column);
-                const ColumnInt32& bucket_id_column = assert_cast<const ColumnInt32&>(
+                const auto& bucket_id_column = assert_cast<const ColumnInt32&>(
                         *block.get_by_position(BUCKET_ID_INDEX).column);
-                const ColumnInt64& row_id_column = assert_cast<const ColumnInt64&>(
+                const auto& row_id_column = assert_cast<const ColumnInt64&>(
                         *block.get_by_position(ROW_ID_INDEX).column);
 
                 DCHECK_EQ(original_transaction_column.size(), read_rows);
@@ -195,7 +194,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
 
                 for (int i = 0; i < read_rows; ++i) {
                     Int64 original_transaction = original_transaction_column.get_int(i);
-                    Int32 bucket_id = bucket_id_column.get_int(i);
+                    Int64 bucket_id = bucket_id_column.get_int(i);
                     Int64 row_id = row_id_column.get_int(i);
                     AcidRowID delete_row_id = {original_transaction, bucket_id, row_id};
                     _delete_rows.insert(delete_row_id);

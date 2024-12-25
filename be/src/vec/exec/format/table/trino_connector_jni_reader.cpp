@@ -18,7 +18,6 @@
 #include "trino_connector_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -26,7 +25,6 @@
 #include "vec/core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -36,7 +34,7 @@ class Block;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
@@ -92,7 +90,7 @@ Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, 
 Status TrinoConnectorJniReader::get_columns(
         std::unordered_map<std::string, TypeDescriptor>* name_to_type,
         std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();

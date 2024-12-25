@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "table_format_reader.h"
@@ -62,7 +63,7 @@ public:
                 size_t hash_value = 0;
                 hash_value ^= std::hash<int64_t> {}(transactional_row_id.original_transaction) +
                               0x9e3779b9 + (hash_value << 6) + (hash_value >> 2);
-                hash_value ^= std::hash<int32_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
+                hash_value ^= std::hash<int64_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
                               (hash_value << 6) + (hash_value >> 2);
                 hash_value ^= std::hash<int64_t> {}(transactional_row_id.row_id) + 0x9e3779b9 +
                               (hash_value << 6) + (hash_value >> 2);

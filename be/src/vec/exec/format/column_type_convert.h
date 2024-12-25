@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "gutil/strings/numbers.h"
@@ -378,7 +379,7 @@ private:
 
 public:
     CastStringConverter() = default;
-    CastStringConverter(DataTypePtr dst_type_desc) : _dst_type_desc(dst_type_desc) {}
+    CastStringConverter(DataTypePtr dst_type_desc) : _dst_type_desc(std::move(dst_type_desc)) {}
 
     using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType::value_type;
     using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
