@@ -724,6 +724,19 @@ bool OrcReader::_init_search_argument(
     if (predicates.empty()) {
         return false;
     }
+
+    if (_is_hive1_orc_or_use_idx) {
+        // use hive 1.x version orc file, need to convert column name to internal column name
+        for (OrcPredicate& it : predicates) {
+            it.col_name = _col_name_to_file_col_name[it.col_name];
+        }
+    }
+
+    // check if all column names in predicates are same as orc file
+    DCHECK(std::all_of(predicates.begin(), predicates.end(), [&](const OrcPredicate& predicate) {
+        return type_map.contains(predicate.col_name);
+    }));
+
     std::unique_ptr<orc::SearchArgumentBuilder> builder = orc::SearchArgumentFactory::newBuilder();
     if (build_search_argument(predicates, 0, builder)) {
         std::unique_ptr<orc::SearchArgument> sargs = builder->build();
