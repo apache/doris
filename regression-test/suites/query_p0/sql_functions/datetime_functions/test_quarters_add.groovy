@@ -150,5 +150,70 @@ suite("test_quarters_add") {
     /// special grammar
     qt_datediff1 "select date_sub('2020-12-12', interval 1 quarter)"
     qt_datediff2 "select date_add('2020-12-12', interval 1 quarter)"
-    //TODO: after #45265 merged add some exception test.
+
+    // Exception test cases for boundary conditions on BE
+    sql "set debug_skip_fold_constant=true;"
+    test {
+        sql """select quarters_add('9999-12-31', 1) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add('0000-01-01', -1) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add('2023-01-01', 40000) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add('2023-01-01', -40000) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    // Exception test cases for nullable scenarios
+    test {
+        sql """select quarters_add(nullable('9999-12-31'), 1) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add('9999-12-31', nullable(1)) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add(nullable('0000-01-01'), nullable(-1)) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add(nullable('2023-01-01'), nullable(40000)) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql """select quarters_add(nullable('2023-01-01'), nullable(-40000)) from hits_two_args_quar_add;"""
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
+    }
 }

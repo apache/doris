@@ -159,27 +159,27 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "quarters_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
-    public static DateLiteral quartersAdd(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+    public static DateLiteral quartersAdd(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMonths(3 * (int) year.getLongValue());
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
     }
 
     @FEFunction(name = "quarters_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
-    public static DateLiteral quartersAddDate(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+    public static DateLiteral quartersAddDate(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMonths(3 * (int) year.getLongValue());
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
     }
 
     @FEFunction(name = "quarters_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
-    public static DateLiteral quartersAddDateV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+    public static DateLiteral quartersAddDateV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMonths(3 * (int) year.getLongValue());
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
     }
 
     @FEFunction(name = "quarters_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
-    public static DateLiteral quartersAddDateTimeV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+    public static DateLiteral quartersAddDateTimeV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMonths(3 * (int) year.getLongValue());
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
     }
 
     @FEFunction(name = "months_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -307,23 +307,23 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "quarters_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
-    public static DateLiteral quartersSub(LiteralExpr date, LiteralExpr year) throws AnalysisException {
-        return quartersAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    public static DateLiteral quartersSub(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
     }
 
     @FEFunction(name = "quarters_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
-    public static DateLiteral quartersSubDate(LiteralExpr date, LiteralExpr year) throws AnalysisException {
-        return quartersAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    public static DateLiteral quartersSubDate(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
     }
 
     @FEFunction(name = "quarters_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
-    public static DateLiteral quartersSubDateV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
-        return quartersAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    public static DateLiteral quartersSubDateV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
     }
 
     @FEFunction(name = "quarters_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
-    public static DateLiteral quartersSubDateTimeV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
-        return quartersAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    public static DateLiteral quartersSubDateTimeV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
     }
 
     @FEFunction(name = "months_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")

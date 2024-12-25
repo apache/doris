@@ -1507,11 +1507,8 @@ valueExpression
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
-datetimeUnit:
-	YEAR
-	| MONTH
-	| QUARTER | WEEK | DAY
-    | HOUR | MINUTE | SECOND
+datetimeUnit
+    :YEAR | MONTH | QUARTER | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 primaryExpression
@@ -1704,15 +1701,9 @@ interval
     : INTERVAL value=expression unit=unitIdentifier
     ;
 
-unitIdentifier:
-	YEAR
-	| QUARTER
-	| MONTH
-	| WEEK
-	| DAY
-	| HOUR
-	| MINUTE
-	| SECOND ;
+unitIdentifier
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
+    ;
 
 dataTypeWithNullable
     : dataType ((NOT)? NULL)?
