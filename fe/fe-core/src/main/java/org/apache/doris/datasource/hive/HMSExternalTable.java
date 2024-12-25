@@ -654,7 +654,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     break;
                 }
             default:
-                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get column stats for dlaType {} is not supported.", dlaType);
+                }
         }
         return Optional.empty();
     }
