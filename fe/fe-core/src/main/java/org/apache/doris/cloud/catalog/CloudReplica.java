@@ -389,25 +389,20 @@ public class CloudReplica extends Replica {
         // use alive be to exec sql
         List<Backend> availableBes = new ArrayList<>();
         List<Backend> decommissionAvailBes = new ArrayList<>();
-        for (Backend be : clusterBes) {
-            long lastUpdateMs = be.getLastUpdateMs();
-            long missTimeMs = Math.abs(lastUpdateMs - System.currentTimeMillis());
-            // be core or restart must in heartbeat_interval_second
-            if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
-                    && !be.isSmoothUpgradeSrc()) {
-                if (be.isDecommissioned()) {
-                    decommissionAvailBes.add(be);
-                } else {
-                    availableBes.add(be);
-                }
-            }
-        }
+        CloudSystemInfoService.getBesStatus(clusterBes, decommissionAvailBes, availableBes);
         if (availableBes.isEmpty()) {
             availableBes = decommissionAvailBes;
         }
         if (availableBes.isEmpty()) {
             if (!isBackGround) {
                 LOG.warn("failed to get available be, clusterId: {}", clusterId);
+            }
+            if (Config.enable_multi_default_compute_group) {
+                LOG.info("failed to get available be, origin clusterName-clusterId: {}-{},"
+                        + " so select bes from multi default compute groups", clusterName, clusterId);
+                ConnectContext.chooseCloudComputeGroupHasAliveBes(decommissionAvailBes, availableBes,
+                        clusterName, true);
+
             }
             throw new ComputeGroupException(
                 String.format("All the Backend nodes in the current compute group %s are in an abnormal state",
@@ -454,19 +449,7 @@ public class CloudReplica extends Replica {
         // use alive be to exec sql
         List<Backend> availableBes = new ArrayList<>();
         List<Backend> decommissionAvailBes = new ArrayList<>();
-        for (Backend be : clusterBes) {
-            long lastUpdateMs = be.getLastUpdateMs();
-            long missTimeMs = Math.abs(lastUpdateMs - System.currentTimeMillis());
-            // be core or restart must in heartbeat_interval_second
-            if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
-                    && !be.isSmoothUpgradeSrc()) {
-                if (be.isDecommissioned()) {
-                    decommissionAvailBes.add(be);
-                } else {
-                    availableBes.add(be);
-                }
-            }
-        }
+        CloudSystemInfoService.getBesStatus(clusterBes, decommissionAvailBes, availableBes);
         if (availableBes.isEmpty()) {
             availableBes = decommissionAvailBes;
         }
