@@ -19,6 +19,8 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <utility>
+
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
 
@@ -29,7 +31,7 @@ struct IOContext;
 } // namespace io
 
 NewPlainBinaryLineReader::NewPlainBinaryLineReader(io::FileReaderSPtr file_reader)
-        : _file_reader(file_reader) {}
+        : _file_reader(std::move(file_reader)) {}
 
 NewPlainBinaryLineReader::~NewPlainBinaryLineReader() {
     close();

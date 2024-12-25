@@ -19,16 +19,14 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
-#include <string.h>
-
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
-#include <memory>
 #include <ostream>
+#include <utility>
 
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
@@ -193,11 +191,11 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
                                                TextLineReaderCtxPtr line_reader_ctx, size_t length,
                                                size_t current_offset)
         : _profile(profile),
-          _file_reader(file_reader),
+          _file_reader(std::move(file_reader)),
           _decompressor(decompressor),
           _min_length(length),
           _total_read_bytes(0),
-          _line_reader_ctx(line_reader_ctx),
+          _line_reader_ctx(std::move(line_reader_ctx)),
           _input_buf(new uint8_t[INPUT_CHUNK]),
           _input_buf_size(INPUT_CHUNK),
           _input_buf_pos(0),
@@ -273,7 +271,7 @@ void NewPlainTextLineReader::extend_input_buf() {
             _input_buf_size = _input_buf_size * 2;
         }
 
-        uint8_t* new_input_buf = new uint8_t[_input_buf_size];
+        auto* new_input_buf = new uint8_t[_input_buf_size];
         memmove(new_input_buf, _input_buf + _input_buf_pos, input_buf_read_remaining());
         delete[] _input_buf;
 
@@ -310,7 +308,7 @@ void NewPlainTextLineReader::extend_output_buf() {
             _output_buf_size = _output_buf_size * 2;
         }
 
-        uint8_t* new_output_buf = new uint8_t[_output_buf_size];
+        auto* new_output_buf = new uint8_t[_output_buf_size];
         memmove(new_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
         delete[] _output_buf;
 

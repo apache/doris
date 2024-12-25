@@ -201,15 +201,14 @@ class EncloseCsvLineReaderContext final
 
 public:
     explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
-                                         const size_t line_delimiter_len_,
-                                         const std::string& column_sep_,
+                                         const size_t line_delimiter_len_, std::string column_sep_,
                                          const size_t column_sep_len_, size_t col_sep_num,
                                          const char enclose, const char escape, const bool keep_cr_)
             : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
               _enclose(enclose),
               _escape(escape),
               _column_sep_len(column_sep_len_),
-              _column_sep(column_sep_) {
+              _column_sep(std::move(column_sep_)) {
         if (column_sep_len_ == 1) {
             find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<true>;
         } else {
@@ -226,7 +225,7 @@ public:
         _state.reset();
     }
 
-    [[nodiscard]] inline const std::vector<size_t> column_sep_positions() const {
+    [[nodiscard]] inline std::vector<size_t> column_sep_positions() const {
         return _column_sep_positions;
     }
 
