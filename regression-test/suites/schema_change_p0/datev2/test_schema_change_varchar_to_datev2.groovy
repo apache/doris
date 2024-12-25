@@ -100,7 +100,7 @@ suite("test_schema_change_varchar_to_datev2") {
 
     sql """sync"""
     qt_sql_2 """select * from ${tbName} ORDER BY `k1`;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql_3 """select * from ${tbName} ORDER BY `k1`;"""
     sql """delete from ${tbName} where `k3` = '2020-01-02';"""

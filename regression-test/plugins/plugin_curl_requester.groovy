@@ -27,6 +27,7 @@ import org.apache.http.conn.ConnectTimeoutException
 import org.apache.http.conn.HttpHostConnectException
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+
 Suite.metaClass.http_client = { String method, String url /* param */ ->
     Suite suite = delegate as Suite
     if (method != "GET" && method != "POST") {
@@ -35,7 +36,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
     if (!url || !(url =~ /^https?:\/\/.+/)) {
         throw new Exception("Invalid url: ${url}")
     }
-    
+
     Integer timeout = 300 // seconds
     Integer maxRetries = 10
     Integer retryCount = 0
@@ -119,7 +120,7 @@ Suite.metaClass.curl = { String method, String url, String body = null /* param 
     if (url.isBlank()) {
         throw new Exception("invalid curl url, blank")
     }
-    
+
     Integer timeout = 10; // 10 seconds;
     Integer maxRetries = 10; // Maximum number of retries
     Integer retryCount = 0; // Current retry count
@@ -161,9 +162,7 @@ Suite.metaClass.curl = { String method, String url, String body = null /* param 
 
     return [code, out, err]
 }
-
 logger.info("Added 'curl' function to Suite")
-
 
 Suite.metaClass.show_be_config = { String ip, String port /*param */ ->
     return curl("GET", String.format("http://%s:%s/api/show_config", ip, port))
@@ -230,7 +229,6 @@ Suite.metaClass.update_all_be_config = { String key, Object value ->
 }
 
 logger.info("Added 'update_all_be_config' function to Suite")
-
 
 Suite.metaClass._be_report = { String ip, int port, String reportName ->
     def url = "http://${ip}:${port}/api/report/${reportName}"

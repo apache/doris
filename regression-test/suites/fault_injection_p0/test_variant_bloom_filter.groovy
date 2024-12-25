@@ -28,8 +28,8 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             set 'memtable_on_sink_node', 'true'
             file file_name // import json file
@@ -72,7 +72,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def tablets = sql_return_maparray """ show tablets from ${index_table}; """
 
-    
+
     for (def tablet in tablets) {
         int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
@@ -88,29 +88,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        Awaitility.await().atMost(3, TimeUnit.MINUTES).untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("compaction task for this tablet is not running", compactionStatus.msg.toLowerCase())
-            return compactionStatus.run_status;
-        });
-    }
+    trigger_and_wait_compaction(index_table, "full")
 
     for (def tablet in tablets) {
         int afterSegmentCount = 0
@@ -126,7 +104,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         }
          assertEquals(afterSegmentCount, 1)
     }
-   
+
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")

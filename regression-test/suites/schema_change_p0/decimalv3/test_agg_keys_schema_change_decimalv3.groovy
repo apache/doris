@@ -97,7 +97,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     }
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
     sql """ alter table ${tbName} drop column `decimalv3v3` """

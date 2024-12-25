@@ -73,7 +73,7 @@ suite ("test_uniq_vals_schema_change") {
 
         // add column
         sql """
-            ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+            ALTER table ${tableName} ADD COLUMN new_column INT default "1"
             """
 
         sql """ SELECT * FROM ${tableName} WHERE user_id=2 """

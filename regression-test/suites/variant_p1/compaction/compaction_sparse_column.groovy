@@ -55,7 +55,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
                 k bigint,
                 v variant
             )
-            DUPLICATE KEY(`k`) 
+            DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES (
                  "replication_num" = "1",
@@ -66,26 +66,26 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
         sql """insert into ${tableName} select 0, '{"a": 11245, "b" : 42000}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "aaaaa"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
-        
+
         sql """insert into ${tableName} select 1, '{"a": 11245, "b" : 42001}'  as json_str
             union  all select 1, '{"a": 1123}' as json_str union all select 1, '{"a" : 1234, "xxxx" : "bbbbb"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
-        
+
         sql """insert into ${tableName} select 2, '{"a": 11245, "b" : 42002}'  as json_str
             union  all select 2, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "ccccc"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
-        
+
         sql """insert into ${tableName} select 3, '{"a" : 1234, "point" : 1, "xxxx" : "ddddd"}'  as json_str
             union  all select 3, '{"a": 1123}' as json_str union all select 3, '{"a": 11245, "b" : 42003}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
 
         sql """insert into ${tableName} select 4, '{"a" : 1234, "xxxx" : "eeeee", "point" : 5}'  as json_str
             union  all select 4, '{"a": 1123}' as json_str union all select 4, '{"a": 11245, "b" : 42004}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        
-    
+
+
         sql """insert into ${tableName} select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
             union  all select 5, '{"a": 1123}' as json_str union all select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        
+
         qt_select_b_bfcompact """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
         qt_select_xxxx_bfcompact """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName};"""
         qt_select_point_bfcompact """ SELECT count(cast(v['point'] as bigint)) FROM ${tableName};"""

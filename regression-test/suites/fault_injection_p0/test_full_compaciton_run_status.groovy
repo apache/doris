@@ -19,7 +19,7 @@ suite("test_full_compaction_run_status","nonConcurrent") {
 
 
     def tableName = "full_compaction_run_status_test"
- 
+
     // test successful group commit async load
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -36,8 +36,8 @@ suite("test_full_compaction_run_status","nonConcurrent") {
             `k` int ,
             `v` int ,
         ) engine=olap
-        DISTRIBUTED BY HASH(`k`) 
-        BUCKETS 2 
+        DISTRIBUTED BY HASH(`k`)
+        BUCKETS 2
         properties(
             "replication_num" = "1",
             "disable_auto_compaction" = "true")

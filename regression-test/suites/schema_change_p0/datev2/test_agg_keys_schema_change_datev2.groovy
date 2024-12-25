@@ -31,7 +31,7 @@ suite("test_agg_keys_schema_change_datev2") {
 
     backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    
+
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def configList = parseJson(out.trim())
@@ -108,7 +108,7 @@ suite("test_agg_keys_schema_change_datev2") {
     }
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01';"""
@@ -159,7 +159,7 @@ suite("test_agg_keys_schema_change_datev2") {
     }
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01 11:11:11';"""
@@ -210,7 +210,7 @@ suite("test_agg_keys_schema_change_datev2") {
     }
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """delete from ${tbName} where `datev3` = '2022-01-01 11:11:11';"""
