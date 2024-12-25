@@ -744,7 +744,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                     const tparquet::ColumnChunk& chunk =
                             row_group.columns[field->physical_column_index];
                     auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                    int64_t chunk_start = has_dict_page(chunk_meta)
                                                   ? chunk_meta.dictionary_page_offset
                                                   : chunk_meta.data_page_offset;
                     int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
@@ -1007,11 +1007,7 @@ Status ParquetReader::_process_bloom_filter(bool* filter_group) {
 }
 
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
-    if (column.__isset.dictionary_page_offset) {
-        DCHECK_LT(column.dictionary_page_offset, column.data_page_offset);
-        return column.dictionary_page_offset;
-    }
-    return column.data_page_offset;
+    return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
 
 void ParquetReader::_collect_profile() {
