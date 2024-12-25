@@ -549,4 +549,49 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_TRUE(trash_st.ok()) << trash_st;
 }
 
+TEST_F(TabletMgrTest, LoadTabletFromMeta) {
+    TTabletId tablet_id = 111;
+    TSchemaHash schema_hash = 3333;
+    TColumnType col_type;
+    col_type.__set_type(TPrimitiveType::SMALLINT);
+    TColumn col1;
+    col1.__set_column_name("col1");
+    col1.__set_column_type(col_type);
+    col1.__set_is_key(true);
+    std::vector<TColumn> cols;
+    cols.push_back(col1);
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(3333);
+    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns(cols);
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_version(2);
+    std::vector<DataDir*> data_dirs;
+    data_dirs.push_back(_data_dir);
+    RuntimeProfile profile("CreateTablet");
+    Status create_st =
+            k_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs, &profile);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
+
+    std::string serialized_tablet_meta;
+    tablet->tablet_meta()->serialize(&serialized_tablet_meta);
+    bool update_meta = true;
+    bool force = true;
+    bool restore = false;
+    bool check_path = true;
+    Status st = _tablet_mgr->load_tablet_from_meta(_data_dir, tablet_id, schema_hash,
+                                                   serialized_tablet_meta, update_meta, force,
+                                                   restore, check_path);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    // After reload, the original tablet should not be allowed to save meta.
+    ASSERT_FALSE(tablet->do_tablet_meta_checkpoint());
+}
+
 } // namespace doris
