@@ -27,9 +27,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 
-namespace doris {
-
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
@@ -67,7 +65,7 @@ Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int
 
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
-                                                               int* num_deserialized,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -144,7 +142,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
         }
     }
 
-    int elem_deserialized = 0;
+    uint64_t elem_deserialized = 0;
     Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
                                                                   &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
@@ -177,7 +175,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
         }
     }
 
-    int elem_deserialized = 0;
+    uint64_t elem_deserialized = 0;
     Status status = nested_serde->deserialize_column_from_hive_text_vector(
             nested_column, slices, &elem_deserialized, options,
             hive_text_complex_type_delimiter_level + 1);
@@ -186,7 +184,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
 }
 
 Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
@@ -433,5 +431,4 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

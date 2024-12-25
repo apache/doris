@@ -49,7 +49,7 @@ public:
                                           const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_hive_text(
@@ -57,7 +57,7 @@ public:
             int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status deserialize_column_from_hive_text_vector(
-            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
             const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 

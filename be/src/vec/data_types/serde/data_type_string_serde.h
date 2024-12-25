@@ -198,7 +198,7 @@ public:
     }
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
         DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
         return Status::OK();
@@ -216,8 +216,8 @@ public:
         return Status::OK();
     }
 
-    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                              int* num_deserialized,
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
+                                              uint64_t* num_deserialized,
                                               const FormatOptions& options) const override {
         if (rows < 1) [[unlikely]] {
             return Status::OK();
@@ -232,7 +232,7 @@ public:
         return Status::OK();
     }
 
-    void insert_column_last_value_multiple_times(IColumn& column, int times) const override {
+    void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override {
         if (times < 1) [[unlikely]] {
             return;
         }

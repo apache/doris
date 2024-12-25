@@ -254,11 +254,11 @@ public:
                                                   const FormatOptions& options) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                                       int* num_deserialized,
+                                                       uint64_t* num_deserialized,
                                                        const FormatOptions& options) const = 0;
     // deserialize fixed values.Repeatedly insert the value row times into the column.
-    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                                      int* num_deserialized,
+    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
+                                                      uint64_t* num_deserialized,
                                                       const FormatOptions& options) const {
         //In this function implementation, we need to consider the case where rows is 0, 1, and other larger integers.
         if (rows < 1) [[unlikely]] {
@@ -276,7 +276,7 @@ public:
         return Status::OK();
     }
     // Insert the last value to the end of this column multiple times.
-    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+    virtual void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const {
         if (times < 1) [[unlikely]] {
             return;
         }
@@ -293,7 +293,7 @@ public:
         return deserialize_one_cell_from_json(column, slice, options);
     };
     virtual Status deserialize_column_from_hive_text_vector(
-            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
             const FormatOptions& options, int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };

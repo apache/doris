@@ -51,7 +51,7 @@ public:
                                     column.get_name());
     }
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_column_from_text_vector with type " +
                                     column.get_name());

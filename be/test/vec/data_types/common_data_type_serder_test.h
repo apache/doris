@@ -52,9 +52,9 @@
 //  serialize_one_cell_to_json (const IColumn &column, int row_num, BufferWritable &bw, FormatOptions &options) const =0
 //  serialize_column_to_json (const IColumn &column, int start_idx, int end_idx, BufferWritable &bw, FormatOptions &options) const =0
 //  deserialize_one_cell_from_json (IColumn &column, Slice &slice, const FormatOptions &options) const =0
-//  deserialize_column_from_json_vector (IColumn &column, std::vector< Slice > &slices, int *num_deserialized, const FormatOptions &options) const =0
-//  deserialize_column_from_fixed_json (IColumn &column, Slice &slice, int rows, int *num_deserialized, const FormatOptions &options) const
-//  insert_column_last_value_multiple_times (IColumn &column, int times) const
+//  deserialize_column_from_json_vector (IColumn &column, std::vector< Slice > &slices, uint64_t *num_deserialized, const FormatOptions &options) const =0
+//  deserialize_column_from_fixed_json (IColumn &column, Slice &slice, uint64_t rows, uint64_t *num_deserialized, const FormatOptions &options) const
+//  insert_column_last_value_multiple_times (IColumn &column, uint64_t times) const
 // 3. fe|be protobuffer ser-deserialize
 //  write_column_to_pb (const IColumn &column, PValues &result, int start, int end) const =0
 //  read_column_from_pb (IColumn &column, const PValues &arg) const =0
