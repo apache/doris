@@ -831,7 +831,7 @@ public class OneRangePartitionEvaluator<K>
         if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
             return result;
         }
-	if (!func.isPositive()) {
+    	if (!func.isPositive()) {
             Expression temp = lowerValue;
             lowerValue = upperValue;
             upperValue = temp;

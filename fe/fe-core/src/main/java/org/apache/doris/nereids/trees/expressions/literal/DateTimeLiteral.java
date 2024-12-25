@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
