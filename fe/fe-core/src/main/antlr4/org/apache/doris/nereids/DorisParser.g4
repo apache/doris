@@ -63,6 +63,7 @@ statementBase
     | supportedRecoverStatement         #supportedRecoverStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
+    | supportedOtherStatement           #supportedOtherStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -219,6 +220,7 @@ supportedDropStatement
     | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
+    | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
     | DROP FILE name=STRING_LITERAL
@@ -266,6 +268,7 @@ supportedShowStatement
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView  
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
+    | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWarningErrorCount
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
@@ -290,9 +293,12 @@ supportedLoadStatement
     | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
-unsupportedOtherStatement
+supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
-    | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
+    ;
+
+unsupportedOtherStatement 
+    : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | UNLOCK TABLES                                                                 #unlockTables
@@ -335,7 +341,6 @@ unsupportedShowStatement
     | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
-    | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWaringErrorCount
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
@@ -699,7 +704,6 @@ unsupportedDropStatement
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
-    | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
