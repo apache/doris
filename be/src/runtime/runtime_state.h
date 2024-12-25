@@ -504,13 +504,6 @@ public:
                        : 0;
     }
 
-    int64_t external_sort_bytes_threshold() const {
-        if (_query_options.__isset.external_sort_bytes_threshold) {
-            return _query_options.external_sort_bytes_threshold;
-        }
-        return 0;
-    }
-
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
     inline bool enable_delete_sub_pred_v2() const {
@@ -558,10 +551,6 @@ public:
                                             std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
-    bool enable_reserve_memory() const {
-        return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory;
-    }
-
     bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
                (_query_options.__isset.enable_spill && _query_options.enable_spill);
@@ -571,9 +560,8 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
-    bool enable_local_merge_sort() const {
-        return _query_options.__isset.enable_local_merge_sort &&
-               _query_options.enable_local_merge_sort;
+    bool enable_reserve_memory() const {
+        return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory;
     }
 
     int64_t min_revocable_mem() const {
@@ -583,11 +571,44 @@ public:
         return 1;
     }
 
-    int revocable_memory_high_watermark_percent() const {
+    int64_t spill_sort_mem_limit() const {
+        if (_query_options.__isset.spill_sort_mem_limit) {
+            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
+        }
+        return 134217728;
+    }
+
+    int64_t spill_sort_batch_bytes() const {
+        if (_query_options.__isset.spill_sort_batch_bytes) {
+            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
+        }
+        return 8388608;
+    }
+
+    int spill_aggregation_partition_count() const {
+        if (_query_options.__isset.spill_aggregation_partition_count) {
+            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int spill_hash_join_partition_count() const {
+        if (_query_options.__isset.spill_hash_join_partition_count) {
+            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int spill_revocable_memory_high_watermark_percent() const {
         if (_query_options.__isset.revocable_memory_high_watermark_percent) {
             return _query_options.revocable_memory_high_watermark_percent;
         }
         return -1;
+    }
+
+    bool enable_local_merge_sort() const {
+        return _query_options.__isset.enable_local_merge_sort &&
+               _query_options.enable_local_merge_sort;
     }
 
     size_t minimum_operator_memory_required_bytes() const {

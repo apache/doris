@@ -196,9 +196,10 @@ struct TQueryOptions {
 
   58: optional i32 repeat_max_num = 0 // Deprecated
 
+  // deprecated, use spill_sort_mem_limit
   59: optional i64 external_sort_bytes_threshold = 0
 
-  // deprecated
+  // Not used any more
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
   61: optional bool enable_file_cache = false
@@ -214,9 +215,10 @@ struct TQueryOptions {
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
   67: optional bool mysql_row_binary_format = false;
+  // Not used anymore
   68: optional i64 external_agg_bytes_threshold = 0
 
-  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
+  // Not used anymore, use spill_aggregation_partition_count
   69: optional i32 external_agg_partition_bits = 4
 
   // Specify base path for file cache
@@ -369,6 +371,10 @@ struct TQueryOptions {
   145: optional bool enable_spill = false
   146: optional bool enable_reserve_memory = true
   147: optional i32 revocable_memory_high_watermark_percent = -1
+  148: optional i64 spill_sort_mem_limit = 134217728
+  149: optional i64 spill_sort_batch_bytes = 8388608
+  150: optional i32 spill_aggregation_partition_count = 32
+  151: optional i32 spill_hash_join_partition_count = 32
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

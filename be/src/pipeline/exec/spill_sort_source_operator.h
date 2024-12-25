@@ -47,7 +47,7 @@ public:
     Status initiate_merge_sort_spill_streams(RuntimeState* state);
 
 protected:
-    int _calc_spill_blocks_to_merge() const;
+    int _calc_spill_blocks_to_merge(RuntimeState* state) const;
     Status _create_intermediate_merger(int num_blocks,
                                        const vectorized::SortDescription& sort_description);
     friend class SpillSortSourceOperatorX;
@@ -55,7 +55,6 @@ protected:
 
     bool _opened = false;
 
-    int64_t _external_sort_bytes_threshold = 134217728; // 128M
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
 

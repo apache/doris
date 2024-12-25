@@ -534,6 +534,19 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
     return Status::OK();
 }
 
+// After building hash table it will not be able to spill later
+// even if memory is low, and will cause cancel of queries.
+// So make a check here, if build blocks mem usage is too high,
+// then trigger revoke memory.
+static bool is_revocable_mem_high_watermark(RuntimeState* state, size_t revocable_size,
+                                            int64_t query_mem_limit) {
+    auto revocable_memory_high_watermark_percent =
+            state->spill_revocable_memory_high_watermark_percent();
+    return revocable_memory_high_watermark_percent > 0 &&
+           revocable_size >=
+                   (double)query_mem_limit / 100.0 * revocable_memory_high_watermark_percent;
+}
+
 Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                               bool eos) {
     auto& local_state = get_local_state(state);
@@ -575,16 +588,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                             "sink_eos failed");
                 });
 
-                // TODO: consider parallel?
-                // After building hash table it will not be able to spill later
-                // even if memory is low, and will cause cancel of queries.
-                // So make a check here, if build blocks mem usage is too high,
-                // then trigger revoke memory.
-                auto revocable_memory_high_watermark_percent =
-                        state->revocable_memory_high_watermark_percent();
-                if (revocable_memory_high_watermark_percent > 0 &&
-                    revocable_size >= (double)query_mem_limit / 100.0 *
-                                              revocable_memory_high_watermark_percent) {
+                if (is_revocable_mem_high_watermark(state, revocable_size, query_mem_limit)) {
                     LOG(INFO) << fmt::format(
                             "Query: {}, task {}, hash join sink {} eos, revoke_memory "
                             "because revocable memory is high",
@@ -636,11 +640,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         });
 
         if (eos) {
-            auto revocable_memory_high_watermark_percent =
-                    state->revocable_memory_high_watermark_percent();
-            if (revocable_memory_high_watermark_percent > 0 &&
-                revocable_size >=
-                        (double)query_mem_limit / 100.0 * revocable_memory_high_watermark_percent) {
+            if (is_revocable_mem_high_watermark(state, revocable_size, query_mem_limit)) {
                 LOG(INFO) << fmt::format(
                         "Query: {}, task {}, hash join sink {} eos, revoke_memory "
                         "because revocable memory is high",
