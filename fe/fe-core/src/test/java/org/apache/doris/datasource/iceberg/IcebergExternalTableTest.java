@@ -54,7 +54,8 @@ public class IcebergExternalTableTest {
                                               @Mocked PartitionSpec spec,
                                               @Mocked PartitionField field,
                                               @Mocked Schema schema) {
-        IcebergExternalTable table = new IcebergExternalTable(1, "1", "2", null);
+        IcebergExternalDatabase database = new IcebergExternalDatabase(null, 1L, "2", "2");
+        IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", null, database);
         Map<Integer, PartitionSpec> specs = Maps.newHashMap();
         new MockUp<IcebergExternalTable>() {
             @Mock
@@ -147,7 +148,8 @@ public class IcebergExternalTableTest {
 
     @Test
     public void testGetPartitionRange() throws AnalysisException {
-        IcebergExternalTable table = new IcebergExternalTable(1, "1", "2", null);
+        IcebergExternalDatabase database = new IcebergExternalDatabase(null, 1L, "2", "2");
+        IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", null, database);
         Column c = new Column("ts", PrimitiveType.DATETIMEV2);
         List<Column> partitionColumns = Lists.newArrayList(c);
         table.setPartitionColumns(partitionColumns);
@@ -196,7 +198,8 @@ public class IcebergExternalTableTest {
 
     @Test
     public void testSortRange() throws AnalysisException {
-        IcebergExternalTable table = new IcebergExternalTable(1, "1", "2", null);
+        IcebergExternalDatabase database = new IcebergExternalDatabase(null, 1L, "2", "2");
+        IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", null, database);
         Column c = new Column("c", PrimitiveType.DATETIMEV2);
         ArrayList<Column> columns = Lists.newArrayList(c);
         table.setPartitionColumns(Lists.newArrayList(c));
