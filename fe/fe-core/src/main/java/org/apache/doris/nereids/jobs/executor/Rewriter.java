@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
+import org.apache.doris.nereids.rules.rewrite.AdjustTopNProject;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -477,6 +478,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                         topDown(new MergeProjects())
                 ),
+                topic("Adjust topN project",
+                        topDown(new MergeProjects(),
+                                new AdjustTopNProject())),
                 // this rule batch must keep at the end of rewrite to do some plan check
                 topic("Final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
