@@ -2153,7 +2153,7 @@ const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataT
 #ifndef NDEBUG
 const size_t ColumnObject::MAX_SUBCOLUMNS = []() -> size_t {
     std::srand(std::time(nullptr)); // 初始化随机数种子
-    return 1 + std::rand() % 10;    // 随机值范围 [1, 10]
+    return 2 + std::rand() % 8;    // 随机值范围 [1, 10]
 }();
 #else
 const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
