@@ -3455,6 +3455,20 @@ partition_key_item_list ::=
     {:
         RESULT = Lists.newArrayList(new PartitionValue("", true));
     :}
+    | partition_key_item_list:l COMMA KW_NULL
+    {:
+        l.add(new PartitionValue("", true));
+        RESULT = l;
+    :}
+    | KW_MAX_VALUE
+    {:
+        RESULT = Lists.newArrayList(PartitionValue.MAX_VALUE);
+    :}
+    | partition_key_item_list:l COMMA KW_MAX_VALUE
+    {:
+        l.add(PartitionValue.MAX_VALUE);
+        RESULT = l;
+    :}
     ;
 
 partition_key_list ::=
