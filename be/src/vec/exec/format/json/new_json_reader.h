@@ -41,17 +41,12 @@
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
 
-namespace simdjson {
-#include "common/compile_check_begin.h"
-namespace fallback {
-namespace ondemand {
+namespace simdjson::fallback::ondemand {
 class object;
-} // namespace ondemand
-} // namespace fallback
-} // namespace simdjson
+} // namespace simdjson::fallback::ondemand
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;

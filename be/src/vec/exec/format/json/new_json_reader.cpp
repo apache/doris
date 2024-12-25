@@ -62,12 +62,12 @@
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -1041,7 +1041,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         }
         const auto& array_value = value->GetArray();
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+        auto* array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
 
         for (const auto& sub_value : array_value) {
             RETURN_IF_ERROR(_write_data_to_column(&sub_value, type_desc.children[0],
@@ -1750,7 +1750,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         simdjson::ondemand::object object_value = value.get_object();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
+        auto* map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
 
         size_t field_count = 0;
         for (simdjson::ondemand::field member_value : object_value) {
@@ -1797,7 +1797,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         simdjson::ondemand::array array_value = value.get_array();
 
         auto sub_serdes = data_serde->get_nested_serdes();
-        auto *array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+        auto* array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
 
         int field_count = 0;
         for (simdjson::ondemand::value sub_value : array_value) {
