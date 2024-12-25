@@ -46,7 +46,7 @@ TEST_F(MetricsTest, Counter) {
         EXPECT_STREQ("100", counter.to_string().c_str());
     }
     {
-        IntAtomicCounter counter;
+        IntCounter counter;
         EXPECT_EQ(0, counter.value());
         counter.increment(100);
         EXPECT_EQ(100, counter.value());
@@ -97,9 +97,9 @@ TEST_F(MetricsTest, CounterPerf) {
         EXPECT_EQ(kLoopCount, sum);
         LOG(INFO) << "int64_t: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
-    // IntAtomicCounter
+    // IntCounter
     {
-        IntAtomicCounter counter;
+        IntCounter counter;
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {
@@ -107,8 +107,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         EXPECT_EQ(kLoopCount, counter.value());
-        LOG(INFO) << "IntAtomicCounter: elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / kLoopCount;
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
     // IntCounter
     {
@@ -139,19 +138,19 @@ TEST_F(MetricsTest, CounterPerf) {
                   << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
         EXPECT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
-    // multi-thread for IntAtomicCounter
+    // multi-thread for IntCounter
     {
-        IntAtomicCounter mt_counter;
+        IntCounter mt_counter;
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntAtomicCounter>, kThreadLoopCount, &mt_counter,
+            updaters.emplace_back(&mt_updater<IntCounter>, kThreadLoopCount, &mt_counter,
                                   &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
-        LOG(INFO) << "IntAtomicCounter multi-thread elapsed: " << used_time.load()
+        LOG(INFO) << "IntCounter multi-thread elapsed: " << used_time.load()
                   << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
         EXPECT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <memory>
 #include <ostream>
 #include <string>
 
@@ -82,6 +83,25 @@ struct FunctionExplodeMap {
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
+template <bool AlwaysNullable = false>
+struct FunctionPoseExplode {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        DataTypes fieldTypes(2);
+        fieldTypes[0] = make_nullable(std::make_shared<DataTypeInt32>());
+        fieldTypes[1] =
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type();
+        auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);
+        if constexpr (AlwaysNullable) {
+            return make_nullable(struct_type);
+        } else {
+            return arguments[0]->is_nullable() ? make_nullable(struct_type) : struct_type;
+        }
+    }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
 // explode json-object: expands json-object to struct with a pair of key and value in column string
 struct FunctionExplodeJsonObject {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -137,6 +157,12 @@ void register_table_function_expand_outer_default(SimpleFunctionFactory& factory
                                                                  COMBINATOR_SUFFIX_OUTER);
 };
 
+template <typename FunctionImpl>
+void register_table_function_with_impl(SimpleFunctionFactory& factory, const std::string& name,
+                                       const std::string& suffix = "") {
+    factory.register_function<FunctionFake<FunctionImpl>>(name + suffix);
+};
+
 void register_function_fake(SimpleFunctionFactory& factory) {
     register_function<FunctionEsquery>(factory, "esquery");
 
@@ -157,6 +183,9 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeFloat64, false>(
             factory, "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64, false>(factory, "explode_bitmap");
+    register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
+    register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
+                                                                 COMBINATOR_SUFFIX_OUTER);
 }
 
 } // namespace doris::vectorized

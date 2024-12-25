@@ -436,8 +436,8 @@ private:
     IntGauge* cache_usage = nullptr;
     IntGauge* cache_element_count = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;
-    IntAtomicCounter* cache_lookup_count = nullptr;
-    IntAtomicCounter* cache_hit_count = nullptr;
+    IntCounter* cache_lookup_count = nullptr;
+    IntCounter* cache_hit_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
     // bvars
     std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;

@@ -49,6 +49,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/slice.h"
 #include "util/stopwatch.hpp"
 #include "vec/common/hex.h"
@@ -101,9 +102,9 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
             "lru_file_cache", {{"path", _cache_base_path}});
     _entity->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
 
-    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
-    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio_5m);
-    INT_DOUBLE_METRIC_REGISTER(_entity, file_cache_hits_ratio_1h);
+    DOUBLE_GAUGE_METRIC_REGISTER(_entity, file_cache_hits_ratio);
+    DOUBLE_GAUGE_METRIC_REGISTER(_entity, file_cache_hits_ratio_5m);
+    DOUBLE_GAUGE_METRIC_REGISTER(_entity, file_cache_hits_ratio_1h);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_removed_elements);
 
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_index_queue_max_size);

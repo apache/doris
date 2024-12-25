@@ -115,9 +115,9 @@ void FileCacheMetric::register_entity() {
     entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("cloud_file_cache"),
             {{"table_id", table_id_str}, {"partition_id", partition_id_str}});
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_total);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_total);
+    INT_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_cache);
+    INT_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_remote);
     entity->register_hook("cloud_file_cache",
                           std::bind(&FileCacheMetric::update_table_metrics, this));
 }

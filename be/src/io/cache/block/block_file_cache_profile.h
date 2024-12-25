@@ -61,9 +61,9 @@ struct FileCacheMetric {
     int64_t table_id = -1;
     int64_t partition_id = -1;
     std::shared_ptr<MetricEntity> entity;
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+    IntCounter* num_io_bytes_read_total = nullptr;
+    IntCounter* num_io_bytes_read_from_cache = nullptr;
+    IntCounter* num_io_bytes_read_from_remote = nullptr;
 };
 
 struct FileCacheProfile {
