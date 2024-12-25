@@ -643,10 +643,12 @@ public class CreateTableInfo {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
             boolean disableInvertedIndexV1ForVariant = false;
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
-                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
-                                && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                        new HashMap<>(properties));
+                disableInvertedIndexV1ForVariant = invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                        && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -662,7 +664,7 @@ public class CreateTableInfo {
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
-                                                                disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat, disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }
