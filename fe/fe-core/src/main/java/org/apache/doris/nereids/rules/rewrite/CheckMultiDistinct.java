@@ -85,8 +85,8 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
         }
 
         if (distinctMultiColumns && distinctFunctionNum > 1) {
-            // throw new AnalysisException(
-            //         "The query contains multi count distinct or sum distinct, each can't have multi columns");
+            throw new AnalysisException(
+                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
         return aggregate;
     }

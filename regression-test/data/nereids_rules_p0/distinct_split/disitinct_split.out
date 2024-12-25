@@ -303,6 +303,12 @@
 2	3	3	2	3	1	3	2	3	2
 2	3	3	2	3	1	3	2	3	2
 
+-- !2_agg_count_distinct --
+2	2
+
+-- !3_agg_count_distinct --
+1	1
+
 -- !multi_count_without_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
@@ -450,6 +456,23 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------hashAgg[LOCAL]
 ----------PhysicalCteConsumer ( cteId=CTEId#0 )
 
+-- !2_agg --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------hashJoin[INNER_JOIN] hashCondition=((.c = .c)) otherCondition=()
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+
 -- !multi_count_with_gby --
 PhysicalResultSink
 --hashAgg[GLOBAL]
@@ -467,4 +490,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------PhysicalOlapScan[test_distinct_multi]
+
+-- !has_grouping --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalRepeat
+--------PhysicalOlapScan[test_distinct_multi]
 

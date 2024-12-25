@@ -181,6 +181,10 @@ suite("distinct_split") {
     select * from tmp, (select sum(distinct a), count(distinct b,c) from test_distinct_multi) t, (select sum(distinct a), count(distinct b,c) from test_distinct_multi group by d) tt order by 1,2,3,4,5,6,7,8,9,10
     """
 
+    // multi aggregate
+    qt_2_agg_count_distinct """select count(distinct c1) c3, count(distinct c2) c4 from (select count(distinct a,b) c1, count(distinct a,c) c2 from test_distinct_multi group by c) t"""
+    qt_3_agg_count_distinct """select count(distinct c3), count(distinct c4) from (select count(distinct c1) c3, count(distinct c2) c4 from (select count(distinct a,b) c1, count(distinct a,c) c2 from test_distinct_multi group by c) t) tt"""
+
     // shape
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     qt_multi_count_without_gby """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi"""
@@ -191,9 +195,16 @@ suite("distinct_split") {
     qt_three_count_mulitcols_without_gby """explain shape plan select count(distinct b,c), count(distinct a,b), count(distinct a,b,c) from test_distinct_multi"""
     qt_four_count_mulitcols_with_gby """explain shape plan select count(distinct b,c), count(distinct a,b),count(distinct b,c,d), count(distinct a,b,c) from test_distinct_multi group by d"""
     qt_has_other_func "explain shape plan select count(distinct b), count(distinct a), max(b),sum(c),min(a)  from test_distinct_multi"
+    qt_2_agg """explain shape plan select max(c1), min(c2) from (select count(distinct a,b) c1, count(distinct a,c) c2 from test_distinct_multi group by c) t"""
 
     // should not rewrite
     qt_multi_count_with_gby """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by c"""
     qt_multi_sum_with_gby """explain shape plan select sum(distinct b), sum(distinct a) from test_distinct_multi group by c"""
     qt_sum_count_with_gby """explain shape plan select sum(distinct b), count(distinct a) from test_distinct_multi group by a"""
+    qt_has_grouping """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by grouping sets((a,b),(c));"""
+    test {
+        sql """select count(distinct a,b), count(distinct a) from test_distinct_multi
+        group by grouping sets((a,b),(c));"""
+        exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
+    }
 }
