@@ -220,7 +220,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         RETURN_IF_ERROR(get_segment_num_rows(&segment_num_rows));
-        _read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(), segment_num_rows);
+        RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
+                                                                          segment_num_rows));
     }
 
     auto [seg_start, seg_end] = _segment_offsets;
