@@ -20,6 +20,7 @@
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /**
  * Support Iceberg equality delete.
@@ -102,4 +103,5 @@ public:
     Status filter_data_block(Block* data_block) override;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

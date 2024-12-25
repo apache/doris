@@ -18,8 +18,10 @@
 #include "table_format_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 TableFormatReader::TableFormatReader(std::unique_ptr<GenericReader> file_format_reader)
         : _file_format_reader(std::move(file_format_reader)) {}
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

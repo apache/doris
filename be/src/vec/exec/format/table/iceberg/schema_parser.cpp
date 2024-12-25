@@ -20,6 +20,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 
+#include <cstdint>
 #include <optional>
 #include <unordered_set>
 
@@ -78,7 +79,7 @@ std::unique_ptr<StructType> SchemaParser::_struct_from_json(const rapidjson::Val
     std::vector<NestedField> fields;
     fields.reserve(field_array.Size());
 
-    for (size_t i = 0; i < field_array.Size(); ++i) {
+    for (uint32_t i = 0; i < field_array.Size(); ++i) {
         const rapidjson::Value& field = field_array[i];
         if (!field.IsObject()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -148,7 +149,7 @@ std::unordered_set<int> SchemaParser::_get_integer_set(const char* key,
 
     if (value.HasMember(key) && value[key].IsArray()) {
         const rapidjson::Value& arr = value[key];
-        for (size_t i = 0; i < arr.Size(); i++) {
+        for (uint32_t i = 0; i < arr.Size(); i++) {
             if (arr[i].IsInt()) {
                 integer_set.insert(arr[i].GetInt());
             } else {

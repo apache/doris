@@ -18,6 +18,7 @@
 #include "vec/exec/format/table/iceberg/schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 const std::string Schema::ALL_COLUMNS = "*";
@@ -50,4 +51,5 @@ const NestedField* Schema::find_field(int id) const {
 }
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

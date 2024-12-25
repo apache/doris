@@ -28,6 +28,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TFileRangeDesc;
 
 namespace vectorized {
@@ -78,4 +79,5 @@ protected:
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

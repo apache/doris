@@ -30,6 +30,7 @@
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
@@ -63,4 +64,5 @@ public:
 private:
     Status _set_spi_plugins_dir();
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

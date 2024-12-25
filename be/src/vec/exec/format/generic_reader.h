@@ -26,6 +26,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Block;
 // This a reader interface for all file readers.
@@ -75,4 +76,5 @@ protected:
     TPushAggOp::type _push_down_agg_type;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

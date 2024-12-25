@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -41,6 +40,7 @@
 #include "vec/exprs/vslot_ref.h"
 
 namespace tparquet {
+#include "common/compile_check_begin.h"
 class KeyValue;
 } // namespace tparquet
 
@@ -154,7 +154,7 @@ protected:
     // copy from _colname_to_value_range with new column name that is in parquet/orc file, to support schema evolution.
     std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
     // column id to name map. Collect from FE slot descriptor.
-    std::unordered_map<int, std::string> _col_id_name_map;
+    std::unordered_map<uint64_t, std::string> _col_id_name_map;
     // col names in the parquet,orc file
     std::vector<std::string> _all_required_col_names;
     // col names in table but not in parquet,orc file
@@ -272,4 +272,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

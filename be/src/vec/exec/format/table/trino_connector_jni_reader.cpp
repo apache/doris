@@ -26,6 +26,7 @@
 #include "vec/core/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -128,4 +129,5 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

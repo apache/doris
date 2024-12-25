@@ -23,6 +23,7 @@
 #include <vector>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 class StructLike;
@@ -94,4 +95,5 @@ private:
 };
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

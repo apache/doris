@@ -24,6 +24,7 @@
 #include "runtime/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AvroJNIReader::AvroJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const TFileScanRangeParams& params,
@@ -175,4 +176,5 @@ TypeDescriptor AvroJNIReader::convert_to_doris_type(const rapidjson::Value& colu
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

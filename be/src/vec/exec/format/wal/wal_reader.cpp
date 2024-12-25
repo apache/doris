@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
@@ -126,4 +127,5 @@ Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

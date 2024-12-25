@@ -36,6 +36,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace io {
 class FileSystem;
@@ -73,4 +74,5 @@ private:
     cctz::time_zone _ctzz;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -29,6 +29,7 @@
 #include "vec/exec/format/table/iceberg/unbound_partition_spec.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 class PartitionSpec;
@@ -53,4 +54,5 @@ private:
 };
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

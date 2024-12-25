@@ -1177,7 +1177,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
 }
 
 Status OrcReader::_fill_partition_columns(
-        Block* block, uint16_t rows,
+        Block* block, uint64_t rows,
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
@@ -1207,9 +1207,9 @@ Status OrcReader::_fill_partition_columns(
 }
 
 Status OrcReader::_fill_missing_columns(
-        Block* block, uint16_t rows,
+        Block* block, uint64_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    for (auto& kv : missing_columns) {
+    for (const auto& kv : missing_columns) {
         if (kv.second == nullptr) {
             // no default column, fill with null
             auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
@@ -2082,19 +2082,17 @@ void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
 void OrcReader::_build_delete_row_filter(const Block* block, size_t rows) {
     // transactional hive orc delete row
     if (_delete_rows != nullptr) {
-        _delete_rows_filter_ptr.reset(new IColumn::Filter(rows, 1));
+        _delete_rows_filter_ptr = std::make_unique<IColumn::Filter>(rows, 1);
         auto* __restrict _pos_delete_filter_data = _delete_rows_filter_ptr->data();
-        const ColumnInt64& original_transaction_column =
-                assert_cast<const ColumnInt64&>(*remove_nullable(
-                        block->get_by_name(TransactionalHive::ORIGINAL_TRANSACTION_LOWER_CASE)
-                                .column));
-        const ColumnInt32& bucket_id_column = assert_cast<const ColumnInt32&>(
+        const auto& original_transaction_column = assert_cast<const ColumnInt64&>(*remove_nullable(
+                block->get_by_name(TransactionalHive::ORIGINAL_TRANSACTION_LOWER_CASE).column));
+        const auto& bucket_id_column = assert_cast<const ColumnInt32&>(
                 *remove_nullable(block->get_by_name(TransactionalHive::BUCKET_LOWER_CASE).column));
-        const ColumnInt64& row_id_column = assert_cast<const ColumnInt64&>(
+        const auto& row_id_column = assert_cast<const ColumnInt64&>(
                 *remove_nullable(block->get_by_name(TransactionalHive::ROW_ID_LOWER_CASE).column));
         for (int i = 0; i < rows; ++i) {
             Int64 original_transaction = original_transaction_column.get_int(i);
-            Int32 bucket_id = bucket_id_column.get_int(i);
+            Int64 bucket_id = bucket_id_column.get_int(i);
             Int64 row_id = row_id_column.get_int(i);
 
             TransactionalHiveReader::AcidRowID transactional_row_id = {original_transaction,

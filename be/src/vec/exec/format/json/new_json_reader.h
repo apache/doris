@@ -42,6 +42,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace simdjson {
+#include "common/compile_check_begin.h"
 namespace fallback {
 namespace ondemand {
 class object;
@@ -311,4 +312,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

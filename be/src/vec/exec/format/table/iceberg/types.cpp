@@ -20,6 +20,7 @@
 #include <optional>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 std::unique_ptr<MapType> MapType::of_optional(int key_id, int value_id,
@@ -192,4 +193,5 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
 }
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

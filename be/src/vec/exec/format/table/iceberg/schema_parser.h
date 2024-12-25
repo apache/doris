@@ -23,6 +23,7 @@
 #include <unordered_set>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace iceberg {
 
 class Type;
@@ -65,4 +66,5 @@ private:
 };
 
 } // namespace iceberg
+#include "common/compile_check_end.h"
 } // namespace doris

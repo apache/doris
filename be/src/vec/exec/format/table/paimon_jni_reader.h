@@ -29,6 +29,7 @@
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
@@ -70,4 +71,5 @@ private:
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

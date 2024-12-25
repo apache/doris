@@ -28,7 +28,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized::converter {
-#include "common/compile_check_begin.h"
+// #include "common/compile_check_begin.h"
 
 template <PrimitiveType type>
 constexpr bool is_decimal_type_const() {
@@ -403,14 +403,15 @@ public:
             bool can_cast = false;
             if constexpr (is_decimal_type_const<DstPrimitiveType>()) {
                 can_cast = SafeCastDecimalString<DstPrimitiveType>::safe_cast_string(
-                        string_value.data, string_value.size, &value,
+                        string_value.data, cast_set<int>(string_value.size), &value,
                         _dst_type_desc->get_precision(), _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
                 can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
-                        string_value.data, string_value.size, &value, _dst_type_desc->get_scale());
+                        string_value.data, cast_set<int>(string_value.size), &value,
+                        _dst_type_desc->get_scale());
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
-                        string_value.data, string_value.size, &value);
+                        string_value.data, cast_set<int>(string_value.size), &value);
             }
             if (!can_cast) {
                 if (null_map == nullptr) {
@@ -546,5 +547,5 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
+// #include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter

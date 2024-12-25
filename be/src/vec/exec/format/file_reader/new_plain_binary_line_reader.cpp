@@ -23,6 +23,7 @@
 #include "io/fs/stream_load_pipe.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 struct IOContext;
 } // namespace io
@@ -51,4 +52,5 @@ Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bo
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

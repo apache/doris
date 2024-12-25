@@ -154,11 +154,11 @@ public:
     Status _init_select_types(const orc::Type& type, int idx);
 
     Status _fill_partition_columns(
-            Block* block, uint16_t rows,
+            Block* block, uint64_t rows,
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns);
     Status _fill_missing_columns(
-            Block* block, uint16_t rows,
+            Block* block, uint64_t rows,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
@@ -250,7 +250,7 @@ private:
         StringDictFilterImpl(OrcReader* orc_reader) : _orc_reader(orc_reader) {}
         ~StringDictFilterImpl() override = default;
 
-        virtual void fillDictFilterColumnNames(
+        void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
             if (_status.ok()) {
@@ -258,7 +258,7 @@ private:
                         std::move(current_strip_information), column_names);
             }
         }
-        virtual void onStringDictsLoaded(
+        void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
             if (_status.ok()) {
@@ -330,7 +330,7 @@ private:
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
+        auto* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -373,7 +373,7 @@ private:
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
                                            orc::ColumnVectorBatch* cvb, size_t num_values) {
-        OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
+        auto* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -544,7 +544,7 @@ private:
                                                            const NullMap* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
-    int64_t get_remaining_rows() { return _remaining_rows; }
+    int64_t get_remaining_rows() const { return _remaining_rows; }
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
     // check if the given name is like _col0, _col1, ...

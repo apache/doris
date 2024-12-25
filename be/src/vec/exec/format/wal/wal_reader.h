@@ -21,6 +21,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 struct ScannerCounter;
 class WalReader : public GenericReader {
@@ -51,4 +52,5 @@ private:
     uint32_t _version = 0;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

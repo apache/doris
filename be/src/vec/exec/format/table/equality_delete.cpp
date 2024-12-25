@@ -18,6 +18,7 @@
 #include "vec/exec/format/table/equality_delete.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 std::unique_ptr<EqualityDeleteBase> EqualityDeleteBase::get_delete_impl(Block* delete_block) {
     if (delete_block->columns() == 1) {
@@ -157,4 +158,5 @@ bool MultiEqualityDelete::_equal(Block* data_block, size_t data_row_index,
     return true;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -29,6 +29,7 @@
 #include "io/file_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace io {
 class FileSystem;
@@ -63,4 +64,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

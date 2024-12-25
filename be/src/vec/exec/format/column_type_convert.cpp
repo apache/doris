@@ -18,6 +18,7 @@
 #include "vec/exec/format/column_type_convert.h"
 
 namespace doris::vectorized::converter {
+#include "common/compile_check_begin.h"
 
 #define FOR_LOGICAL_NUMERIC_TYPES(M) \
     M(TYPE_BOOLEAN)                  \
@@ -329,4 +330,5 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
     return std::make_unique<UnsupportedConverter>(src_type, dst_type);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter

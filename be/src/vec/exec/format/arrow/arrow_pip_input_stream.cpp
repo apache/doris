@@ -30,6 +30,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ArrowPipInputStream::ArrowPipInputStream(io::FileReaderSPtr file_reader)
         : _file_reader(file_reader), _pos(0), _begin(true), _read_buf(new uint8_t[4]) {
@@ -97,4 +98,5 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ArrowPipInputStream::Read(int64_t 
     return buffer;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

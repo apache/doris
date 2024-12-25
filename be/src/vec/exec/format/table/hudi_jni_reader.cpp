@@ -25,6 +25,7 @@
 #include "vec/core/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 
@@ -101,4 +102,5 @@ Status HudiJniReader::init_reader(
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
