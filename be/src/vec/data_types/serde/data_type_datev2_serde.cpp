@@ -178,7 +178,8 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, Slice& slice,
-                                                               uint64_t rows, uint64_t* num_deserialized,
+                                                               uint64_t rows,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
