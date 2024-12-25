@@ -74,7 +74,6 @@ public class Quarter extends ScalarFunction
         return visitor.visitQuarter(this, context);
     }
 
-
     @Override
     public boolean isPositive() {
         return true;
