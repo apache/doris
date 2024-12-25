@@ -22,6 +22,8 @@ import lombok.EqualsAndHashCode;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
+import java.util.Objects;
+
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class KerberosAuthenticationConfig extends AuthenticationConfig {
@@ -33,5 +35,24 @@ public class KerberosAuthenticationConfig extends AuthenticationConfig {
     @Override
     public boolean isValid() {
         return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        KerberosAuthenticationConfig that = (KerberosAuthenticationConfig) o;
+        return printDebugLog == that.printDebugLog && Objects.equals(kerberosPrincipal, that.kerberosPrincipal)
+                && Objects.equals(kerberosKeytab, that.kerberosKeytab)
+                && Objects.equals(conf, that.conf);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(kerberosPrincipal, kerberosKeytab, conf, printDebugLog);
     }
 }

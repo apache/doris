@@ -35,10 +35,6 @@ public interface HadoopAuthenticator {
     }
 
     static HadoopAuthenticator getHadoopAuthenticator(AuthenticationConfig config) {
-        if (config instanceof KerberosAuthenticationConfig) {
-            return new HadoopKerberosAuthenticator((KerberosAuthenticationConfig) config);
-        } else {
-            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
-        }
+        return HadoopAuthenticatorManager.getAuthenticator(config);
     }
 }
