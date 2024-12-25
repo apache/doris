@@ -1216,14 +1216,12 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
-// Notice: TEST ONLY
-DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mBool(variant_use_cloud_schema_dict);
 // Threshold to estimate a column is sparsed
-// Notice: TEST ONLY
-DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+
+DECLARE_mInt32(variant_max_subcolumns_count);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING

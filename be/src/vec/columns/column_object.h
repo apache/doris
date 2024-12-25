@@ -100,7 +100,6 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
-    const static size_t MAX_SUBCOLUMNS;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -170,8 +169,6 @@ public:
 
         /// Returns last inserted field.
         Field get_last_field() const;
-
-        bool check_if_sparse_column(size_t num_rows);
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.

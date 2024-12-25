@@ -45,8 +45,6 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
-    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "0")
     def table_name = "var_with_index"
     sql "DROP TABLE IF EXISTS var_with_index"
     sql """
@@ -68,7 +66,6 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
     qt_sql_inv_3 """select * from var_with_index where inv match 'hello' and cast(v["a"] as int) > 0 order by k"""
     sql "truncate table var_with_index"
     // set back configs
-    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "2048")
     // sql "truncate table ${table_name}"
     sql """insert into var_with_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
     sql """insert into var_with_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""

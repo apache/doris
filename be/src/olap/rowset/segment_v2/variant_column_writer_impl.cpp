@@ -16,8 +16,10 @@
 // under the License.
 #include "olap/rowset/segment_v2/variant_column_writer_impl.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/segment_v2.pb.h>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
@@ -43,14 +45,14 @@ VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts
 
 Status VariantColumnWriterImpl::init() {
     // caculate stats info
-    std::set<std::string> dynamic_paths;
-    RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(dynamic_paths));
-    if (dynamic_paths.empty()) {
+    std::set<std::string> subcolumn_paths;
+    RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(subcolumn_paths));
+    if (subcolumn_paths.empty()) {
         _column = vectorized::ColumnObject::create(true, false);
     } else {
         // create root
         auto col = vectorized::ColumnObject::create(true, true);
-        for (const auto& str_path : dynamic_paths) {
+        for (const auto& str_path : subcolumn_paths) {
             DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
         }
         _column = std::move(col);
@@ -97,8 +99,9 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
             }
         }
     }
-    // Check if the number of all dynamic paths exceeds the limit.
-    if (path_to_total_number_of_non_null_values.size() > vectorized::ColumnObject::MAX_SUBCOLUMNS) {
+
+    // Check if the number of all subcolumn paths exceeds the limit.
+    if (path_to_total_number_of_non_null_values.size() > config::variant_max_subcolumns_count) {
         // Sort paths by total number of non null values.
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(path_to_total_number_of_non_null_values.size());
@@ -106,10 +109,10 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
             paths_with_sizes.emplace_back(size, path);
         }
         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
-        // Fill dynamic_paths with first max_dynamic_paths paths in sorted list.
+        // Fill subcolumn_paths with first subcolumn paths in sorted list.
         // reserve 1 for root column
         for (const auto& [size, path] : paths_with_sizes) {
-            if (paths.size() < vectorized::ColumnObject::MAX_SUBCOLUMNS - 1) {
+            if (paths.size() < config::variant_max_subcolumns_count - 1) {
                 VLOG_DEBUG << "pick " << path << " as subcolumn";
                 paths.emplace(path);
             }
@@ -118,8 +121,31 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
             //     new_statistics.sparse_data_paths_statistics.emplace(path, size);
             // }
         }
+        DBUG_EXECUTE_IF("variant_column_writer_impl._get_subcolumn_paths_from_stats", {
+            auto stats = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "variant_column_writer_impl._get_subcolumn_paths_from_stats", "stats", "");
+            auto subcolumns = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "variant_column_writer_impl._get_subcolumn_paths_from_stats", "subcolumns", "");
+            LOG(INFO) << "stats: " << stats;
+            LOG(INFO) << "subcolumns: " << subcolumns;
+            if (stats.empty()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("debug point stats is empty");
+            }
+            std::vector<std::string> sizes;
+            boost::split(sizes, stats, boost::algorithm::is_any_of(","));
+            CHECK_EQ(sizes.size(), paths_with_sizes.size()) << "stats not match " << stats;
+            for (int i = 0; i < sizes.size(); ++i) {
+                CHECK_EQ(fmt::format("{}", paths_with_sizes[i].first), sizes[i]);
+            }
+            std::set<std::string> subcolumns_set;
+            boost::split(subcolumns_set, subcolumns, boost::algorithm::is_any_of(","));
+            if (!std::equal(paths.begin(), paths.end(), subcolumns_set.begin(),
+                            subcolumns_set.end())) {
+                CHECK(false) << "subcolumns not match " << subcolumns;
+            }
+        })
     } else {
-        // Use all dynamic paths from all source columns.
+        // Use all subcolumn paths from all source columns.
         for (const auto& [path, _] : path_to_total_number_of_non_null_values) {
             VLOG_DEBUG << "pick " << path << " as subcolumn";
             paths.emplace(path);

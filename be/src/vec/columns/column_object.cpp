@@ -662,19 +662,6 @@ void ColumnObject::resize(size_t n) {
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
-        return false;
-    }
-    std::vector<double> defaults_ratio;
-    for (size_t i = 0; i < data.size(); ++i) {
-        defaults_ratio.push_back(data[i]->get_ratio_of_default_rows());
-    }
-    double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
-                           defaults_ratio.size();
-    return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
-}
-
 void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
     if (is_finalized()) {
         return;
@@ -1273,7 +1260,7 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
 }
 
 bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
-    if (subcolumns.size() == MAX_SUBCOLUMNS) return false;
+    if (subcolumns.size() == config::variant_max_subcolumns_count) return false;
 
     return add_sub_column(path, num_rows);
 }
@@ -1919,7 +1906,8 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     }
 
     const bool need_pick_subcolumn_to_sparse_column =
-            mode == FinalizeMode::WRITE_MODE && subcolumns.size() > MAX_SUBCOLUMNS;
+            mode == FinalizeMode::WRITE_MODE &&
+            subcolumns.size() > config::variant_max_subcolumns_count;
     // finalize all subcolumns
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -1966,8 +1954,10 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         std::sort(sorted_by_size.begin(), sorted_by_size.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
 
-        // 3. pick MAX_SUBCOLUMNS selected subcolumns
-        for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
+        // 3. pick config::variant_max_subcolumns_count selected subcolumns
+        for (size_t i = 0;
+             i < std::min(size_t(config::variant_max_subcolumns_count), sorted_by_size.size());
+             ++i) {
             // if too many null values, then consider it as sparse column
             if (sorted_by_size[i].second < num_rows * 0.95) {
                 continue;
@@ -2148,16 +2138,6 @@ bool ColumnObject::is_scalar_variant() const {
 const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
         std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeObject>())));
-
-// const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
-#ifndef NDEBUG
-const size_t ColumnObject::MAX_SUBCOLUMNS = []() -> size_t {
-    std::srand(std::time(nullptr)); // 初始化随机数种子
-    return 2 + std::rand() % 8;    // 随机值范围 [1, 10]
-}();
-#else
-const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
-#endif
 
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
