@@ -158,114 +158,114 @@ suite("test_use_mv") {
 
     sql """use ${db};"""
     explain {
-        sql """select /*+ use_mv(mv1)*/ * from t1;"""
+        sql """memo plan select /*+ use_mv(mv1)*/ * from t1;"""
         contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ no_use_mv(mv1)*/ * from t1;"""
+        sql """memo plan select /*+ no_use_mv(mv1)*/ * from t1;"""
         contains("Used: no_use_mv([mv1])")
         notContains("internal.test_cbo_use_mv.mv1 chose")
     }
     sql """use test_use_mv"""
     explain {
-        sql """select /*+ use_mv(mv1)*/ * from ${db}.t1;"""
+        sql """memo plan select /*+ use_mv(mv1)*/ * from ${db}.t1;"""
         contains("UnUsed: use_mv([mv1])")
     }
     explain {
-        sql """select /*+ no_use_mv(mv1)*/ * from ${db}.t1;"""
+        sql """memo plan select /*+ no_use_mv(mv1)*/ * from ${db}.t1;"""
         contains("UnUsed: no_use_mv([mv1])")
     }
     sql """use ${db};"""
     explain {
-        sql """select /*+ use_mv(internal.${db}.mv1)*/ * from t1;"""
+        sql """memo plan select /*+ use_mv(internal.${db}.mv1)*/ * from t1;"""
         contains("Used: use_mv([internal, test_cbo_use_mv, mv1])")
 	contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ no_use_mv(internal.${db}.mv1)*/ * from t1;"""
+        sql """memo plan select /*+ no_use_mv(internal.${db}.mv1)*/ * from t1;"""
         contains("Used: no_use_mv([internal, test_cbo_use_mv, mv1])")
     }
     sql """use ${db};"""
     explain {
-        sql """select /*+ use_mv(mv1) */ * from t1"""
+        sql """memo plan select /*+ use_mv(mv1) */ * from t1"""
         contains("internal.test_cbo_use_mv.mv1 chose")
 	contains("Used: use_mv([mv1])")
     }
     explain {
-        sql """select /*+ no_use_mv(mv1) */ * from t1"""
+        sql """memo plan select /*+ no_use_mv(mv1) */ * from t1"""
         contains("Used: no_use_mv([mv1])")
 	notContains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ use_mv(mv4) */ * from t3"""
+        sql """memo plan select /*+ use_mv(mv4) */ * from t3"""
         contains("UnUsed: use_mv([mv4])")
     }
     explain {
-        sql """select /*+ no_use_mv(mv4) */ * from t3"""
+        sql """memo plan select /*+ no_use_mv(mv4) */ * from t3"""
         contains("Used: no_use_mv([mv4])")
     }
     explain {
-        sql """select /*+ use_mv(mv1, mv2) */ * from t1 union all select * from t2"""
+        sql """memo plan select /*+ use_mv(mv1, mv2) */ * from t1 union all select * from t2"""
         contains("Used: use_mv([mv1].[mv2] )")
         contains("internal.test_cbo_use_mv.mv2 chose")
         contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ no_use_mv(mv1, mv2) */ * from t1 union all select * from t2"""
+        sql """memo plan select /*+ no_use_mv(mv1, mv2) */ * from t1 union all select * from t2"""
         contains("Used: no_use_mv([mv1].[mv2] )")
         notContains("internal.test_cbo_use_mv.mv2 chose")
         notContains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ use_mv(mv1) no_use_mv(mv2) */ * from t1 union all select * from t2"""
+        sql """memo plan select /*+ use_mv(mv1) no_use_mv(mv2) */ * from t1 union all select * from t2"""
         contains("Used: use_mv([mv1])")
         contains("Used: no_use_mv([mv2])")
         notContains("internal.test_cbo_use_mv.mv2 chose")
         contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ use_mv(mv2) no_use_mv(mv1) */ * from t1 union all select * from t2"""
+        sql """memo plan select /*+ use_mv(mv2) no_use_mv(mv1) */ * from t1 union all select * from t2"""
         contains("Used: use_mv([mv2])")
         contains("Used: no_use_mv([mv1])")
         notContains("internal.test_cbo_use_mv.mv1 chose")
         contains("internal.test_cbo_use_mv.mv2 chose")
     }
     explain {
-        sql """select /*+ use_mv(mv1, mv3) */ c1 from t1"""
+        sql """memo plan select /*+ use_mv(mv1, mv3) */ c1 from t1"""
         contains("Used: use_mv([mv1].[mv3] )")
         contains("internal.test_cbo_use_mv.mv1 chose")
         contains("internal.test_cbo_use_mv.mv3 not chose")
     }
     explain {
-        sql """select /*+ use_mv(mv3, mv1) */ c1 from t1"""
+        sql """memo plan select /*+ use_mv(mv3, mv1) */ c1 from t1"""
         contains("Used: use_mv([mv3].[mv1] )")
         contains("internal.test_cbo_use_mv.mv1 chose")
         contains("internal.test_cbo_use_mv.mv3 not chose")
     }
     explain {
-        sql """select /*+ use_mv(mv1) */ c1 from t1"""
+        sql """memo plan select /*+ use_mv(mv1) */ c1 from t1"""
         contains("Used: use_mv([mv1])")
         contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """select /*+ use_mv(mv3) */ c1 from t1"""
+        sql """memo plan select /*+ use_mv(mv3) */ c1 from t1"""
         contains("Used: use_mv([mv3])")
         contains("internal.test_cbo_use_mv.mv3 chose")
     }
     explain {
-        sql """select /*+ no_use_mv(mv1, mv3) */ c1 from t1"""
+        sql """memo plan select /*+ no_use_mv(mv1, mv3) */ c1 from t1"""
         contains("Used: no_use_mv([mv1].[mv3] )")
         notContains("internal.test_cbo_use_mv.mv3")
         notContains("internal.test_cbo_use_mv.mv1")
     }
     explain {
-        sql """select /*+ no_use_mv(mv1) */ c1 from t1"""
+        sql """memo plan select /*+ no_use_mv(mv1) */ c1 from t1"""
         contains("Used: no_use_mv([mv1])")
         contains("internal.test_cbo_use_mv.mv3 chose")
         notContains("internal.test_cbo_use_mv.mv1")
     }
     explain {
-        sql """select /*+ no_use_mv(mv3) */ c1 from t1"""
+        sql """memo plan select /*+ no_use_mv(mv3) */ c1 from t1"""
         contains("Used: no_use_mv([mv3])")
         contains("internal.test_cbo_use_mv.mv1 chose")
         notContains("internal.test_cbo_use_mv.mv3")
