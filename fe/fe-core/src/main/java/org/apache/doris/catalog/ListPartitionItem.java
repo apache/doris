@@ -200,10 +200,7 @@ public class ListPartitionItem extends PartitionItem {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        int size = partitionKeys.size();
-        if (size > 1) {
-            sb.append("(");
-        }
+        sb.append("(");
 
         int i = 0;
         for (PartitionKey partitionKey : partitionKeys) {
@@ -214,9 +211,7 @@ public class ListPartitionItem extends PartitionItem {
             i++;
         }
 
-        if (size > 1) {
-            sb.append(")");
-        }
+        sb.append(")");
 
         return sb.toString();
     }
