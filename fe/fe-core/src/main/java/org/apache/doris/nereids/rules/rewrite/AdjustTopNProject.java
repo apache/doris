@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,14 +51,15 @@ import java.util.Set;
  *
  */
 public class AdjustTopNProject extends OneRewriteRuleFactory {
+    public static final Logger LOG = LogManager.getLogger(AdjustTopNProject.class);
     @Override
     public Rule build() {
         return logicalTopN(logicalProject())
                 .then(topN -> adjust(topN)).toRule(RuleType.ADJUST_TOPN_PROJECT);
     }
 
-    private Plan adjust(LogicalTopN<LogicalProject<Plan>> topN) {
-        LogicalProject<Plan> project = topN.child();
+    private Plan adjust(LogicalTopN<? extends Plan> topN) {
+        LogicalProject<Plan> project = (LogicalProject<Plan>) topN.child();
         Set<Slot> projectInputSlots = project.getInputSlots();
         Map<SlotReference, SlotReference> keyAsKey = new HashMap<>();
         for (NamedExpression proj : project.getProjects()) {
@@ -84,8 +87,10 @@ public class AdjustTopNProject extends OneRewriteRuleFactory {
         }
         if (match) {
             if (project.getProjects().size() >= project.getInputSlots().size()) {
-                LogicalTopN newTopN = topN.withChildren(project.children()).withOrderKeys(newOrderKeys);
-                project = (LogicalProject<Plan>) project.withChildren(newTopN);
+                LOG.info("$$$$ before:" +topN.treeString());
+                topN = topN.withChildren(project.children()).withOrderKeys(newOrderKeys);
+                project = (LogicalProject<Plan>) project.withChildren(topN);
+                LOG.info("$$$$ after:" + project.treeString());
                 return project;
             }
         }
