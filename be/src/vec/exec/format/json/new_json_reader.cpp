@@ -1657,7 +1657,9 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         data_serde = serde->get_nested_serdes()[0];
 
         // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
-        if (value.type() == simdjson::ondemand::json_type::null) {
+        if (value.type() != simdjson::ondemand::json_type::null) {
+            nullable_column->get_null_map_data().push_back(0);
+        } else {
             nullable_column->insert_default();
             *valid = true;
             return Status::OK();
@@ -1814,10 +1816,6 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
     } else {
         return Status::InternalError("Not support load to complex column.");
-    }
-    // we should set nullmap at last to avoid column_nullable nullmap and data column size not same
-    if (nullable_column && value.type() != simdjson::ondemand::json_type::null) {
-        nullable_column->get_null_map_data().push_back(0);
     }
     *valid = true;
     return Status::OK();
