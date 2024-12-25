@@ -1183,6 +1183,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                          << ", rowset_id=" << rowset_id
                          << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", num_segments=" << rowset_meta.num_segments()
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
         }
         code = cast_as<ErrCategory::COMMIT>(err);

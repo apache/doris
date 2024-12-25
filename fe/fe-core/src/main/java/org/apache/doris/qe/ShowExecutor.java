@@ -1257,17 +1257,20 @@ public class ShowExecutor {
                 .getCatalogOrAnalysisException(showStmt.getTableName().getCtl())
                 .getDbOrAnalysisException(showStmt.getDbName());
         if (db instanceof Database) {
-            OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
-            table.readLock();
-            try {
-                List<Index> indexes = table.getIndexes();
-                for (Index index : indexes) {
-                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                            "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+            TableIf table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                olapTable.readLock();
+                try {
+                    List<Index> indexes = olapTable.getIndexes();
+                    for (Index index : indexes) {
+                        rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
+                                "", String.join(",", index.getColumns()), "", "", "", "",
+                                "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                    }
+                } finally {
+                    olapTable.readUnlock();
                 }
-            } finally {
-                table.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);

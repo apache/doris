@@ -83,7 +83,9 @@ suite("is_in_debug_mode") {
         AS select * from orders where o_orderkey > 2;
         """
     } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        def message = e.getMessage()
+        logger.info("test_create_mv1" + message)
+        Assert.assertTrue(message.contains("because is in debug mode"))
     }
     sql """set skip_delete_sign = false;"""
 
@@ -99,7 +101,9 @@ suite("is_in_debug_mode") {
         AS select * from orders where o_orderkey > 2;
         """
     } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        def message = e.getMessage()
+        logger.info("test_create_mv2" + message)
+        Assert.assertTrue(message.contains("because is in debug mode"))
     }
     sql """set skip_storage_engine_merge = false;"""
 
@@ -115,7 +119,9 @@ suite("is_in_debug_mode") {
         AS select * from orders where o_orderkey > 2;
         """
     } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        def message = e.getMessage()
+        logger.info("test_create_mv3: " + message)
+        Assert.assertTrue(message.contains("because is in debug mode"))
     }
     sql """set skip_delete_bitmap = false;"""
 
@@ -131,7 +137,9 @@ suite("is_in_debug_mode") {
         AS select * from orders where o_orderkey > 2;
         """
     } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        def message = e.getMessage()
+        logger.info("test_create_mv4" + message)
+        Assert.assertTrue(message.contains("because is in debug mode"))
     }
     sql """set skip_delete_predicate = false;"""
 
@@ -147,7 +155,9 @@ suite("is_in_debug_mode") {
         AS select * from orders where o_orderkey > 2;
         """
     } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        def message = e.getMessage()
+        logger.info("test_create_mv5" + message)
+        Assert.assertTrue(message.contains("because is in debug mode"))
     }
     sql """set show_hidden_columns = false;"""
 

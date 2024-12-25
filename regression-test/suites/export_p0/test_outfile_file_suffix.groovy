@@ -42,7 +42,7 @@ suite("test_outfile_file_suffix", "p0") {
 
     def outFilePath = """s3://${bucket}/outfile_"""
     def csv_suffix_result = { file_suffix, file_format ->
-        result = sql """
+        def result = sql """
                 select * from ${table_name}
                 into outfile "${outFilePath}"
                 FORMAT AS ${file_format}

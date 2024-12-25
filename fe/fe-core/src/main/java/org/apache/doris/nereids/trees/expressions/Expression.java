@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -69,6 +70,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
     private final int fastChildrenHashCode;
+    private final Supplier<String> toSqlCache = Suppliers.memoize(this::computeToSql);
 
     protected Expression(Expression... children) {
         super(children);
@@ -226,6 +228,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return fastChildrenHashCode;
     }
 
+    protected String computeToSql() {
+        throw new UnboundException("sql");
+    }
+
     protected TypeCheckResult checkInputDataTypesInternal() {
         return TypeCheckResult.SUCCESS;
     }
@@ -315,6 +321,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public boolean isInferred() {
         return inferred;
+    }
+
+    public final String toSql() {
+        return toSqlCache.get();
     }
 
     @Override
