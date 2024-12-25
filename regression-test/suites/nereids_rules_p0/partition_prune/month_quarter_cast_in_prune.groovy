@@ -109,4 +109,39 @@ suite("month_quarter_cast_in_prune") {
         sql "select * from test_month where dayofmonth(dt)=24"
         contains("partitions=7/10 (p1,p2,p3,p4,p5,p6,p10)")
     }
+
+    sql "drop table if exists monotonic_function_t"
+    sql """create table monotonic_function_t (a bigint, dt datetime, d date, c varchar(100)) duplicate key(a)
+    partition by range(a) (
+            partition p1 values less than ("100000"),
+            partition p2 values less than ("1000000009999"),
+            partition p3 values less than ("1000000009999999"),
+            partition p4 values less than MAXVALUE
+    ) distributed by hash(a) properties("replication_num"="1");"""
+    sql """INSERT INTO monotonic_function_t values(10000,'1979-01-01','1979-01-01','abc'),(100000009999,'2012-01-01','2012-01-01','abc'),(100000009999999,'2020-01-01','2020-01-01','abc'),(10000000099999999,'2045-01-01','2045-01-01','abc')"""
+
+    explain {
+        sql """select * from monotonic_function_t where from_second(a) < '2001-09-09 12:33:19' """
+        contains("partitions=4/4 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from monotonic_function_t where from_second(a) > '2001-09-09 12:33:19' """
+        contains("partitions=3/4 (p2,p3,p4)")
+    }
+    explain {
+        sql """select * from monotonic_function_t where from_millisecond(a) < '2001-09-09 12:33:19' """
+        contains("partitions=4/4 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from monotonic_function_t where from_millisecond(a) > '2001-09-09 12:33:19' """
+        contains("partitions=2/4 (p3,p4)")
+    }
+    explain {
+        sql """select * from monotonic_function_t where from_microsecond(a) < '2000-09-09 12:33:19' """
+        contains("partitions=3/4 (p1,p2,p3)")
+    }
+    explain {
+        sql """select * from monotonic_function_t where from_microsecond(a) > '2002-09-09 12:33:19' """
+        contains("partitions=2/4 (p1,p4)")
+    }
 }
