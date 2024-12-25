@@ -416,6 +416,15 @@ struct TIcebergTableSink {
     13: optional PlanNodes.TFileCompressType compression_type
 }
 
+struct TDictSink {
+    1: optional i64 dictionary_id
+    2: optional i64 version_id
+    3: optional string dictionary_name
+    4: optional i64 key_column_id
+    5: optional list<i64> attribute_column_ids
+    6: optional list<string> attribute_name
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink

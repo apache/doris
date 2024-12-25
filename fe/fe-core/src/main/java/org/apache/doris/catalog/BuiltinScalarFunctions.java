@@ -479,6 +479,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetFloat32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetInt32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetInt64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetIPv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetString;
 
 import com.google.common.collect.ImmutableList;
 
@@ -487,7 +492,8 @@ import java.util.List;
 /**
  * Builtin scalar functions.
  * <p>
- * Note: Please ensure that this class only has some lists and no procedural code.
+ * Note: Please ensure that this class only has some lists and no procedural
+ * code.
  * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
@@ -974,10 +980,16 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsSub.class, "years_sub"),
             scalar(MultiMatch.class, "multi_match"),
             scalar(SessionUser.class, "session_user"),
-            scalar(LastQueryId.class, "last_query_id"));
+            scalar(LastQueryId.class, "last_query_id"),
+            scalar(DictGetFloat32.class, "dict_get_float32"),
+            scalar(DictGetIPv4.class, "dict_get_ipv4"),
+            scalar(DictGetInt32.class, "dict_get_int32"),
+            scalar(DictGetInt64.class, "dict_get_int64"),
+            scalar(DictGetString.class, "dict_get_string"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinScalarFunctions() {}
+    private BuiltinScalarFunctions() {
+    }
 }
