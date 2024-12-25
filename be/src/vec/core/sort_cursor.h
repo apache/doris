@@ -158,8 +158,9 @@ struct MergeSortCursorImpl {
     }
 
     bool is_first() const { return pos == 0; }
-    bool is_last() const { return pos + 1 >= rows; }
-    void next() { ++pos; }
+    bool is_last(size_t size = 1) const { return pos + size >= rows; }
+    void next(size_t size = 1) { pos += size; }
+    size_t get_size() const { return rows; }
 
     virtual bool has_next_block() { return false; }
     virtual Block* block_ptr() { return nullptr; }
@@ -264,6 +265,21 @@ struct MergeSortCursor {
         return greater_at(rhs, impl->rows - 1, 0) == -1;
     }
 
+    /// Checks that all rows in the current block of this cursor are less than or equal to all the rows of the current block of another cursor.
+    bool totally_less_or_equals(const MergeSortCursor& rhs) const {
+        if (impl->rows == 0 || rhs.impl->rows == 0) {
+            return false;
+        }
+
+        /// The last row of this cursor is no larger than the first row of the another cursor.
+        return greater_at(rhs, impl->rows - 1, 0) <= 0;
+    }
+
+    bool greater_with_offset(const MergeSortCursor& rhs, size_t lhs_offset,
+                             size_t rhs_offset) const {
+        return greater_at(rhs, impl->pos + lhs_offset, rhs.impl->pos + rhs_offset) > 0;
+    }
+
     bool greater(const MergeSortCursor& rhs) const {
         return !impl->empty() && greater_at(rhs, impl->pos, rhs.impl->pos) > 0;
     }
@@ -314,4 +330,341 @@ struct MergeSortBlockCursor {
     }
 };
 
+enum class SortingQueueStrategy : uint8_t { Default, Batch };
+
+/// Allows to fetch data from multiple sort cursors in sorted order (merging sorted data streams).
+template <typename Cursor, SortingQueueStrategy strategy>
+class SortingQueueImpl {
+public:
+    SortingQueueImpl() = default;
+
+    template <typename Cursors>
+    explicit SortingQueueImpl(Cursors& cursors) {
+        size_t size = cursors.size();
+        queue.reserve(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            queue.emplace_back(cursors[i]);
+        }
+
+        std::make_heap(queue.begin(), queue.end());
+
+        if constexpr (strategy == SortingQueueStrategy::Batch) {
+            if (!queue.empty()) {
+                update_batch_size();
+            }
+        }
+    }
+
+    bool is_valid() const { return !queue.empty(); }
+
+    Cursor& current()
+        requires(strategy == SortingQueueStrategy::Default)
+    {
+        return queue.front();
+    }
+
+    std::pair<Cursor*, size_t> current()
+        requires(strategy == SortingQueueStrategy::Batch)
+    {
+        return {&queue.front(), batch_size};
+    }
+
+    size_t size() { return queue.size(); }
+
+    Cursor& next_child() { return queue[next_child_index()]; }
+
+    void ALWAYS_INLINE next()
+        requires(strategy == SortingQueueStrategy::Default)
+    {
+        assert(is_valid());
+
+        if (!queue.front()->is_last()) {
+            queue.front()->next();
+            update_top(true);
+        } else {
+            remove_top();
+        }
+    }
+
+    void ALWAYS_INLINE next(size_t batch_size_value)
+        requires(strategy == SortingQueueStrategy::Batch)
+    {
+        assert(is_valid());
+        assert(batch_size_value <= batch_size);
+        assert(batch_size_value > 0);
+
+        batch_size -= batch_size_value;
+        if (batch_size > 0) {
+            queue.front()->next(batch_size_value);
+            return;
+        }
+
+        if (!queue.front()->is_last(batch_size_value)) {
+            queue.front()->next(batch_size_value);
+            update_top(false);
+        } else {
+            remove_top();
+        }
+    }
+
+    void replace_top(Cursor new_top) {
+        queue.front() = new_top;
+        update_top(true);
+    }
+
+    void remove_top() {
+        std::pop_heap(queue.begin(), queue.end());
+        queue.pop_back();
+        next_child_idx = 0;
+
+        if constexpr (strategy == SortingQueueStrategy::Batch) {
+            if (queue.empty()) {
+                batch_size = 0;
+            } else {
+                update_batch_size();
+            }
+        }
+    }
+
+    void push(MergeSortCursorImpl& cursor) {
+        queue.emplace_back(&cursor);
+        std::push_heap(queue.begin(), queue.end());
+        next_child_idx = 0;
+
+        if constexpr (strategy == SortingQueueStrategy::Batch) {
+            update_batch_size();
+        }
+    }
+
+private:
+    using Container = std::vector<Cursor>;
+    Container queue;
+
+    /// Cache comparison between first and second child if the order in queue has not been changed.
+    size_t next_child_idx = 0;
+    size_t batch_size = 0;
+
+    size_t ALWAYS_INLINE next_child_index() {
+        if (next_child_idx == 0) {
+            next_child_idx = 1;
+
+            if (queue.size() > 2 && queue[1].greater(queue[2])) {
+                ++next_child_idx;
+            }
+        }
+
+        return next_child_idx;
+    }
+
+    /// This is adapted version of the function __sift_down from libc++.
+    /// Why cannot simply use std::priority_queue?
+    /// - because it doesn't support updating the top element and requires pop and push instead.
+    /// Also look at "Boost.Heap" library.
+    void ALWAYS_INLINE update_top(bool check_in_order) {
+        size_t size = queue.size();
+        if (size < 2) {
+            return;
+        }
+
+        auto begin = queue.begin();
+
+        size_t child_idx = next_child_index();
+        auto child_it = begin + child_idx;
+
+        /// Check if we are in order.
+        if (check_in_order && (*child_it).greater(*begin)) {
+            if constexpr (strategy == SortingQueueStrategy::Batch) {
+                update_batch_size();
+            }
+            return;
+        }
+
+        next_child_idx = 0;
+
+        auto curr_it = begin;
+        auto top(std::move(*begin));
+        do {
+            /// We are not in heap-order, swap the parent with it's largest child.
+            *curr_it = std::move(*child_it);
+            curr_it = child_it;
+
+            // recompute the child based off of the updated parent
+            child_idx = 2 * child_idx + 1;
+
+            if (child_idx >= size) {
+                break;
+            }
+
+            child_it = begin + child_idx;
+
+            if ((child_idx + 1) < size && (*child_it).greater(*(child_it + 1))) {
+                /// Right child exists and is greater than left child.
+                ++child_it;
+                ++child_idx;
+            }
+
+            /// Check if we are in order.
+        } while (!((*child_it).greater(top)));
+        *curr_it = std::move(top);
+
+        if constexpr (strategy == SortingQueueStrategy::Batch) {
+            update_batch_size();
+        }
+    }
+
+    /// Update batch size of elements that client can extract from current cursor
+    void update_batch_size() {
+        assert(!queue.empty());
+
+        auto& begin_cursor = *queue.begin();
+        size_t min_cursor_size = begin_cursor->get_size();
+        size_t min_cursor_pos = begin_cursor->pos;
+
+        if (queue.size() == 1) {
+            batch_size = min_cursor_size - min_cursor_pos;
+            return;
+        }
+
+        batch_size = 1;
+        size_t child_idx = next_child_index();
+        auto& next_child_cursor = *(queue.begin() + child_idx);
+        if (min_cursor_pos + batch_size < min_cursor_size &&
+            next_child_cursor.greater_with_offset(begin_cursor, 0, batch_size)) {
+            ++batch_size;
+        } else {
+            return;
+        }
+        if (begin_cursor.totally_less_or_equals(next_child_cursor)) {
+            batch_size = min_cursor_size - min_cursor_pos;
+            return;
+        }
+
+        while (min_cursor_pos + batch_size < min_cursor_size &&
+               next_child_cursor.greater_with_offset(begin_cursor, 0, batch_size)) {
+            ++batch_size;
+        }
+    }
+};
+
+template <typename Cursor>
+using SortingQueue = SortingQueueImpl<Cursor, SortingQueueStrategy::Default>;
+
+template <typename Cursor>
+using SortingQueueBatch = SortingQueueImpl<Cursor, SortingQueueStrategy::Batch>;
+/** SortQueueVariants allow to specialize sorting queue for concrete types and sort description.
+  * To access queue variant callOnVariant method must be used.
+  * To access batch queue variant callOnBatchVariant method must be used.
+  */
+/*
+class SortQueueVariants {
+public:
+    SortQueueVariants() = default;
+
+    SortQueueVariants(const DataTypes& sort_description_types,
+                      const SortDescription& sort_description) {
+        if (sort_description.size() == 1) {
+            TypeIndex column_type_index = sort_description_types[0]->getTypeId();
+
+            bool result = callOnIndexAndDataType<void>(column_type_index, [&](const auto& types) {
+                using Types = std::decay_t<decltype(types)>;
+                using ColumnDataType = typename Types::LeftType;
+                using ColumnType = typename ColumnDataType::ColumnType;
+
+                initializeQueues<SpecializedSingleColumnSortCursor<ColumnType>>();
+                return true;
+            });
+
+            if (!result) initializeQueues<SimpleSortCursor>();
+        } else {
+            initializeQueues<SortCursor>();
+        }
+    }
+
+    SortQueueVariants(const Block& header, const SortDescription& sort_description)
+            : SortQueueVariants(extractSortDescriptionTypesFromHeader(header, sort_description),
+                                sort_description) {}
+
+    template <typename Func>
+    decltype(auto) callOnVariant(Func&& func) {
+        return std::visit(func, default_queue_variants);
+    }
+
+    template <typename Func>
+    decltype(auto) callOnBatchVariant(Func&& func) {
+        return std::visit(func, batch_queue_variants);
+    }
+
+    bool variantSupportJITCompilation() const {
+        return std::holds_alternative<SortingQueue<SimpleSortCursor>>(default_queue_variants) ||
+               std::holds_alternative<SortingQueue<SortCursor>>(default_queue_variants) >
+                       (default_queue_variants);
+    }
+
+private:
+    template <typename Cursor>
+    void initializeQueues() {
+        default_queue_variants = SortingQueue<Cursor>();
+        batch_queue_variants = SortingQueueBatch<Cursor>();
+    }
+
+    static DataTypes extractSortDescriptionTypesFromHeader(
+            const Block& header, const SortDescription& sort_description) {
+        size_t sort_description_size = sort_description.size();
+        DataTypes data_types(sort_description_size);
+
+        for (size_t i = 0; i < sort_description_size; ++i) {
+            const auto& column_sort_description = sort_description[i];
+            data_types[i] = header.getByName(column_sort_description.column_name).type;
+        }
+
+        return data_types;
+    }
+
+    template <SortingQueueStrategy strategy>
+    using QueueVariants = std::variant<
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UInt8>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UInt16>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UInt32>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UInt64>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UInt128>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UInt256>>, strategy>,
+
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Int8>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Int16>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Int32>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Int64>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Int128>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Int256>>, strategy>,
+
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<BFloat16>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Float32>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<Float64>>, strategy>,
+
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnDecimal<Decimal32>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnDecimal<Decimal64>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnDecimal<Decimal128>>,
+                             strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnDecimal<Decimal256>>,
+                             strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnDecimal<DateTime64>>,
+                             strategy>,
+
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<UUID>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<IPv4>>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnVector<IPv6>>, strategy>,
+
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnString>, strategy>,
+            SortingQueueImpl<SpecializedSingleColumnSortCursor<ColumnFixedString>, strategy>,
+
+            SortingQueueImpl<SimpleSortCursor, strategy>, SortingQueueImpl<SortCursor, strategy>,
+            SortingQueueImpl<SortCursorWithCollation, strategy>>;
+
+    using DefaultQueueVariants = QueueVariants<SortingQueueStrategy::Default>;
+    using BatchQueueVariants = QueueVariants<SortingQueueStrategy::Batch>;
+
+    DefaultQueueVariants default_queue_variants;
+    BatchQueueVariants batch_queue_variants;
+};
+*/
 } // namespace doris::vectorized
