@@ -18,6 +18,7 @@
 
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -30,6 +31,14 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeProfile;
+template <typename T>
+class AtomicCounter;
+using IntAtomicCounter = AtomicCounter<int64_t>;
+template <typename T>
+class AtomicGauge;
+using UIntGauge = AtomicGauge<uint64_t>;
+class MetricEntity;
+struct MetricPrototype;
 
 namespace vectorized {
 
@@ -106,6 +115,7 @@ private:
 };
 class SpillStreamManager {
 public:
+    ~SpillStreamManager();
     SpillStreamManager(std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
                                spill_store_map);
 
@@ -133,7 +143,12 @@ public:
 
     ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 
+    void updat_spill_write_bytes(int64_t bytes) { _spill_write_bytes_counter->increment(bytes); }
+
+    void updat_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
+
 private:
+    void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
@@ -145,6 +160,21 @@ private:
     scoped_refptr<Thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;
+
+    std::shared_ptr<MetricEntity> _entity {nullptr};
+
+    UIntGauge* spill_io_thread_pool_max_threads {nullptr};
+    UIntGauge* spill_io_thread_pool_active_threads {nullptr};
+    UIntGauge* spill_io_thread_pool_pool_max_queue_size {nullptr};
+    UIntGauge* spill_io_thread_pool_queue_size {nullptr};
+
+    std::unique_ptr<doris::MetricPrototype> _spill_write_bytes_metric {nullptr};
+    std::unique_ptr<doris::MetricPrototype> _spill_read_bytes_metric {nullptr};
+    std::unique_ptr<doris::MetricPrototype> _spill_running_task_count_metric {nullptr};
+
+    IntAtomicCounter* _spill_write_bytes_counter {nullptr};
+    IntAtomicCounter* _spill_read_bytes_counter {nullptr};
+    IntAtomicCounter* _spill_running_task_count_counter {nullptr};
 };
 } // namespace vectorized
 } // namespace doris

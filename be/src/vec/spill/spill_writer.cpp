@@ -59,6 +59,7 @@ Status SpillWriter::close() {
         COUNTER_UPDATE(_write_file_current_size, meta_.size());
     }
     data_dir_->update_spill_data_usage(meta_.size());
+    ExecEnv::GetInstance()->spill_stream_mgr()->updat_spill_write_bytes(meta_.size());
 
     RETURN_IF_ERROR(file_writer_->close());
 
@@ -143,6 +144,7 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
             Defer defer {[&]() {
                 if (status.ok()) {
                     data_dir_->update_spill_data_usage(buff_size);
+                    ExecEnv::GetInstance()->spill_stream_mgr()->updat_spill_write_bytes(buff_size);
 
                     written_bytes += buff_size;
                     max_sub_block_size_ = std::max(max_sub_block_size_, (size_t)buff_size);
