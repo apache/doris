@@ -19,14 +19,14 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -52,7 +52,6 @@ struct IOContext;
 struct TypeDescriptor;
 
 namespace vectorized {
-
 struct ScannerCounter;
 class Block;
 
@@ -74,7 +73,7 @@ public:
 class CsvProtoFieldSplitter final : public BaseLineFieldSplitter<CsvProtoFieldSplitter> {
 public:
     inline void split_line_impl(const Slice& line, std::vector<Slice>* splitted_values) {
-        PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+        auto** row_ptr = reinterpret_cast<PDataRow**>(line.data);
         PDataRow* row = *row_ptr;
         for (const PDataColumn& col : row->col()) {
             splitted_values->emplace_back(col.value());
@@ -143,7 +142,7 @@ public:
             std::shared_ptr<EncloseCsvLineReaderContext> line_reader_ctx, size_t value_sep_len = 1,
             char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _text_line_reader_ctx(line_reader_ctx) {}
+              _text_line_reader_ctx(std::move(line_reader_ctx)) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
@@ -154,10 +153,10 @@ private:
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
 public:
     explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                       const std::string& value_sep, size_t value_sep_len = 1,
+                                       std::string value_sep, size_t value_sep_len = 1,
                                        char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep) {
+              _value_sep(std::move(value_sep)) {
         is_single_char_delim = (value_sep_len == 1);
     }
 
@@ -174,10 +173,10 @@ private:
 class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
 public:
     explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                      const string& value_sep, size_t value_sep_len = 1,
+                                      std::string value_sep, size_t value_sep_len = 1,
                                       char trimming_char = 0, char escape_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep),
+              _value_sep(std::move(value_sep)),
               _escape_char(escape_char) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);

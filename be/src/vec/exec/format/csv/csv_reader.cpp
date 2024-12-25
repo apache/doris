@@ -52,12 +52,10 @@
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 namespace vectorized {
 class IColumn;
 } // namespace vectorized
-
 namespace io {
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
@@ -65,7 +63,7 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const static Slice _s_null_slice = Slice("\\N");
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
