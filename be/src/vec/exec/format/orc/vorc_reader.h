@@ -650,16 +650,73 @@ private:
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
+
+    // If you set "orc_tiny_stripe_threshold_bytes" = 0, the use tiny stripes merge io optimization will not be used.
+    int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
+    int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
+    int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
+};
+
+class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {
+public:
+    StripeStreamInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
+                            OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
+                            RuntimeProfile* profile)
+            : _file_name(file_name),
+              _inner_reader(inner_reader),
+              _statistics(statistics),
+              _io_ctx(io_ctx),
+              _profile(profile) {}
+
+    ~StripeStreamInputStream() override {
+        if (_inner_reader != nullptr) {
+            _inner_reader->collect_profile_before_close();
+        }
+    }
+
+    uint64_t getLength() const override { return _inner_reader->size(); }
+
+    uint64_t getNaturalReadSize() const override { return config::orc_natural_read_size_mb << 20; }
+
+    void read(void* buf, uint64_t length, uint64_t offset) override;
+
+    const std::string& getName() const override { return _file_name; }
+
+    RuntimeProfile* profile() const { return _profile; }
+
+    void beforeReadStripe(
+            std::unique_ptr<orc::StripeInformation> current_strip_information,
+            std::vector<bool> selected_columns,
+            std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) override {}
+
+protected:
+    void _collect_profile_at_runtime() override {};
+    void _collect_profile_before_close() override {
+        if (_inner_reader != nullptr) {
+            _inner_reader->collect_profile_before_close();
+        }
+    };
+
+private:
+    const std::string& _file_name;
+    io::FileReaderSPtr _inner_reader;
+    // Owned by OrcReader
+    OrcReader::Statistics* _statistics = nullptr;
+    const io::IOContext* _io_ctx = nullptr;
+    RuntimeProfile* _profile = nullptr;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                        OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
-                       RuntimeProfile* profile)
+                       RuntimeProfile* profile, int64_t orc_once_max_read_bytes,
+                       int64_t orc_max_merge_distance_bytes)
             : _file_name(file_name),
               _inner_reader(inner_reader),
               _file_reader(inner_reader),
+              _orc_once_max_read_bytes(orc_once_max_read_bytes),
+              _orc_max_merge_distance_bytes(orc_max_merge_distance_bytes),
               _statistics(statistics),
               _io_ctx(io_ctx),
               _profile(profile) {}
@@ -668,6 +725,12 @@ public:
         if (_file_reader != nullptr) {
             _file_reader->collect_profile_before_close();
         }
+        for (const auto& stripe_stream : _stripe_streams) {
+            if (stripe_stream != nullptr) {
+                stripe_stream->collect_profile_before_close();
+            }
+        }
+        _stripe_streams.clear();
     }
 
     uint64_t getLength() const override { return _file_reader->size(); }
@@ -679,7 +742,9 @@ public:
     const std::string& getName() const override { return _file_name; }
 
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
-                          std::vector<bool> selected_columns) override;
+                          std::vector<bool> selected_columns,
+                          std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>&
+                                  stripe_streams) override;
 
     void set_all_tiny_stripes() { _is_all_tiny_stripes = true; }
 
@@ -692,13 +757,31 @@ protected:
     void _collect_profile_before_close() override;
 
 private:
+    void _build_input_stripe_streams(
+            const std::unordered_map<orc::StreamId, io::PrefetchRange>& ranges,
+            std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams);
+
+    void _build_small_ranges_input_stripe_streams(
+            const std::unordered_map<orc::StreamId, io::PrefetchRange>& ranges,
+            std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams);
+
+    void _build_large_ranges_input_stripe_streams(
+            const std::unordered_map<orc::StreamId, io::PrefetchRange>& ranges,
+            std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams);
+
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
     bool _is_all_tiny_stripes = false;
+    int64_t _orc_once_max_read_bytes;
+    int64_t _orc_max_merge_distance_bytes;
+
+    std::vector<std::shared_ptr<StripeStreamInputStream>> _stripe_streams;
+
     // Owned by OrcReader
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
+
 } // namespace doris::vectorized
