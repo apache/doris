@@ -154,7 +154,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
-                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max) {
+                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
+          _dict_cols_has_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -172,7 +173,9 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _ctz(ctz),
           _file_system(nullptr),
           _io_ctx(io_ctx),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(true),
+          _dict_cols_has_converted(false) {
     _init_system_properties();
     _init_file_description();
 }
