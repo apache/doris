@@ -4,16 +4,16 @@
 
 #pragma once
 
-#include <assert.h>
 #include <butil/macros.h>
 #include <bvar/bvar.h>
 #include <glog/logging.h>
 #include <gtest/gtest_prod.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <set>
@@ -25,6 +25,7 @@
 #include "util/metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Cache;
 class LRUCachePolicy;
@@ -42,7 +43,7 @@ static constexpr bool DEFAULT_LRU_CACHE_IS_LRU_K = false;
 
 class CacheKey {
 public:
-    CacheKey() : _data(nullptr), _size(0) {}
+    CacheKey() : _size(0) {}
     // Create a slice that refers to d[0,n-1].
     CacheKey(const char* d, size_t n) : _data(d), _size(n) {}
 
@@ -52,7 +53,7 @@ public:
     // Create a slice that refers to s[0,strlen(s)-1]
     CacheKey(const char* s) : _data(s), _size(strlen(s)) {}
 
-    ~CacheKey() {}
+    ~CacheKey() = default;
 
     // Return a pointer to the beginning of the referenced data
     const char* data() const { return _data; }
@@ -84,7 +85,7 @@ public:
     }
 
     // Return a string that contains the copy of the referenced data.
-    std::string to_string() const { return std::string(_data, _size); }
+    std::string to_string() const { return {_data, _size}; }
 
     bool operator==(const CacheKey& other) const {
         return ((size() == other.size()) && (memcmp(data(), other.data(), size()) == 0));
@@ -139,11 +140,11 @@ struct PrunedInfo {
 
 class Cache {
 public:
-    Cache() {}
+    Cache() = default;
 
     // Destroys all existing entries by calling the "deleter"
     // function that was passed to the constructor.
-    virtual ~Cache();
+    virtual ~Cache() = default;
 
     // Opaque handle to an entry stored in the cache.
     struct Handle {};
@@ -244,7 +245,7 @@ struct LRUHandle {
         if (next == this) {
             return *(reinterpret_cast<CacheKey*>(value));
         } else {
-            return CacheKey(key_data, key_length);
+            return {key_data, key_length};
         }
     }
 
@@ -264,7 +265,7 @@ struct LRUHandle {
 
 class HandleTable {
 public:
-    HandleTable() : _length(0), _elems(0), _list(nullptr) { _resize(); }
+    HandleTable() { _resize(); }
 
     ~HandleTable();
 
@@ -287,8 +288,8 @@ private:
 
     // The tablet consists of an array of buckets where each bucket is
     // a linked list of cache entries that hash into the bucket.
-    uint32_t _length;
-    uint32_t _elems;
+    uint32_t _length {};
+    uint32_t _elems {};
     LRUHandle** _list = nullptr;
 
     // Return a pointer to slot that points to a cache entry that
@@ -310,6 +311,10 @@ public:
     LRUCache(LRUCacheType type, bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K);
     ~LRUCache();
 
+    // visits_lru_cache_key is the hash value of CacheKey.
+    // If there is a hash conflict, a cache entry may be inserted early
+    // and another cache entry with the same key hash may be inserted later.
+    // Otherwise, this does not affect the correctness of the cache.
     using visits_lru_cache_key = uint32_t;
     using visits_lru_cache_pair = std::pair<visits_lru_cache_key, size_t>;
 
@@ -391,14 +396,14 @@ private:
 
 class ShardedLRUCache : public Cache {
 public:
-    virtual ~ShardedLRUCache();
-    virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           CachePriority priority = CachePriority::NORMAL) override;
-    virtual Handle* lookup(const CacheKey& key) override;
-    virtual void release(Handle* handle) override;
-    virtual void erase(const CacheKey& key) override;
-    virtual void* value(Handle* handle) override;
-    virtual uint64_t new_id() override;
+    ~ShardedLRUCache() override;
+    Handle* insert(const CacheKey& key, void* value, size_t charge,
+                   CachePriority priority = CachePriority::NORMAL) override;
+    Handle* lookup(const CacheKey& key) override;
+    void release(Handle* handle) override;
+    void erase(const CacheKey& key) override;
+    void* value(Handle* handle) override;
+    uint64_t new_id() override;
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
     int64_t get_usage() override;
@@ -422,7 +427,7 @@ private:
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
-    uint32_t _shard(uint32_t hash) {
+    uint32_t _shard(uint32_t hash) const {
         return _num_shard_bits > 0 ? (hash >> (32 - _num_shard_bits)) : 0;
     }
 
@@ -473,3 +478,4 @@ public:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"
