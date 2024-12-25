@@ -54,7 +54,7 @@ public class AdjustTopNProject extends OneRewriteRuleFactory {
     public static final Logger LOG = LogManager.getLogger(AdjustTopNProject.class);
     @Override
     public Rule build() {
-        return logicalTopN(logicalProject())
+        return logicalTopN(logicalProject(logicalAggregate()))
                 .then(topN -> adjust(topN)).toRule(RuleType.ADJUST_TOPN_PROJECT);
     }
 
@@ -86,8 +86,10 @@ public class AdjustTopNProject extends OneRewriteRuleFactory {
             }
         }
         if (match) {
-            if (project.getProjects().size() > project.getInputSlots().size()) {
-                LOG.info("$$$$ before:" +topN.treeString());
+            if (project.getProjects().size() >= project.getInputSlots().size()) {
+                LOG.info("$$$$ before: project.getProjects() = " + project.getProjects());
+                LOG.info("$$$$ before: project.getInputSlots() = " + project.getInputSlots());
+                LOG.info("$$$$ before: " + topN.treeString());
                 topN = topN.withChildren(project.children()).withOrderKeys(newOrderKeys);
                 project = (LogicalProject<Plan>) project.withChildren(topN);
                 LOG.info("$$$$ after:" + project.treeString());

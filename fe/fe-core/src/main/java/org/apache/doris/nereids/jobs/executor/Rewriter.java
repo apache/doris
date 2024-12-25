@@ -456,10 +456,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CollectCteConsumerOutput()
                         )
                 ),
-                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new),
-                topic("Adjust topN project",
-                        topDown(new MergeProjects(),
-                                new AdjustTopNProject()))
+                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new)
             )
         )
     );
@@ -481,6 +478,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                         topDown(new MergeProjects())
                 ),
+                topic("Adjust topN project",
+                        topDown(new MergeProjects(),
+                                new AdjustTopNProject())),
                 // this rule batch must keep at the end of rewrite to do some plan check
                 topic("Final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
