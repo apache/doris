@@ -641,8 +641,8 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     }
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
-    res->set_num_rows(serialized_sparse_column->size());
-    check_consistency();
+    res->num_rows = res->serialized_sparse_column->size();
+    res->check_consistency();
     return res;
 }
 
@@ -814,11 +814,6 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     }
     ENABLE_CHECK_CONSISTENCY(this);
 }
-
-ColumnObject::ColumnObject(MutableColumnPtr&& sparse_column)
-        : is_nullable(true),
-          num_rows(sparse_column->size()),
-          serialized_sparse_column(std::move(sparse_column)) {}
 
 ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
         : is_nullable(is_nullable_), num_rows(0) {
@@ -994,7 +989,8 @@ bool ColumnObject::Subcolumn::is_null_at(size_t n) const {
     ind -= num_of_defaults_in_prefix;
     for (const auto& part : data) {
         if (ind < part->size()) {
-            return assert_cast<const ColumnNullable&>(*part).is_null_at(ind);
+            const auto* nullable = check_and_get_column<ColumnNullable>(part.get());
+            return nullable ? nullable->is_null_at(ind) : false;
         }
         ind -= part->size();
     }
@@ -1061,14 +1057,16 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
         const auto& part = data[i];
         if (row < part->size()) {
             // no need null in sparse column
-            if (!assert_cast<const ColumnNullable&>(*part).is_null_at(row)) {
+            if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part).is_null_at(
+                        row)) {
                 // insert key
                 key->insert_data(path.data(), path.size());
 
                 // every subcolumn is always Nullable
                 auto nullable_serde = std::static_pointer_cast<DataTypeNullableSerDe>(
                         data_types[i]->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL));
-                auto& nullable_col = assert_cast<const ColumnNullable&>(*part);
+                auto& nullable_col =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part);
 
                 // insert value
                 ColumnString::Chars& chars = value->get_chars();
@@ -1310,6 +1308,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
     auto it = src_path_and_subcoumn_for_sparse_column.begin();
     auto end = src_path_and_subcoumn_for_sparse_column.end();
     while (it != end) {
+        VLOG_DEBUG << "pick " << it->first << " as sparse column";
         sorted_src_subcolumn_for_sparse_column.emplace_back(it->first, it->second);
         ++it;
     }
@@ -1707,9 +1706,16 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     if (subcolumns.get_root()->data.is_null_at(nrow)) {
         return false;
     }
-    nrow = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
-    const auto& nullable = assert_cast<const ColumnNullable&>(*subcolumns.get_root()->data.data[0]);
-    return !nullable.get_data_at(nrow).empty();
+    int ind = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
+    for (const auto& part : subcolumns.get_root()->data.data) {
+        if (ind < part->size()) {
+            return !part->get_data_at(ind).empty();
+        }
+        ind -= part->size();
+    }
+
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
+                           nrow);
 }
 
 Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
@@ -1962,6 +1968,10 @@ Status ColumnObject::finalize(FinalizeMode mode) {
 
         // 3. pick MAX_SUBCOLUMNS selected subcolumns
         for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
+            // if too many null values, then consider it as sparse column
+            if (sorted_by_size[i].second < num_rows * 0.95) {
+                continue;
+            }
             selected_path.insert(sorted_by_size[i].first);
         }
         std::map<std::string_view, Subcolumn> remaing_subcolumns;
@@ -1970,6 +1980,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
             if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
                 new_subcolumns.add(entry->path, entry->data);
             } else {
+                VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
                 remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
             }
         }
@@ -2138,7 +2149,15 @@ const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataT
         std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeObject>())));
 
+// const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
+#ifndef NDEBUG
+const size_t ColumnObject::MAX_SUBCOLUMNS = []() -> size_t {
+    std::srand(std::time(nullptr)); // 初始化随机数种子
+    return 1 + std::rand() % 10;    // 随机值范围 [1, 10]
+}();
+#else
 const size_t ColumnObject::MAX_SUBCOLUMNS = 5;
+#endif
 
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
