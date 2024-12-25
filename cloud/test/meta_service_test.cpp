@@ -588,6 +588,25 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        {
+            AlterObjStoreInfoRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+            StorageVaultPB vault;
+            vault.set_alter_name(new_vault_name);
+            ObjectStoreInfoPB obj;
+            obj_info.set_ak("new_ak");
+            obj_info.set_sk("new_sk");
+            vault.mutable_obj_info()->MergeFrom(obj);
+            vault.set_name(new_vault_name);
+            req.mutable_vault()->CopyFrom(vault);
+            meta_service->alter_storage_vault(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                    nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().msg();
+        }
+
         InstanceInfoPB instance;
         get_test_instance(instance);
 
@@ -677,6 +696,7 @@ TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
         InstanceInfoPB instance;
         get_test_instance(instance);
 
@@ -744,6 +764,25 @@ TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        {
+            AlterObjStoreInfoRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_op(AlterObjStoreInfoRequest::ALTER_HDFS_VAULT);
+            StorageVaultPB vault;
+            vault.mutable_hdfs_info()->mutable_build_conf()->set_user("hadoop");
+            vault.set_name(new_vault_name);
+            vault.set_alter_name(new_vault_name);
+            req.mutable_vault()->CopyFrom(vault);
+
+            brpc::Controller cntl;
+            AlterObjStoreInfoResponse res;
+            meta_service->alter_storage_vault(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                    nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().msg();
+        }
+
         InstanceInfoPB instance;
         get_test_instance(instance);
 
