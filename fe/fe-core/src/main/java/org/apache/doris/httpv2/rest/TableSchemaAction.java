@@ -132,6 +132,7 @@ public class TableSchemaAction extends RestBaseController {
         return ResponseEntityBuilder.ok(resultMap);
     }
 
+
     private static class DDLRequestBody {
         public Boolean isDropColumn;
         public String columnName;
@@ -145,7 +146,7 @@ public class TableSchemaAction extends RestBaseController {
      * }
      */
     @RequestMapping(path = "/api/enable_light_schema_change/{" + DB_KEY
-                    + "}/{" + TABLE_KEY + "}", method = { RequestMethod.GET })
+            + "}/{" + TABLE_KEY + "}", method = {RequestMethod.GET})
     public Object columnChangeCanSync(
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tableName,
@@ -162,7 +163,8 @@ public class TableSchemaAction extends RestBaseController {
         if (!table.getEnableLightSchemaChange()) {
             return ResponseEntityBuilder.okWithCommonError("table " + tableName + " disable light schema change");
         }
-        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {}.getType();
+        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {
+        }.getType();
         DDLRequestBody ddlRequestBody = new Gson().fromJson(body, type);
         if (ddlRequestBody.isDropColumn) {
             boolean enableLightSchemaChange = true;
@@ -182,7 +184,7 @@ public class TableSchemaAction extends RestBaseController {
             }
             if (!enableLightSchemaChange) {
                 return ResponseEntityBuilder.okWithCommonError("Column " + ddlRequestBody.columnName
-                                + " is primary key in materializedIndex that can't do the light schema change");
+                        + " is primary key in materializedIndex that can't do the light schema change");
             }
         }
         return ResponseEntityBuilder.ok();
