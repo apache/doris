@@ -95,7 +95,7 @@ public class TrinoConnectorPluginLoader {
     private static String checkAndReturnPluginDir() {
         final String defaultDir = System.getenv("DORIS_HOME") + "/plugins/connectors";
         final String defaultOldDir = System.getenv("DORIS_HOME") + "/connectors";
-        if (Config.trino_connector_plugin_dir.equals(defaultDir)) {
+        if (TrinoConnectorPluginLoader.pluginsDir.equals(defaultDir)) {
             // If true, which means user does not set `trino_connector_plugin_dir` and use the default one.
             // Because in 2.1.8, we change the default value of `trino_connector_plugin_dir`
             // from `DORIS_HOME/connectors` to `DORIS_HOME/plugins/connectors`,
@@ -111,7 +111,7 @@ public class TrinoConnectorPluginLoader {
             return defaultDir;
         } else {
             // Return user specified dir directly.
-            return Config.trino_connector_plugin_dir;
+            return TrinoConnectorPluginLoader.pluginsDir;
         }
     }
 
