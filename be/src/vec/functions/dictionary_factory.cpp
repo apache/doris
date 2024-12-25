@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/functions/dictionary_factory.h"
+
 #include <gen_cpp/DataSinks_types.h>
 
 #include <memory>
