@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
+import org.apache.doris.nereids.rules.rewrite.AdjustTopNProject;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -455,7 +456,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CollectCteConsumerOutput()
                         )
                 ),
-                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new)
+                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new),
+                topic("Adjust topN project",
+                        topDown(new MergeProjects(),
+                                new AdjustTopNProject()))
             )
         )
     );
