@@ -17,21 +17,16 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
-import java.util.List;
+public class PaimonMvccSnapshot implements MvccSnapshot {
+    private final PaimonSnapshotCacheValue snapshotCacheValue;
 
-public class PaimonSchemaCacheValue extends SchemaCacheValue {
-
-    private List<Column> partitionColumns;
-
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+    public PaimonMvccSnapshot(PaimonSnapshotCacheValue snapshotCacheValue) {
+        this.snapshotCacheValue = snapshotCacheValue;
     }
 
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+    public PaimonSnapshotCacheValue getSnapshotCacheValue() {
+        return snapshotCacheValue;
     }
 }
