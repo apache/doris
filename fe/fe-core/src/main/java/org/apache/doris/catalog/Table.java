@@ -132,7 +132,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     private Map<Long, String> readLockThreads = null;
 
     @SerializedName(value = "isTemporary")
-    protected boolean isTemporary = false;
+    private boolean isTemporary = false;
 
     public Table(TableType type) {
         this.type = type;
