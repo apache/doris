@@ -150,7 +150,7 @@ public class Config extends ConfigBase {
             "JDBC 驱动的存放路径。在创建 JDBC Catalog 时，如果指定的驱动文件路径不是绝对路径，则会在这个目录下寻找",
             "The path to save jdbc drivers. When creating JDBC Catalog,"
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
-    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
+    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/plugins/jdbc_drivers";
 
     @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
             + "默认为 * 表示全部允许，如果设置为空也表示全部允许",

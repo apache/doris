@@ -35,6 +35,7 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -293,7 +294,7 @@ public class JdbcResource extends Resource {
             String schema = uri.getScheme();
             checkCloudWhiteList(driverUrl);
             if (schema == null && !driverUrl.startsWith("/")) {
-                return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
+                return checkAndReturnDefaultDriverUrl(driverUrl);
             }
 
             if ("*".equals(Config.jdbc_driver_secure_path)) {
@@ -309,6 +310,27 @@ public class JdbcResource extends Resource {
         } catch (URISyntaxException e) {
             LOG.warn("invalid jdbc driver url: " + driverUrl);
             return driverUrl;
+        }
+    }
+
+    private static String checkAndReturnDefaultDriverUrl(String driverUrl) {
+        final String defaultDriverUrl = System.getenv("DORIS_HOME") + "/plugins/jdbc_drivers";
+        final String defaultOldDriverUrl = System.getenv("DORIS_HOME") + "/jdbc_drivers";
+        if (Config.jdbc_drivers_dir.equals(defaultDriverUrl)) {
+            // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
+            // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
+            // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
+            // so we need to check the old default dir for compatibility.
+            File file = new File(defaultDriverUrl + "/" + driverUrl);
+            if (file.exists()) {
+                return "file://" + defaultDriverUrl + "/" + driverUrl;
+            } else {
+                // use old one
+                return "file://" + defaultOldDriverUrl + "/" + driverUrl;
+            }
+        } else {
+            // Return user specified driver url directly.
+            return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
         }
     }
 
