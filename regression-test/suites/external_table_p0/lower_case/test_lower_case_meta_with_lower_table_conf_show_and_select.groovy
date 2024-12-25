@@ -42,6 +42,12 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql """insert into internal.external_test_lower_with_conf.lower_with_conf values(1, 'lower')"""
     sql """insert into internal.external_test_lower_with_conf.UPPER_with_conf values(1, 'UPPER')"""
 
+    sql """create table if not exists internal.external_test_lower_with_conf.with_conf_insert
+         (id int, name varchar(20))
+         distributed by hash(id) buckets 10
+         properties('replication_num' = '1'); 
+         """
+
     // Test for cache false and lower false and lower conf 1
     sql """drop catalog if exists test_cache_false_lower_false_with_conf1 """
 
@@ -66,6 +72,16 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_false_lower_false_with_conf1_3 "select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
     qt_sql_test_cache_false_lower_false_with_conf1_4 "select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    qt_sql_test_cache_false_lower_false_with_conf1_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    qt_sql_test_cache_false_lower_false_with_conf1_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    qt_sql_test_cache_false_lower_false_with_conf1_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    qt_sql_test_cache_false_lower_false_with_conf1_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.upper_with_conf"
+
 
     test {
         sql """show tables from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf"""
@@ -105,6 +121,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_false_lower_false_with_conf2_3 "select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
     qt_sql_test_cache_false_lower_false_with_conf2_4 "select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    qt_sql_test_cache_false_lower_false_with_conf2_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    qt_sql_test_cache_false_lower_false_with_conf2_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    qt_sql_test_cache_false_lower_false_with_conf2_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    qt_sql_test_cache_false_lower_false_with_conf2_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     test {
         sql """show tables from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf"""
@@ -147,6 +172,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_false_with_conf1"
     qt_sql_test_cache_true_lower_false_with_conf1_4 "select * from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
+    sql "refresh catalog test_cache_true_lower_false_with_conf1"
+    qt_sql_test_cache_true_lower_false_with_conf1_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf1"
+    qt_sql_test_cache_true_lower_false_with_conf1_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf1"
+    qt_sql_test_cache_true_lower_false_with_conf1_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf1"
+    qt_sql_test_cache_true_lower_false_with_conf1_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf.upper_with_conf"
+
     test {
         sql """show tables from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf"""
 
@@ -185,6 +219,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_true_lower_false_with_conf2_3 "select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_true_lower_false_with_conf2"
     qt_sql_test_cache_true_lower_false_with_conf2_4 "select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_true_lower_false_with_conf2"
+    qt_sql_test_cache_true_lower_false_with_conf2_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf2"
+    qt_sql_test_cache_true_lower_false_with_conf2_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf2"
+    qt_sql_test_cache_true_lower_false_with_conf2_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf2"
+    qt_sql_test_cache_true_lower_false_with_conf2_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     test {
         sql """show tables from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf"""
@@ -225,6 +268,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
     qt_sql_test_cache_false_lower_true_with_conf1_4 "select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
+    sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    qt_sql_test_cache_false_lower_true_with_conf1_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    qt_sql_test_cache_false_lower_true_with_conf1_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    qt_sql_test_cache_false_lower_true_with_conf1_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    qt_sql_test_cache_false_lower_true_with_conf1_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.upper_with_conf"
+
     test {
         sql """show tables from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf"""
 
@@ -263,6 +315,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_false_lower_true_with_conf2_3 "select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
     qt_sql_test_cache_false_lower_true_with_conf2_4 "select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    qt_sql_test_cache_false_lower_true_with_conf2_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    qt_sql_test_cache_false_lower_true_with_conf2_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    qt_sql_test_cache_false_lower_true_with_conf2_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    qt_sql_test_cache_false_lower_true_with_conf2_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     test {
         sql """show tables from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf"""
@@ -304,6 +365,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_true_with_conf1"
     qt_sql_test_cache_true_lower_true_with_conf1_4 "select * from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
+    sql "refresh catalog test_cache_true_lower_true_with_conf1"
+    qt_sql_test_cache_true_lower_true_with_conf1_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf1"
+    qt_sql_test_cache_true_lower_true_with_conf1_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf1"
+    qt_sql_test_cache_true_lower_true_with_conf1_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf1"
+    qt_sql_test_cache_true_lower_true_with_conf1_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf.upper_with_conf"
+
     test {
         sql """show tables from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf"""
 
@@ -343,6 +413,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_true_with_conf2"
     qt_sql_test_cache_true_lower_true_with_conf2_4 "select * from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
+    sql "refresh catalog test_cache_true_lower_true_with_conf2"
+    qt_sql_test_cache_true_lower_true_with_conf2_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf2"
+    qt_sql_test_cache_true_lower_true_with_conf2_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf2"
+    qt_sql_test_cache_true_lower_true_with_conf2_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf2"
+    qt_sql_test_cache_true_lower_true_with_conf2_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf.upper_with_conf"
+
     test {
         sql """show tables from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf"""
 
@@ -380,6 +459,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_false_lower_false_with_conf0_2 "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    qt_sql_test_cache_false_lower_false_with_conf0_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    qt_sql_test_cache_false_lower_false_with_conf0_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
     test {
         sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
@@ -388,6 +472,18 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
     test {
         sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
+        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
         exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
@@ -428,6 +524,12 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_true_lower_false_with_conf0_2 "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
 
     sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    qt_sql_test_cache_true_lower_false_with_conf0_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    qt_sql_test_cache_true_lower_false_with_conf0_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+
+
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
     test {
         sql "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
@@ -436,6 +538,18 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_false_with_conf0"
     test {
         sql "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
+        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_true_lower_false_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
         exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
@@ -476,6 +590,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_false_lower_true_with_conf0_2 "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    qt_sql_test_cache_false_lower_true_with_conf0_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    qt_sql_test_cache_false_lower_true_with_conf0_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
+
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
     test {
         sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
@@ -484,6 +603,18 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
     test {
         sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
         exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
@@ -524,6 +655,12 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     qt_sql_test_cache_true_lower_true_with_conf0_2 "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    qt_sql_test_cache_true_lower_true_with_conf0_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    qt_sql_test_cache_true_lower_true_with_conf0_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
+
+
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
     test {
         sql "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
@@ -532,6 +669,18 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_true_with_conf0"
     test {
         sql "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
+        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
+        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+    }
+
+    sql "refresh catalog test_cache_true_lower_true_with_conf0"
+    test {
+        sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
         exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 

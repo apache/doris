@@ -43,6 +43,18 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
     sql """insert into internal.external_test_lower.lower values(1, 'lower')"""
     sql """insert into internal.external_test_lower.UPPER values(1, 'UPPER')"""
 
+    sql """create table if not exists internal.external_test_lower.lower_insert
+         (id int, name varchar(20))
+         distributed by hash(id) buckets 10
+         properties('replication_num' = '1'); 
+         """
+
+    sql """create table if not exists internal.external_test_lower.UPPER_insert
+         (id int, name varchar(20))
+         distributed by hash(id) buckets 10
+         properties('replication_num' = '1'); 
+         """
+
     // Test for cache false and lower false
     sql """drop catalog if exists test_cache_false_lower_false """
 
@@ -85,6 +97,9 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
 
     qt_sql_test_cache_false_lower_false1 "select * from test_cache_false_lower_false.external_test_lower.lower"
     qt_sql_test_cache_false_lower_false2 "select * from test_cache_false_lower_false.external_test_lower.UPPER"
+
+    qt_sql_test_cache_false_lower_false1_insert "insert into internal.external_test_lower.lower_insert select * from test_cache_false_lower_false.external_test_lower.lower"
+    qt_sql_test_cache_false_lower_false2_insert "insert into internal.external_test_lower.UPPER_insert select * from test_cache_false_lower_false.external_test_lower.UPPER"
 
     sql """drop catalog if exists test_cache_false_lower_false """
 
@@ -131,6 +146,10 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
     qt_sql_test_cache_false_lower_false1 "select * from test_cache_true_lower_false.external_test_lower.lower"
     qt_sql_test_cache_false_lower_false2 "select * from test_cache_true_lower_false.external_test_lower.UPPER"
 
+    qt_sql_test_cache_false_lower_false1_insert "insert into internal.external_test_lower.lower_insert select * from test_cache_true_lower_false.external_test_lower.lower"
+    qt_sql_test_cache_false_lower_false2_insert "insert into internal.external_test_lower.UPPER_insert select * from test_cache_true_lower_false.external_test_lower.UPPER"
+
+
     sql """drop catalog if exists test_cache_true_lower_false """
 
     // Test for cache false and lower true
@@ -176,6 +195,9 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
     qt_sql_test_cache_false_lower_true1 "select * from test_cache_false_lower_true.external_test_lower.lower"
     qt_sql_test_cache_false_lower_true2 "select * from test_cache_false_lower_true.external_test_lower.upper"
 
+    qt_sql_test_cache_false_lower_true1_insert "insert into internal.external_test_lower.lower_insert select * from test_cache_false_lower_true.external_test_lower.lower"
+    qt_sql_test_cache_false_lower_true2_insert "insert into internal.external_test_lower.UPPER_insert select * from test_cache_false_lower_true.external_test_lower.upper"
+
     sql """drop catalog if exists test_cache_false_lower_true """
 
     // Test for cache true and lower true
@@ -220,6 +242,9 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
 
     qt_sql_test_cache_true_lower_true1 "select * from test_cache_true_lower_true.external_test_lower.lower"
     qt_sql_test_cache_true_lower_true2 "select * from test_cache_true_lower_true.external_test_lower.upper"
+
+    qt_sql_test_cache_true_lower_true1_insert "insert into internal.external_test_lower.lower_insert select * from test_cache_true_lower_true.external_test_lower.lower"
+    qt_sql_test_cache_true_lower_true2_insert "insert into internal.external_test_lower.UPPER_insert select * from test_cache_true_lower_true.external_test_lower.upper"
 
     sql """drop catalog if exists test_cache_true_lower_true """
 

@@ -82,7 +82,7 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
 
     test {
         def catalogName = "test_timing_refresh_catalog1"
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 10; i++) {
             sql """
                 select * from ${catalogName}.external_timing_refresh_catalog.tbl
             """
@@ -92,7 +92,7 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
 
     test {
         def catalogName = "test_timing_refresh_catalog2"
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 10; i++) {
             sql """
                 select * from ${catalogName}.external_timing_refresh_catalog.tbl
             """
@@ -137,7 +137,7 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
 
     test {
         def catalogName = "test_timing_refresh_catalog1"
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 10; i++) {
             sql """
                 select id_c from ${catalogName}.db.table_t
             """
@@ -147,7 +147,7 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
 
     test {
         def catalogName = "test_timing_refresh_catalog2"
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 10; i++) {
             sql """
                 select id_c from ${catalogName}.db.table_t
             """

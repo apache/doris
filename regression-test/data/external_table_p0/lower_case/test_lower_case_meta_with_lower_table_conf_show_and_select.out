@@ -11,6 +11,18 @@
 -- !sql_test_cache_false_lower_false_with_conf1_4 --
 1	UPPER
 
+-- !sql_test_cache_false_lower_false_with_conf1_1_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf1_2_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf1_3_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf1_4_insert --
+1
+
 -- !sql_test_cache_false_lower_false_with_conf2_1 --
 1	lower
 
@@ -22,6 +34,18 @@
 
 -- !sql_test_cache_false_lower_false_with_conf2_4 --
 1	UPPER
+
+-- !sql_test_cache_false_lower_false_with_conf2_1_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf2_2_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf2_3_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf2_4_insert --
+1
 
 -- !sql_test_cache_true_lower_false_with_conf1_1 --
 1	lower
@@ -35,6 +59,18 @@
 -- !sql_test_cache_true_lower_false_with_conf1_4 --
 1	UPPER
 
+-- !sql_test_cache_true_lower_false_with_conf1_1_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf1_2_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf1_3_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf1_4_insert --
+1
+
 -- !sql_test_cache_true_lower_false_with_conf2_1 --
 1	lower
 
@@ -46,6 +82,18 @@
 
 -- !sql_test_cache_true_lower_false_with_conf2_4 --
 1	UPPER
+
+-- !sql_test_cache_true_lower_false_with_conf2_1_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf2_2_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf2_3_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf2_4_insert --
+1
 
 -- !sql_test_cache_false_lower_true_with_conf1_1 --
 1	lower
@@ -59,6 +107,18 @@
 -- !sql_test_cache_false_lower_true_with_conf1_4 --
 1	UPPER
 
+-- !sql_test_cache_false_lower_true_with_conf1_1_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf1_2_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf1_3_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf1_4_insert --
+1
+
 -- !sql_test_cache_false_lower_true_with_conf2_1 --
 1	lower
 
@@ -70,6 +130,18 @@
 
 -- !sql_test_cache_false_lower_true_with_conf2_4 --
 1	UPPER
+
+-- !sql_test_cache_false_lower_true_with_conf2_1_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf2_2_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf2_3_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf2_4_insert --
+1
 
 -- !sql_test_cache_true_lower_true_with_conf1_1 --
 1	lower
@@ -83,6 +155,18 @@
 -- !sql_test_cache_true_lower_true_with_conf1_4 --
 1	UPPER
 
+-- !sql_test_cache_true_lower_true_with_conf1_1_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf1_2_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf1_3_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf1_4_insert --
+1
+
 -- !sql_test_cache_true_lower_true_with_conf2_1 --
 1	lower
 
@@ -95,11 +179,29 @@
 -- !sql_test_cache_true_lower_true_with_conf2_4 --
 1	UPPER
 
+-- !sql_test_cache_true_lower_true_with_conf2_1_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf2_2_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf2_3_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf2_4_insert --
+1
+
 -- !sql_test_cache_false_lower_false_with_conf0_1 --
 1	lower
 
 -- !sql_test_cache_false_lower_false_with_conf0_2 --
 1	UPPER
+
+-- !sql_test_cache_false_lower_false_with_conf0_1_insert --
+1
+
+-- !sql_test_cache_false_lower_false_with_conf0_2_insert --
+1
 
 -- !sql_test_cache_true_lower_false_with_conf0_1 --
 1	lower
@@ -107,15 +209,33 @@
 -- !sql_test_cache_true_lower_false_with_conf0_2 --
 1	UPPER
 
+-- !sql_test_cache_true_lower_false_with_conf0_1_insert --
+1
+
+-- !sql_test_cache_true_lower_false_with_conf0_2_insert --
+1
+
 -- !sql_test_cache_false_lower_true_with_conf0_1 --
 1	lower
 
 -- !sql_test_cache_false_lower_true_with_conf0_2 --
 1	UPPER
 
+-- !sql_test_cache_false_lower_true_with_conf0_1_insert --
+1
+
+-- !sql_test_cache_false_lower_true_with_conf0_2_insert --
+1
+
 -- !sql_test_cache_true_lower_true_with_conf0_1 --
 1	lower
 
 -- !sql_test_cache_true_lower_true_with_conf0_2 --
 1	UPPER
+
+-- !sql_test_cache_true_lower_true_with_conf0_1_insert --
+1
+
+-- !sql_test_cache_true_lower_true_with_conf0_2_insert --
+1
 
