@@ -252,7 +252,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             newMicroSecond %= newMicroSecond;
             Expression plus1Second = this.plusSeconds(1);
             if (plus1Second.isNullLiteral()) {
-                throw new AnalysisException("datetime literal [" + toString() + " + 1s ] is out of range");
+                throw new AnalysisException("round ceil datetime literal (" + toString() + ", "
+                        + newScale + ") is out of range");
             }
             DateTimeV2Literal result = (DateTimeV2Literal) plus1Second;
             newSecond = result.second;
