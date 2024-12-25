@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -730,5 +732,15 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
 
         this.resetQueueProperty(this.properties);
+    }
+
+    @Override
+    public WorkloadGroup clone() {
+        WorkloadGroup copied = DeepCopy.copy(this, WorkloadGroup.class, FeConstants.meta_version);
+        if (copied == null) {
+            LOG.warn("failed to clone workload: " + getName());
+            return null;
+        }
+        return copied;
     }
 }
