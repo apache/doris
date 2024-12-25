@@ -93,6 +93,8 @@ public class ConnectScheduler {
     // Register one connection with its connection id.
     public boolean registerConnection(ConnectContext ctx) {
         if (numberConnection.incrementAndGet() > maxConnections) {
+            LOG.info("Number connection {} has reach upper limit {}. Connection map : [{}]",
+                    numberConnection.get(), maxConnections, connectionMap);
             numberConnection.decrementAndGet();
             return false;
         }
@@ -100,6 +102,8 @@ public class ConnectScheduler {
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
         AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
         if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+            LOG.info("User {}'s connection {} has reached upper limit {}. connByUser: [{}]", ctx.getQualifiedUser(),
+                    conns.get(), ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser()), connByUser);
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
