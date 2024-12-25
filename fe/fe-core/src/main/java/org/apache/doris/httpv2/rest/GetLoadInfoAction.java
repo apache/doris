@@ -67,10 +67,8 @@ public class GetLoadInfoAction extends RestBaseController {
         if (Strings.isNullOrEmpty(info.label)) {
             return new RestBaseResult("No label selected");
         }
-
-        Object redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
+        if (!Env.getServingEnv().isMaster()) {
+            return forwardToMaster(request);
         }
 
         try {

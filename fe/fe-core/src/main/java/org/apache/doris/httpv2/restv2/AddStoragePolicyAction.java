@@ -53,7 +53,7 @@ public class AddStoragePolicyAction extends RestBaseController {
 
         try {
             if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMasterOrException(request, response);
+                return forwardToMaster(request, body);
             }
         } catch (Exception e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

@@ -31,19 +31,28 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import jline.internal.Nullable;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Collections;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -73,6 +82,13 @@ public class RestBaseController extends BaseController {
     }
 
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
+        RedirectView redirectView = new RedirectView(getRedirectUrL(request, addr));
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
         URI urlObj = null;
         URI resultUriObj = null;
         String urlStr = request.getRequestURI();
@@ -84,7 +100,7 @@ public class RestBaseController extends BaseController {
         }
         try {
             urlObj = new URI(urlStr);
-            resultUriObj = new URI("http", userInfo, addr.getHostname(),
+            resultUriObj = new URI(request.getScheme(), userInfo, addr.getHostname(),
                     addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -93,12 +109,9 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
-                    + addr.getPort() + urlObj.getPath());
-        RedirectView redirectView = new RedirectView(redirectUrl);
-        redirectView.setContentType("text/html;charset=utf-8");
-        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
-        return redirectView;
+        LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
+                + addr.getPort() + urlObj.getPath());
+        return redirectUrl;
     }
 
     public RedirectView redirectToObj(String sign) throws URISyntaxException {
@@ -196,5 +209,60 @@ public class RestBaseController extends BaseController {
         RedirectView redirectView = new RedirectView(newUrl);
         redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
         return redirectView;
+    }
+
+    public Object forwardToMaster(HttpServletRequest request) {
+        try {
+            return forwardToMaster(request, (Object) getRequestBody(request));
+        } catch (Exception e) {
+            LOG.warn(e);
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    private String getRequestBody(HttpServletRequest request) throws IOException {
+        BufferedReader reader = request.getReader();
+        return reader.lines().collect(Collectors.joining(System.lineSeparator()));
+    }
+
+    public Object forwardToMaster(HttpServletRequest request, @Nullable Object body) {
+        try {
+            Env env = Env.getCurrentEnv();
+            String redirectUrl = getRedirectUrL(request,
+                    new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+            String method = request.getMethod();
+
+            HttpHeaders headers = new HttpHeaders();
+            for (String headerName : Collections.list(request.getHeaderNames())) {
+                headers.add(headerName, request.getHeader(headerName));
+            }
+
+            HttpEntity<Object> entity = new HttpEntity<>(body, headers);
+
+            RestTemplate restTemplate = new RestTemplate();
+
+            ResponseEntity<Object> responseEntity;
+            switch (method) {
+                case "GET":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.GET, entity, Object.class);
+                    break;
+                case "POST":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.POST, entity, Object.class);
+                    break;
+                case "PUT":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.PUT, entity, Object.class);
+                    break;
+                case "DELETE":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.DELETE, entity, Object.class);
+                    break;
+                default:
+                    throw new UnsupportedOperationException("Unsupported HTTP method: " + method);
+            }
+
+            return responseEntity.getBody();
+        } catch (Exception e) {
+            LOG.warn(e);
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
     }
 }
