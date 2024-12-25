@@ -583,7 +583,8 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
     for (int j = 0; j < meta_data->row_groups.size(); ++j) {
         auto& column_chunk = meta_data->row_groups[j].columns[ICEBERG_FILE_PATH_INDEX];
         if (!(column_chunk.__isset.meta_data &&
-              column_chunk.meta_data.__isset.dictionary_page_offset)) {
+              column_chunk.meta_data.__isset.dictionary_page_offset &&
+              column_chunk.meta_data.dictionary_page_offset > 0)) {
             dictionary_coded = false;
             break;
         }

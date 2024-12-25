@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include <list>
+#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -38,7 +39,9 @@
 #include "util/obj_lru_cache.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/parquet/parquet_column_chunk_file_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/parquet/reference_counted_reader.h"
 #include "vparquet_column_reader.h"
 #include "vparquet_group_reader.h"
 
@@ -190,6 +193,9 @@ private:
         RuntimeProfile::Counter* skip_page_header_num = nullptr;
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
+
+        RuntimeProfile::Counter* merged_io = nullptr;
+        RuntimeProfile::Counter* merged_bytes = nullptr;
     };
 
     Status _open_file();
@@ -207,6 +213,67 @@ private:
     Status _process_page_index(const tparquet::RowGroup& row_group,
                                std::vector<RowRange>& candidate_row_ranges);
 
+    class ParquetChunkReader : public ChunkReader {
+    public:
+        ParquetChunkReader(std::shared_ptr<ReferenceCountedReader> loader,
+                           const io::PrefetchRange& range, const io::PrefetchRange& merged_range)
+                : loader_(std::move(loader)), range_(range), merged_range_(merged_range) {}
+
+        ~ParquetChunkReader() override { free(); }
+
+        int64_t getDiskOffset() override { return range_.start_offset; }
+
+        Status read(const io::IOContext* io_ctx, std::shared_ptr<Slice>* result) override {
+            DCHECK(result != nullptr);
+            std::shared_ptr<Slice> slice;
+            RETURN_IF_ERROR(loader_->read(io_ctx, &slice));
+            if (!slice) {
+                return Status::InternalError("Failed to read data from loader");
+            }
+
+            // 计算在合并范围中的偏移量
+            int64_t offset = range_.start_offset - merged_range_.start_offset;
+            int64_t length = range_.end_offset - range_.start_offset;
+
+            // 创建新的切片，指向原始数据的子范围
+            *result = std::make_shared<Slice>(slice->data + offset, length);
+            return Status::OK();
+        }
+
+        void free() override {
+            if (loader_) {
+                loader_->free();
+                loader_.reset();
+            }
+        }
+
+        size_t size() override { return loader_->size(); }
+
+        size_t file_size() override { return loader_->file_size(); }
+        const io::Path& path() const override { return loader_->path(); }
+
+        //std::shared_ptr<io::FileSystem> fs() const override { return loader_->fs(); }
+
+    private:
+        std::shared_ptr<ReferenceCountedReader> loader_;
+        io::PrefetchRange range_;
+        io::PrefetchRange merged_range_;
+    };
+
+    std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>> _plan_read(
+            const std::multimap<ChunkKey, io::PrefetchRange>& ranges);
+
+    std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> _plan_chunks_read(
+            const std::multimap<ChunkKey, io::PrefetchRange>& ranges);
+
+    std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> _read_small_ranges(
+            const std::multimap<ChunkKey, io::PrefetchRange>& ranges);
+
+    std::multimap<ChunkKey, std::shared_ptr<ChunkReader>> _read_large_ranges(
+            const std::multimap<ChunkKey, io::PrefetchRange>& ranges);
+
+    std::vector<io::PrefetchRange> _split_large_range(const io::PrefetchRange& range);
+
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
     Status _process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& column_meta,
@@ -220,6 +287,10 @@ private:
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
+    // 递归获取所有叶子节点字段
+    void _get_leaf_fields(const FieldSchema* field, std::vector<const FieldSchema*>* leaf_fields);
+    std::multimap<ChunkKey, io::PrefetchRange> _generate_random_access_ranges2(size_t* avg_io_size);
+
     void _collect_profile();
 
     static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
@@ -288,5 +359,8 @@ private:
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+    std::map<ChunkKey, std::shared_ptr<ParquetColumnChunkFileReader>>
+            _parquet_column_chunk_file_readers;
+    ChunkReader::Statistics _chunk_readers_stats;
 };
 } // namespace doris::vectorized
