@@ -120,7 +120,7 @@ public class BaseController {
     }
 
     private ActionAuthorizationInfo checkCookie(HttpServletRequest request, HttpServletResponse response,
-                                                boolean checkAuth) {
+            boolean checkAuth) {
         List<String> sessionIds = getCookieValues(request, PALO_SESSION_ID, response);
         if (sessionIds.isEmpty()) {
             return null;
@@ -240,7 +240,8 @@ public class BaseController {
         checkTblAuth(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl, predicate);
     }
 
-    protected void checkTblAuth(UserIdentity currentUser, String catalog, String db, String tbl, PrivPredicate predicate)
+    protected void checkTblAuth(UserIdentity currentUser, String catalog, String db, String tbl,
+            PrivPredicate predicate)
             throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(currentUser, catalog, db, tbl, predicate)) {
