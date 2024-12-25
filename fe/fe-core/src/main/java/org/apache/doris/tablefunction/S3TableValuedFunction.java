@@ -32,6 +32,7 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
@@ -58,14 +59,12 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
         final boolean isAzureTvf = AzureProperties.checkAzureProviderPropertyExist(properties);
         // Azure could run without region
-        if (isAzureTvf) {
-            try {
-                properties.put(S3Properties.REGION, "DUMMY-REGION");
-            } catch (UnsupportedOperationException e) {
-                // copy properties if the map is immutable
-                properties = Maps.newHashMap(properties);
-                properties.put(S3Properties.REGION, "DUMMY-REGION");
-            }
+        if (isAzureTvf && !properties.containsKey(S3Properties.REGION)) {
+            // copy properties because it's immutable
+            properties = new ImmutableMap.Builder<String, String>()
+                    .putAll(properties)
+                    .put(S3Properties.REGION, "DUMMY-REGION")
+                    .build();
         }
         // 1. analyze common properties
         Map<String, String> otherProps = super.parseCommonProperties(properties);
