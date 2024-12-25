@@ -65,6 +65,10 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
         _engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        // reset config
+        config::inverted_index_max_buffered_docs = -1;
+        config::compaction_batch_size = -1;
+        config::inverted_index_compaction_enable = false;
     }
 
     IndexCompactionTest() = default;
