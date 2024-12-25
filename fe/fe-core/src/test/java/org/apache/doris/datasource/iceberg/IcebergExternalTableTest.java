@@ -28,17 +28,21 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.transforms.Days;
 import org.apache.iceberg.transforms.Hours;
 import org.apache.iceberg.transforms.Months;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,6 +56,16 @@ public class IcebergExternalTableTest {
                                               @Mocked Schema schema) {
         IcebergExternalTable table = new IcebergExternalTable(1, "1", "2", null);
         Map<Integer, PartitionSpec> specs = Maps.newHashMap();
+        new MockUp<IcebergExternalTable>() {
+            @Mock
+            private void makeSureInitialized() {
+            }
+
+            @Mock
+            public Table getIcebergTable() {
+                return icebergTable;
+            }
+        };
         // Test null
         specs.put(0, null);
         new Expectations() {{
@@ -139,34 +153,35 @@ public class IcebergExternalTableTest {
         table.setPartitionColumns(partitionColumns);
 
         // Test null partition value
-        Range<PartitionKey> nullRange = table.getPartitionRange(null, "hour");
-        Assertions.assertFalse(nullRange.hasLowerBound());
-        Assertions.assertEquals("0000-01-02 00:00:00",
+        Range<PartitionKey> nullRange = table.getPartitionRange(null, "hour", partitionColumns);
+        Assertions.assertEquals("0000-01-01 00:00:00",
+                nullRange.lowerEndpoint().getPartitionValuesAsStringList().get(0));
+        Assertions.assertEquals("0000-01-01 00:00:01",
                 nullRange.upperEndpoint().getPartitionValuesAsStringList().get(0));
 
         // Test hour transform.
-        Range<PartitionKey> hour = table.getPartitionRange("100", "hour");
+        Range<PartitionKey> hour = table.getPartitionRange("100", "hour", partitionColumns);
         PartitionKey lowKey = hour.lowerEndpoint();
         PartitionKey upKey = hour.upperEndpoint();
         Assertions.assertEquals("1970-01-05 04:00:00", lowKey.getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("1970-01-05 05:00:00", upKey.getPartitionValuesAsStringList().get(0));
 
         // Test day transform.
-        Range<PartitionKey> day = table.getPartitionRange("100", "day");
+        Range<PartitionKey> day = table.getPartitionRange("100", "day", partitionColumns);
         lowKey = day.lowerEndpoint();
         upKey = day.upperEndpoint();
         Assertions.assertEquals("1970-04-11 00:00:00", lowKey.getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("1970-04-12 00:00:00", upKey.getPartitionValuesAsStringList().get(0));
 
         // Test month transform.
-        Range<PartitionKey> month = table.getPartitionRange("100", "month");
+        Range<PartitionKey> month = table.getPartitionRange("100", "month", partitionColumns);
         lowKey = month.lowerEndpoint();
         upKey = month.upperEndpoint();
         Assertions.assertEquals("1978-05-01 00:00:00", lowKey.getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("1978-06-01 00:00:00", upKey.getPartitionValuesAsStringList().get(0));
 
         // Test year transform.
-        Range<PartitionKey> year = table.getPartitionRange("100", "year");
+        Range<PartitionKey> year = table.getPartitionRange("100", "year", partitionColumns);
         lowKey = year.lowerEndpoint();
         upKey = year.upperEndpoint();
         Assertions.assertEquals("2070-01-01 00:00:00", lowKey.getPartitionValuesAsStringList().get(0));
@@ -174,7 +189,7 @@ public class IcebergExternalTableTest {
 
         // Test unsupported transform
         Exception exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            table.getPartitionRange("100", "bucket");
+            table.getPartitionRange("100", "bucket", partitionColumns);
         });
         Assertions.assertEquals("Unsupported transform bucket", exception.getMessage());
     }
@@ -183,15 +198,16 @@ public class IcebergExternalTableTest {
     public void testSortRange() throws AnalysisException {
         IcebergExternalTable table = new IcebergExternalTable(1, "1", "2", null);
         Column c = new Column("c", PrimitiveType.DATETIMEV2);
+        ArrayList<Column> columns = Lists.newArrayList(c);
         table.setPartitionColumns(Lists.newArrayList(c));
-        PartitionItem nullRange = new RangePartitionItem(table.getPartitionRange(null, "hour"));
-        PartitionItem year1970 = new RangePartitionItem(table.getPartitionRange("0", "year"));
-        PartitionItem year1971 = new RangePartitionItem(table.getPartitionRange("1", "year"));
-        PartitionItem month197002 = new RangePartitionItem(table.getPartitionRange("1", "month"));
-        PartitionItem month197103 = new RangePartitionItem(table.getPartitionRange("14", "month"));
-        PartitionItem month197204 = new RangePartitionItem(table.getPartitionRange("27", "month"));
-        PartitionItem day19700202 = new RangePartitionItem(table.getPartitionRange("32", "day"));
-        PartitionItem day19730101 = new RangePartitionItem(table.getPartitionRange("1096", "day"));
+        PartitionItem nullRange = new RangePartitionItem(table.getPartitionRange(null, "hour", columns));
+        PartitionItem year1970 = new RangePartitionItem(table.getPartitionRange("0", "year", columns));
+        PartitionItem year1971 = new RangePartitionItem(table.getPartitionRange("1", "year", columns));
+        PartitionItem month197002 = new RangePartitionItem(table.getPartitionRange("1", "month", columns));
+        PartitionItem month197103 = new RangePartitionItem(table.getPartitionRange("14", "month", columns));
+        PartitionItem month197204 = new RangePartitionItem(table.getPartitionRange("27", "month", columns));
+        PartitionItem day19700202 = new RangePartitionItem(table.getPartitionRange("32", "day", columns));
+        PartitionItem day19730101 = new RangePartitionItem(table.getPartitionRange("1096", "day", columns));
         Map<String, PartitionItem> map = Maps.newHashMap();
         map.put("nullRange", nullRange);
         map.put("year1970", year1970);

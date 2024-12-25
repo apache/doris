@@ -62,6 +62,7 @@ public enum RuleType {
     BINDING_UNBOUND_TVF_RELATION_FUNCTION(RuleTypeClass.REWRITE),
     BINDING_SET_OPERATION_SLOT(RuleTypeClass.REWRITE),
     BINDING_INLINE_TABLE_SLOT(RuleTypeClass.REWRITE),
+    LOGICAL_INLINE_TABLE_TO_LOGICAL_UNION_OR_ONE_ROW_RELATION(RuleTypeClass.REWRITE),
 
     COUNT_LITERAL_REWRITE(RuleTypeClass.REWRITE),
     SUM_LITERAL_REWRITE(RuleTypeClass.REWRITE),
@@ -496,8 +497,7 @@ public enum RuleType {
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
 
     // sentinel, use to count rules
-    SENTINEL(RuleTypeClass.SENTINEL),
-    ;
+    SENTINEL(RuleTypeClass.SENTINEL);
 
     private final RuleTypeClass ruleTypeClass;
 

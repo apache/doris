@@ -657,7 +657,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         Slice slice {value.data, value.size};
 
-        IColumn* col_ptr = columns[i];
+        IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
@@ -700,7 +700,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
                                    size_t* rows) {
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        IColumn* col_ptr = columns[i];
+        IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());

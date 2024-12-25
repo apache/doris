@@ -2142,7 +2142,7 @@ public:
 
         NullMapType* dest_nested_null_map = nullptr;
         auto* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
-        dest_nested_column = dest_nullable_col->get_nested_column_ptr();
+        dest_nested_column = dest_nullable_col->get_nested_column_ptr().get();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
         const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
@@ -4436,7 +4436,7 @@ public:
         } else if (is_ascii) {
             impl_vectors = impl_vectors_ascii<false>;
         }
-        impl_vectors(col_source, col_from, col_to, col_res);
+        impl_vectors(col_source, col_from, col_to, col_res.get());
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }

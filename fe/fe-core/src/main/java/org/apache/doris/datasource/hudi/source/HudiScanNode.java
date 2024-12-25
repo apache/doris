@@ -91,8 +91,6 @@ public class HudiScanNode extends HiveScanNode {
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
-    private final boolean useHiveSyncPartition;
-
     private HoodieTableMetaClient hudiClient;
     private String basePath;
     private String inputFormat;
@@ -102,7 +100,6 @@ public class HudiScanNode extends HiveScanNode {
 
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
-    private Option<String> snapshotTimestamp;
     private String queryInstant;
 
     private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
@@ -113,7 +110,6 @@ public class HudiScanNode extends HiveScanNode {
     private boolean incrementalRead = false;
     private TableScanParams scanParams;
     private IncrementalRelation incrementalRelation;
-    private SessionVariable sessionVariable;
 
     /**
      * External file scan node for Query Hudi table
@@ -125,8 +121,8 @@ public class HudiScanNode extends HiveScanNode {
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
-            SessionVariable sessionVariable) {
-        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv, sessionVariable);
+            SessionVariable sv) {
+        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv, sv);
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {
@@ -136,11 +132,9 @@ public class HudiScanNode extends HiveScanNode {
                         hmsTable.getFullQualifiers());
             }
         }
-        useHiveSyncPartition = hmsTable.useHiveSyncPartition();
         this.scanParams = scanParams.orElse(null);
         this.incrementalRelation = incrementalRelation.orElse(null);
         this.incrementalRead = (this.scanParams != null && this.scanParams.incrementalRead());
-        this.sessionVariable = sessionVariable;
     }
 
     @Override
@@ -215,7 +209,6 @@ public class HudiScanNode extends HiveScanNode {
                 throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
             }
             queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
-            snapshotTimestamp = Option.of(queryInstant);
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {
@@ -224,7 +217,6 @@ public class HudiScanNode extends HiveScanNode {
                 return;
             }
             queryInstant = snapshotInstant.get().getTimestamp();
-            snapshotTimestamp = Option.empty();
         }
     }
 

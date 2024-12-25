@@ -27,9 +27,14 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -77,7 +82,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf {
+public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
     public static final String YEAR = "year";
     public static final String MONTH = "month";
@@ -117,39 +122,23 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public Optional<SchemaCacheValue> initSchema() {
-        table = IcebergUtils.getIcebergTable(catalog, dbName, name);
-        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, name);
-        Snapshot snapshot = table.currentSnapshot();
-        if (snapshot == null) {
-            LOG.debug("Table {} is empty", name);
-            return Optional.of(new IcebergSchemaCacheValue(schema, null, -1, null));
-        }
-        long snapshotId = snapshot.snapshotId();
-        partitionColumns = null;
-        IcebergPartitionInfo partitionInfo = null;
-        if (isValidRelatedTable()) {
-            PartitionSpec spec = table.spec();
-            partitionColumns = Lists.newArrayList();
-
-            // For iceberg table, we only support table with 1 partition column as RelatedTable.
-            // So we use spec.fields().get(0) to get the partition column.
-            Types.NestedField col = table.schema().findField(spec.fields().get(0).sourceId());
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
+        table = getIcebergTable();
+        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, name,
+                ((IcebergSchemaCacheKey) key).getSchemaId());
+        List<Column> tmpColumns = Lists.newArrayList();
+        PartitionSpec spec = table.spec();
+        for (PartitionField field : spec.fields()) {
+            Types.NestedField col = table.schema().findField(field.sourceId());
             for (Column c : schema) {
                 if (c.getName().equalsIgnoreCase(col.name())) {
-                    partitionColumns.add(c);
+                    tmpColumns.add(c);
                     break;
                 }
             }
-            Preconditions.checkState(partitionColumns.size() == 1,
-                    "Support 1 partition column for iceberg table, but found " + partitionColumns.size());
-            try {
-                partitionInfo = loadPartitionInfo();
-            } catch (AnalysisException e) {
-                LOG.warn("Failed to load iceberg table {} partition info.", name, e);
-            }
         }
-        return Optional.of(new IcebergSchemaCacheValue(schema, partitionColumns, snapshotId, partitionInfo));
+        partitionColumns = tmpColumns;
+        return Optional.of(new IcebergSchemaCacheValue(schema, partitionColumns));
     }
 
     @Override
@@ -187,6 +176,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
     }
 
+    private IcebergSnapshotCacheValue getIcebergSnapshotCacheValue() {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+            .getSnapshotCache(catalog, dbName, name);
+    }
+
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
         Env.getCurrentEnv().getRefreshManager()
@@ -195,46 +189,36 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(getPartitionInfoFromCache().getNameToPartitionItem());
+        return Maps.newHashMap(getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem());
     }
 
-    private IcebergPartitionInfo getPartitionInfoFromCache() {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        if (!schemaCacheValue.isPresent()) {
-            return new IcebergPartitionInfo();
-        }
-        return ((IcebergSchemaCacheValue) schemaCacheValue.get()).getPartitionInfo();
+    @Override
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem();
     }
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
-        makeSureInitialized();
         return isValidRelatedTable() ? PartitionType.RANGE : PartitionType.UNPARTITIONED;
     }
 
     @Override
     public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) throws DdlException {
-        return getPartitionColumnsFromCache().stream().map(Column::getName).collect(Collectors.toSet());
+        return getPartitionColumns(snapshot).stream().map(Column::getName).collect(Collectors.toSet());
     }
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        return getPartitionColumnsFromCache();
-    }
-
-    private List<Column> getPartitionColumnsFromCache() {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue
-                .map(cacheValue -> ((IcebergSchemaCacheValue) cacheValue).getPartitionColumns())
-                .orElseGet(Lists::newArrayList);
+        IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
+        IcebergSchemaCacheValue schemaValue = getIcebergSchemaCacheValue(snapshotValue.getSnapshot().getSchemaId());
+        return schemaValue.getPartitionColumns();
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        long latestSnapshotId = getPartitionInfoFromCache().getLatestSnapshotId(partitionName);
+        IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
+        long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
         if (latestSnapshotId <= 0) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
@@ -244,16 +228,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        return new MTMVVersionSnapshot(getLatestSnapshotIdFromCache());
-    }
-
-    public long getLatestSnapshotIdFromCache() throws AnalysisException {
         makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        if (!schemaCacheValue.isPresent()) {
-            throw new AnalysisException("Can't find schema cache of table " + name);
-        }
-        return ((IcebergSchemaCacheValue) schemaCacheValue.get()).getSnapshotId();
+        IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
+        return new MTMVVersionSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
@@ -268,11 +245,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      */
     @Override
     public boolean isValidRelatedTable() {
+        makeSureInitialized();
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
         isValidRelatedTable = false;
         Set<String> allFields = Sets.newHashSet();
+        table = getIcebergTable();
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
                 isValidRelatedTableCached = true;
@@ -299,14 +278,62 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return isValidRelatedTable;
     }
 
-    protected IcebergPartitionInfo loadPartitionInfo() throws AnalysisException {
-        List<IcebergPartition> icebergPartitions = loadIcebergPartition();
+    @Override
+    public MvccSnapshot loadSnapshot() {
+        return new IcebergMvccSnapshot(getIcebergSnapshotCacheValue());
+    }
+
+    public long getLatestSnapshotId() {
+        table = getIcebergTable();
+        Snapshot snapshot = table.currentSnapshot();
+        return snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : table.currentSnapshot().snapshotId();
+    }
+
+    public long getSchemaId(long snapshotId) {
+        table = getIcebergTable();
+        return snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID
+                ? IcebergUtils.UNKNOWN_SNAPSHOT_ID
+                : table.snapshot(snapshotId).schemaId();
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(this);
+        IcebergSnapshotCacheValue cacheValue = getOrFetchSnapshotCacheValue(snapshotFromContext);
+        return getIcebergSchemaCacheValue(cacheValue.getSnapshot().getSchemaId()).getSchema();
+    }
+
+    @Override
+    public boolean supportInternalPartitionPruned() {
+        return true;
+    }
+
+    public IcebergSchemaCacheValue getIcebergSchemaCacheValue(long schemaId) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
+            new IcebergSchemaCacheKey(dbName, name, schemaId));
+        if (!schemaCacheValue.isPresent()) {
+            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
+                null, catalog.getName(), dbName, name, schemaId);
+        }
+        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+    }
+
+    public IcebergPartitionInfo loadPartitionInfo(long snapshotId) throws AnalysisException {
+        // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
+        if (!isValidRelatedTable() || snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
+            return new IcebergPartitionInfo();
+        }
+        List<IcebergPartition> icebergPartitions = loadIcebergPartition(snapshotId);
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+        table = getIcebergTable();
+        partitionColumns = getIcebergSchemaCacheValue(table.snapshot(snapshotId).schemaId()).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
-            Range<PartitionKey> partitionRange = getPartitionRange(partition.getPartitionValues().get(0), transform);
+            Range<PartitionKey> partitionRange = getPartitionRange(
+                    partition.getPartitionValues().get(0), transform, partitionColumns);
             PartitionItem item = new RangePartitionItem(partitionRange);
             nameToPartitionItem.put(partition.getPartitionName(), item);
         }
@@ -314,11 +341,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return new IcebergPartitionInfo(nameToPartitionItem, nameToPartition, partitionNameMap);
     }
 
-    public List<IcebergPartition> loadIcebergPartition() {
+    public List<IcebergPartition> loadIcebergPartition(long snapshotId) {
         PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils
                 .createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         List<IcebergPartition> partitions = Lists.newArrayList();
-        try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
+        try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
             for (FileScanTask task : tasks) {
                 CloseableIterable<StructLike> rows = task.asDataTask().rows();
                 for (StructLike row : rows) {
@@ -344,6 +371,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         // 8. equality_delete_file_count,
         // 9. last_updated_at,
         // 10. last_updated_snapshot_id
+        table = getIcebergTable();
         Preconditions.checkState(!table.spec().fields().isEmpty(), table.name() + " is not a partition table.");
         int specId = row.get(1, Integer.class);
         PartitionSpec partitionSpec = table.specs().get(specId);
@@ -382,13 +410,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @VisibleForTesting
-    public Range<PartitionKey> getPartitionRange(String value, String transform)
+    public Range<PartitionKey> getPartitionRange(String value, String transform, List<Column> partitionColumns)
             throws AnalysisException {
-        // For NULL value, create a lessThan partition for it.
+        // For NULL value, create a minimum partition for it.
         if (value == null) {
-            PartitionKey nullKey = PartitionKey.createPartitionKey(
-                    Lists.newArrayList(new PartitionValue("0000-01-02")), partitionColumns);
-            return Range.lessThan(nullKey);
+            PartitionKey nullLowKey = PartitionKey.createPartitionKey(
+                    Lists.newArrayList(new PartitionValue("0000-01-01")), partitionColumns);
+            PartitionKey nullUpKey = nullLowKey.successor();
+            return Range.closedOpen(nullLowKey, nullUpKey);
         }
         LocalDateTime epoch = Instant.EPOCH.atZone(ZoneId.of("UTC")).toLocalDateTime();
         LocalDateTime target;
@@ -524,5 +553,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public void setIsValidRelatedTableCached(boolean isCached) {
         this.isValidRelatedTableCached = isCached;
+    }
+
+    private IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent()) {
+            return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+        } else {
+            return getIcebergSnapshotCacheValue();
+        }
     }
 }

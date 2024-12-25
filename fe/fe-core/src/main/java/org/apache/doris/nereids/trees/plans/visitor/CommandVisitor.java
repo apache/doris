@@ -67,11 +67,13 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -136,6 +138,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
@@ -151,6 +154,7 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogComma
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
@@ -308,6 +312,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(callCommand, context);
     }
 
+    default R visitShowWarningErrorCountCommand(ShowWarningErrorCountCommand showWarnErrorCountCommand, C context) {
+        return visitCommand(showWarnErrorCountCommand, context);
+    }
+
     default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
         return visitCommand(showSyncJobCommand, context);
     }
@@ -334,6 +342,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateProcedureCommand(ShowCreateProcedureCommand showCreateProcedureCommand, C context) {
         return visitCommand(showCreateProcedureCommand, context);
+    }
+
+    default R visitHelpCommand(HelpCommand helpCommand, C context) {
+        return visitCommand(helpCommand, context);
     }
 
     default R visitCreateViewCommand(CreateViewCommand createViewCommand, C context) {
@@ -399,6 +411,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitSetDefaultStorageVault(SetDefaultStorageVaultCommand setDefaultStorageVaultCommand, C context) {
         return visitCommand(setDefaultStorageVaultCommand, context);
+    }
+
+    default R visitDropStoragePolicyCommand(DropStoragePolicyCommand dropStoragePolicyCommand, C context) {
+        return visitCommand(dropStoragePolicyCommand, context);
     }
 
     default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
@@ -696,5 +712,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitSwitchCommand(SwitchCommand switchCommand, C context) {
         return visitCommand(switchCommand, context);
+    }
+
+    default R visitUseCommand(UseCommand useCommand, C context) {
+        return visitCommand(useCommand, context);
     }
 }

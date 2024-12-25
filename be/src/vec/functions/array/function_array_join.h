@@ -78,10 +78,11 @@ public:
 
         auto nested_type = data_type_array->get_nested_type();
         auto dest_column_ptr = ColumnString::create();
-        DCHECK(dest_column_ptr != nullptr);
+        DCHECK(dest_column_ptr);
 
-        auto res_val = _execute_by_type(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
-                                        sep_str, null_replace_str, nested_type, dest_column_ptr);
+        auto res_val =
+                _execute_by_type(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
+                                 sep_str, null_replace_str, nested_type, dest_column_ptr.get());
         if (!res_val) {
             return Status::RuntimeError(fmt::format(
                     "execute failed or unsupported types for function {}({},{},{})", "array_join",
