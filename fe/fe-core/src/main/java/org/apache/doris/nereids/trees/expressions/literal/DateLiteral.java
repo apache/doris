@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -530,9 +531,10 @@ public class DateLiteral extends Literal {
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateType.INSTANCE)
-                : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range: " + dateTime.toString());
+        }
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 
     /**
