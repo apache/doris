@@ -32,14 +32,17 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         createDatabase("test");
         useDatabase("test");
         createTable("create table table1\n"
-                + "(k1 int comment 'test column k1', k2 int comment 'test column k2', `timestamp` DATE NOT NULL COMMENT '[''0000-01-01'', ''9999-12-31'']')  comment 'test table1' "
+                + "(k1 int comment 'test column k1', k2 int comment 'test column k2', `timestamp` DATE NOT NULL COMMENT '[''0000-01-01'', ''9999-12-31'']')\n"
+                + "UNIQUE KEY(`k1`)\n"
+                + "comment 'test table1'\n"
                 + "PARTITION BY RANGE(`k1`)\n"
                 + "(\n"
                 + "    PARTITION `p01` VALUES LESS THAN (\"10\"),\n"
                 + "    PARTITION `p02` VALUES LESS THAN (\"100\")\n"
                 + ") "
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\" = \"1\");");
+                + "properties(\"replication_num\" = \"1\", \"enable_unique_key_skip_bitmap_column\" = \"false\", "
+                + "\"enable_unique_key_merge_on_write\" = \"true\");");
     }
 
 
@@ -70,4 +73,14 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         Assertions.assertTrue(!showSql.contains("PARTITION BY"));
         Assertions.assertTrue(!showSql.contains("PARTITION `p01`"));
     }
+
+    @Test
+    public void testProperty() throws Exception {
+        String sql = "show create table table1";
+        ShowResultSet showResultSet = showCreateTable(sql);
+        String showSql = showResultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(showSql.contains("\"enable_unique_key_merge_on_write\" = \"true\""));
+        Assertions.assertTrue(showSql.contains("\"enable_unique_key_skip_bitmap_column\" = \"false\""));
+    }
+
 }
