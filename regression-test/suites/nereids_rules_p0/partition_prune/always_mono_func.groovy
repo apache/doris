@@ -107,7 +107,7 @@ suite("always_mono_func") {
     }
     explain {
         sql """select * from always_mono_func where date_format(dt, "%Y %m") > "2019 01" """
-        contains("partitions=2/5 (p4,p5)")
+        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
     }
 
     explain {
