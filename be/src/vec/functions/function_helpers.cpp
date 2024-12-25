@@ -139,7 +139,7 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
 
     const ColumnConst* res = assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(column);
 
-    if (check_column<ColumnString>(&res->get_data_column())) return res;
+    if (is_column<ColumnString>(&res->get_data_column())) return res;
 
     return {};
 }

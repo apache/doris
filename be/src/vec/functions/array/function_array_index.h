@@ -340,7 +340,7 @@ private:
                                        const IColumn& right_column,
                                        const UInt8* right_nested_null_map,
                                        const UInt8* outer_null_map) const {
-        if (check_column<NestedColumnType>(right_column)) {
+        if (is_column<NestedColumnType>(right_column)) {
             return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
                     outer_null_map);

@@ -110,7 +110,7 @@ void VExplodeJsonObjectTableFunction::get_same_many_values(MutableColumnPtr& col
         assert_cast<ColumnUInt8*>(
                 assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                 ->insert_many_defaults(length);
-    } else if (column->is_column_struct()) {
+    } else if (is_column<ColumnStruct>(column.get())) {
         ret = assert_cast<ColumnStruct*>(column.get());
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,

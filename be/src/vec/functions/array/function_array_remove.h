@@ -254,7 +254,7 @@ private:
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const IColumn& nested_column, const IColumn& right_column,
                                        const UInt8* nested_null_map) const {
-        if (check_column<NestedColumnType>(right_column)) {
+        if (is_column<NestedColumnType>(right_column)) {
             return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_column, right_column, nested_null_map);
         }

@@ -1363,7 +1363,7 @@ public:
                 null_list[i] = &const_null_map->get_data();
             }
 
-            if (check_column<ColumnArray>(argument_columns[i].get())) {
+            if (is_column<ColumnArray>(argument_columns[i].get())) {
                 continue;
             }
 
@@ -1380,7 +1380,7 @@ public:
         fmt::memory_buffer buffer;
         std::vector<std::string_view> views;
 
-        if (check_column<ColumnArray>(argument_columns[1].get())) {
+        if (is_column<ColumnArray>(argument_columns[1].get())) {
             // Determine if the nested type of the array is String
             const auto& array_column = reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
             if (!array_column.get_data().is_column_string()) {

@@ -57,7 +57,7 @@ const ColumnConst* check_and_get_column_const(const IColumn* column) {
 
     const ColumnConst* res = assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(column);
 
-    if (!check_column<Type>(&res->get_data_column())) return {};
+    if (!is_column<Type>(&res->get_data_column())) return {};
 
     return res;
 }

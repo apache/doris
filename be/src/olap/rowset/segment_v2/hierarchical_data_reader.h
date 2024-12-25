@@ -173,7 +173,7 @@ private:
             for (const auto& subcolumn : entry.second) {
                 const auto& column = subcolumn.column;
                 const auto& type = subcolumn.type;
-                if (!check_column<ColumnArray>(remove_nullable(column))) {
+                if (!is_column<ColumnArray>(remove_nullable(column).get())) {
                     return Status::InvalidArgument(
                             "Meet none array column when flatten nested array, path {}, type {}",
                             subcolumn.path.get_path(), subcolumn.type->get_name());

@@ -609,10 +609,6 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
-    virtual bool is_column_map() const { return false; }
-
-    virtual bool is_column_struct() const { return false; }
-
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
@@ -713,12 +709,12 @@ const Type* check_and_get_column(const IColumn* column) {
 }
 
 template <typename Type>
-bool check_column(const IColumn& column) {
+bool is_column(const IColumn& column) {
     return check_and_get_column<Type>(&column);
 }
 
 template <typename Type>
-bool check_column(const IColumn* column) {
+bool is_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
 }
 

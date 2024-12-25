@@ -329,8 +329,6 @@ public:
     bool is_nullable() const override { return true; }
     bool is_concrete_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
-    bool is_column_map() const override { return get_nested_column().is_column_map(); }
-    bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() &&
