@@ -237,8 +237,13 @@ public class BaseController {
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
+        checkTblAuth(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl, predicate);
+    }
+
+    protected void checkTblAuth(UserIdentity currentUser, String catalog, String db, String tbl, PrivPredicate predicate)
+            throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl, predicate)) {
+                .checkTblPriv(currentUser, catalog, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
