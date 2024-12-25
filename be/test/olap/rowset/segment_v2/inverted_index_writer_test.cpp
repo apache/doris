@@ -350,7 +350,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write_v2();
+        status = index_file_writer->write();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -418,7 +418,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write_v2();
+        status = index_file_writer->write();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -484,7 +484,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write_v2();
+        status = index_file_writer->write();
         EXPECT_TRUE(status.ok()) << status;
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
@@ -560,7 +560,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write_v2();
+        status = index_file_writer->write();
         EXPECT_TRUE(status.ok()) << status;
 
         // Restore original config value
@@ -745,12 +745,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->write_v2();
+    status = index_file_writer_enabled->write();
     EXPECT_TRUE(status.ok()) << status;
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->write_v2();
+    status = index_file_writer_disabled->write();
     EXPECT_TRUE(status.ok()) << status;
 
     // Restore original config value

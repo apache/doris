@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -116,11 +117,12 @@ public class InvertedIndexUtil {
     }
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
-            Map<String, String> properties) throws AnalysisException {
+            Map<String, String> properties,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         String parser = null;
         if (properties != null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY);
-            checkInvertedIndexProperties(properties);
+            checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
         }
 
         // default is "none" if not set
@@ -149,7 +151,8 @@ public class InvertedIndexUtil {
         }
     }
 
-    public static void checkInvertedIndexProperties(Map<String, String> properties) throws AnalysisException {
+    public static void checkInvertedIndexProperties(Map<String, String> properties, PrimitiveType colType,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         Set<String> allowedKeys = new HashSet<>(Arrays.asList(
                 INVERTED_INDEX_PARSER_KEY,
                 INVERTED_INDEX_PARSER_MODE_KEY,
@@ -226,10 +229,22 @@ public class InvertedIndexUtil {
                     + ", stopWords must be none");
         }
 
-        if (dictCompression != null && !dictCompression.matches("true|false")) {
-            throw new AnalysisException(
-                    "Invalid inverted index 'dict_compression' value: "
-                            + dictCompression + ", dict_compression must be true or false");
+        if (dictCompression != null) {
+            if (!colType.isStringType()) {
+                throw new AnalysisException("dict_compression can only be set for StringType columns. type: "
+                        + colType);
+            }
+
+            if (!dictCompression.matches("true|false")) {
+                throw new AnalysisException(
+                        "Invalid inverted index 'dict_compression' value: "
+                                + dictCompression + ", dict_compression must be true or false");
+            }
+
+            if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.V3) {
+                throw new AnalysisException(
+                        "dict_compression can only be set when storage format is V3");
+            }
         }
     }
 }
