@@ -674,7 +674,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     // this is an un-partitioned table, use table name as partition name
                     if (olapTable.isTemporary()) {
-                        partitionNames.add(Util.getTempTableOuterName(olapTable.getName()));
+                        partitionNames.add(Util.getTempTableDisplayName(olapTable.getName()));
                     } else {
                         partitionNames.add(olapTable.getName());
                     }

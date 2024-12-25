@@ -308,6 +308,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
+        if (isTemp && !engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
+            throw new AnalysisException("Temporary table should be OLAP table");
+        }
 
         super.analyze(analyzer);
         tableName.analyze(analyzer);

@@ -1029,9 +1029,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
-        if (table.isTemporary() && ConnectContext.get() != null) {
-            ConnectContext.get().removeTempTableFromDB(db.getFullName(), tableName);
-        }
     }
 
     private static String genDropHint(String dbName, TableIf table) {
@@ -1055,9 +1052,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
 
-        if (isReplay && table.isTemporary()) {
-            Env.getCurrentEnv().removePhantomTempTable(table);
-        }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         db.unregisterTable(table.getName());
         StopWatch watch = StopWatch.createStarted();
@@ -2437,6 +2431,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (stmt.isTemp()) {
             tableName = Util.generateTempTableInnerName(tableName);
         }
+
         boolean tableHasExist = false;
         BinlogConfig dbBinlogConfig;
         db.readLock();
@@ -2449,6 +2444,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         createTableBinlogConfig.mergeFromProperties(stmt.getProperties());
         if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
+        }
+        if (stmt.isTemp() && createTableBinlogConfig.isEnable()) {
+            throw new DdlException("Cannot create temporary table with binlog enable");
         }
         stmt.getProperties().putAll(createTableBinlogConfig.toProperties());
 
@@ -2502,7 +2500,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long partitionId = idGeneratorBuffer.getNextId();
             // use table name as single partition name
             if (stmt.isTemp()) {
-                partitionNameToId.put(Util.getTempTableOuterName(tableName), partitionId);
+                partitionNameToId.put(Util.getTempTableDisplayName(tableName), partitionId);
             } else {
                 partitionNameToId.put(tableName, partitionId);
             }
@@ -2548,6 +2546,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
+
+        if (stmt.isTemp()) {
+            properties.put("binlog.enable", "false");
+        }
 
         short minLoadReplicaNum = -1;
         try {
@@ -2933,7 +2935,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // use table name as this single partition name
             long partitionId = -1;
             if (stmt.isTemp()) {
-                partitionId = partitionNameToId.get(Util.getTempTableOuterName(tableName));
+                partitionId = partitionNameToId.get(Util.getTempTableDisplayName(tableName));
             } else {
                 partitionId = partitionNameToId.get(tableName);
             }
@@ -3103,7 +3105,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                 String partitionName = tableName;
                 if (stmt.isTemp()) {
-                    partitionName = Util.getTempTableOuterName(tableName);
+                    partitionName = Util.getTempTableDisplayName(tableName);
                 }
                 long partitionId = partitionNameToId.get(partitionName);
 

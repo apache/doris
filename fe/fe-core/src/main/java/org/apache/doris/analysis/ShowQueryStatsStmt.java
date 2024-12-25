@@ -140,7 +140,7 @@ public class ShowQueryStatsStmt extends ShowStmt implements NotFallbackInParser 
                         .checkTblPriv(ConnectContext.get(), ctlName, dbName, tableName, PrivPredicate.SHOW)) {
                     if (Util.isTempTable(tableName)) {
                         if (Util.isTempTableInCurrentSession(tableName)) {
-                            totalRows.add(Arrays.asList(Util.getTempTableOuterName(tableName),
+                            totalRows.add(Arrays.asList(Util.getTempTableDisplayName(tableName),
                                     String.valueOf(queryHit)));
                         }
                     } else {

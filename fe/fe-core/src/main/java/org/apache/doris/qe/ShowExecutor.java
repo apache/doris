@@ -881,7 +881,7 @@ public class ShowExecutor {
                     if (!Util.isTempTableInCurrentSession(table.getName())) {
                         continue;
                     }
-                    row.add(Util.getTempTableOuterName(table.getName()));
+                    row.add(Util.getTempTableDisplayName(table.getName()));
                 } else {
                     row.add(table.getName());
                 }
@@ -918,7 +918,7 @@ public class ShowExecutor {
                                 if (!Util.isTempTableInCurrentSession(tbl.getName())) {
                                     continue;
                                 }
-                                row.add(Util.getTempTableOuterName(tbl.getName()));
+                                row.add(Util.getTempTableDisplayName(tbl.getName()));
                             } else {
                                 row.add(tbl.getName());
                             }
@@ -1062,7 +1062,7 @@ public class ShowExecutor {
                     if (!Util.isTempTableInCurrentSession(table.getName())) {
                         continue;
                     }
-                    row.add(Util.getTempTableOuterName(table.getName()));
+                    row.add(Util.getTempTableDisplayName(table.getName()));
                 } else {
                     row.add(table.getName());
                 }
@@ -1202,7 +1202,7 @@ public class ShowExecutor {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
                             showStmt.getTable(), "VIEW", "Use 'SHOW CREATE TABLE '" + table.getName());
                 }
-                rows.add(Lists.newArrayList(Util.getTempTableOuterName(table.getName()), createTableStmt.get(0)));
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
                 resultSet = table.getType() != TableType.MATERIALIZED_VIEW
                         ? new ShowResultSet(showStmt.getMetaData(), rows)
                         : new ShowResultSet(ShowCreateTableStmt.getMaterializedViewMetaData(), rows);
@@ -2603,7 +2603,7 @@ public class ShowExecutor {
                         if (!Util.isTempTableInCurrentSession(tableName)) {
                             continue;
                         }
-                        tableName = Util.getTempTableOuterName(tableName);
+                        tableName = Util.getTempTableDisplayName(tableName);
                     }
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {
@@ -3108,7 +3108,7 @@ public class ShowExecutor {
                 row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
                 if (databaseIf.isPresent()) {
                     Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                    row.add(table.isPresent() ? Util.getTempTableOuterName(table.get().getName())
+                    row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
                             : "Table may get deleted");
                 } else {
                     row.add("DB may get deleted");

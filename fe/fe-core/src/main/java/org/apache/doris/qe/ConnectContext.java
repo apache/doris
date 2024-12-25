@@ -23,6 +23,7 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -242,6 +243,9 @@ public class ConnectContext {
 
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
+    // unique session id in the doris cluster
+    private long sessionId;
+
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
     // but the internal implementation will call the logic of `AlterTable`.
@@ -310,7 +314,7 @@ public class ConnectContext {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
-            insertResult = new InsertResult(txnId, label, db, Util.getTempTableOuterName(tbl),
+            insertResult = new InsertResult(txnId, label, db, Util.getTempTableDisplayName(tbl),
                 txnStatus, loadedRows, filteredRows);
         }
     }
@@ -374,6 +378,9 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
+
+        sessionId = Util.sha256long(Env.getCurrentEnv().getNodeName() + System.currentTimeMillis());
+        Env.getCurrentEnv().registerSessionInfo(sessionId);
     }
 
     public ConnectContext() {
@@ -382,6 +389,12 @@ public class ConnectContext {
 
     public ConnectContext(StreamConnection connection) {
         this(connection, false);
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy, long sessionId) {
+        this(connection, isProxy);
+        // used for binding new created temporary table with its original session
+        this.sessionId = sessionId;
     }
 
     public ConnectContext(StreamConnection connection, boolean isProxy) {
@@ -786,6 +799,10 @@ public class ConnectContext {
         return getCatalog(defaultCatalog);
     }
 
+    public long getSessionId() {
+        return sessionId;
+    }
+
     /**
      * Maybe return when catalogName is not exist. So need to check nullable.
      */
@@ -851,17 +868,46 @@ public class ConnectContext {
         threadLocalInfo.remove();
         returnRows = 0;
         deleteTempTable();
+        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
     }
 
     protected void deleteTempTable() {
-        for (String dbName : dbToTempTableNamesMap.keySet()) {
-            Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
-            for (String tableName : dbToTempTableNamesMap.get(dbName)) {
-                try {
-                    Env.getCurrentEnv().getInternalCatalog()
-                        .dropTableWithoutCheck(db, db.getTable(tableName).get(), true);
-                } catch (DdlException e) {
-                    LOG.error("drop temporary table error: db: {}, table: {}", dbName, tableName, e);
+        // only delete temporary table in its creating session, not proxy session in master fe
+        if (isProxy) {
+            return;
+        }
+
+        // if current fe is master, delete temporary table directly
+        if (Env.getCurrentEnv().isMaster()) {
+            for (String dbName : dbToTempTableNamesMap.keySet()) {
+                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
+                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                    LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
+                    try {
+                        Env.getCurrentEnv().getInternalCatalog()
+                            .dropTableWithoutCheck(db, db.getTable(tableName).get(), false, true);
+                    } catch (DdlException e) {
+                        LOG.error("drop temporary table error: {}.{}", dbName, tableName, e);
+                    }
+                }
+            }
+        } else {
+            // forward to master fe to drop table
+            RedirectStatus redirectStatus = new RedirectStatus(true, false);
+            for (String dbName : dbToTempTableNamesMap.keySet()) {
+                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                    LOG.info("request to delete temporary table: {}.{}", dbName, tableName);
+                    String dropTableSql = String.format("drop table `%s`", tableName);
+                    OriginStatement originStmt = new OriginStatement(dropTableSql, 0);
+                    MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, this, redirectStatus, false);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("need to transfer to Master. stmt: {}", this.getStmtId());
+                    }
+                    try {
+                        masterOpExecutor.execute();
+                    } catch (Exception e) {
+                        LOG.error("master FE drop temporary table error: db: {}, table: {}", dbName, tableName, e);
+                    }
                 }
             }
         }
@@ -1455,10 +1501,10 @@ public class ConnectContext {
         Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
         if (tableNameSet == null) {
             tableNameSet = new HashSet<>();
+            dbToTempTableNamesMap.put(database, tableNameSet);
         }
 
         tableNameSet.add(tableName);
-        dbToTempTableNamesMap.put(database, tableNameSet);
     }
 
     public void removeTempTableFromDB(String database, String tableName) {

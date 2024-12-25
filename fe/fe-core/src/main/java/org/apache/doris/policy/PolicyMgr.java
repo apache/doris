@@ -185,7 +185,7 @@ public class PolicyMgr implements Writable {
                         OlapTable olapTable = (OlapTable) table;
                         String tableName = table.getName();
                         if (table.isTemporary()) {
-                            tableName = Util.getTempTableOuterName(tableName);
+                            tableName = Util.getTempTableDisplayName(tableName);
                         }
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                         for (Long partitionId : olapTable.getPartitionIds()) {

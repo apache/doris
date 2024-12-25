@@ -264,7 +264,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 if (table.isTemporary())  {
                     throw new UserException("Do not support load into temporary table "
-                        + Util.getTempTableOuterName(table.getName()));
+                        + Util.getTempTableDisplayName(table.getName()));
                 }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
