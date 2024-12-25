@@ -86,9 +86,9 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
+            def process = command.execute()
+            def code = process.waitFor()
+            def out = process.getText()
             logger.info("Get compaction status: code=" + code + ", out=" + out)
             assertEquals(code, 0)
             def compactionStatus = parseJson(out.trim())

@@ -81,7 +81,7 @@ suite('load') {
         sql "sync"
         def r = sql "select @@insert_timeout"
         assertEquals(3600, r[0][0])
-        year_cons = [
+        def year_cons = [
             'lo_orderdate<19930101',
             'lo_orderdate>=19930101 and lo_orderdate<19940101',
             'lo_orderdate>=19940101 and lo_orderdate<19950101',

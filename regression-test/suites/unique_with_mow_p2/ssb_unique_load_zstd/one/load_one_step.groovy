@@ -63,7 +63,7 @@ suite("load_one_step") {
             }
             sleep(5000)
         }
-        rowCount = sql "select count(*) from ${tableName}"
+        def rowCount = sql "select count(*) from ${tableName}"
         assertEquals(rows[1], rowCount[0][0])
     }
 }

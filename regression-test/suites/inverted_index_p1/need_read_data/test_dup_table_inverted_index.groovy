@@ -42,7 +42,7 @@ suite("test_dup_table_inverted_index", "p1") {
     def execute_sql = { key, value, sqlList ->
         sql """ set ${key} = ${value} """
         List<Object> resultList = new ArrayList<>()
-        for (sqlStr in sqlList) {
+        for (def sqlStr in sqlList) {
             def sqlResult = sql """ ${sqlStr} """
             resultList.add(sqlResult)
         }

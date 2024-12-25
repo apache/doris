@@ -96,7 +96,7 @@ suite("test_too_many_segments", "nonConcurrent,p2") { // the epic -238 case
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
-            tablets = sql """ show tablets from ${tableName}; """
+            def tablets = sql """ show tablets from ${tableName}; """
         } finally {
             try_sql("DROP TABLE IF EXISTS ${tableName}")
             GetDebugPoint().disableDebugPointForAllBEs("BetaRowsetWriter._check_segment_number_limit_too_many_segments")
