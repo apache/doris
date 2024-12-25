@@ -189,6 +189,7 @@ under the License.
     </dependencies>
     <build>
         <finalName>hudi-scanner</finalName>
+        <directory>${project.basedir}/target/</directory>
         <sourceDirectory>src/main/java</sourceDirectory>
         <testSourceDirectory>src/test/java</testSourceDirectory>
         <directory>${project.basedir}/target/</directory>

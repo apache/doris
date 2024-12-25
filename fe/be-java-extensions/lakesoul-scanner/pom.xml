@@ -64,6 +64,7 @@ under the License.
 
     <build>
         <finalName>lakesoul-scanner-jar-with-dependencies</finalName>
+        <directory>${project.basedir}/target/</directory>
         <sourceDirectory>src/main/java</sourceDirectory>
         <testSourceDirectory>src/test/java</testSourceDirectory>
         <directory>${project.basedir}/target/</directory>
