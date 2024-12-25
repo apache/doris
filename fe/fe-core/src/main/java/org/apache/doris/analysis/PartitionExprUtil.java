@@ -18,11 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.base.Objects;
@@ -187,7 +189,16 @@ public class PartitionExprUtil {
 
             SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
-
+            // as the auto partition table maybe no any partitions firstly, it's should same
+            // as table's storage medium rather than default storage medium
+            if (!olapTable.getStorageMedium()
+                    .equals(singleRangePartitionDesc.getPartitionDataProperty().getStorageMedium())) {
+                singleRangePartitionDesc.getPartitionDataProperty().setStorageMedium(olapTable.getStorageMedium());
+                singleRangePartitionDesc.getPartitionDataProperty().setStorageMediumSpecified(
+                        !olapTable.getStorageMedium().equals(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                        olapTable.getStorageMedium().name());
+            }
             AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
                     distributionDesc, partitionProperties, false);
             result.put(partitionName, addPartitionClause);
