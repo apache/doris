@@ -257,6 +257,62 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThan(datetime2, new DateTimeV2Literal("2020-01-01 00:00:00.13")));
         assertRewrite(new LessThanEqual(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("2020-01-01 00:00:00.123")),
                 new LessThanEqual(datetime2, new DateTimeV2Literal("2020-01-01 00:00:00.12")));
+
+        // test with low bound
+        assertRewrite(new LessThan(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("0000-01-01 00:00:00")),
+                new LessThan(date, new DateV2Literal("0000-01-01")));
+        assertRewrite(new LessThan(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("0000-01-01 00:00:00")),
+                new LessThan(date, new DateV2Literal("0000-01-01")));
+        assertRewrite(new LessThan(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("0000-01-01 00:00:00")),
+                new LessThan(datev1, new DateLiteral("0000-01-01")));
+        assertRewrite(new LessThan(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("0000-01-01 00:00:00")),
+                new LessThan(datev1, new DateLiteral("0000-01-01")));
+        assertRewrite(new LessThan(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("0000-01-01 00:00:00.1")),
+                new LessThan(datetime0, new DateTimeV2Literal("0000-01-01 00:00:01")));
+        assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("0000-01-01 00:00:00.991")),
+                new LessThan(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "0000-01-01 00:00:01.00")));
+        assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("0000-01-01 00:00:00.999999")),
+                new LessThan(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "0000-01-01 00:00:01.00")));
+        assertRewrite(new LessThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "0000-01-01 00:00:00.0")),
+                new LessThan(datetimev1, new DateTimeLiteral("0000-01-01 00:00:00")));
+        assertRewrite(new LessThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("0000-01-01 00:00:00.1")),
+                new LessThan(datetimev1, new DateTimeLiteral("0000-01-01 00:00:01")));
+        assertRewrite(new GreaterThan(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("0000-01-01 00:00:00")),
+                new GreaterThan(date, new DateV2Literal("0000-01-01")));
+        assertRewrite(new GreaterThan(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("0000-01-01 00:00:00")),
+                new GreaterThan(date, new DateV2Literal("0000-01-01")));
+        assertRewrite(new GreaterThan(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("0000-01-01 00:00:00")),
+                new GreaterThan(datev1, new DateLiteral("0000-01-01")));
+        assertRewrite(new GreaterThan(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("0000-01-01 00:00:00")),
+                new GreaterThan(datev1, new DateLiteral("0000-01-01")));
+        assertRewrite(new GreaterThan(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("0000-01-01 00:00:00.1")),
+                new GreaterThan(datetime0, new DateTimeV2Literal("0000-01-01 00:00:00")));
+        assertRewrite(new GreaterThan(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("0000-01-01 00:00:00.991")),
+                new GreaterThan(datetime2, new DateTimeV2Literal("0000-01-01 00:00:00.99")));
+        assertRewrite(new GreaterThan(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("0000-01-01 00:00:00.999999")),
+                new GreaterThan(datetime2, new DateTimeV2Literal("0000-01-01 00:00:00.99")));
+        assertRewrite(new GreaterThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "0000-01-01 00:00:00.0")),
+                new GreaterThan(datetimev1, new DateTimeLiteral("0000-01-01 00:00:00")));
+        assertRewrite(new GreaterThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("0000-01-01 00:00:00.1")),
+                new GreaterThan(datetimev1, new DateTimeLiteral("0000-01-01 00:00:00")));
+
+        // test overflow, not cast
+        assertRewrite(new LessThan(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")),
+                new LessThan(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")));
+        assertRewrite(new LessThan(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")),
+                new LessThan(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")));
+        assertRewrite(new LessThan(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")),
+                new LessThan(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")));
+        assertRewrite(new LessThan(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")),
+                new LessThan(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")));
+        assertRewrite(new LessThan(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
+                new LessThan(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")));
+        assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("9999-12-31 23:59:59.991")),
+                new LessThan(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("9999-12-31 23:59:59.991")));
+        assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("9999-12-31 23:59:59.999999")),
+                new LessThan(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("9999-12-31 23:59:59.999999")));
+        assertRewrite(new LessThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
+                new LessThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")));
     }
 
     @Test
@@ -445,6 +501,17 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThan(bigIntSlot, new BigIntLiteral(13L)));
         assertRewrite(new LessThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
+
+        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
+                ExpressionUtils.falseOrNull(bigIntSlot));
+        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
+                ExpressionUtils.trueOrNull(bigIntSlot));
+        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775807.1"))),
+                new LessThan(bigIntSlot, new BigIntLiteral(-9223372036854775807L)));
+        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775807.1"))),
+                ExpressionUtils.falseOrNull(bigIntSlot));
+        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775806.1"))),
+                new LessThan(bigIntSlot, new BigIntLiteral(9223372036854775807L)));
     }
 
     @Test
