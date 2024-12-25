@@ -19,6 +19,7 @@ package org.apache.doris.datasource.lowercase;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -27,6 +28,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -39,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ExternalTableNameComparedLowercaseTest extends TestWithFeService {
+public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWithFeService {
     private static Env env;
     private ConnectContext rootCtx;
 
@@ -50,8 +52,9 @@ public class ExternalTableNameComparedLowercaseTest extends TestWithFeService {
         // 1. create test catalog
         CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
                         + "    \"type\" = \"test\",\n"
+                        + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameComparedLowercaseTest$ExternalTableNameComparedLowercaseProvider\"\n"
+                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameComparedLowercaseMetaCacheFalseTest$ExternalTableNameComparedLowercaseProvider\"\n"
                         + ");",
                 rootCtx);
         env.getCatalogMgr().createCatalog(testCatalog);
@@ -75,6 +78,20 @@ public class ExternalTableNameComparedLowercaseTest extends TestWithFeService {
     @Test
     public void testGlobalVariable() {
         Assertions.assertEquals(2, GlobalVariable.lowerCaseTableNames);
+    }
+
+    @Test
+    public void testGetTableWithOutList() {
+        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test1", null);
+        try {
+            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+        } catch (Exception e) {
+            // Do nothing
+        }
+        String tblName = env.getCatalogMgr().getCatalog("test1").getDbNullable("db1").getTableNullable("table1").getName();
+        Assertions.assertEquals("TABLE1", tblName);
+        String tblName2 = env.getCatalogMgr().getCatalog("test1").getDbNullable("db1").getTableNullable("table2").getName();
+        Assertions.assertEquals("TABLE2", tblName2);
     }
 
     @Test
