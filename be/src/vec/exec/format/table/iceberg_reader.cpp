@@ -533,7 +533,7 @@ void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFil
 
 Status IcebergParquetReader::init_reader(
         const std::vector<std::string>& file_col_names,
-        const std::unordered_map<int, std::string>& col_id_name_map,
+        const std::unordered_map<uint64_t, std::string>& col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
@@ -606,7 +606,7 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
 
 Status IcebergOrcReader::init_reader(
         const std::vector<std::string>& file_col_names,
-        const std::unordered_map<int, std::string>& col_id_name_map,
+        const std::unordered_map<uint64_t, std::string>& col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
