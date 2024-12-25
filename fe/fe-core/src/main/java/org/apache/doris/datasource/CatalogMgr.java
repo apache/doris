@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.BackupCatalogMeta;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -872,4 +873,24 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
     }
+
+    public List<BackupCatalogMeta> getAllCatalogsCopied() {
+        List<BackupCatalogMeta> catalogs = Lists.newArrayList();
+        readLock();
+        try {
+            // get all rules
+            for (Map.Entry<String, CatalogIf> entry : nameToCatalog.entrySet()) {
+                CatalogIf catalog = entry.getValue();
+
+                if (!catalog.isInternalCatalog()) {
+                    catalogs.add(new BackupCatalogMeta(catalog.getName(), catalog.getResource(),
+                            catalog.getProperties(), catalog.getComment()));
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return catalogs;
+    }
+
 }

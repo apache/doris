@@ -44,6 +44,9 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_RESERVE_PRIVILEGE = "reserve_privilege";
+    public static final String PROP_RESERVE_CATALOG = "reserve_catalog";
+    public static final String PROP_RESERVE_WORKLOAD_GROUP = "reserve_workload_group";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -58,15 +61,23 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private boolean isAtomicRestore = false;
     private byte[] meta = null;
     private byte[] jobInfo = null;
+    private boolean reservePrivilege = false;
+    private boolean reserveCatalog = false;
+    private boolean reserveWorkloadGroup = false;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
             Map<String, String> properties) {
-        super(labelName, repoName, restoreTableRefClause, properties);
+        super(labelName, repoName, restoreTableRefClause, properties, false);
+    }
+
+    public RestoreStmt(LabelName labelName, String repoName,
+                       Map<String, String> properties) {
+        super(labelName, repoName, null, properties, true);
     }
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
             Map<String, String> properties, byte[] meta, byte[] jobInfo) {
-        super(labelName, repoName, restoreTableRefClause, properties);
+        super(labelName, repoName, restoreTableRefClause, properties, false);
         this.meta = meta;
         this.jobInfo = jobInfo;
     }
@@ -125,6 +136,18 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean isAtomicRestore() {
         return isAtomicRestore;
+    }
+
+    public boolean reservePrivilege() {
+        return reservePrivilege;
+    }
+
+    public boolean reserveCatalog() {
+        return reserveCatalog;
+    }
+
+    public boolean reserveWorkloadGroup() {
+        return reserveWorkloadGroup;
     }
 
     @Override
@@ -211,6 +234,59 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
         // is atomic restore
         isAtomicRestore = eatBooleanProperty(copiedProperties, PROP_ATOMIC_RESTORE, isAtomicRestore);
+
+        // reserve privilege
+        if (copiedProperties.containsKey(PROP_RESERVE_PRIVILEGE)) {
+            if (copiedProperties.get(PROP_RESERVE_PRIVILEGE).equalsIgnoreCase("true")) {
+                reservePrivilege = true;
+            } else if (copiedProperties.get(PROP_RESERVE_PRIVILEGE).equalsIgnoreCase("false")) {
+                reservePrivilege = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve_privilege value: " + copiedProperties.get(PROP_RESERVE_PRIVILEGE));
+            }
+            copiedProperties.remove(PROP_RESERVE_PRIVILEGE);
+        }
+
+        // reserve catalog
+        if (copiedProperties.containsKey(PROP_RESERVE_CATALOG)) {
+            if (copiedProperties.get(PROP_RESERVE_CATALOG).equalsIgnoreCase("true")) {
+                reserveCatalog = true;
+            } else if (copiedProperties.get(PROP_RESERVE_CATALOG).equalsIgnoreCase("false")) {
+                reserveCatalog = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve_catalog value: " + copiedProperties.get(PROP_RESERVE_CATALOG));
+            }
+            copiedProperties.remove(PROP_RESERVE_CATALOG);
+        }
+
+        // reserve workload group
+        if (copiedProperties.containsKey(PROP_RESERVE_WORKLOAD_GROUP)) {
+            if (copiedProperties.get(PROP_RESERVE_WORKLOAD_GROUP).equalsIgnoreCase("true")) {
+                reserveWorkloadGroup = true;
+            } else if (copiedProperties.get(PROP_RESERVE_WORKLOAD_GROUP).equalsIgnoreCase("false")) {
+                reserveWorkloadGroup = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve_workload_group value: " + copiedProperties.get(PROP_RESERVE_WORKLOAD_GROUP));
+            }
+            copiedProperties.remove(PROP_RESERVE_WORKLOAD_GROUP);
+        }
+
+        if (isBackupGlobal()) {
+            if (!properties.containsKey(PROP_RESERVE_PRIVILEGE)
+                    && !properties.containsKey(PROP_RESERVE_CATALOG)
+                    && !properties.containsKey(PROP_RESERVE_WORKLOAD_GROUP)) {
+                reservePrivilege = true;
+                reserveCatalog = true;
+                reserveWorkloadGroup = true;
+            }
+        } else {
+            reservePrivilege = false;
+            reserveCatalog = false;
+            reserveWorkloadGroup = false;
+        }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
