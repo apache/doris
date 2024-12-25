@@ -81,7 +81,7 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
     test {
         sql """select * from test_meta_cache_lower_true_select_without_refresh.external_lower_select_without_refresh.table2;"""
 
-        exception "Table [table2] does not exist in database [external_lower_select_without_refresh]."
+        exception "Unknown table 'table2'"
     }
 
     qt_test_meta_cache_lower_false_select_without_refresh_select_table2 "select * from test_meta_cache_lower_false_select_without_refresh.external_lower_select_without_refresh.TABLE2;"

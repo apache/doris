@@ -466,25 +466,25 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
     test {
         sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
     test {
         sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
-        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'upper_with_conf'"
     }
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
-        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'upper_with_conf'"
     }
 
     test {
@@ -532,25 +532,25 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_false_with_conf0"
     test {
         sql "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_true_lower_false_with_conf0"
     test {
         sql "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
-        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'upper_with_conf'"
     }
 
     sql "refresh catalog test_cache_true_lower_false_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_true_lower_false_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
-        exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'upper_with_conf'"
     }
 
     test {
@@ -597,25 +597,25 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
     test {
         sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
     test {
         sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
-        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'UPPER_with_conf'"
     }
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
-        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'UPPER_with_conf'"
     }
 
     test {
@@ -663,25 +663,25 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql "refresh catalog test_cache_true_lower_true_with_conf0"
     test {
         sql "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_true_lower_true_with_conf0"
     test {
         sql "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
-        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'UPPER_with_conf'"
     }
 
     sql "refresh catalog test_cache_true_lower_true_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
-        exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'Lower_with_conf'"
     }
 
     sql "refresh catalog test_cache_true_lower_true_with_conf0"
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
-        exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
+        exception "Unknown table 'UPPER_with_conf'"
     }
 
     test {
