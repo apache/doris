@@ -17,7 +17,6 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 
 import com.google.common.util.concurrent.MoreExecutors;
