@@ -218,15 +218,13 @@ suite("test_use_mv") {
     }
     explain {
         sql """memo plan select /*+ use_mv(mv1) no_use_mv(mv2) */ * from t1 union all select * from t2"""
-        contains("Used: use_mv([mv1])")
-        contains("Used: no_use_mv([mv2])")
+        contains("Used: use_mv([mv1]) no_use_mv([mv2])")
         notContains("internal.test_cbo_use_mv.mv2 chose")
         contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
         sql """memo plan select /*+ use_mv(mv2) no_use_mv(mv1) */ * from t1 union all select * from t2"""
-        contains("Used: use_mv([mv2])")
-        contains("Used: no_use_mv([mv1])")
+        contains("Used: use_mv([mv2]) no_use_mv([mv1])")
         notContains("internal.test_cbo_use_mv.mv1 chose")
         contains("internal.test_cbo_use_mv.mv2 chose")
     }

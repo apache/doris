@@ -107,6 +107,13 @@ public class UseMvHint extends Hint {
             mvTableColumnMap = noUseMvTableColumnMap;
         }
         for (List<String> table : parameters) {
+            // materialize view qualifier should have length between 1 and 4
+            // which 1 and 3 represent of async materialize view, 2 and 4 represent of sync materialize view
+            // number of parameters          meaning
+            // 1                             async materialize view, mvName
+            // 2                             sync materialize view, tableName.mvName
+            // 3                             async materialize view, catalogName.dbName.mvName
+            // 3                             sync materialize view, catalogName.dbName.tableName.mvName
             if (table.size() < 1 || table.size() > 4) {
                 this.setStatus(HintStatus.SYNTAX_ERROR);
                 this.setErrorMessage("parameters number of no_use_mv hint must between 1 and 4");

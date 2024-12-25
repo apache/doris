@@ -148,13 +148,15 @@ public class InitMaterializationContextHook implements PlannerHook {
         Optional<UseMvHint> noUseMvHint = ConnectContext.get().getStatementContext().getUseMvHint("NO_USE_MV");
         if (!useMvHint.isPresent() && !noUseMvHint.isPresent()) {
             return mtmvCtxs;
-        } else if (useMvHint.isPresent()) {
-            return getMvIdWithUseMvHint(mtmvCtxs, useMvHint.get());
-        } else if (noUseMvHint.isPresent()) {
-            return getMvIdWithNoUseMvHint(mtmvCtxs, noUseMvHint.get());
-        } else {
-            return getMvIdWithUseMvHint(mtmvCtxs, useMvHint.get());
         }
+        List<MaterializationContext> result = mtmvCtxs;
+        if (noUseMvHint.isPresent()) {
+            result = getMvIdWithNoUseMvHint(result, noUseMvHint.get());
+        }
+        if (useMvHint.isPresent()) {
+            result = getMvIdWithUseMvHint(result, useMvHint.get());
+        }
+        return result;
     }
 
     protected Set<MTMV> getAvailableMTMVs(Set<TableIf> usedTables, CascadesContext cascadesContext) {
