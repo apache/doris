@@ -4055,6 +4055,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
             Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
+
+            List<List<Backend>> backendsList = new ArrayList<>();
+            List<Long> allTabletIds = new ArrayList<>();
+            // Get tablets and backends from commitTxnResponse
+            commitTxnResponse.getTabletsList().forEach(tabletCommitInfo -> {
+                allTabletIds.add(tabletCommitInfo.getTabletId());
+                List<Backend> backends = new ArrayList<>();
+                tabletCommitInfo.getBackendsList().forEach(backendId -> {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                    if (backend != null) {
+                        backends.add(backend);
+                    }
+                });
+                backendsList.add(backends);
+            });
+            if (!allTabletIds.isEmpty()) {
+                StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
+            }
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();
