@@ -144,7 +144,10 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
+    RETURN_IF_ERROR(local_state._exchanger->sink(
+            state, in_block, eos,
+            {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
+            {&local_state._channel_id, local_state._partitioner.get(), &local_state}));
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {

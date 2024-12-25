@@ -142,9 +142,9 @@ public:
                           bool right_const) {
         ColumnArrayMutableData dst;
         if (left_data.nested_nullmap_data || right_data.nested_nullmap_data) {
-            dst = create_mutable_data(left_data.nested_col, true);
+            dst = create_mutable_data(left_data.nested_col.get(), true);
         } else {
-            dst = create_mutable_data(left_data.nested_col, false);
+            dst = create_mutable_data(left_data.nested_col.get(), false);
         }
         ColumnPtr res_column;
         if (left_const) {

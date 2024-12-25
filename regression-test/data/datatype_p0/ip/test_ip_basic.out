@@ -373,3 +373,34 @@ ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	4
 -- !sql --
 1	false	127.0.0.1	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
+-- !sql --
+1	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b	0.0.0.1
+2	::	127.0.0.1
+
+-- !sql --
+table_ip_default	UNIQUE_KEYS	col0	bigint	bigint	No	true	\N		true		
+		col4	ipv6	ipv6	Yes	false	::	NONE	true		
+		col24	ipv4	ipv4	Yes	false	127.0.0.1	NONE	true		
+
+-- !sql --
+table_ip_default_like	UNIQUE_KEYS	col0	bigint	bigint	No	true	\N		true		
+		col4	ipv6	ipv6	Yes	false	::	NONE	true		
+		col24	ipv4	ipv4	Yes	false	127.0.0.1	NONE	true		
+
+-- !sql --
+2
+
+-- !sql --
+1	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b	0.0.0.1
+2	::	127.0.0.1
+
+-- !sql --
+0
+
+-- !sql --
+0
+
+-- !sql --
+1	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b	0.0.0.1	::	127.0.0.1
+2	::	127.0.0.1	::	127.0.0.1
+

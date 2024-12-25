@@ -119,11 +119,11 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN REBALANCE DISK;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """ADMIN CANCEL REBALANCE DISK;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """UNSET GLOBAL VARIABLE ALL;"""

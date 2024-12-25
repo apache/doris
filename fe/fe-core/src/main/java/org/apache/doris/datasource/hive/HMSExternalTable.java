@@ -543,7 +543,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> getIcebergSchema() {
-        return IcebergUtils.getSchema(catalog, dbName, name);
+        return IcebergUtils.getSchema(catalog, dbName, name, IcebergUtils.UNKNOWN_SNAPSHOT_ID);
     }
 
     private List<Column> getHudiSchema() {
@@ -647,7 +647,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     break;
                 }
             default:
-                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get column stats for dlaType {} is not supported.", dlaType);
+                }
         }
         return Optional.empty();
     }

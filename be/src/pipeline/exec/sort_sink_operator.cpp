@@ -25,6 +25,7 @@
 #include "vec/common/sort/topn_sorter.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -176,4 +177,5 @@ void SortSinkOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     local_state._shared_state->sorter->reset();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

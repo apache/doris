@@ -133,7 +133,7 @@ size_t get_size_of_interger(TypeIndex type) {
     case TypeIndex::UInt128:
         return sizeof(uint128_t);
     default:
-        LOG(FATAL) << "Unknown integer type: " << getTypeName(type);
+        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
         return 0;
     }
 }
@@ -231,8 +231,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -416,9 +415,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // duplicated paths following the update_least_common_schema process.
     auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
         output_schema = std::make_shared<TabletSchema>();
-        output_schema->copy_from(*base_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
+        // not copy columns but only shadow copy other attributes
+        output_schema->shawdow_copy_without_columns(*base_schema);
         // Get all columns without extracted columns and collect variant col unique id
         for (const TabletColumnPtr& col : base_schema->columns()) {
             if (col->is_variant_type()) {

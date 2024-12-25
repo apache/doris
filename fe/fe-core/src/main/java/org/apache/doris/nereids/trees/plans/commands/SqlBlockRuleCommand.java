@@ -36,7 +36,7 @@ import java.util.Optional;
 /**
  * Common class for SqlBlockRule Commands.
  */
-public abstract class SqlBlockRuleCommand extends Command {
+public abstract class SqlBlockRuleCommand extends Command implements ForwardWithSync {
     public static final String SQL_PROPERTY = "sql";
 
     public static final String SQL_HASH_PROPERTY = "sqlHash";

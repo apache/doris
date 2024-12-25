@@ -96,7 +96,7 @@ suite("test_rollup_partition_mtmv") {
             AS
             SELECT * FROM ${tableName};
     """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(2, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("2020-01-01"))
@@ -199,7 +199,7 @@ suite("test_rollup_partition_mtmv") {
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
-    jobName = getJobName(dbName, mvName);
+    def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
     order_qt_date_range_month "SELECT * FROM ${mvName} order by k1,k2"

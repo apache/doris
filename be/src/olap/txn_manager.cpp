@@ -548,8 +548,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         if (!status.ok()) {
             return Status::Error<ROWSET_ADD_TO_BINLOG_FAILED>(
                     "add rowset to binlog failed. when publish txn rowset_id: {}, tablet id: {}, "
-                    "txn id: {}",
-                    rowset->rowset_id().to_string(), tablet_id, transaction_id);
+                    "txn id: {}, status: {}",
+                    rowset->rowset_id().to_string(), tablet_id, transaction_id,
+                    status.to_string_no_stack());
         }
     }
 

@@ -85,7 +85,7 @@ suite("test_csv_with_enclose_and_escape", "p0") {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
                 def json = parseJson(result)
-                assertEquals("Fail", json.Status)
+                assertEquals("Success", json.Status)
         }
     }
 
