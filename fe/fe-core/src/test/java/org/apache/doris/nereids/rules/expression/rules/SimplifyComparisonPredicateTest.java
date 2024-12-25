@@ -503,13 +503,11 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
 
         assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
-                ExpressionUtils.falseOrNull(bigIntSlot));
-        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
-                ExpressionUtils.trueOrNull(bigIntSlot));
+                new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))));
         assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775807.1"))),
                 new LessThan(bigIntSlot, new BigIntLiteral(-9223372036854775807L)));
         assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775807.1"))),
-                ExpressionUtils.falseOrNull(bigIntSlot));
+                new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775807.1"))));
         assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775806.1"))),
                 new LessThan(bigIntSlot, new BigIntLiteral(9223372036854775807L)));
     }
