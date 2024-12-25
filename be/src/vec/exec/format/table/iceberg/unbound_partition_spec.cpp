@@ -22,9 +22,8 @@
 #include "vec/exec/format/table/iceberg/partition_spec.h"
 #include "vec/exec/format/table/iceberg/schema.h"
 
-namespace doris {
+namespace doris::iceberg {
 #include "common/compile_check_begin.h"
-namespace iceberg {
 
 UnboundPartitionSpec::Builder& UnboundPartitionSpec::Builder::with_spec_id(int new_spec_id) {
     _spec_id = new_spec_id;
@@ -63,15 +62,13 @@ std::unique_ptr<PartitionSpec::Builder> UnboundPartitionSpec::_copy_to_builder(
             std::make_unique<PartitionSpec::Builder>(schema);
     for (const auto& field : _fields) {
         if (field._partition_id != -1) {
-            builder->add(field._source_id, field._partition_id, std::move(field._name),
-                         std::move(field._transform));
+            builder->add(field._source_id, field._partition_id, field._name, field._transform);
         } else {
-            builder->add(field._source_id, std::move(field._name), std::move(field._transform));
+            builder->add(field._source_id, field._name, field._transform);
         }
     }
     return builder;
 }
 
-} // namespace iceberg
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::iceberg

@@ -22,11 +22,9 @@
 #include <vector>
 
 #include "vec/exec/format/table/iceberg/schema.h"
-#include "vec/exec/format/table/iceberg/struct_like.h"
 
-namespace doris {
+namespace doris::iceberg {
 #include "common/compile_check_begin.h"
-namespace iceberg {
 
 PartitionField::PartitionField(int source_id, int field_id, std::string name, std::string transform)
         : _source_id(source_id),
@@ -68,6 +66,5 @@ PartitionSpec::PartitionSpec(std::shared_ptr<Schema> schema, int spec_id,
           _fields(std::move(fields)),
           _last_assigned_field_id(last_assigned_field_id) {}
 
-} // namespace iceberg
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::iceberg

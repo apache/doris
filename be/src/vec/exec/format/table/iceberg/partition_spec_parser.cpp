@@ -21,9 +21,8 @@
 
 #include "common/exception.h"
 
-namespace doris {
+namespace doris::iceberg {
 #include "common/compile_check_begin.h"
-namespace iceberg {
 const char* PartitionSpecParser::SPEC_ID = "spec-id";
 const char* PartitionSpecParser::FIELDS = "fields";
 const char* PartitionSpecParser::SOURCE_ID = "source-id";
@@ -50,7 +49,7 @@ std::unique_ptr<PartitionSpec> PartitionSpecParser::from_json(const std::shared_
 void PartitionSpecParser::_build_from_json_fields(UnboundPartitionSpec::Builder& builder,
                                                   const rapidjson::Value& value) {
     DCHECK(value.IsArray());
-    for (auto& element : value.GetArray()) {
+    for (const auto& element : value.GetArray()) {
         DCHECK(element.IsObject());
         std::string name = element[NAME].GetString();
         std::string transform = element[TRANSFORM].GetString();
@@ -64,6 +63,5 @@ void PartitionSpecParser::_build_from_json_fields(UnboundPartitionSpec::Builder&
     }
 }
 
-} // namespace iceberg
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::iceberg

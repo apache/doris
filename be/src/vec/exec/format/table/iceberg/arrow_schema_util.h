@@ -19,13 +19,10 @@
 
 #include <arrow/type.h>
 
-#include <shared_mutex>
-
 #include "vec/exec/format/table/iceberg/schema.h"
 
-namespace doris {
+namespace doris::iceberg {
 #include "common/compile_check_begin.h"
-namespace iceberg {
 
 class ArrowSchemaUtil {
 public:
@@ -42,6 +39,5 @@ private:
                              const std::string& timezone);
 };
 
-} // namespace iceberg
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::iceberg

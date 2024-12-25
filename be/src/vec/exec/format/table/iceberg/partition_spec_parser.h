@@ -28,9 +28,8 @@
 
 #include "vec/exec/format/table/iceberg/unbound_partition_spec.h"
 
-namespace doris {
+namespace doris::iceberg {
 #include "common/compile_check_begin.h"
-namespace iceberg {
 
 class PartitionSpec;
 class Schema;
@@ -53,6 +52,5 @@ private:
                                         const rapidjson::Value& value);
 };
 
-} // namespace iceberg
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::iceberg
