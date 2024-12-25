@@ -91,7 +91,7 @@ suite("test_segcompaction_correctness", "nonConcurrent,p2") {
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
-            tablets = sql """ show tablets from ${tableName}; """
+            def tablets = sql """ show tablets from ${tableName}; """
         } finally {
             try_sql("DROP TABLE IF EXISTS ${tableName}")
         }

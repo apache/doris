@@ -83,7 +83,7 @@ suite("test_schema_change") {
 
     waitBrokerLoadJob(loadLabel)
     sql "sync"
-    rowCount = sql "select count(*) from ${tableName}"
+    def rowCount = sql "select count(*) from ${tableName}"
     logger.info("rowCount:{}", rowCount)
     assertEquals(rowCount[0][0], 15000000)
 

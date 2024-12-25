@@ -68,7 +68,7 @@ suite("regression_test_variant_logdata", "nonConcurrent,p2"){
         """
     }
     // 12. streamload remote file
-    table_name = "logdata"
+    def table_name = "logdata"
     create_table.call(table_name, "DUPLICATE", "4")
     // sql "set enable_two_phase_read_opt = false;"
     // no sparse columns
