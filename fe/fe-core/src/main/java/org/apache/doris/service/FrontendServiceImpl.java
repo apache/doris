@@ -44,6 +44,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -629,6 +630,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             status.setRows(table.getCachedRowCount());
                             status.setDataLength(table.getDataLength());
                             status.setAvgRowLength(table.getAvgRowLength());
+                            if (table instanceof View) {
+                                status.setDdlSql(((View) table).getInlineViewDef());
+                            }
                             tablesResult.add(status);
                         } finally {
                             table.readUnlock();

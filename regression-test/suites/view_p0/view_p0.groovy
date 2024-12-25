@@ -21,27 +21,30 @@ suite("view_p0") {
         create view test_view as select 1,to_base64(AES_ENCRYPT('doris','doris')); 
     """
     qt_sql "select * from test_view;"
-    
+
     sql """DROP TABLE IF EXISTS test_view_table"""
-    
+
     sql """ 
         create table test_view_table (id int) distributed by hash(id) properties('replication_num'='1');
     """
-    
+
     sql """insert into test_view_table values(1);"""
-    
+
     sql """DROP VIEW IF EXISTS test_varchar_view"""
-    
+
     sql """ 
         create view test_varchar_view (id) as  SELECT GROUP_CONCAT(cast( id as varchar)) from test_view_table; 
     """
-    
+
     qt_sql "select * from test_varchar_view;"
     qt_sql "select cast( id as varchar(65533)) from test_view_table;"
-    
+
+    qt_information_schema1 "select * from information_schema.views where TABLE_SCHEMA='regression_test_view_p0' and TABLE_NAME='test_varchar_view' order by table_catalog, table_schema, table_name;"
+    qt_information_schema2 "select * from information_schema.views where TABLE_SCHEMA='regression_test_view_p0' and TABLE_NAME='test_view' order by table_catalog, table_schema, table_name;"
+
     // array view
     sql """DROP TABLE IF EXISTS test_array_tbl_1"""
-    
+
     sql """ 
            CREATE TABLE `test_array_tbl_1` (
              `id` int(11) NULL COMMENT "",
@@ -60,7 +63,7 @@ suite("view_p0") {
             "storage_format" = "V2"
             );
     """
-    
+
     sql """DROP TABLE IF EXISTS test_array_tbl_2"""
     sql """ 
            CREATE TABLE `test_array_tbl_2` (
@@ -81,11 +84,11 @@ suite("view_p0") {
             );
     """
     sql """INSERT into test_array_tbl_1 values(1,'2023-08-01',"DORID_FIELD1","DORID_FIELD2",["cat","dog"],["cat","dog"])"""
-    
+
     sql """INSERT into test_array_tbl_2 values(1,'2023-08-01',"DORID_FIELD1","DORID_FIELD2",["cat","dog"],["cat","dog"])"""
-    
+
     sql """DROP VIEW IF EXISTS test_element_at_view"""
-    
+
     sql """ 
         CREATE VIEW test_element_at_view AS
         SELECT id, dm, pn, field3, ms, ek[sm] AS ek
@@ -138,7 +141,7 @@ suite("view_p0") {
     sql "drop view if exists test_view_abc;" 
 
     sql """DROP TABLE IF EXISTS test_view_table2"""
-    
+
     sql """ 
         CREATE TABLE test_view_table2 (
             c_date varchar(50)
@@ -165,3 +168,4 @@ suite("view_p0") {
     sql """ drop view if exists test_view_table2_view;"""
     sql """DROP TABLE IF EXISTS test_view_table2"""
 }
+
