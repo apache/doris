@@ -129,7 +129,7 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
 }
 
 Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, uint64_t* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();

@@ -238,7 +238,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, uint64_t* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -255,7 +255,7 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 
 template <typename T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
-                                                                     int times) const {
+                                                                     uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }

@@ -113,7 +113,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
         }
     }
 
-    int num_keys = 0, num_values = 0;
+    uint64_t num_keys = 0, num_values = 0;
     Status st;
     st = key_serde->deserialize_column_from_hive_text_vector(
             nested_key_column, key_slices, &num_keys, options,
