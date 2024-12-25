@@ -34,68 +34,6 @@
 
 namespace doris::vectorized {
 
-template <typename IPType, bool output>
-void test_for_ip_type(std::vector<std::string> ips, std::vector<std::string> ip_string) {
-    static_assert(std::is_same_v<IPType, DataTypeIPv4> || std::is_same_v<IPType, DataTypeIPv6>,
-                  "IPType must be either DataTypeIPv4 or DataTypeIPv6");
-    std::cout << "input data size\t" << ips.size() << "\t" << ip_string.size() << "\n";
-    auto input_key_column = DataTypeString::ColumnType::create();
-    auto intput_key_data = std::make_shared<DataTypeString>();
-
-    auto value_column = DataTypeInt64::ColumnType::create();
-    auto value_type = std::make_shared<DataTypeInt64>();
-
-    for (int i = 0; i < ips.size(); i++) {
-        input_key_column->insert_value(ips[i]);
-        value_column->insert_value(i);
-    }
-
-    auto mock_ip_dict = create_mock_ip_trie_dict_from_column(
-            "mock ip dict", ColumnWithTypeAndName {input_key_column->clone(), intput_key_data, ""},
-            ColumnsWithTypeAndName {
-                    ColumnWithTypeAndName {value_column->clone(), value_type, "row"},
-            });
-    auto ip_dict = create_ip_trie_dict_from_column(
-            "ip dict", ColumnWithTypeAndName {input_key_column->clone(), intput_key_data, ""},
-            ColumnsWithTypeAndName {
-                    ColumnWithTypeAndName {value_column->clone(), value_type, "row"},
-            });
-
-    std::string attribute_name = "row";
-    DataTypePtr attribute_type = value_type;
-
-    {
-        auto key_type = std::make_shared<IPType>();
-        auto ipv_column = IPType::ColumnType::create();
-        for (const auto& ip : ip_string) {
-            if constexpr (std::is_same_v<IPType, DataTypeIPv4>) {
-                IPv4 ipv4;
-                EXPECT_TRUE(IPv4Value::from_string(ipv4, ip));
-                ipv_column->insert_value(ipv4);
-            } else {
-                IPv6 ipv6;
-                EXPECT_TRUE(IPv6Value::from_string(ipv6, ip));
-                ipv_column->insert_value(ipv6);
-            }
-        }
-
-        ColumnPtr key_column = ipv_column->clone();
-        auto mock_result =
-                mock_ip_dict->getColumn(attribute_name, attribute_type, key_column, key_type);
-        auto result = ip_dict->getColumn(attribute_name, attribute_type, key_column, key_type);
-
-        const auto* real_mock_result = assert_cast<const ColumnInt64*>(mock_result.get());
-        const auto* real_result = assert_cast<const ColumnInt64*>(result.get());
-        for (int i = 0; i < ip_string.size(); i++) {
-            if constexpr (output) {
-                std::cout << ip_string[i] << "\t" << ips[real_mock_result->get_element(i)] << "\t"
-                          << ips[real_result->get_element(i)] << "\n";
-            }
-            EXPECT_EQ(ips[real_mock_result->get_element(i)], ips[real_result->get_element(i)]);
-        }
-    }
-}
-
 TEST(IpDictTest, TestIpv4) {
     std::vector<std::string> ips = {
             "192.168.0.0/16",     "192.168.1.0/24",  "192.168.1.128/25", "1:288:2080::/41",
