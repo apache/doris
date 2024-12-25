@@ -168,11 +168,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      *
      * @param id Table id.
      * @param name Table name.
-     * @param dbName Database name.
-     * @param catalog HMSExternalCatalog.
+     * @param remoteName Remote table name.
+     * @param catalog HMSExternalDataSource.
+     * @param db Database.
      */
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
+    public HMSExternalTable(long id, String name, String remoteName, HMSExternalCatalog catalog,
+            HMSExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.HMS_EXTERNAL_TABLE);
     }
 
     // Will throw NotSupportedException if not supported hms table.

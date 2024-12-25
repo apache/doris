@@ -60,11 +60,12 @@ import java.util.stream.Collectors;
  * MaxCompute external table.
  */
 public class MaxComputeExternalTable extends ExternalTable {
-    public MaxComputeExternalTable(long id, String name, String dbName, MaxComputeExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+    public MaxComputeExternalTable(long id, String name, String remoteName, MaxComputeExternalCatalog catalog,
+            MaxComputeExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
     }
 
-    private Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn  = new HashMap();
+    private Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn = new HashMap();
 
     @Override
     protected synchronized void makeSureInitialized() {
