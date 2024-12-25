@@ -186,9 +186,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                 FieldSchema* field_schema, ColumnPtr& doris_column,
                                 DataTypePtr& data_type, level_t* definitions) {
     tparquet::ColumnMetaData chunk_meta = column_chunk->meta_data;
-    size_t start_offset = chunk_meta.__isset.dictionary_page_offset
-                                  ? chunk_meta.dictionary_page_offset
-                                  : chunk_meta.data_page_offset;
+    size_t start_offset = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
+                                                    : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
 
     cctz::time_zone ctz;
