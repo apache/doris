@@ -279,17 +279,22 @@ Status VariantColumnWriterImpl::_process_sparse_column(
 
     // get stastics
     // todo: reuse the statics from collected stastics from compaction stage
-    std::unordered_map<std::string, size_t> sparse_data_paths_statistics;
+    std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
     const auto [sparse_data_paths, _] = ptr->get_sparse_data_paths_and_values();
     for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
         auto path = sparse_data_paths->get_data_at(i);
-        if (auto it = _statistics.sparse_column_non_null_size.find(path.to_string());
-            it != _statistics.sparse_column_non_null_size.end()) {
+        if (auto it = sparse_data_paths_statistics.find(path);
+            it != sparse_data_paths_statistics.end()) {
             ++it->second;
-        } else if (_statistics.sparse_column_non_null_size.size() <
+        } else if (sparse_data_paths_statistics.size() <
                    VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
-            _statistics.sparse_column_non_null_size.emplace(path, 1);
+            sparse_data_paths_statistics.emplace(path, 1);
         }
+    }
+
+    // assign to _statistics.sparse_column_non_null_size
+    for (const auto& [path, size] : sparse_data_paths_statistics) {
+        _statistics.sparse_column_non_null_size.emplace(path.to_string(), size);
     }
     sparse_writer_opts.meta->set_num_rows(num_rows);
     return Status::OK();

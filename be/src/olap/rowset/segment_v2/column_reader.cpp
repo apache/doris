@@ -245,6 +245,28 @@ int64_t VariantColumnReader::get_metadata_size() const {
     return size;
 }
 
+Status VariantColumnReader::_create_hierarchical_reader(ColumnIterator** reader,
+                                                        vectorized::PathInData path,
+                                                        const SubcolumnColumnReaders::Node* node,
+                                                        const SubcolumnColumnReaders::Node* root) {
+    // Node contains column with children columns or has correspoding sparse columns
+    // Create reader with hirachical data.
+    std::unique_ptr<ColumnIterator> sparse_iter;
+    if (_statistics && !_statistics->sparse_column_non_null_size.empty()) {
+        // Sparse column exists or reached sparse size limit, read sparse column
+        ColumnIterator* iter;
+        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter));
+        sparse_iter.reset(iter);
+    }
+    // If read the full path of variant read in MERGE_ROOT, otherwise READ_DIRECT
+    HierarchicalDataReader::ReadType read_type =
+            (path == root->path) ? HierarchicalDataReader::ReadType::MERGE_ROOT
+                                 : HierarchicalDataReader::ReadType::READ_DIRECT;
+    RETURN_IF_ERROR(HierarchicalDataReader::create(reader, path, node, root, read_type,
+                                                   std::move(sparse_iter)));
+    return Status::OK();
+}
+
 Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
                                          const TabletColumn& target_col) {
     // root column use unique id, leaf column use parent_unique_id
@@ -261,38 +283,40 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
             const auto* node = _subcolumn_readers->find_leaf(relative_path);
             RETURN_IF_ERROR(node->data.reader->new_iterator(iterator));
         } else {
-            // Node contains column with children columns or has correspoding sparse columns
-            // Create reader with hirachical data.
-            std::unique_ptr<ColumnIterator> sparse_iter;
-            if (_statistics && !_statistics->sparse_column_non_null_size.empty()) {
-                // Sparse column exists or reached sparse size limit, read sparse column
-                ColumnIterator* iter;
-                RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter));
-                sparse_iter.reset(iter);
-            }
-            // If read the full path of variant read in MERGE_ROOT, otherwise READ_DIRECT
-            HierarchicalDataReader::ReadType read_type =
-                    (relative_path == root->path) ? HierarchicalDataReader::ReadType::MERGE_ROOT
-                                                  : HierarchicalDataReader::ReadType::READ_DIRECT;
-            RETURN_IF_ERROR(HierarchicalDataReader::create(iterator, relative_path, node, root,
-                                                           read_type, std::move(sparse_iter)));
+            RETURN_IF_ERROR(_create_hierarchical_reader(iterator, relative_path, node, root));
         }
     } else {
-        if (_statistics &&
-            (_statistics->sparse_column_non_null_size.contains(relative_path.get_path()) ||
-             _statistics->sparse_column_non_null_size.size() >
-                     VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE)) {
+        // Check if path exist in sparse column
+        bool existed_in_sparse_column =
+                _statistics &&
+                _statistics->subcolumns_non_null_size.find(relative_path.get_path()) !=
+                        _statistics->subcolumns_non_null_size.end();
+        if (existed_in_sparse_column) {
             // Sparse column exists or reached sparse size limit, read sparse column
             ColumnIterator* inner_iter;
             RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
             *iterator = new SparseColumnExtractReader(relative_path.get_path(),
                                                       std::unique_ptr<ColumnIterator>(inner_iter));
-        } else {
-            // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
-            std::unique_ptr<ColumnIterator> iter;
-            RETURN_IF_ERROR(Segment::new_default_iterator(target_col, &iter));
-            *iterator = iter.release();
+            return Status::OK();
         }
+        // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b
+        // then we must read the sparse columns
+        bool prefix_existed_in_sparse_column =
+                _statistics &&
+                (_statistics->sparse_column_non_null_size.lower_bound(relative_path.get_path()) !=
+                 _statistics->sparse_column_non_null_size.end());
+        // Otherwise the prefix is not exist and the sparse column size is reached limit
+        // which means the path maybe exist in sparse_column
+        bool exceeded_sparse_column_limit =
+                _statistics && _statistics->sparse_column_non_null_size.size() >
+                                       VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE;
+        if (prefix_existed_in_sparse_column || exceeded_sparse_column_limit) {
+            return _create_hierarchical_reader(iterator, relative_path, nullptr, root);
+        }
+        // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
+        std::unique_ptr<ColumnIterator> iter;
+        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, &iter));
+        *iterator = iter.release();
     }
     return Status::OK();
 }
