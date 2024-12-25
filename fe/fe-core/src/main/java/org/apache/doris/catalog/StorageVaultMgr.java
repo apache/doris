@@ -199,9 +199,11 @@ public class StorageVaultMgr {
                 throw new DdlException(response.getStatus().getMsg());
             }
 
-            updateVaultNameToIdCache(name, response.getStorageVaultName(), response.getStorageVaultId());
-            LOG.info("Succeed to alter storage vault, old name:{} new name: {} id:{}", name,
-                    response.getStorageVaultName(), response.getStorageVaultId());
+            if (request.hasVault() && request.getVault().hasAlterName()) {
+                updateVaultNameToIdCache(name, request.getVault().getAlterName(), response.getStorageVaultId());
+                LOG.info("Succeed to alter storage vault, old name:{} new name: {} id:{}", name,
+                        request.getVault().getAlterName(), response.getStorageVaultId());
+            }
 
             // Make BE eagerly fetch the storage vault info from Meta Service
             ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());

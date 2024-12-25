@@ -887,9 +887,6 @@ message AlterObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
     optional bool default_storage_vault_replaced = 3;
-
-    // storage_vault_name maybe changed, so return new storage_vault_name
-    optional string storage_vault_name = 4;
 }
 
 message UpdateAkSkRequest {

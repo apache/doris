@@ -642,7 +642,6 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
 
     DCHECK_EQ(new_vault.id(), vault_id);
     response->set_storage_vault_id(new_vault.id());
-    response->set_storage_vault_name(new_vault.name());
     return 0;
 }
 
@@ -770,7 +769,6 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
 
     DCHECK_EQ(new_vault.id(), vault_id);
     response->set_storage_vault_id(new_vault.id());
-    response->set_storage_vault_name(new_vault.name());
     return 0;
 }
 
