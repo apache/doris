@@ -34,6 +34,9 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         reader = lucene::index::IndexReader::open(
                 directory, config::inverted_index_read_buffer_size, close_directory);
     } catch (const CLuceneError& e) {
+        std::vector<std::string> file_names;
+        directory->list(&file_names);
+        LOG(ERROR) << fmt::format("Directory list: {}", fmt::join(file_names, ", "));
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build error: {}", e.what());
     }
