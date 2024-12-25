@@ -54,6 +54,8 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
+    public static String INVERTED_INDEX_DICT_COMPRESSION_KEY = "dict_compression";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
@@ -126,6 +128,12 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
+        // array type is not supported parser except "none"
+        if (colType.isArrayType() && !parser.equals(INVERTED_INDEX_PARSER_NONE)) {
+            throw new AnalysisException("INVERTED index with parser: " + parser
+                + " is not supported for array column: " + indexColName);
+        }
+
         if (colType.isStringType() || colType.isVariantType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
@@ -151,7 +159,8 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
                 INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY,
                 INVERTED_INDEX_PARSER_LOWERCASE_KEY,
-                INVERTED_INDEX_PARSER_STOPWORDS_KEY
+                INVERTED_INDEX_PARSER_STOPWORDS_KEY,
+                INVERTED_INDEX_DICT_COMPRESSION_KEY
         ));
 
         for (String key : properties.keySet()) {
@@ -168,6 +177,7 @@ public class InvertedIndexUtil {
         String ignoreAbove = properties.get(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
         String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
         String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
+        String dictCompression = properties.get(INVERTED_INDEX_DICT_COMPRESSION_KEY);
 
         if (parser != null && !parser.matches("none|english|unicode|chinese|standard")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
@@ -214,6 +224,12 @@ public class InvertedIndexUtil {
         if (stopWords != null && !stopWords.matches("none")) {
             throw new AnalysisException("Invalid inverted index 'stopWords' value: " + stopWords
                     + ", stopWords must be none");
+        }
+
+        if (dictCompression != null && !dictCompression.matches("true|false")) {
+            throw new AnalysisException(
+                    "Invalid inverted index 'dict_compression' value: "
+                            + dictCompression + ", dict_compression must be true or false");
         }
     }
 }

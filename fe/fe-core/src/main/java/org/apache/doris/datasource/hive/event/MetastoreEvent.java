@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.datasource.MetaIdMappingsLog;
-import org.apache.doris.datasource.hive.HMSCachedClient;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -31,43 +30,29 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Abstract base class for all MetastoreEvents. A MetastoreEvent is an object used to
- * process a NotificationEvent received from metastore.
+ * The wrapper parent class of the NotificationEvent class
  */
 public abstract class MetastoreEvent {
     private static final Logger LOG = LogManager.getLogger(MetastoreEvent.class);
-    // String.format compatible string to prepend event id and type
-    private static final String STR_FORMAT_EVENT_ID_TYPE = "EventId: %d EventType: %s ";
-
-    // logger format compatible string to prepend to a log formatted message
-    private static final String LOG_FORMAT_EVENT_ID_TYPE = "EventId: {} EventType: {} ";
-
-    // the notification received from metastore which is processed by this
-    protected final NotificationEvent event;
-
-    // dbName from the event
-    protected final String dbName;
-
-    // tblName from the event
-    protected final String tblName;
-
-    // eventId of the event. Used instead of calling getter on event everytime
-    protected final long eventId;
-
-    // eventTime of the event. Used instead of calling getter on event everytime
-    protected final long eventTime;
-
-    // eventType from the NotificationEvent
-    protected final MetastoreEventType eventType;
-
-    // Actual notificationEvent object received from Metastore
-    protected final NotificationEvent metastoreNotificationEvent;
 
     protected final String catalogName;
 
+    protected final String dbName;
+
+    protected final String tblName;
+
+    protected final long eventId;
+
+    protected final long eventTime;
+
+    protected final MetastoreEventType eventType;
+
+    protected final NotificationEvent event;
+    protected final NotificationEvent metastoreNotificationEvent;
+
     // for test
     protected MetastoreEvent(long eventId, String catalogName, String dbName,
-                             String tblName, MetastoreEventType eventType) {
+            String tblName, MetastoreEventType eventType) {
         this.eventId = eventId;
         this.eventTime = -1L;
         this.catalogName = catalogName;
@@ -76,6 +61,18 @@ public abstract class MetastoreEvent {
         this.eventType = eventType;
         this.metastoreNotificationEvent = null;
         this.event = null;
+    }
+
+    // for IgnoredEvent
+    protected MetastoreEvent(NotificationEvent event) {
+        this.event = event;
+        this.metastoreNotificationEvent = event;
+        this.eventId = -1;
+        this.eventTime = -1L;
+        this.catalogName = null;
+        this.dbName = null;
+        this.tblName = null;
+        this.eventType = null;
     }
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
@@ -91,127 +88,46 @@ public abstract class MetastoreEvent {
         this.catalogName = catalogName;
     }
 
-    public long getEventId() {
-        return eventId;
-    }
-
-    public MetastoreEventType getEventType() {
-        return eventType;
-    }
-
-    public String getDbName() {
-        return dbName;
-    }
-
-    public String getTblName() {
-        return tblName;
-    }
-
     /**
-     * Checks if the given event can be batched into this event. Default behavior is
-     * to return false which can be overridden by a sub-class.
+     * Can batch processing be performed to improve processing performance
      *
-     * @param event The event under consideration to be batched into this event.
-     * @return false if event cannot be batched into this event; otherwise true.
+     * @param event
+     * @return
      */
     protected boolean canBeBatched(MetastoreEvent event) {
         return false;
     }
 
-    /**
-     * Adds the given event into the batch of events represented by this event. Default
-     * implementation is to return null. Sub-classes must override this method to
-     * implement batching.
-     *
-     * @param event The event which needs to be added to the batch.
-     * @return The batch event which represents all the events batched into this event
-     * until now including the given event.
-     */
-    protected MetastoreEvent addToBatchEvents(MetastoreEvent event) {
-        return null;
-    }
-
-    /**
-     * Returns the number of events represented by this event. For most events this is 1.
-     * In case of batch events this could be more than 1.
-     */
-    protected int getNumberOfEvents() {
-        return 1;
-    }
-
-    /**
-     * Certain events like ALTER_TABLE or ALTER_PARTITION implement logic to ignore
-     * some events because they do not affect query results.
-     *
-     * @return true if this event can be skipped.
-     */
-    protected boolean canBeSkipped() {
-        return false;
-    }
-
-    /**
-     * Process the information available in the NotificationEvent.
-     * Better not to call (direct/indirect) apis of {@link HMSCachedClient}
-     * during handling hms events (Reference to https://github.com/apache/doris/pull/19120).
-     * Try to add some fallback strategies if it is highly necessary.
-     */
     protected abstract void process() throws MetastoreNotificationException;
 
-    /**
-     * Helper method to get debug string with helpful event information prepended to the
-     * message. This can be used to generate helpful exception messages
-     *
-     * @param msgFormatString String value to be used in String.format() for the given message
-     * @param args args to the <code>String.format()</code> for the given msgFormatString
-     */
-    protected String debugString(String msgFormatString, Object... args) {
-        String formatString = STR_FORMAT_EVENT_ID_TYPE + msgFormatString;
-        Object[] formatArgs = getLogFormatArgs(args);
-        return String.format(formatString, formatArgs);
+    protected String getMsgWithEventInfo(String formatSuffix, Object... args) {
+        String format = "EventId: %d EventType: %s " + formatSuffix;
+        Object[] argsWithEventInfo = getArgsWithEventInfo(args);
+        return String.format(format, argsWithEventInfo);
     }
 
-    /**
-     * Helper method to generate the format args after prepending the event id and type
-     */
-    private Object[] getLogFormatArgs(Object[] args) {
-        Object[] formatArgs = new Object[args.length + 2];
-        formatArgs[0] = eventId;
-        formatArgs[1] = eventType;
-        int i = 2;
-        for (Object arg : args) {
-            formatArgs[i] = arg;
-            i++;
-        }
-        return formatArgs;
-    }
-
-    /**
-     * Logs at info level the given log formatted string and its args. The log formatted
-     * string should have {} pair at the appropriate location in the string for each arg
-     * value provided. This method prepends the event id and event type before logging the
-     * message. No-op if the log level is not at INFO
-     */
-    protected void infoLog(String logFormattedStr, Object... args) {
+    protected void logInfo(String formatSuffix, Object... args) {
         if (!LOG.isInfoEnabled()) {
             return;
         }
-        String formatString = LOG_FORMAT_EVENT_ID_TYPE + logFormattedStr;
-        Object[] formatArgs = getLogFormatArgs(args);
-        LOG.info(formatString, formatArgs);
+        String format = "EventId: {} EventType: {} " + formatSuffix;
+        Object[] argsWithEventInfo = getArgsWithEventInfo(args);
+        LOG.info(format, argsWithEventInfo);
     }
 
     /**
-     * Similar to infoLog excepts logs at debug level
+     * Add event information to the parameters
      */
-    protected void debugLog(String logFormattedStr, Object... args) {
-        if (!LOG.isDebugEnabled()) {
-            return;
+    private Object[] getArgsWithEventInfo(Object[] args) {
+        Object[] res = new Object[args.length + 2];
+        res[0] = eventId;
+        res[1] = eventType;
+        int i = 2;
+        for (Object arg : args) {
+            res[i] = arg;
+            i++;
         }
-        String formatString = LOG_FORMAT_EVENT_ID_TYPE + logFormattedStr;
-        Object[] formatArgs = getLogFormatArgs(args);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(formatString, formatArgs);
-        }
+        return res;
     }
 
     protected String getPartitionName(Map<String, String> part, List<String> partitionColNames) {
@@ -241,8 +157,27 @@ public abstract class MetastoreEvent {
         return ImmutableList.of();
     }
 
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getTblName() {
+        return tblName;
+    }
+
+    public long getEventId() {
+        return eventId;
+    }
+
+    public MetastoreEventType getEventType() {
+        return eventType;
+    }
+
     @Override
     public String toString() {
-        return String.format(STR_FORMAT_EVENT_ID_TYPE, eventId, eventType);
+        return "MetastoreEvent{"
+                + "eventId=" + eventId
+                + ", eventType=" + eventType
+                + '}';
     }
 }

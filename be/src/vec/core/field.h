@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
@@ -165,10 +166,10 @@ class JsonbField {
 public:
     JsonbField() = default;
 
-    JsonbField(const char* ptr, uint32_t len) : size(len) {
+    JsonbField(const char* ptr, size_t len) : size(len) {
         data = new char[size];
         if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
+            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
         }
         memcpy(data, ptr, size);
     }
@@ -176,7 +177,7 @@ public:
     JsonbField(const JsonbField& x) : size(x.size) {
         data = new char[size];
         if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
+            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
         }
         memcpy(data, x.data, size);
     }
@@ -189,7 +190,7 @@ public:
     JsonbField& operator=(const JsonbField& x) {
         data = new char[size];
         if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
+            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
         }
         memcpy(data, x.data, size);
         return *this;
@@ -213,46 +214,38 @@ public:
     }
 
     const char* get_value() const { return data; }
-    uint32_t get_size() const { return size; }
+    size_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
     }
     bool operator<=(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
     }
     bool operator==(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
     }
     bool operator>(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
     }
     bool operator>=(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
     }
     bool operator!=(const JsonbField& r) const {
-        LOG(FATAL) << "comparing between JsonbField is not supported";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
     }
 
     const JsonbField& operator+=(const JsonbField& r) {
-        LOG(FATAL) << "Not support plus opration on JsonbField";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Not support plus opration on JsonbField"));
     }
 
     const JsonbField& operator-=(const JsonbField& r) {
-        LOG(FATAL) << "Not support minus opration on JsonbField";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Not support minus opration on JsonbField"));
     }
 
 private:
     char* data = nullptr;
-    uint32_t size = 0;
+    size_t size = 0;
 };
 
 template <typename T>
@@ -305,8 +298,7 @@ public:
 
     const DecimalField<T>& operator+=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
-            LOG(FATAL) << "Add different decimal fields";
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("Add different decimal fields"));
         }
         dec += r.get_value();
         return *this;
@@ -314,8 +306,7 @@ public:
 
     const DecimalField<T>& operator-=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
-            LOG(FATAL) << "Sub different decimal fields";
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("Sub different decimal fields"));
         }
         dec -= r.get_value();
         return *this;
@@ -422,8 +413,8 @@ public:
             case IPv6:
                 return "IPv6";
             default:
-                LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
-                break;
+                throw Exception(
+                        Status::FatalError("type not supported, type={}", Types::to_string(which)));
             }
             __builtin_unreachable();
         }
@@ -452,43 +443,20 @@ public:
 
     Field(Field&& rhs) { create(std::move(rhs)); }
 
+    // Make the constructor with a String parameter explicit to prevent accidentally creating a Field with the wrong string type.
+    // Other types don't require explicit construction to avoid extensive modifications.
     template <typename T>
         requires(!std::is_same_v<std::decay_t<T>, Field>)
-    Field(T&& rhs);
-
-    /// Create a string inplace.
-    Field(const char* data, size_t size) { create(data, size); }
-
-    Field(const unsigned char* data, size_t size) { create(data, size); }
-
-    /// NOTE In case when field already has string type, more direct assign is possible.
-    void assign_string(const char* data, size_t size) {
-        destroy();
-        create(data, size);
-    }
-
-    void assign_string(const unsigned char* data, size_t size) {
-        destroy();
-        create(data, size);
-    }
-
-    void assign_jsonb(const char* data, size_t size) {
-        destroy();
-        create_jsonb(data, size);
-    }
-
-    void assign_jsonb(const unsigned char* data, size_t size) {
-        destroy();
-        create_jsonb(data, size);
-    }
+    explicit(std::is_same_v<std::decay_t<T>, String>) Field(T&& rhs);
 
     Field& operator=(const Field& rhs) {
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
                 create(rhs);
-            } else
+            } else {
                 assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
+            }
         }
         return *this;
     }
@@ -503,8 +471,9 @@ public:
             if (which != rhs.which) {
                 destroy();
                 create(std::move(rhs));
-            } else
+            } else {
                 assign(std::move(rhs));
+            }
         }
         return *this;
     }
@@ -520,6 +489,9 @@ public:
 
     bool is_null() const { return which == Types::Null; }
 
+    // The template parameter T needs to be consistent with `which`.
+    // If not, use NearestFieldType<> externally.
+    // Maybe modify this in the future, reference: https://github.com/ClickHouse/ClickHouse/pull/22003
     template <typename T>
     T& get() {
         using TWithoutRef = std::remove_reference_t<T>;
@@ -542,6 +514,8 @@ public:
         return true;
     }
 
+    // The template parameter T needs to be consistent with `which`.
+    // If not, use NearestFieldType<> externally.
     template <typename T>
     bool try_get(T& result) const {
         const Types::Which requested = TypeToEnum<std::decay_t<T>>::value;
@@ -575,8 +549,9 @@ public:
             return which <=> rhs.which;
         }
         if (which != rhs.which) {
-            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
-                       << ", rhs=" << Types::to_string(rhs.which);
+            throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
+                                               Types::to_string(which),
+                                               Types::to_string(rhs.which)));
         }
 
         switch (which) {
@@ -618,9 +593,9 @@ public:
         case Types::Decimal256:
             return get<Decimal256>() <=> rhs.get<Decimal256>();
         default:
-            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
-                       << ", rhs=" << Types::to_string(rhs.which);
-            break;
+            throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
+                                               Types::to_string(which),
+                                               Types::to_string(rhs.which)));
         }
     }
 
@@ -692,8 +667,8 @@ public:
             f(field.template get<QuantileState>());
             return;
         default:
-            LOG(FATAL) << "type not supported, type=" << Types::to_string(field.which);
-            break;
+            throw Exception(Status::FatalError("type not supported, type={}",
+                                               Types::to_string(field.which)));
         }
     }
 
@@ -731,7 +706,6 @@ private:
         *ptr = std::forward<T>(x);
     }
 
-private:
     void create(const Field& x) {
         dispatch([this](auto& value) { create_concrete(value); }, x);
     }
@@ -746,25 +720,6 @@ private:
 
     void assign(Field&& x) {
         dispatch([this](auto& value) { assign_concrete(std::move(value)); }, x);
-    }
-
-    void create(const char* data, size_t size) {
-        new (&storage) String(data, size);
-        which = Types::String;
-    }
-
-    void create(const unsigned char* data, size_t size) {
-        create(reinterpret_cast<const char*>(data), size);
-    }
-
-    void create_jsonb(const char* data, size_t size) {
-        new (&storage) JsonbField(data, size);
-        which = Types::JSONB;
-    }
-
-    void create_jsonb(const unsigned char* data, size_t size) {
-        new (&storage) JsonbField(reinterpret_cast<const char*>(data), size);
-        which = Types::JSONB;
     }
 
     ALWAYS_INLINE void destroy() {

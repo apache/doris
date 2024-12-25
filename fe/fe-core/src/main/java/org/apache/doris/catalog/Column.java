@@ -68,6 +68,7 @@ public class Column implements GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
+    public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
@@ -448,6 +449,26 @@ public class Column implements GsonPostProcessable {
                 || aggregationType == AggregateType.NONE) && nameEquals(VERSION_COL, true);
     }
 
+    public boolean isSkipBitmapColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE || aggregationType == null)
+                && nameEquals(SKIP_BITMAP_COL, true);
+    }
+
+    // now we only support BloomFilter on (same behavior with BE):
+    // smallint/int/bigint/largeint
+    // string/varchar/char/variant
+    // date/datetime/datev2/datetimev2
+    // decimal/decimal32/decimal64/decimal128I/decimal256
+    // ipv4/ipv6
+    public boolean isSupportBloomFilter() {
+        PrimitiveType pType = getDataType();
+        return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
+                || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
+                || pType.isCharFamily() || pType.isDateType() || pType.isVariantType()
+                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
+    }
+
     public PrimitiveType getDataType() {
         return type.getPrimitiveType();
     }
@@ -509,6 +530,10 @@ public class Column implements GsonPostProcessable {
         return isAutoInc;
     }
 
+    public void setIsAutoInc(boolean isAutoinc) {
+        this.isAutoInc = isAutoInc;
+    }
+
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
     }
@@ -518,6 +543,9 @@ public class Column implements GsonPostProcessable {
     }
 
     public Expr getDefaultValueExpr() throws AnalysisException {
+        if (defaultValue == null) {
+            return null;
+        }
         StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
@@ -816,6 +844,11 @@ public class Column implements GsonPostProcessable {
             throw new DdlException("Dest column name is empty");
         }
 
+        // now nested type can only support change order
+        if (type.isComplexType() && !type.equals(other.type)) {
+            throw new DdlException("Can not change " + type + " to " + other);
+        }
+
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
@@ -834,7 +867,7 @@ public class Column implements GsonPostProcessable {
             }
         }
 
-        if (this.aggregationType != other.aggregationType) {
+        if (!Objects.equals(this.aggregationType, other.aggregationType)) {
             throw new DdlException("Can not change aggregation type");
         }
 
@@ -977,11 +1010,16 @@ public class Column implements GsonPostProcessable {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
         }
+        if (getDataType() == PrimitiveType.BITMAP && defaultValue != null) {
+            if (defaultValueExprDef != null) {
+                sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
+            }
+        }
         if (hasOnUpdateDefaultValue) {
             sb.append(" ON UPDATE ").append(defaultValue).append("");
         }
         if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
+            sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
         return sb.toString();
     }
@@ -1016,10 +1054,7 @@ public class Column implements GsonPostProcessable {
                 && isKey == other.isKey
                 && isAllowNull == other.isAllowNull
                 && isAutoInc == other.isAutoInc
-                && getDataType().equals(other.getDataType())
-                && getStrLen() == other.getStrLen()
-                && getPrecision() == other.getPrecision()
-                && getScale() == other.getScale()
+                && Objects.equals(type, other.type)
                 && Objects.equals(comment, other.comment)
                 && visible == other.visible
                 && Objects.equals(children, other.children)
@@ -1172,5 +1207,11 @@ public class Column implements GsonPostProcessable {
 
     public Set<String> getGeneratedColumnsThatReferToThis() {
         return generatedColumnsThatReferToThis;
+    }
+
+    public void setDefaultValueInfo(Column refColumn) {
+        this.defaultValue = refColumn.defaultValue;
+        this.defaultValueExprDef = refColumn.defaultValueExprDef;
+        this.realDefaultValue = refColumn.realDefaultValue;
     }
 }

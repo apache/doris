@@ -69,6 +69,19 @@ using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
 
+void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_writer_context) {
+    _seg_compact_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::COMPACTION,
+            fmt::format("segcompaction-txnID_{}-loadID_{}-tabletID_{}-indexID_{}-"
+                        "partitionID_{}-version_{}",
+                        std::to_string(rowset_writer_context.txn_id),
+                        print_id(rowset_writer_context.load_id),
+                        std::to_string(rowset_writer_context.tablet_id),
+                        std::to_string(rowset_writer_context.index_id),
+                        std::to_string(rowset_writer_context.partition_id),
+                        rowset_writer_context.version.to_string()));
+}
+
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
@@ -152,8 +165,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
-            if (schema->has_inverted_index(*column)) {
-                const auto* index_info = schema->get_inverted_index(*column);
+            if (const auto* index_info = schema->inverted_index(*column); index_info != nullptr) {
                 auto index_id = index_info->index_id();
                 if (schema->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
@@ -219,11 +231,12 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end) {
-    return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
+    return _writer->create_segment_writer_for_segcompaction(writer, begin, end);
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->segcompaction_mem_tracker());
+    DCHECK(_seg_compact_mem_tracker != nullptr);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
     /* throttle segcompaction task if memory depleted */
     if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
@@ -248,7 +261,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
 
     std::vector<std::vector<uint32_t>> column_groups;
-    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups);
+    std::vector<uint32_t> key_group_cluster_key_idxes;
+    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups,
+                                   &key_group_cluster_key_idxes);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  ReaderType::READER_SEGMENT_COMPACTION);
 
@@ -308,7 +323,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
                                       _writer->_num_segcompacted);
     }
     RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
-
+    if (_inverted_index_file_writer != nullptr) {
+        _inverted_index_file_writer.reset();
+    }
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
         for (const auto& entry : std::filesystem::directory_iterator(ctx.tablet_path)) {

@@ -23,6 +23,7 @@
 #include "vec/core/field.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -46,6 +47,8 @@ private:
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
+    RuntimeProfile::Counter* _append_blocks_timer = nullptr;
+    RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 };
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
@@ -59,19 +62,19 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
-            return _is_colocate && _require_bucket_distribution
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
+        } else {
+            return {ExchangeType::NOOP};
         }
-        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
     bool require_data_distribution() const override { return _is_colocate; }
 
@@ -107,4 +110,5 @@ private:
     const bool _reuse_mem;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

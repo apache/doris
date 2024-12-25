@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_null_arr", "array_contains_inverted_index") {
+suite("test_index_compaction_null_arr", "array_contains_inverted_index, nonConcurrent") {
     // here some variable to control inverted index query
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
@@ -269,7 +269,7 @@ suite("test_index_compaction_null_arr", "array_contains_inverted_index") {
                 `compy` varchar(20) NULL COMMENT "",
                 `n` array<int> NULL COMMENT "[]",
                 INDEX idx_city(city) USING INVERTED,
-                INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+                INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="none"),
                 INDEX idx_n(n) USING INVERTED
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
@@ -303,7 +303,7 @@ suite("test_index_compaction_null_arr", "array_contains_inverted_index") {
                 `compy` varchar(20) NULL COMMENT "",
                 `n` array<int> NULL COMMENT "[]",
                 INDEX idx_city(city) USING INVERTED,
-                INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+                INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="none"),
                 INDEX idx_n(n) USING INVERTED
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)

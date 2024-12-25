@@ -34,7 +34,7 @@ import lombok.Getter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class InsertOverwriteTableStmt extends DdlStmt {
+public class InsertOverwriteTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private final InsertTarget target;
 
@@ -75,7 +75,9 @@ public class InsertOverwriteTableStmt extends DdlStmt {
     }
 
     public List<String> getPartitionNames() {
-        if (target.getPartitionNames() == null) {
+        if (target.getPartitionNames() == null
+                || target.getPartitionNames().getPartitionNames() == null
+                || target.getPartitionNames().isStar()) {
             return new ArrayList<>();
         }
         return target.getPartitionNames().getPartitionNames();

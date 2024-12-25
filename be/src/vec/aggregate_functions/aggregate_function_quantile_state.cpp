@@ -23,10 +23,11 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
-                                                                    const DataTypes& argument_types,
-                                                                    const bool result_is_nullable) {
+AggregateFunctionPtr create_aggregate_function_quantile_state_union(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {
         return std::make_shared<

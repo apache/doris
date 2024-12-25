@@ -72,7 +72,7 @@ public class ConfigBase {
         void handle(Field field, String confVal) throws Exception;
     }
 
-    static class DefaultConfHandler implements ConfHandler {
+    public static class DefaultConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
             setConfigField(field, confVal);
@@ -121,6 +121,10 @@ public class ConfigBase {
             }
             initConf(ldapConfFile);
         }
+    }
+
+    public static Field getField(String name) {
+        return confFields.get(name);
     }
 
     public void initCustom(String customConfFile) throws Exception {

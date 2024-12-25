@@ -233,7 +233,7 @@ public class SystemInfoServiceTest {
 
         Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
 
-        Env.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L, 30000L);
+        Env.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L, 30000L, true);
         Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 2L);
     }
 

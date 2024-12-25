@@ -24,7 +24,7 @@
 #include "pipeline/dependency.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace pipeline {
 class AnalyticSinkOperatorX;
 
@@ -53,14 +53,18 @@ private:
         return need_more_input;
     }
     BlockRowPos _get_partition_by_end();
-    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+    BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
                                          bool need_check_first = false);
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
+    RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
+    RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+    vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
@@ -74,19 +78,17 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
-        } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate && _require_bucket_distribution
+        } else {
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
 
     bool require_data_distribution() const override { return true; }
@@ -113,3 +115,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

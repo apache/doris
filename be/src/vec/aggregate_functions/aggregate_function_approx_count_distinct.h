@@ -31,12 +31,14 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -63,8 +65,7 @@ struct AggregateFunctionApproxCountDistinctData {
     void write(BufferWritable& buf) const {
         std::string result;
         result.resize(hll_data.max_serialized_size());
-        int size = hll_data.serialize((uint8_t*)result.data());
-        result.resize(size);
+        result.resize(hll_data.serialize((uint8_t*)result.data()));
         write_binary(result, buf);
     }
 
@@ -98,12 +99,14 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
-            auto column = assert_cast<const ColumnDataType*>(columns[0]);
+            auto column =
+                    assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
             auto value = column->get_element(row_num);
             this->data(place).add(
                     HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
         } else {
-            auto value = assert_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
+            auto value = assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0])
+                                 ->get_data_at(row_num);
             uint64_t hash_value =
                     HashUtil::murmur_hash64A(value.data, value.size, HashUtil::MURMUR_SEED);
             this->data(place).add(hash_value);
@@ -133,3 +136,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

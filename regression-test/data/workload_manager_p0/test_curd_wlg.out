@@ -11,7 +11,7 @@ test_group	10	10%	true	2147483647	0	0	-1	-1		-1	-1
 
 -- !show_del_wg_1 --
 normal	20	50%	true	2147483647	0	0	1%	16	
-test_drop_wg	10	0%	true	2147483647	0	0	-1	-1	
+test_drop_wg	10	-1	true	2147483647	0	0	-1	-1	
 test_group	10	10%	true	2147483647	0	0	-1	-1	
 
 -- !show_del_wg_2 --
@@ -54,24 +54,21 @@ normal	20	50%	true	2147483647	0	0	1%	16
 test_group	10	11%	false	100	0	0	20%	-1
 
 -- !show_spill_1 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	10%	10%
-
--- !show_spill_1 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	-1	10%
+spill_group_test	-1	-1	true	2147483647	0	0	-1	-1	10%	10%
 
 -- !show_spill_2 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	10%
+spill_group_test	-1	-1	true	2147483647	0	0	-1	-1	5%	10%
 
 -- !show_spill_3 --
-spill_group_test	1024	0%	true	2147483647	0	0	-1	-1	5%	40%
+spill_group_test	-1	-1	true	2147483647	0	0	-1	-1	5%	40%
 
 -- !show_wg_tag --
 tag1_mem_wg1	50%	-1	mem_tag1
 tag1_mem_wg2	49%	-1	mem_tag1
 tag1_mem_wg3	1%	-1	mem_tag1
-tag1_wg1	0%	10%	tag1
-tag1_wg2	0%	10%	tag1
-tag1_wg3	0%	80%	tag1
+tag1_wg1	-1	10%	tag1
+tag1_wg2	-1	10%	tag1
+tag1_wg3	-1	80%	tag1
 
 -- !select_remote_scan_num --
 20	10
@@ -145,4 +142,13 @@ test_wg_priv_role1	test_wg_priv_g1	Usage_priv	NO
 'test_wg_priv_user2'@'%'	normal	Usage_priv	NO
 
 -- !select_wgp_12 --
+
+-- !select_default_val_wg_1 --
+default_val_wg	-1	-1	true	2147483647	0	0	-1	-1	-1	-1	50%	80%		-1	-1
+
+-- !select_default_val_wg_2 --
+default_val_wg	1024	1%	true	100	1	123	1%	1	12	10	50%	80%	abc	123	10
+
+-- !select_default_val_wg_3 --
+default_val_wg	-1	-1	true	2147483647	0	0	-1	-1	-1	-1	50%	80%		-1	-1
 

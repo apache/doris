@@ -24,6 +24,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <re2/re2.h>
+#include <simdjson/error.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
 
@@ -259,13 +260,17 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
                                           const std::vector<JsonPath>& jsonpath,
                                           simdjson::ondemand::value* value) noexcept {
 // Return DataQualityError when it's a malformed json.
-// Otherwise the path was not found, due to array out of bound or not exist
+// Otherwise the path was not found, due to
+// 1. array out of bound
+// 2. not exist such field in object
+// 3. the input type is not object but could be null or other types and lead to simdjson::INCORRECT_TYPE
 #define HANDLE_SIMDJSON_ERROR(err, msg)                                                     \
     do {                                                                                    \
         const simdjson::error_code& _err = err;                                             \
         const std::string& _msg = msg;                                                      \
         if (UNLIKELY(_err)) {                                                               \
-            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) { \
+            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS || \
+                _err == simdjson::INCORRECT_TYPE) {                                         \
                 return Status::NotFound<false>(                                             \
                         fmt::format("Not found target filed, err: {}, msg: {}",             \
                                     simdjson::error_message(_err), _msg));                  \

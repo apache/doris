@@ -29,6 +29,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -142,12 +143,25 @@ public class BrokerFileGroup implements Writable {
                         throw new DdlException("Unknown partition '" + pName
                                 + "' in table '" + olapTable.getName() + "'");
                     }
+                    // partition which need load data
+                    if (partition.getState() == PartitionState.RESTORE) {
+                        throw new DdlException("Table [" + olapTable.getName()
+                                + "], Partition[" + partition.getName() + "] is under restore");
+                    }
                     partitionIds.add(partition.getId());
                 }
             }
 
+            // only do check when here's restore on this table now
             if (olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
+                boolean hasPartitionRestoring = olapTable.getPartitions().stream()
+                        .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
+                // tbl RESTORE && all partition NOT RESTORE -> whole table restore
+                // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
+                // so check wether the whole table restore here
+                if (!hasPartitionRestoring) {
+                    throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
+                }
             }
 
             if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
@@ -170,6 +184,7 @@ public class BrokerFileGroup implements Writable {
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
         }
+
         enclose = dataDescription.getEnclose();
         escape = dataDescription.getEscape();
 
@@ -212,16 +227,14 @@ public class BrokerFileGroup implements Writable {
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
-        if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
-            stripOuterArray = dataDescription.isStripOuterArray();
-            jsonPaths = dataDescription.getJsonPaths();
-            jsonRoot = dataDescription.getJsonRoot();
-            fuzzyParse = dataDescription.isFuzzyParse();
-            // ATTN: for broker load, we only support reading json format data line by line,
-            // so if this is set to false, it must be stream load.
-            readJsonByLine = dataDescription.isReadJsonByLine();
-            numAsString = dataDescription.isNumAsString();
-        }
+        stripOuterArray = dataDescription.isStripOuterArray();
+        jsonPaths = dataDescription.getJsonPaths();
+        jsonRoot = dataDescription.getJsonRoot();
+        fuzzyParse = dataDescription.isFuzzyParse();
+        // ATTN: for broker load, we only support reading json format data line by line,
+        // so if this is set to false, it must be stream load.
+        readJsonByLine = dataDescription.isReadJsonByLine();
+        numAsString = dataDescription.isNumAsString();
         trimDoubleQuotes = dataDescription.getTrimDoubleQuotes();
         skipLines = dataDescription.getSkipLines();
     }

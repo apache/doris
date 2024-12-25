@@ -25,6 +25,12 @@
 
 namespace doris::cloud {
 
+// The time unit is the same with BE: us
+#define SCOPED_BVAR_LATENCY(bvar_item)                     \
+    StopWatch sw;                                          \
+    std::unique_ptr<int, std::function<void(int*)>> defer( \
+            (int*)0x01, [&](int*) { bvar_item << sw.elapsed_us(); });
+
 class TxnKv;
 
 /**
@@ -79,4 +85,9 @@ inline std::string tablet_path_prefix(int64_t tablet_id) {
     return fmt::format("data/{}/", tablet_id);
 }
 
+int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                   TabletIndexPB& tablet_idx);
+
+int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                    TabletMetaCloudPB& tablet_meta);
 } // namespace doris::cloud

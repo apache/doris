@@ -22,6 +22,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
@@ -39,6 +40,7 @@
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
@@ -49,7 +51,9 @@
 #include "runtime/thread_context.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
+#include "util/simd/bits.h"
 #include "util/thrift_util.h"
+#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -143,6 +147,9 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
     }
 
+    // get the delete sign idx in block
+    _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
         const auto& column = *DORIS_TRY(schema.column(BeConsts::ROW_STORE_COL));
         _row_store_column_ids = column.unique_id();
@@ -186,9 +193,9 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 }
 
 RowCache::RowCache(int64_t capacity, int num_shards)
-        : LRUCachePolicyTrackingManual(
-                  CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity, LRUCacheType::SIZE,
-                  config::point_query_row_cache_stale_sweep_time_sec, num_shards) {}
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -218,8 +225,8 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     auto* row_cache_value = new RowCacheValue;
     row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto* handle = LRUCachePolicyTrackingManual::insert(encoded_key, row_cache_value, value.size,
-                                                        value.size, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
     auto tmp = CacheHandle {this, handle};
 }
@@ -227,6 +234,12 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
     LRUCachePolicy::erase(encoded_key);
+}
+
+LookupConnectionCache::CacheValue::~CacheValue() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
+    item.reset();
 }
 
 PointQueryExecutor::~PointQueryExecutor() {
@@ -302,34 +315,48 @@ Status PointQueryExecutor::lookup_up() {
     return Status::OK();
 }
 
-std::string PointQueryExecutor::print_profile() {
+void PointQueryExecutor::print_profile() {
     auto init_us = _profile_metrics.init_ns.value() / 1000;
     auto init_key_us = _profile_metrics.init_key_ns.value() / 1000;
     auto lookup_key_us = _profile_metrics.lookup_key_ns.value() / 1000;
     auto lookup_data_us = _profile_metrics.lookup_data_ns.value() / 1000;
     auto output_data_us = _profile_metrics.output_data_ns.value() / 1000;
+    auto load_segments_key_us = _profile_metrics.load_segment_key_stage_ns.value() / 1000;
+    auto load_segments_data_us = _profile_metrics.load_segment_data_stage_ns.value() / 1000;
     auto total_us = init_us + lookup_key_us + lookup_data_us + output_data_us;
     auto read_stats = _profile_metrics.read_stats;
-    return fmt::format(
-            ""
+    const std::string stats_str = fmt::format(
             "[lookup profile:{}us] init:{}us, init_key:{}us,"
-            ""
-            ""
-            "lookup_key:{}us, lookup_data:{}us, output_data:{}us, hit_lookup_cache:{}"
-            ""
-            ""
+            " lookup_key:{}us, load_segments_key:{}us, lookup_data:{}us, load_segments_data:{}us,"
+            " output_data:{}us, "
+            "hit_lookup_cache:{}"
             ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
             ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
             "io_latency:{}ns, "
             "uncompressed_bytes_read:{}, result_data_bytes:{}, row_hits:{}"
-            ", rs_column_uid:{}"
-            "",
-            total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
-            _profile_metrics.hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
-            _row_read_ctxs.size(), _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
+            ", rs_column_uid:{}, bytes_read_from_local:{}, bytes_read_from_remote:{}, "
+            "local_io_timer:{}, remote_io_timer:{}, local_write_timer:{}",
+            total_us, init_us, init_key_us, lookup_key_us, load_segments_key_us, lookup_data_us,
+            load_segments_data_us, output_data_us, _profile_metrics.hit_lookup_cache,
+            _binary_row_format, _reusable->output_exprs().size(), _row_read_ctxs.size(),
+            _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
             read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
             read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes, _row_hits,
-            _reusable->rs_column_uid());
+            _reusable->rs_column_uid(),
+            _profile_metrics.read_stats.file_cache_stats.bytes_read_from_local,
+            _profile_metrics.read_stats.file_cache_stats.bytes_read_from_remote,
+            _profile_metrics.read_stats.file_cache_stats.local_io_timer,
+            _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
+            _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
+
+    constexpr static int kSlowThreholdUs = 50 * 1000; // 50ms
+    if (total_us > kSlowThreholdUs) {
+        LOG(WARNING) << "slow query, " << stats_str;
+    } else if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << stats_str;
+    } else {
+        LOG_EVERY_N(INFO, 1000) << stats_str;
+    }
 }
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
@@ -383,9 +410,10 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
-                                      &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get(), false));
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
+                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
+                                      segment_caches, rowset_ptr.get(), false, nullptr,
+                                      &_profile_metrics.read_stats));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -448,7 +476,11 @@ Status PointQueryExecutor::_lookup_row_data() {
             BetaRowsetSharedPtr rowset =
                     std::static_pointer_cast<BetaRowset>(_tablet->get_rowset(row_loc.rowset_id));
             SegmentCacheHandle segment_cache;
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            {
+                SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
+                RETURN_IF_ERROR(
+                        SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            }
             // find segment
             auto it = std::find_if(segment_cache.get_segments().cbegin(),
                                    segment_cache.get_segments().cend(),
@@ -481,6 +513,19 @@ Status PointQueryExecutor::_lookup_row_data() {
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
+        }
+    }
+    // filter rows by delete sign
+    if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
+        vectorized::ColumnPtr delete_filter_columns =
+                _result_block->get_columns()[_reusable->delete_sign_idx()];
+        const auto& filter =
+                assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())->get_data();
+        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+        if (count == filter.size()) {
+            _result_block->clear();
+        } else if (count > 0) {
+            return Status::NotSupported("Not implemented since only single row at present");
         }
     }
     return Status::OK();

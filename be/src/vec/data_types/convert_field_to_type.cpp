@@ -30,6 +30,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/bitmap_value.h"
@@ -44,6 +45,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 /** Checking for a `Field from` of `From` type falls to a range of values of type `To`.
   * `From` and `To` - numeric types. They can be floating-point types.
   * `From` is one of UInt64, Int64, Float64,
@@ -53,7 +55,6 @@ namespace doris::vectorized {
   * If not, return Field(Null).
   */
 
-/** simple types of implementation of visitor to string*/
 // TODO support more types
 class FieldVisitorToStringSimple : public StaticVisitor<String> {
 public:
@@ -63,40 +64,34 @@ public:
     String operator()(const Float64& x) const { return std::to_string(x); }
     String operator()(const String& x) const { return x; }
     [[noreturn]] String operator()(const UInt128& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const Array& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const Tuple& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const DecimalField<Decimal32>& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const DecimalField<Decimal64>& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const DecimalField<Decimal128V2>& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const DecimalField<Decimal128V3>& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const JsonbField& x) const {
-        LOG(FATAL) << "not implemeted";
-        __builtin_unreachable();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    [[noreturn]] String operator()(const VariantMap& x) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
 };
 
@@ -264,7 +259,17 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         JsonbWriter writer;
         Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                         src);
-        *to = JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        *to = JsonbField(writer.getOutput()->getBuffer(),
+                         cast_set<UInt32, size_t, false>(writer.getOutput()->getSize()));
+        return;
+    } else if (which_type.is_variant_type()) {
+        if (src.get_type() == Field::Types::VariantMap) {
+            *to = src;
+            return;
+        }
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
+                               type.get_name(), src.get_type());
         return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == Field::Types::Array) {

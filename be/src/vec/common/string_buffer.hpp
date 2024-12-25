@@ -76,7 +76,7 @@ public:
         return ref;
     }
 
-    void read(char* data, int len) {
+    void read(char* data, size_t len) {
         memcpy(data, _data, len);
         _data += len;
     }

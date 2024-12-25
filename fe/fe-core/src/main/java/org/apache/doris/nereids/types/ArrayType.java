@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.analyzer.ComplexDataType;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import java.util.Objects;
 

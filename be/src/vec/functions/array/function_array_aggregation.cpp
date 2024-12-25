@@ -52,7 +52,7 @@ namespace vectorized {
 
 enum class AggregateOperation { MIN, MAX, SUM, AVERAGE, PRODUCT };
 
-template <typename Element, AggregateOperation operation>
+template <typename Element, AggregateOperation operation, bool enable_decimal256 = false>
 struct ArrayAggregateResultImpl;
 
 template <typename Element>
@@ -71,8 +71,18 @@ struct ArrayAggregateResultImpl<Element, AggregateOperation::AVERAGE> {
 };
 
 template <typename Element>
+struct ArrayAggregateResultImpl<Element, AggregateOperation::AVERAGE, true> {
+    using Result = DisposeDecimal256<Element, Float64>;
+};
+
+template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT> {
     using Result = DisposeDecimal<Element, Float64>;
+};
+
+template <typename Element>
+struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT, true> {
+    using Result = DisposeDecimal256<Element, Float64>;
 };
 
 template <typename Element>
@@ -82,13 +92,21 @@ struct ArrayAggregateResultImpl<Element, AggregateOperation::SUM> {
             std::conditional_t<IsFloatNumber<Element>, Float64,
                                std::conditional_t<std::is_same_v<Element, Int128>, Int128, Int64>>>;
 };
+template <typename Element>
+struct ArrayAggregateResultImpl<Element, AggregateOperation::SUM, true> {
+    using Result = DisposeDecimal256<
+            Element,
+            std::conditional_t<IsFloatNumber<Element>, Float64,
+                               std::conditional_t<std::is_same_v<Element, Int128>, Int128, Int64>>>;
+};
 
-template <typename Element, AggregateOperation operation>
-using ArrayAggregateResult = typename ArrayAggregateResultImpl<Element, operation>::Result;
+template <typename Element, AggregateOperation operation, bool enable_decimal256 = false>
+using ArrayAggregateResult =
+        typename ArrayAggregateResultImpl<Element, operation, enable_decimal256>::Result;
 
 // For MIN/MAX, the type of result is the same as the type of elements, we can omit the
 // template specialization.
-template <AggregateOperation operation>
+template <AggregateOperation operation, bool enable_decimal256 = false>
 struct AggregateFunctionImpl;
 
 template <>
@@ -96,6 +114,15 @@ struct AggregateFunctionImpl<AggregateOperation::SUM> {
     template <typename Element>
     struct TypeTraits {
         using ResultType = ArrayAggregateResult<Element, AggregateOperation::SUM>;
+        using AggregateDataType = AggregateFunctionSumData<ResultType>;
+        using Function = AggregateFunctionSum<Element, ResultType, AggregateDataType>;
+    };
+};
+template <>
+struct AggregateFunctionImpl<AggregateOperation::SUM, true> {
+    template <typename Element>
+    struct TypeTraits {
+        using ResultType = ArrayAggregateResult<Element, AggregateOperation::SUM, true>;
         using AggregateDataType = AggregateFunctionSumData<ResultType>;
         using Function = AggregateFunctionSum<Element, ResultType, AggregateDataType>;
     };
@@ -114,10 +141,32 @@ struct AggregateFunctionImpl<AggregateOperation::AVERAGE> {
 };
 
 template <>
+struct AggregateFunctionImpl<AggregateOperation::AVERAGE, true> {
+    template <typename Element>
+    struct TypeTraits {
+        using ResultType = ArrayAggregateResult<Element, AggregateOperation::AVERAGE, true>;
+        using AggregateDataType = AggregateFunctionAvgData<ResultType>;
+        using Function = AggregateFunctionAvg<Element, AggregateDataType>;
+        static_assert(std::is_same_v<ResultType, typename Function::ResultType>,
+                      "ResultType doesn't match.");
+    };
+};
+
+template <>
 struct AggregateFunctionImpl<AggregateOperation::PRODUCT> {
     template <typename Element>
     struct TypeTraits {
         using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT>;
+        using AggregateDataType = AggregateFunctionProductData<ResultType>;
+        using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
+    };
+};
+
+template <>
+struct AggregateFunctionImpl<AggregateOperation::PRODUCT, true> {
+    template <typename Element>
+    struct TypeTraits {
+        using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT, true>;
         using AggregateDataType = AggregateFunctionProductData<ResultType>;
         using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
     };
@@ -133,7 +182,7 @@ struct AggregateFunction {
     }
 };
 
-template <AggregateOperation operation>
+template <AggregateOperation operation, bool enable_decimal256 = false>
 struct ArrayAggregateImpl {
     using column_type = ColumnArray;
     using data_type = DataTypeArray;
@@ -143,14 +192,20 @@ struct ArrayAggregateImpl {
     static size_t _get_number_of_arguments() { return 1; }
 
     static DataTypePtr get_return_type(const DataTypes& arguments) {
-        using Function = AggregateFunction<AggregateFunctionImpl<operation>>;
+        using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
         auto function = Function::create(data_type_array->get_nested_type());
-        return function->get_return_type();
+        if (function) {
+            return function->get_return_type();
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Unexpected type {} for aggregation {}",
+                                   data_type_array->get_nested_type()->get_name(), operation);
+        }
     }
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           const DataTypeArray* data_type_array, const ColumnArray& array) {
         ColumnPtr res;
         DataTypePtr type = data_type_array->get_nested_type();
@@ -169,6 +224,7 @@ struct ArrayAggregateImpl {
             execute_type<Decimal64>(res, type, data, offsets) ||
             execute_type<Decimal128V2>(res, type, data, offsets) ||
             execute_type<Decimal128V3>(res, type, data, offsets) ||
+            execute_type<Decimal256>(res, type, data, offsets) ||
             execute_type<Date>(res, type, data, offsets) ||
             execute_type<DateTime>(res, type, data, offsets) ||
             execute_type<DateV2>(res, type, data, offsets) ||
@@ -184,9 +240,9 @@ struct ArrayAggregateImpl {
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
                              const ColumnArray::Offsets64& offsets) {
         using ColVecType = ColumnVectorOrDecimal<Element>;
-        using ResultType = ArrayAggregateResult<Element, operation>;
+        using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
         using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
-        using Function = AggregateFunction<AggregateFunctionImpl<operation>>;
+        using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
 
         const ColVecType* column =
                 data->is_nullable()
@@ -256,13 +312,23 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
 struct NameArraySum {
     static constexpr auto name = "array_sum";
 };
+struct NameArraySumDecimal256 {
+    static constexpr auto name = "array_sum_decimal256";
+};
 
 struct NameArrayAverage {
     static constexpr auto name = "array_avg";
 };
+struct NameArrayAverageDecimal256 {
+    static constexpr auto name = "array_avg_decimal256";
+};
 
 struct NameArrayProduct {
     static constexpr auto name = "array_product";
+};
+
+struct NameArrayProductDecimal256 {
+    static constexpr auto name = "array_product_decimal256";
 };
 
 using FunctionArrayMin =
@@ -271,10 +337,20 @@ using FunctionArrayMax =
         FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::MAX>, NameArrayMax>;
 using FunctionArraySum =
         FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::SUM>, NameArraySum>;
+using FunctionArraySumDecimal256 =
+        FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::SUM, true>,
+                            NameArraySumDecimal256>;
 using FunctionArrayAverage =
         FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::AVERAGE>, NameArrayAverage>;
+using FunctionArrayAverageDecimal256 =
+        FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::AVERAGE, true>,
+                            NameArrayAverageDecimal256>;
 using FunctionArrayProduct =
         FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::PRODUCT>, NameArrayProduct>;
+
+using FunctionArrayProductDecimal256 =
+        FunctionArrayMapped<ArrayAggregateImpl<AggregateOperation::PRODUCT, true>,
+                            NameArrayProductDecimal256>;
 
 using FunctionArrayJoin = FunctionArrayMapped<ArrayJoinImpl, NameArrayJoin>;
 
@@ -282,8 +358,11 @@ void register_function_array_aggregation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayMin>();
     factory.register_function<FunctionArrayMax>();
     factory.register_function<FunctionArraySum>();
+    factory.register_function<FunctionArraySumDecimal256>();
     factory.register_function<FunctionArrayAverage>();
+    factory.register_function<FunctionArrayAverageDecimal256>();
     factory.register_function<FunctionArrayProduct>();
+    factory.register_function<FunctionArrayProductDecimal256>();
     factory.register_function<FunctionArrayJoin>();
 }
 

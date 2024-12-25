@@ -24,20 +24,35 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
-/** LocalShuffleAssignedJob */
+/**
+ * LocalShuffleAssignedJob:
+ *   this instance will use ignore_data_distribution function of local shuffle to add parallel
+ *   after scan data
+ */
 public class LocalShuffleAssignedJob extends StaticAssignedJob {
     public final int shareScanId;
+    public final boolean receiveDataFromLocal;
 
     public LocalShuffleAssignedJob(
-            int indexInUnassignedJob, int shareScanId, TUniqueId instanceId,
+            int indexInUnassignedJob, int shareScanId, boolean receiveDataFromLocal, TUniqueId instanceId,
             UnassignedJob unassignedJob,
             DistributedPlanWorker worker, ScanSource scanSource) {
         super(indexInUnassignedJob, instanceId, unassignedJob, worker, scanSource);
         this.shareScanId = shareScanId;
+        this.receiveDataFromLocal = receiveDataFromLocal;
     }
 
     @Override
     protected Map<String, String> extraInfo() {
         return ImmutableMap.of("shareScanIndex", String.valueOf(shareScanId));
+    }
+
+    @Override
+    protected String formatScanSourceString() {
+        if (receiveDataFromLocal) {
+            return "read data from first instance of " + getAssignedWorker();
+        } else {
+            return super.formatScanSourceString();
+        }
     }
 }

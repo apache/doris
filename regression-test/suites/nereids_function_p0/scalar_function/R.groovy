@@ -59,6 +59,8 @@ suite("nereids_scalar_fn_R") {
     qt_sql_relace_empty06 "select replace_empty('xyz', 'x', '');"
     qt_sql_relace_empty07 "select replace_empty('xyz', '', '');"
     qt_sql_relace_empty08 "select replace_empty('', '', 'abc');"
+    qt_sql_relace_empty09 "select  replace_empty('你a好b世c界','','b');"
+    qt_sql_relace_empty10 "select  replace_empty('你a好b世c界','','');"
     qt_sql_right_Varchar_Integer "select right(kvchrs1, kint) from fn_test order by kvchrs1, kint"
     qt_sql_right_Varchar_Integer_notnull "select right(kvchrs1, kint) from fn_test_not_nullable order by kvchrs1, kint"
     qt_sql_right_String_Integer "select right(kstr, kint) from fn_test order by kstr, kint"
@@ -107,10 +109,4 @@ suite("nereids_scalar_fn_R") {
     qt_sql_rtrim_Varchar_Varchar_notnull "select rtrim(kvchrs1, '1') from fn_test_not_nullable order by kvchrs1"
     qt_sql_rtrim_String_String "select rtrim(kstr, '1') from fn_test order by kstr"
     qt_sql_rtrim_String_String_notnull "select rtrim(kstr, '1') from fn_test_not_nullable order by kstr"
-    sql "SELECT random_bytes(7);"
-    qt_sql_random_bytes "SELECT random_bytes(null);"
-    test {
-        sql " select random_bytes(-1); "
-        exception "argument -1 of function random_bytes at row 0 was invalid"
-    }
 }

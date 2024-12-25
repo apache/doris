@@ -40,9 +40,9 @@
 
 namespace doris::vectorized {
 
-std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
-        const Block& block, const ColumnNumbers& args, const bool need_check_same,
-        bool need_replace_null_data_to_default) {
+std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
+                                                                  const ColumnNumbers& args,
+                                                                  const bool need_check_same) {
     Block res;
     ColumnNumbers res_args(args.size());
     res.reserve(args.size() + 1);
@@ -73,18 +73,8 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
                     res.insert({nullptr, nested_type, col.name});
                 } else if (const auto* nullable =
                                    check_and_get_column<ColumnNullable>(*col.column)) {
-                    if (need_replace_null_data_to_default) {
-                        const auto& null_map = nullable->get_null_map_data();
-                        const auto nested_col = nullable->get_nested_column_ptr();
-                        // only need to mutate nested column, avoid to copy nullmap
-                        auto mutable_nested_col = (*std::move(nested_col)).mutate();
-                        mutable_nested_col->replace_column_null_data(null_map.data());
-
-                        res.insert({std::move(mutable_nested_col), nested_type, col.name});
-                    } else {
-                        const auto& nested_col = nullable->get_nested_column_ptr();
-                        res.insert({nested_col, nested_type, col.name});
-                    }
+                    const auto& nested_col = nullable->get_nested_column_ptr();
+                    res.insert({nested_col, nested_type, col.name});
                 } else if (const auto* const_column =
                                    check_and_get_column<ColumnConst>(*col.column)) {
                     const auto& nested_col =
@@ -118,11 +108,10 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
     return {std::move(res), std::move(res_args)};
 }
 
-std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(
-        const Block& block, const ColumnNumbers& args, size_t result,
-        bool need_replace_null_data_to_default) {
-    auto [res, res_args] =
-            create_block_with_nested_columns(block, args, true, need_replace_null_data_to_default);
+std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
+                                                                          const ColumnNumbers& args,
+                                                                          uint32_t result) {
+    auto [res, res_args] = create_block_with_nested_columns(block, args, true);
     // insert result column in temp block
     res.insert(block.get_by_position(result));
     return {std::move(res), std::move(res_args), res.columns() - 1};
@@ -137,7 +126,7 @@ void validate_argument_type(const IFunction& func, const DataTypes& arguments,
     }
 
     const auto& argument = arguments[argument_index];
-    if (validator_func(*argument) == false) {
+    if (!validator_func(*argument)) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Illegal type {} of {} argument of function {} expected {}",
                                argument->get_name(), argument_index, func.get_name(),
@@ -148,7 +137,7 @@ void validate_argument_type(const IFunction& func, const DataTypes& arguments,
 const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColumn* column) {
     if (!is_column_const(*column)) return {};
 
-    const ColumnConst* res = assert_cast<const ColumnConst*>(column);
+    const ColumnConst* res = assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(column);
 
     if (check_column<ColumnString>(&res->get_data_column())) return res;
 

@@ -29,7 +29,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class AlterResourceStmt extends DdlStmt {
+public class AlterResourceStmt extends DdlStmt implements NotFallbackInParser {
     private static final String TYPE = "type";
 
     private final String resourceName;

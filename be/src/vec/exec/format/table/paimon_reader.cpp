@@ -34,12 +34,15 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
 }
 
-Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
+Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) {
     const auto& table_desc = range.table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
         return Status::OK();
     }
 
+    // set push down agg type to NONE because we can not do count push down opt
+    // if there are delete files.
+    _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
@@ -73,7 +76,8 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
     Slice result(buf.data(), bytes_read);
     {
         SCOPED_TIMER(_paimon_profile.delete_files_read_time);
-        RETURN_IF_ERROR(delete_file_reader->read_at(deletion_file.offset, result, &bytes_read));
+        RETURN_IF_ERROR(
+                delete_file_reader->read_at(deletion_file.offset, result, &bytes_read, io_ctx));
     }
     if (bytes_read != deletion_file.length + 4) {
         return Status::IOError(

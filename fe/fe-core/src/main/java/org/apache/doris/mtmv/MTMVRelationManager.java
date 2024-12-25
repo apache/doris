@@ -59,8 +59,8 @@ public class MTMVRelationManager implements MTMVHookService {
     // create mv2 as select * from mv1;
     // `tableMTMVs` will have 3 pair: table1 ==> mv1,mv1==>mv2, table1 ==> mv2
     // `tableMTMVsOneLevel` will have 2 pair: table1 ==> mv1,mv1==>mv2
-    private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
-    private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevel = Maps.newConcurrentMap();
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevel = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
@@ -96,6 +96,23 @@ public class MTMVRelationManager implements MTMVHookService {
             }
         }
         return res;
+    }
+
+    /**
+     * get all mtmv related to tableInfos.
+     */
+    public Set<MTMV> getAllMTMVs(List<BaseTableInfo> tableInfos) {
+        Set<MTMV> mtmvs = Sets.newLinkedHashSet();
+        Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
+        for (BaseTableInfo tableInfo : mvInfos) {
+            try {
+                mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
+            } catch (AnalysisException e) {
+                // not throw exception to client, just ignore it
+                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
+            }
+        }
+        return mtmvs;
     }
 
     @VisibleForTesting
@@ -187,7 +204,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv.getId(), dbId));
+        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv, dbId));
     }
 
     /**
@@ -232,7 +249,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void dropTable(Table table) {
-        processBaseTableChange(table, "The base table has been deleted:");
+        processBaseTableChange(new BaseTableInfo(table), "The base table has been deleted:");
     }
 
     /**
@@ -241,8 +258,10 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param table
      */
     @Override
-    public void alterTable(Table table) {
-        processBaseTableChange(table, "The base table has been updated:");
+    public void alterTable(Table table, String oldTableName) {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+        baseTableInfo.setTableName(oldTableName);
+        processBaseTableChange(baseTableInfo, "The base table has been updated:");
     }
 
     @Override
@@ -260,8 +279,7 @@ public class MTMVRelationManager implements MTMVHookService {
 
     }
 
-    private void processBaseTableChange(Table table, String msgPrefix) {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+    private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix) {
         Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
@@ -269,9 +287,7 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
             Table mtmv = null;
             try {
-                mtmv = Env.getCurrentEnv().getInternalCatalog()
-                        .getDbOrAnalysisException(mtmvInfo.getDbId())
-                        .getTableOrAnalysisException(mtmvInfo.getTableId());
+                mtmv = (Table) MTMVUtil.getTable(mtmvInfo);
             } catch (AnalysisException e) {
                 LOG.warn(e);
                 continue;

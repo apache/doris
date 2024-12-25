@@ -19,6 +19,7 @@
 
 #include <bvar/bvar.h>
 
+#include <boost/lockfree/spsc_queue.hpp>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -27,8 +28,27 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
+
+// Note: the cache_lock is scoped, so do not add do...while(0) here.
+#ifdef ENABLE_CACHE_LOCK_DEBUG
+#define SCOPED_CACHE_LOCK(MUTEX)                                                                  \
+    std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
+            std::chrono::steady_clock::now();                                                     \
+    std::lock_guard cache_lock(MUTEX);                                                            \
+    std::chrono::time_point<std::chrono::steady_clock> acq_time =                                 \
+            std::chrono::steady_clock::now();                                                     \
+    auto duration =                                                                               \
+            std::chrono::duration_cast<std::chrono::milliseconds>(acq_time - start_time).count(); \
+    if (duration > config::cache_lock_long_tail_threshold)                                        \
+        LOG(WARNING) << "Lock wait time " << std::to_string(duration) << "ms. "                   \
+                     << get_stack_trace_by_boost() << std::endl;                                  \
+    LockScopedTimer cache_lock_timer;
+#else
+#define SCOPED_CACHE_LOCK(MUTEX) std::lock_guard cache_lock(MUTEX);
+#endif
 
 template <class Lock>
 concept IsXLock = std::same_as<Lock, std::lock_guard<std::mutex>> ||
@@ -36,10 +56,28 @@ concept IsXLock = std::same_as<Lock, std::lock_guard<std::mutex>> ||
 
 class FSFileCacheStorage;
 
+class LockScopedTimer {
+public:
+    LockScopedTimer() : start_(std::chrono::steady_clock::now()) {}
+
+    ~LockScopedTimer() {
+        auto end = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_).count();
+        if (duration > 500) {
+            LOG(WARNING) << "Lock held time " << std::to_string(duration) << "ms. "
+                         << get_stack_trace_by_boost();
+        }
+    }
+
+private:
+    std::chrono::time_point<std::chrono::steady_clock> start_;
+};
+
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
 class BlockFileCache {
     friend class FSFileCacheStorage;
+    friend class MemFileCacheStorage;
     friend class FileBlock;
     friend struct FileBlocksHolder;
 
@@ -104,8 +142,9 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
-    /// For debug.
+    /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
+    std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -117,6 +156,7 @@ public:
 
     // remove all blocks that belong to the key
     void remove_if_cached(const UInt128Wrapper& key);
+    void remove_if_cached_async(const UInt128Wrapper& key);
 
     // modify the expiration time about the key
     void modify_expiration_time(const UInt128Wrapper& key, uint64_t new_expiration_time);
@@ -130,7 +170,7 @@ public:
     [[nodiscard]] std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>>
     get_hot_blocks_meta(const UInt128Wrapper& hash) const;
 
-    [[nodiscard]] bool get_lazy_open_success() const { return _lazy_open_done; }
+    [[nodiscard]] bool get_async_open_success() const { return _async_open_done; }
 
     BlockFileCache& operator=(const BlockFileCache&) = delete;
     BlockFileCache(const BlockFileCache&) = delete;
@@ -140,6 +180,11 @@ public:
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
+
+    std::map<std::string, double> get_stats();
+
+    // for be UTs
+    std::map<std::string, double> get_stats_unsafe();
 
     class LRUQueue {
     public:
@@ -174,6 +219,10 @@ public:
         size_t get_capacity(T& /* cache_lock */) const {
             return cache_size;
         }
+
+        size_t get_capacity_unsafe() const { return cache_size; }
+
+        size_t get_elements_num_unsafe() const { return queue.size(); }
 
         size_t get_elements_num(std::lock_guard<std::mutex>& /* cache_lock */) const {
             return queue.size();
@@ -316,7 +365,7 @@ private:
 
     template <class T, class U>
         requires IsXLock<T> && IsXLock<U>
-    void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock);
+    void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock, bool sync = true);
 
     FileBlocks get_impl(const UInt128Wrapper& hash, const CacheContext& context,
                         const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);
@@ -338,18 +387,15 @@ private:
                              const CacheContext& context, size_t offset, size_t size,
                              std::lock_guard<std::mutex>& cache_lock);
 
-    bool try_reserve_for_lazy_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
+    bool try_reserve_during_async_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<FileCacheType> get_other_cache_type(FileCacheType cur_cache_type);
+    std::vector<FileCacheType> get_other_cache_type_without_ttl(FileCacheType cur_cache_type);
 
     bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t offset, int64_t cur_time,
                                       std::lock_guard<std::mutex>& cache_lock);
 
     size_t get_available_cache_size(FileCacheType cache_type) const;
-
-    bool try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock);
-
-    bool try_reserve_for_ttl_without_lru(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     FileBlocks split_range_into_cells(const UInt128Wrapper& hash, const CacheContext& context,
                                       size_t offset, size_t size, FileBlock::State state,
@@ -357,6 +403,9 @@ private:
 
     std::string dump_structure_unlocked(const UInt128Wrapper& hash,
                                         std::lock_guard<std::mutex>& cache_lock);
+
+    std::string dump_single_cache_type_unlocked(const UInt128Wrapper& hash, size_t offset,
+                                                std::lock_guard<std::mutex>& cache_lock);
 
     void fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, const UInt128Wrapper& hash,
                                            const CacheContext& context,
@@ -383,23 +432,30 @@ private:
 
     void recycle_deleted_blocks();
 
-    bool try_reserve_from_other_queue_by_hot_interval(std::vector<FileCacheType> other_cache_types,
-                                                      size_t size, int64_t cur_time,
-                                                      std::lock_guard<std::mutex>& cache_lock);
+    bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
+                                                       std::vector<FileCacheType> other_cache_types,
+                                                       size_t size, int64_t cur_time,
+                                                       std::lock_guard<std::mutex>& cache_lock);
 
-    bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
+    bool try_reserve_from_other_queue_by_size(FileCacheType cur_type,
+                                              std::vector<FileCacheType> other_cache_types,
                                               size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
 
+    void remove_file_blocks_async(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
+
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
-                               std::lock_guard<std::mutex>& cache_lock);
+                               std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size);
+
+    void recycle_stale_rowset_async_bottom_half();
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -412,7 +468,7 @@ private:
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
     std::thread _cache_background_thread;
-    std::atomic_bool _lazy_open_done {false};
+    std::atomic_bool _async_open_done {false};
     bool _async_clear_file_cache {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
@@ -438,10 +494,11 @@ private:
     LRUQueue _disposable_queue;
     LRUQueue _ttl_queue;
 
+    // keys for async remove
+    std::shared_ptr<boost::lockfree::spsc_queue<FileCacheKey>> _recycle_keys;
+
     // metrics
-    size_t _num_read_blocks = 0;
-    size_t _num_hit_blocks = 0;
-    size_t _num_removed_blocks = 0;
+    std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;
@@ -454,6 +511,24 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
+
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_1h;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_1h;
+
+    std::shared_ptr<bvar::Adder<size_t>> _num_read_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
+
+    std::shared_ptr<bvar::Status<double>> _hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
+    std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
 };
 
 } // namespace doris::io

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -35,12 +36,12 @@ import java.util.List;
  * ScalarFunction 'MicroSeconds_add'.
  */
 public class MicroSecondsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
-    );
+            FunctionSignature.ret(DateTimeV2Type.MAX)
+                    .args(DateTimeV2Type.MAX, IntegerType.INSTANCE));
 
     public MicroSecondsAdd(Expression arg0, Expression arg1) {
         super("microseconds_add", arg0, arg1);
@@ -58,7 +59,18 @@ public class MicroSecondsAdd extends ScalarFunction
     }
 
     @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        signature = super.computeSignature(signature);
+        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMicroSecondsAdd(this, context);
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return new MicroSecondsAdd(literal, child(1));
     }
 }

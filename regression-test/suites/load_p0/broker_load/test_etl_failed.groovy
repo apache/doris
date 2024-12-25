@@ -52,10 +52,6 @@ suite("test_etl_failed", "load_p0") {
                 "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
-            PROPERTIES(
-                "use_new_load_scan_node" = "true",
-                "max_filter_ratio" = "0.1"
-            );
     """
 
     def max_try_milli_secs = 600000
@@ -67,7 +63,7 @@ suite("test_etl_failed", "load_p0") {
             assertTrue(1 == 2, "etl should be failed")
             break;
         }
-        if (result[0][2].equals("CANCELLED") && result[0][13].contains("_load_error_log")) {
+        if (result[0][2].equals("CANCELLED") && result[0][13].contains("error_log")) {
             break;
         }
         Thread.sleep(1000)

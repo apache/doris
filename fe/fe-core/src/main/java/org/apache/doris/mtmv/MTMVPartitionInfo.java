@@ -20,6 +20,8 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -114,7 +116,9 @@ public class MTMVPartitionInfo {
         if (partitionType == MTMVPartitionType.SELF_MANAGE) {
             throw new AnalysisException("partitionType is: " + partitionType);
         }
-        List<Column> partitionColumns = getRelatedTable().getPartitionColumns();
+        MTMVRelatedTableIf mtmvRelatedTableIf = getRelatedTable();
+        List<Column> partitionColumns = mtmvRelatedTableIf.getPartitionColumns(
+                MvccUtil.getSnapshotFromContext(mtmvRelatedTableIf));
         for (int i = 0; i < partitionColumns.size(); i++) {
             if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
                 return i;
@@ -148,5 +152,12 @@ public class MTMVPartitionInfo {
                     + ", partitionCol='" + partitionCol + '\''
                     + '}';
         }
+    }
+
+    public void compatible(CatalogMgr catalogMgr) {
+        if (relatedTable == null) {
+            return;
+        }
+        relatedTable.compatible(catalogMgr);
     }
 }

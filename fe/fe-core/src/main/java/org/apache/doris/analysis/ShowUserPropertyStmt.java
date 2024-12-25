@@ -46,7 +46,7 @@ import java.util.Set;
 // Show Property Stmt
 //  syntax:
 //      SHOW [ALL] PROPERTY [FOR user] [LIKE key pattern]
-public class ShowUserPropertyStmt extends ShowStmt {
+public class ShowUserPropertyStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowUserPropertyStmt.class);
 
     private String user;

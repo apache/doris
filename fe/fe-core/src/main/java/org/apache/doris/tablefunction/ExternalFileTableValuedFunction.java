@@ -52,6 +52,7 @@ import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -72,7 +73,6 @@ import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -98,23 +98,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public static final String PROP_TABLE_ID = "table_id";
 
-    protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(FileFormatConstants.PROP_FORMAT)
-            .add(FileFormatConstants.PROP_JSON_ROOT)
-            .add(FileFormatConstants.PROP_JSON_PATHS)
-            .add(FileFormatConstants.PROP_STRIP_OUTER_ARRAY)
-            .add(FileFormatConstants.PROP_READ_JSON_BY_LINE)
-            .add(FileFormatConstants.PROP_NUM_AS_STRING)
-            .add(FileFormatConstants.PROP_FUZZY_PARSE)
-            .add(FileFormatConstants.PROP_COLUMN_SEPARATOR)
-            .add(FileFormatConstants.PROP_LINE_DELIMITER)
-            .add(FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES)
-            .add(FileFormatConstants.PROP_SKIP_LINES)
-            .add(FileFormatConstants.PROP_CSV_SCHEMA)
-            .add(FileFormatConstants.PROP_COMPRESS_TYPE)
-            .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
-            .build();
-
     // Columns got from file and path(if has)
     protected List<Column> columns = null;
     // User specified csv columns, it will override columns got from file
@@ -137,6 +120,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = FileFormatConstants.DEFAULT_LINE_DELIMITER;
+    private byte enclose = 0;
     private String jsonRoot = "";
     private String jsonPaths = "";
     private boolean stripOuterArray;
@@ -248,6 +232,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
+        String enclosedString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_ENCLOSE, "");
+        if (!Strings.isNullOrEmpty(enclosedString)) {
+            if (enclosedString.length() > 1) {
+                throw new AnalysisException("enclose should not be longer than one byte.");
+            }
+            enclose = (byte) enclosedString.charAt(0);
+            if (enclose == 0) {
+                throw new AnalysisException("enclose should not be byte [0].");
+            }
+        }
+
         jsonRoot = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_ROOT, "");
         jsonPaths = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_PATHS, "");
         readJsonByLine = Boolean.valueOf(
@@ -302,6 +297,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
+        if (enclose != 0) {
+            fileTextScanRangeParams.setEnclose(enclose);
+        }
         fileAttributes.setTextParams(fileTextScanRangeParams);
         if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
             fileAttributes.setHeaderType(this.headerType);
@@ -319,8 +317,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TVFScanNode(id, desc, false);
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        return new TVFScanNode(id, desc, false, sv);
     }
 
     @Override

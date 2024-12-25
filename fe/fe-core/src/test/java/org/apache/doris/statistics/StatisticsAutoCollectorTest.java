@@ -138,4 +138,34 @@ public class StatisticsAutoCollectorTest {
         ExternalTable hiveExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
         Assertions.assertTrue(collector.supportAutoAnalyze(hiveExternalTable));
     }
+
+    @Test
+    public void testCreateAnalyzeJobForTbl() {
+        StatisticsAutoCollector collector = new StatisticsAutoCollector();
+        OlapTable table = new OlapTable();
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getDataSize(boolean singleReplica) {
+                return 100;
+            }
+
+            @Mock
+            public long getRowCountForIndex(long indexId, boolean strict) {
+                return -1;
+            }
+
+            @Mock
+            public boolean isPartitionedTable() {
+                return false;
+            }
+        };
+        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null));
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCountForIndex(long indexId, boolean strict) {
+                return 100;
+            }
+        };
+        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null));
+    }
 }

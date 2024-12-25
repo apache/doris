@@ -36,13 +36,13 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T1, typename T2, template <typename> typename Moments>
 struct StatFunc {
     using Type1 = T1;
     using Type2 = T2;
-    using ResultType = std::conditional_t<std::is_same_v<T1, T2> && std::is_same_v<T1, Float32>,
-                                          Float32, Float64>;
+    using ResultType = Float64;
     using Data = Moments<ResultType>;
 };
 
@@ -63,11 +63,11 @@ struct AggregateFunctionBinary
 
     String get_name() const override { return StatFunc::Data::name(); }
 
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
     DataTypePtr get_return_type() const override {
         return std::make_shared<DataTypeNumber<ResultType>>();
     }
-
-    bool allocates_memory_in_arena() const override { return false; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
@@ -128,3 +128,5 @@ AggregateFunctionPtr create_with_two_basic_numeric_types(const DataTypePtr& firs
 }
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

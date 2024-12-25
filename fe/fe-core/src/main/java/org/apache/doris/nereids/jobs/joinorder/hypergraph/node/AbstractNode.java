@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperElement;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
@@ -33,7 +34,7 @@ import java.util.Set;
 /**
  * HyperGraph Node.
  */
-public class AbstractNode {
+public class AbstractNode implements HyperElement {
     protected final int index;
     protected final List<JoinEdge> joinEdges;
     protected final List<FilterEdge> filterEdges;
@@ -63,6 +64,11 @@ public class AbstractNode {
                 .addAll(joinEdges)
                 .addAll(filterEdges)
                 .build();
+    }
+
+    @Override
+    public long getReferenceNodes() {
+        return getNodeMap();
     }
 
     public int getIndex() {

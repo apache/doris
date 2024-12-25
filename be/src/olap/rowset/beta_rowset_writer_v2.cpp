@@ -58,7 +58,7 @@ namespace doris {
 using namespace ErrorCode;
 
 BetaRowsetWriterV2::BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams)
-        : _segment_creator(_context, _seg_files), _streams(streams) {}
+        : _segment_creator(_context, _seg_files, _idx_files), _streams(streams) {}
 
 BetaRowsetWriterV2::~BetaRowsetWriterV2() = default;
 

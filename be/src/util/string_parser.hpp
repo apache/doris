@@ -102,7 +102,7 @@ public:
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
     template <typename T>
-    static inline T string_to_int(const char* __restrict s, int len, ParseResult* result) {
+    static inline T string_to_int(const char* __restrict s, size_t len, ParseResult* result) {
         T ans = string_to_int_internal<T>(s, len, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
@@ -128,7 +128,7 @@ public:
 
     // Convert a string s representing a number in given base into a decimal number.
     template <typename T>
-    static inline T string_to_int(const char* __restrict s, int len, int base,
+    static inline T string_to_int(const char* __restrict s, int64_t len, int base,
                                   ParseResult* result) {
         T ans = string_to_int_internal<T>(s, len, base, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
@@ -140,7 +140,7 @@ public:
     }
 
     template <typename T>
-    static inline T string_to_float(const char* __restrict s, int len, ParseResult* result) {
+    static inline T string_to_float(const char* __restrict s, size_t len, ParseResult* result) {
         return string_to_float_internal<T>(s, len, result);
     }
 
@@ -207,7 +207,7 @@ private:
     // Convert a string s representing a number in given base into a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     template <typename T>
-    static inline T string_to_int_internal(const char* __restrict s, int len, int base,
+    static inline T string_to_int_internal(const char* __restrict s, int64_t len, int base,
                                            ParseResult* result);
 
     // Converts an ascii string to an integer of type T assuming it cannot overflow
@@ -237,6 +237,20 @@ private:
     static inline bool is_all_whitespace(const char* __restrict s, int len) {
         for (int i = 0; i < len; ++i) {
             if (!LIKELY(is_whitespace(s[i]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // For strings like "3.0", "3.123", and "3.", can parse them as 3.
+    static inline bool is_float_suffix(const char* __restrict s, int len) {
+        return (s[0] == '.' && is_all_digit(s + 1, len - 1));
+    }
+
+    static inline bool is_all_digit(const char* __restrict s, int len) {
+        for (int i = 0; i < len; ++i) {
+            if (!LIKELY(s[i] >= '0' && s[i] <= '9')) {
                 return false;
             }
         }
@@ -306,7 +320,8 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || !is_all_whitespace(s + i, len - i)))) {
+            if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
+                                         !is_float_suffix(s + i, len - i))))) {
                 // Reject the string because either the first char was not a digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -370,7 +385,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
 }
 
 template <typename T>
-T StringParser::string_to_int_internal(const char* __restrict s, int len, int base,
+T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, int base,
                                        ParseResult* result) {
     typedef typename std::make_unsigned<T>::type UnsignedT;
     UnsignedT val = 0;
@@ -448,7 +463,8 @@ T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, Par
             T digit = s[i] - '0';
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(!is_all_whitespace(s + i, len - i)))) {
+            if ((UNLIKELY(!is_all_whitespace(s + i, len - i) &&
+                          !is_float_suffix(s + i, len - i)))) {
                 *result = PARSE_FAILURE;
                 return 0;
             }

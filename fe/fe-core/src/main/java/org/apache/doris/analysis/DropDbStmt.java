@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 
 // DROP DB表达式
-public class DropDbStmt extends DdlStmt {
+public class DropDbStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private String ctlName;
     private String dbName;
@@ -88,6 +88,9 @@ public class DropDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP DATABASE ").append("`").append(dbName).append("`");
+        if (forceDrop) {
+            stringBuilder.append(" FORCE");
+        }
         return stringBuilder.toString();
     }
 

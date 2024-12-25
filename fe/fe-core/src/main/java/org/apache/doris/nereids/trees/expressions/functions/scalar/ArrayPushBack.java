@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,8 +38,14 @@ import java.util.List;
 public class ArrayPushBack extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
+    public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
+            FunctionSignature.retArgType(0)
+                    .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0))
+    );
+
+    public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
+            FunctionSignature.retArgType(0)
+                    .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
     );
 
     /**
@@ -64,6 +71,13 @@ public class ArrayPushBack extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (getArgument(0).getDataType().isArrayType()
+                &&
+                ((ArrayType) getArgument(0).getDataType()).getItemType()
+                        .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
+            // return least common type
+            return MIN_COMMON_TYPE_SIGNATURES;
+        }
+        return FOLLOW_DATATYPE_SIGNATURE;
     }
 }

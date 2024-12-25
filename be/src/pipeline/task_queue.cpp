@@ -27,8 +27,7 @@
 #include "runtime/workload_group/workload_group.h"
 
 namespace doris::pipeline {
-
-TaskQueue::~TaskQueue() = default;
+#include "common/compile_check_begin.h"
 
 PipelineTask* SubTaskQueue::try_take(bool is_steal) {
     if (_queue.empty()) {
@@ -121,7 +120,7 @@ Status PriorityTaskQueue::push(PipelineTask* task) {
 
     // update empty queue's  runtime, to avoid too high priority
     if (_sub_queues[level].empty() &&
-        _queue_level_min_vruntime > _sub_queues[level].get_vruntime()) {
+        double(_queue_level_min_vruntime) > _sub_queues[level].get_vruntime()) {
         _sub_queues[level].adjust_runtime(_queue_level_min_vruntime);
     }
 
@@ -133,44 +132,35 @@ Status PriorityTaskQueue::push(PipelineTask* task) {
 
 MultiCoreTaskQueue::~MultiCoreTaskQueue() = default;
 
-MultiCoreTaskQueue::MultiCoreTaskQueue(int core_size) : TaskQueue(core_size), _closed(false) {
-    _prio_task_queue_list =
-            std::make_shared<std::vector<std::unique_ptr<PriorityTaskQueue>>>(core_size);
-    for (int i = 0; i < core_size; i++) {
-        (*_prio_task_queue_list)[i] = std::make_unique<PriorityTaskQueue>();
-    }
-}
+MultiCoreTaskQueue::MultiCoreTaskQueue(int core_size)
+        : _prio_task_queues(core_size), _closed(false), _core_size(core_size) {}
 
 void MultiCoreTaskQueue::close() {
     if (_closed) {
         return;
     }
     _closed = true;
-    for (int i = 0; i < _core_size; ++i) {
-        (*_prio_task_queue_list)[i]->close();
-    }
-    std::atomic_store(&_prio_task_queue_list,
-                      std::shared_ptr<std::vector<std::unique_ptr<PriorityTaskQueue>>>(nullptr));
+    // close all priority task queue
+    std::ranges::for_each(_prio_task_queues,
+                          [](auto& prio_task_queue) { prio_task_queue.close(); });
 }
 
 PipelineTask* MultiCoreTaskQueue::take(int core_id) {
     PipelineTask* task = nullptr;
-    auto prio_task_queue_list =
-            std::atomic_load_explicit(&_prio_task_queue_list, std::memory_order_relaxed);
     while (!_closed) {
-        DCHECK(prio_task_queue_list->size() > core_id)
-                << " list size: " << prio_task_queue_list->size() << " core_id: " << core_id
+        DCHECK(_prio_task_queues.size() > core_id)
+                << " list size: " << _prio_task_queues.size() << " core_id: " << core_id
                 << " _core_size: " << _core_size << " _next_core: " << _next_core.load();
-        task = (*prio_task_queue_list)[core_id]->try_take(false);
+        task = _prio_task_queues[core_id].try_take(false);
         if (task) {
             task->set_core_id(core_id);
             break;
         }
-        task = _steal_take(core_id, *prio_task_queue_list);
+        task = _steal_take(core_id);
         if (task) {
             break;
         }
-        task = (*prio_task_queue_list)[core_id]->take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
+        task = _prio_task_queues[core_id].take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
         if (task) {
             task->set_core_id(core_id);
             break;
@@ -182,8 +172,7 @@ PipelineTask* MultiCoreTaskQueue::take(int core_id) {
     return task;
 }
 
-PipelineTask* MultiCoreTaskQueue::_steal_take(
-        int core_id, std::vector<std::unique_ptr<PriorityTaskQueue>>& prio_task_queue_list) {
+PipelineTask* MultiCoreTaskQueue::_steal_take(int core_id) {
     DCHECK(core_id < _core_size);
     int next_id = core_id;
     for (int i = 1; i < _core_size; ++i) {
@@ -192,7 +181,7 @@ PipelineTask* MultiCoreTaskQueue::_steal_take(
             next_id = 0;
         }
         DCHECK(next_id < _core_size);
-        auto task = prio_task_queue_list[next_id]->try_take(true);
+        auto task = _prio_task_queues[next_id].try_take(true);
         if (task) {
             task->set_core_id(next_id);
             return task;
@@ -212,17 +201,13 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task) {
 Status MultiCoreTaskQueue::push_back(PipelineTask* task, int core_id) {
     DCHECK(core_id < _core_size);
     task->put_in_runnable_queue();
-    auto prio_task_queue_list =
-            std::atomic_load_explicit(&_prio_task_queue_list, std::memory_order_relaxed);
-    return (*prio_task_queue_list)[core_id]->push(task);
+    return _prio_task_queues[core_id].push(task);
 }
 
 void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
     task->inc_runtime_ns(time_spent);
-    auto prio_task_queue_list =
-            std::atomic_load_explicit(&_prio_task_queue_list, std::memory_order_relaxed);
-    (*prio_task_queue_list)[task->get_core_id()]->inc_sub_queue_runtime(task->get_queue_level(),
-                                                                        time_spent);
+    _prio_task_queues[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
+                                                                 time_spent);
 }
 
 } // namespace doris::pipeline

@@ -27,10 +27,13 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
-public class CreateWorkloadGroupStmt extends DdlStmt {
+public class CreateWorkloadGroupStmt extends DdlStmt implements NotFallbackInParser {
 
     private final boolean ifNotExists;
 
@@ -68,12 +71,19 @@ public class CreateWorkloadGroupStmt extends DdlStmt {
         FeNameFormat.checkWorkloadGroupName(workloadGroupName);
 
         if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Resource group properties can't be null");
+            throw new AnalysisException("Workload Group properties can't be empty");
         }
 
-        String wgTag = properties.get(WorkloadGroup.TAG);
-        if (wgTag != null) {
-            FeNameFormat.checkCommonName("workload group tag", wgTag);
+        if (properties.containsKey(WorkloadGroup.INTERNAL_TYPE)) {
+            throw new AnalysisException(WorkloadGroup.INTERNAL_TYPE + " can not be create or modified ");
+        }
+
+        String tagStr = properties.get(WorkloadGroup.TAG);
+        if (!StringUtils.isEmpty(tagStr) && (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)
+                || WorkloadGroupMgr.INTERNAL_GROUP_NAME.equals(workloadGroupName))) {
+            throw new AnalysisException(
+                    WorkloadGroupMgr.INTERNAL_GROUP_NAME + " and " + WorkloadGroupMgr.DEFAULT_GROUP_NAME
+                            + " group can not set tag");
         }
     }
 

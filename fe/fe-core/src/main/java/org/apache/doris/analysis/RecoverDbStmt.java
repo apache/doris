@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class RecoverDbStmt extends DdlStmt {
+public class RecoverDbStmt extends DdlStmt implements NotFallbackInParser {
     private String dbName;
     private long dbId = -1;
     private String newDbName = "";

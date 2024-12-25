@@ -29,6 +29,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -318,13 +319,15 @@ public class ColumnDefinition {
             }
             defaultValue = Optional.of(DefaultValue.HLL_EMPTY_DEFAULT_VALUE);
         } else if (type.isBitmapType()) {
-            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Bitmap type column can not set default value");
+            if (defaultValue.isPresent() && isOlap && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.get().getValue().equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.getValue())) {
+                throw new AnalysisException("Bitmap type column default value only support "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
         } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
                 && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
-                        .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
+                .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
             throw new AnalysisException("Array type column default value only support null or "
                     + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         } else if (type.isMapType()) {
@@ -700,6 +703,14 @@ public class ColumnDefinition {
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false, aggregateType, false,
                 Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
+    }
+
+    // used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
+    // becasue ColumnDefinition.validate() will check that bitmap type column don't set default value
+    // and then set the default value of that column to bitmap_empty()
+    public static ColumnDefinition newSkipBitmapColumnDef(AggregateType aggregateType) {
+        return new ColumnDefinition(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE, false, aggregateType, false,
+                Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE), "doris skip bitmap hidden column", false);
     }
 
     public Optional<GeneratedColumnDesc> getGeneratedColumnDesc() {

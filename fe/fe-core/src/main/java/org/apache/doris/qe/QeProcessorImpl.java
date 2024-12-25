@@ -23,8 +23,8 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -73,8 +73,6 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
-        LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
-
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
         if (executionProfile == null) {
             LOG.warn("Could not find execution profile with query id {}", DebugUtil.printId(profile.query_id));
@@ -246,26 +244,6 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
-            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
-                    params.backend_num, beAddr);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("params: {}", params);
-            }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(params.query_id);
-            if (executionProfile != null) {
-                // Update profile may cost a lot of time, use a seperate pool to deal with it.
-                writeProfileExecutor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        executionProfile.updateProfile(params);
-                    }
-                });
-            } else {
-                LOG.info("Could not find execution profile with query id {}", DebugUtil.printId(params.query_id));
-            }
-        }
         final TReportExecStatusResult result = new TReportExecStatusResult();
 
         if (params.isSetReportWorkloadRuntimeStatus()) {

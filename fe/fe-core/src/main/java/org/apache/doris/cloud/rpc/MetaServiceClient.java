@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -45,6 +46,7 @@ public class MetaServiceClient {
     private final ManagedChannel channel;
     private final long expiredAt;
     private final boolean isMetaServiceEndpointList;
+    private Random random = new Random();
 
     static {
         NameResolverRegistry.getDefaultRegistry().register(new MetaServiceListResolverProvider());
@@ -76,7 +78,9 @@ public class MetaServiceClient {
         // Disable connection age if the endpoint is a list.
         if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
-            return base + System.currentTimeMillis() % base;
+            long now = System.currentTimeMillis();
+            long rand = random.nextLong() % base;
+            return now + base + rand;
         }
         return Long.MAX_VALUE;
     }
@@ -341,6 +345,17 @@ public class MetaServiceClient {
         return blockingStub.getDeleteBitmapUpdateLock(request);
     }
 
+    public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.RemoveDeleteBitmapUpdateLockRequest.Builder builder = Cloud.RemoveDeleteBitmapUpdateLockRequest
+                    .newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.removeDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.removeDeleteBitmapUpdateLock(request);
+    }
+
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
@@ -391,5 +406,21 @@ public class MetaServiceClient {
             return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.abortTxnWithCoordinator(request);
+    }
+
+    public Cloud.FinishTabletJobResponse
+            finishTabletJob(Cloud.FinishTabletJobRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.FinishTabletJobRequest.Builder builder =
+                    Cloud.FinishTabletJobRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.finishTabletJob(request);
+    }
+
+    public Cloud.CreateInstanceResponse
+            createInstance(Cloud.CreateInstanceRequest request) {
+        return blockingStub.createInstance(request);
     }
 }

@@ -27,16 +27,22 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 // TRUNCATE TABLE tbl [PARTITION(p1, p2, ...)]
-public class TruncateTableStmt extends DdlStmt {
+public class TruncateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private TableRef tblRef;
+    private boolean forceDrop;
 
-    public TruncateTableStmt(TableRef tblRef) {
+    public TruncateTableStmt(TableRef tblRef, boolean forceDrop) {
         this.tblRef = tblRef;
+        this.forceDrop = forceDrop;
     }
 
     public TableRef getTblRef() {
         return tblRef;
+    }
+
+    public boolean isForceDrop() {
+        return forceDrop;
     }
 
     @Override
@@ -75,6 +81,9 @@ public class TruncateTableStmt extends DdlStmt {
         if (tblRef.getPartitionNames() != null) {
             sb.append(tblRef.getPartitionNames().toSql());
         }
+        if (isForceDrop()) {
+            sb.append(" FORCE");
+        }
         return sb.toString();
     }
 
@@ -82,6 +91,9 @@ public class TruncateTableStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         if (tblRef.getPartitionNames() != null) {
             sb.append(tblRef.getPartitionNames().toSql());
+        }
+        if (isForceDrop()) {
+            sb.append(" FORCE");
         }
         return sb.toString();
     }

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -112,7 +113,7 @@ public abstract class RoutineLoadJob
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
-    public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
+    public static final long DEFAULT_MAX_INTERVAL_SECOND = 60;
     public static final long DEFAULT_MAX_BATCH_ROWS = 20000000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
@@ -262,9 +263,6 @@ public abstract class RoutineLoadJob
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // stream load planer will be initialized during job schedule
-    protected StreamLoadPlanner planner;
-
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
     @SerializedName("ostmt")
@@ -346,7 +344,11 @@ public abstract class RoutineLoadJob
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             this.qualifiedUser = ConnectContext.get().getQualifiedUser();
-            this.cloudCluster = ConnectContext.get().getCloudCluster();
+            try {
+                this.cloudCluster = ConnectContext.get().getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cloud cluster", e);
+            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -488,7 +490,7 @@ public abstract class RoutineLoadJob
         lock.writeLock().lock();
     }
 
-    protected void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
@@ -618,7 +620,7 @@ public abstract class RoutineLoadJob
 
     @Override
     public int getTimeout() {
-        return (int) getMaxBatchIntervalS();
+        return (int) getMaxBatchIntervalS() * Config.routine_load_task_timeout_multiplier;
     }
 
     @Override
@@ -705,7 +707,7 @@ public abstract class RoutineLoadJob
     }
 
     @Override
-    public boolean isPartialUpdate() {
+    public boolean isFixedPartialUpdate() {
         return isPartialUpdate;
     }
 
@@ -784,18 +786,6 @@ public abstract class RoutineLoadJob
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
-                    int timeoutBackOffCount = routineLoadTaskInfo.getTimeoutBackOffCount();
-                    if (timeoutBackOffCount > RoutineLoadTaskInfo.MAX_TIMEOUT_BACK_OFF_COUNT) {
-                        try {
-                            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TIMEOUT_TOO_MUCH,
-                                        "task " + routineLoadTaskInfo.getId() + " timeout too much"), false);
-                        } catch (UserException e) {
-                            LOG.warn("update job state to pause failed", e);
-                        }
-                        return;
-                    }
-                    routineLoadTaskInfo.setTimeoutBackOffCount(timeoutBackOffCount + 1);
-                    routineLoadTaskInfo.setTimeoutMs((routineLoadTaskInfo.getTimeoutMs() << 1));
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -864,6 +854,18 @@ public abstract class RoutineLoadJob
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
                 attachment.getReceivedBytes(), false /* not replay */);
+    }
+
+    protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
+        // In the cloud mode, the reason for needing to overwrite jobStatistic is that
+        // pulling the progress of meta service is equivalent to a replay operation of edit log,
+        // but this method will be called whenever scheduled by RoutineLoadScheduler,
+        // and accumulation will result in incorrect jobStatistic information.
+        this.jobStatistic.totalRows = attachment.getTotalRows();
+        this.jobStatistic.errorRows = attachment.getFilteredRows();
+        this.jobStatistic.unselectedRows = attachment.getUnselectedRows();
+        this.jobStatistic.receivedBytes = attachment.getReceivedBytes();
+        this.jobStatistic.totalTaskExcutionTimeMs = System.currentTimeMillis() - createTimestamp;
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
@@ -955,21 +957,9 @@ public abstract class RoutineLoadJob
 
     // call before first scheduling
     // derived class can override this.
-    public void prepare() throws UserException {
-        initPlanner();
-    }
+    public abstract void prepare() throws UserException;
 
-    private void initPlanner() throws UserException {
-        // for multi table load job, the table name is dynamic,we will set table when task scheduling.
-        if (isMultiTable) {
-            return;
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        planner = new StreamLoadPlanner(db,
-                (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
-    }
-
-    public TPipelineFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
+    public TPipelineFragmentParams plan(StreamLoadPlanner planner, TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -999,7 +989,7 @@ public abstract class RoutineLoadJob
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
-                throw new MetaNotFoundException("txn does not exist: " + txnId);
+                throw new UserException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
             if (isPartialUpdate) {
@@ -1084,9 +1074,6 @@ public abstract class RoutineLoadJob
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
-        if (Config.isCloudMode()) {
-            writeLock();
-        }
         try {
             if (txnOperated) {
                 // find task in job
@@ -1333,7 +1320,7 @@ public abstract class RoutineLoadJob
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
-            routineLoadTaskInfo.selfAdaptTimeout(rlTaskTxnCommitAttachment);
+            routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
         if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
@@ -1532,7 +1519,7 @@ public abstract class RoutineLoadJob
                         .add("msg", "Job need to be rescheduled")
                         .build());
                 unprotectUpdateProgress();
-                executeNeedSchedule();
+                unprotectUpdateState(JobState.NEED_SCHEDULE, null, false);
             }
         } finally {
             writeUnlock();
@@ -1574,6 +1561,11 @@ public abstract class RoutineLoadJob
 
     public String getCloudClusterId() {
         return cloudClusterId;
+    }
+
+    public void setCloudClusterById() {
+        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
     }
 
     // check the correctness of commit info
@@ -1635,24 +1627,28 @@ public abstract class RoutineLoadJob
 
     public List<List<String>> getTasksShowInfo() throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
-            return rows;
-        }
-
-        routineLoadTaskInfoList.forEach(entity -> {
-            long txnId = entity.getTxnId();
-            if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+        readLock();
+        try {
+            if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
+                return rows;
+            }
+            routineLoadTaskInfoList.forEach(entity -> {
+                long txnId = entity.getTxnId();
+                if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
+                    rows.add(entity.getTaskShowInfo());
+                    return;
+                }
+                TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(dbId, entity.getTxnId());
+                if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                    entity.setTxnStatus(transactionState.getTransactionStatus());
+                }
                 rows.add(entity.getTaskShowInfo());
-                return;
-            }
-            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(dbId, entity.getTxnId());
-            if (null != transactionState && null != transactionState.getTransactionStatus()) {
-                entity.setTxnStatus(transactionState.getTransactionStatus());
-            }
-            rows.add(entity.getTaskShowInfo());
-        });
-        return rows;
+            });
+            return rows;
+        } finally {
+            readUnlock();
+        }
     }
 
     public String getShowCreateInfo() {
@@ -1768,12 +1764,17 @@ public abstract class RoutineLoadJob
 
     private String getTaskStatistic() {
         Map<String, String> result = Maps.newHashMap();
-        result.put("running_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
-        result.put("waiting_task",
-                String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(result);
+        readLock();
+        try {
+            result.put("running_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
+            result.put("waiting_task",
+                    String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
+            Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+            return gson.toJson(result);
+        } finally {
+            readUnlock();
+        }
     }
 
     private String jobPropertiesToJsonString() {

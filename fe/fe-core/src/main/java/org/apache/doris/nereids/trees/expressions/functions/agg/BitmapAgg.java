@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -36,14 +36,14 @@ import java.util.List;
 /**
  * AggregateFunction 'bitmap_agg'.
  */
-public class BitmapAgg extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+public class BitmapAgg extends NotNullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BitmapType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BitmapType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE)
-    );
+            FunctionSignature.ret(BitmapType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(TinyIntType.INSTANCE)
+            );
 
     public BitmapAgg(Expression arg0) {
         super("bitmap_agg", arg0);
@@ -62,5 +62,10 @@ public class BitmapAgg extends AggregateFunction
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new BitmapAgg(distinct, children.get(0));
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new BitmapEmpty();
     }
 }

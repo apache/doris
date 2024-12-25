@@ -25,10 +25,12 @@
 #include <memory>
 
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -114,7 +116,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColumnVector<T>&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
@@ -141,3 +144,4 @@ public:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

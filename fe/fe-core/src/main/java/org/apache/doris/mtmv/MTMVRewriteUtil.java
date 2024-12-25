@@ -31,8 +31,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class MTMVRewriteUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVRewriteUtil.class);
@@ -53,11 +51,11 @@ public class MTMVRewriteUtil {
             return res;
         }
         // check mv is normal
-        if (mtmv.getStatus().getState() != MTMVState.NORMAL
-                || mtmv.getStatus().getRefreshState() == MTMVRefreshState.INIT) {
+        MTMVStatus mtmvStatus = mtmv.getStatus();
+        if (mtmvStatus.getState() != MTMVState.NORMAL || mtmvStatus.getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
-        Map<String, Set<String>> partitionMappings = null;
+        MTMVRefreshContext refreshContext = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
@@ -66,12 +64,18 @@ public class MTMVRewriteUtil {
                 res.add(partition);
                 continue;
             }
-            try {
-                if (partitionMappings == null) {
-                    partitionMappings = mtmv.calculatePartitionMappings();
+            if (refreshContext == null) {
+                try {
+                    refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                } catch (AnalysisException e) {
+                    LOG.warn("buildContext failed", e);
+                    // After failure, one should quickly return to avoid repeated failures
+                    return res;
                 }
-                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getName(),
-                        partitionMappings.get(partition.getName()), mtmvRelation.getBaseTablesOneLevel(),
+            }
+            try {
+                if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
+                        mtmvRelation.getBaseTablesOneLevel(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }

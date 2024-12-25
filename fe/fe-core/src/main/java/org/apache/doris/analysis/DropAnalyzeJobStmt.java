@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 /**
  * DROP ANALYZE JOB [JOB_ID]
  */
-public class DropAnalyzeJobStmt extends DdlStmt {
+public class DropAnalyzeJobStmt extends DdlStmt implements NotFallbackInParser {
 
     private final long jobId;
 

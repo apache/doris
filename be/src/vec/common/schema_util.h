@@ -36,6 +36,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/json_parser.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -79,19 +80,12 @@ struct ExtraInfo {
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
-struct ParseContext {
-    // record an extract json column, used for encoding row store
-    bool record_raw_json_column = false;
-};
-
 // three steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseContext& ctx);
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse = true);
+                             const ParseConfig& config);
 Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
@@ -115,6 +109,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
 
+// source: variant column
+// target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema);
 
@@ -126,5 +122,8 @@ vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
 std::string dump_column(DataTypePtr type, const ColumnPtr& col);
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx);
 
 } // namespace  doris::vectorized::schema_util

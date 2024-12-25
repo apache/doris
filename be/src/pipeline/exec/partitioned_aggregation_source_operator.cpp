@@ -29,6 +29,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
@@ -36,18 +37,20 @@ PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, Operator
 Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _init_counters();
     return Status::OK();
 }
 
 Status PartitionedAggLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    SCOPED_TIMER(_open_timer);
     if (_opened) {
         return Status::OK();
     }
     _opened = true;
     RETURN_IF_ERROR(setup_in_memory_agg_op(state));
-    return Base::open(state);
+    return Status::OK();
 }
 
 void PartitionedAggLocalState::_init_counters() {
@@ -106,11 +109,6 @@ Status PartitionedAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState*
     return _agg_source_operator->init(tnode, state);
 }
 
-Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    return _agg_source_operator->prepare(state);
-}
-
 Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::open(state));
     return _agg_source_operator->open(state);
@@ -119,6 +117,10 @@ Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::close(state));
     return _agg_source_operator->close(state);
+}
+
+bool PartitionedAggSourceOperatorX::is_serial_operator() const {
+    return _agg_source_operator->is_serial_operator();
 }
 
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
@@ -165,7 +167,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
 
 Status PartitionedAggLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
@@ -294,4 +296,5 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
             std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
                                             exception_catch_func));
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

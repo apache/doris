@@ -24,6 +24,7 @@ extern const char* doris_build_version_prefix();
 extern int doris_build_version_major();
 extern int doris_build_version_minor();
 extern int doris_build_version_patch();
+extern int doris_build_version_hotfix();
 extern const char* doris_build_version_rc_version();
 
 extern const char* doris_build_version();

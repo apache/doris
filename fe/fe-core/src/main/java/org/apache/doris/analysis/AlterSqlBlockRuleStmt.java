@@ -32,7 +32,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
-public class AlterSqlBlockRuleStmt extends DdlStmt {
+public class AlterSqlBlockRuleStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
 

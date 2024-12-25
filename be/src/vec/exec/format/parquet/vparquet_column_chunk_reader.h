@@ -183,11 +183,6 @@ public:
                 ->read_dict_values_to_column(doris_column);
     }
 
-    Status get_dict_codes(const ColumnString* column_string, std::vector<int32_t>* dict_codes) {
-        return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]->get_dict_codes(
-                column_string, dict_codes);
-    }
-
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]
                 ->convert_dict_column_to_string_column(dict_column);
@@ -196,6 +191,7 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
+    bool _has_dict_page() const;
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();

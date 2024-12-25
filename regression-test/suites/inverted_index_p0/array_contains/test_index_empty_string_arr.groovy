@@ -38,7 +38,7 @@ suite("test_index_empty_string_arr", "array_contains_inverted_index"){
         `a` ARRAY<text> NULL DEFAULT "[]",
         `b` ARRAY<text> NULL DEFAULT "[]",
         INDEX a_idx(`a`) USING INVERTED COMMENT '',
-        INDEX b_idx(`b`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+        INDEX b_idx(`b`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'

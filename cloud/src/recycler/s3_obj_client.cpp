@@ -30,9 +30,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stopwatch.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/util.h"
 
 namespace doris::cloud {
 
@@ -282,6 +284,7 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
         SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
         return s3_client_->DeleteObject(request);
     });
+    TEST_SYNC_POINT_CALLBACK("S3ObjClient::delete_object", &outcome);
     if (!outcome.IsSuccess()) {
         LOG_WARNING("failed to delete object")
                 .tag("endpoint", endpoint_)
@@ -290,9 +293,12 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
                 .tag("error", outcome.GetError().GetMessage())
                 .tag("exception", outcome.GetError().GetExceptionName());
-        return -1;
+        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+            return {ObjectStorageResponse::NOT_FOUND, outcome.GetError().GetMessage()};
+        }
+        return {ObjectStorageResponse::UNDEFINED, outcome.GetError().GetMessage()};
     }
-    return 0;
+    return {ObjectStorageResponse::OK};
 }
 
 ObjectStorageResponse S3ObjClient::delete_objects_recursively(ObjectStoragePathRef path,

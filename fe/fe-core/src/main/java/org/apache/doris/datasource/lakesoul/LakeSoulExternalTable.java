@@ -58,7 +58,11 @@ public class LakeSoulExternalTable extends ExternalTable {
 
     public LakeSoulExternalTable(long id, String name, String dbName, LakeSoulExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.LAKESOUl_EXTERNAL_TABLE);
-        tableId = getLakeSoulTableInfo().getTableId();
+        TableInfo tableInfo = getLakeSoulTableInfo();
+        if (tableInfo == null) {
+            throw new RuntimeException(String.format("LakeSoul table %s.%s does not exist", dbName, name));
+        }
+        tableId = tableInfo.getTableId();
     }
 
     @Override

@@ -429,6 +429,12 @@ xyz
 -- !sql_relace_empty08 --
 abc
 
+-- !sql_relace_empty09 --
+b你bab好bbb世bcb界b
+
+-- !sql_relace_empty10 --
+你a好b世c界
+
 -- !sql_right_Varchar_Integer --
 \N
 1
@@ -1124,7 +1130,4 @@ string3
 string3
 string3
 string3
-
--- !sql_random_bytes --
-\N
 

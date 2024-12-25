@@ -163,9 +163,23 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // check if version number exceed limit
     if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
-                "failed to push data. version count: {}, exceed limit: {}, tablet: {}",
+                "failed to push data. version count: {}, exceed limit: {}, tablet: {}. Please "
+                "reduce the frequency of loading data or adjust the max_tablet_version_num in "
+                "be.conf to a larger value.",
                 tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
     }
+
+    int version_count = tablet->version_count() + tablet->stale_version_count();
+    if (tablet->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
+                tablet->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, tablet->tablet_id());
+    }
+
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
@@ -457,7 +471,7 @@ Status PushBrokerReader::_init_src_block() {
 }
 
 Status PushBrokerReader::_cast_to_input_block() {
-    size_t idx = 0;
+    uint32_t idx = 0;
     for (auto& slot_desc : _src_slot_descs) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             continue;
@@ -504,7 +518,7 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
         column_ptr = _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-        DCHECK(column_ptr != nullptr);
+        DCHECK(column_ptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable

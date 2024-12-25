@@ -29,7 +29,7 @@
 #include "vec/exec/scan/vfile_scanner.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
@@ -37,16 +37,16 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
-    size_t shard_num = std::min<size_t>(
+    uint32_t shard_num = std::min(
             config::doris_scanner_thread_pool_thread_num / state()->query_parallel_instance_num(),
             _max_scanners);
-    shard_num = std::max(shard_num, (size_t)1);
+    shard_num = std::max(shard_num, 1U);
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
         std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(
-                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get());
-        RETURN_IF_ERROR(
-                scanner->prepare(_conjuncts, &_colname_to_value_range, &p._colname_to_slot_id));
+                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
+                &_colname_to_value_range, &p._colname_to_slot_id);
+        RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }
     return Status::OK();
@@ -93,6 +93,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
 
 Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::init(state, info));
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<FileScanOperatorX>();
     _output_tuple_id = p._output_tuple_id;
     return Status::OK();
@@ -107,8 +108,8 @@ Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status FileScanOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
+Status FileScanOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::open(state));
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
         TFileScanRangeParams& params =

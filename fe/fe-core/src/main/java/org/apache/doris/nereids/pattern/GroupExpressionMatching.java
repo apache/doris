@@ -200,7 +200,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
         @Override
         public Plan next() {
             if (!hasNext()) {
-                throw new NoSuchElementException();
+                throw new NoSuchElementException("GroupExpressionIterator is empty");
             }
             return results.get(resultIndex++);
         }

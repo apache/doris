@@ -29,7 +29,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 // Show database statement.
-public class ShowDbStmt extends ShowStmt {
+public class ShowDbStmt extends ShowStmt implements NotFallbackInParser {
     private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
             InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";

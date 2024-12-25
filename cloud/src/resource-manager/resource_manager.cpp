@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -157,31 +158,77 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     std::stringstream ss;
     bool no_err = true;
     int master_num = 0;
+    int follower_num = 0;
     for (auto& n : cluster.nodes()) {
+        // check here cloud_unique_id
+        std::string cloud_unique_id = n.cloud_unique_id();
+        auto [is_degrade_format, instance_id] = get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (config::enable_check_instance_id && is_degrade_format &&
+            !is_instance_id_registered(instance_id)) {
+            ss << "node=" << n.DebugString()
+               << " cloud_unique_id use degrade format, but check instance failed";
+            *err = ss.str();
+            return false;
+        }
         if (ClusterPB::SQL == cluster.type() && n.has_edit_log_port() && n.edit_log_port() &&
             n.has_node_type() &&
             (n.node_type() == NodeInfoPB_NodeType_FE_MASTER ||
-             n.node_type() == NodeInfoPB_NodeType_FE_OBSERVER)) {
+             n.node_type() == NodeInfoPB_NodeType_FE_OBSERVER ||
+             n.node_type() == NodeInfoPB_NodeType_FE_FOLLOWER)) {
             master_num += n.node_type() == NodeInfoPB_NodeType_FE_MASTER ? 1 : 0;
+            follower_num += n.node_type() == NodeInfoPB_NodeType_FE_FOLLOWER ? 1 : 0;
+            continue;
+        } else if (ClusterPB::COMPUTE == cluster.type() && n.has_heartbeat_port() &&
+                   n.heartbeat_port()) {
             continue;
         }
-        if (ClusterPB::COMPUTE == cluster.type() && n.has_heartbeat_port() && n.heartbeat_port()) {
-            continue;
-        }
-        ss << "check cluster params failed, node : " << proto_to_json(n);
+        ss << "check cluster params failed, edit_log_port is required for frontends while "
+              "heatbeat_port is required for banckens, node : "
+           << proto_to_json(n);
         *err = ss.str();
         no_err = false;
         break;
     }
-    // ATTN: add_cluster check must have only a master node
-    // add_node doesn't check it
-    if (check_master_num && ClusterPB::SQL == cluster.type() && master_num != 1) {
+
+    if (check_master_num && ClusterPB::SQL == cluster.type()) {
         no_err = false;
-        ss << "cluster is SQL type, must have only one master node, now master count: "
-           << master_num;
+        if (master_num > 0 && follower_num > 0) {
+            ss << "cluster is SQL type, and use multi follower mode, cant set master node, master "
+                  "count: "
+               << master_num << " follower count: " << follower_num;
+        } else if (!follower_num && master_num != 1) {
+            ss << "cluster is SQL type, must have only one master node, now master count: "
+               << master_num;
+        } else {
+            // followers mode
+            // 1. followers 2. observers + followers
+            no_err = true;
+            ss << "";
+        }
         *err = ss.str();
     }
     return no_err;
+}
+
+std::pair<bool, std::string> ResourceManager::get_instance_id_by_cloud_unique_id(
+        const std::string& cloud_unique_id) {
+    auto v = split(cloud_unique_id, ':');
+    if (v.size() != 3) return {false, ""};
+    // degraded format check it
+    int version = std::atoi(v[0].c_str());
+    if (version != 1) return {false, ""};
+    return {true, v[1]};
+}
+
+bool ResourceManager::is_instance_id_registered(const std::string& instance_id) {
+    // check kv
+    auto [c0, m0] = get_instance(nullptr, instance_id, nullptr);
+    { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &c0); }
+    if (c0 != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to check instance instance_id=" << instance_id
+                     << ", code=" << format_as(c0) << ", info=" + m0;
+    }
+    return c0 == TxnErrorCode::TXN_OK;
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::string& instance_id,
@@ -609,13 +656,44 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
         return ec;
     }
 
-    if (!inst_pb->ParseFromString(val)) {
+    if (inst_pb != nullptr && !inst_pb->ParseFromString(val)) {
         code = TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
         msg = "failed to parse InstanceInfoPB";
         return ec;
     }
 
     return ec;
+}
+
+// check instance pb is valid
+bool is_instance_valid(const InstanceInfoPB& instance) {
+    // check has fe node
+    for (auto& c : instance.clusters()) {
+        if (c.has_type() && c.type() == ClusterPB::SQL) {
+            int master = 0;
+            int follower = 0;
+            std::string mode = "multi-followers";
+            for (auto& n : c.nodes()) {
+                if (n.node_type() == NodeInfoPB::FE_MASTER) {
+                    mode = "master-observers";
+                    master++;
+                } else if (n.node_type() == NodeInfoPB::FE_FOLLOWER) {
+                    follower++;
+                }
+            }
+            // if master/observers mode , not have master or have multi master, return false
+            if (mode == "master-observers" && master != 1) {
+                return false;
+            }
+            // if multi followers mode, not have follower, return false
+            if (mode == "multi-followers" && !follower) {
+                return false;
+            }
+            return true;
+        }
+    }
+    // check others ...
+    return true;
 }
 
 std::string ResourceManager::modify_nodes(const std::string& instance_id,
@@ -910,6 +988,11 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     }
 
     LOG(INFO) << "instance " << instance_id << " info: " << instance.DebugString();
+    if (!to_del.empty() && !is_instance_valid(instance)) {
+        msg = "instance invalid, cant modify, plz check";
+        LOG(WARNING) << msg;
+        return msg;
+    }
 
     InstanceKeyInfo key_info {instance_id};
     std::string key;

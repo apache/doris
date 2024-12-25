@@ -39,6 +39,7 @@
 #include "task/engine_clone_task.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
+#include "util/security.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 
@@ -149,11 +150,15 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     LOG(INFO) << "succeed to do single replica compaction"
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
-              << ", input_rowset_size=" << _input_rowsets_size
+              << ", input_rowsets_data_size=" << _input_rowsets_data_size
+              << ", input_rowsets_index_size=" << _input_rowsets_index_size
+              << ", input_rowsets_total_size=" << _input_rowsets_total_size
               << ", input_row_num=" << _input_row_num
               << ", input_segments_num=" << _input_num_segments
-              << ", _input_index_size=" << _input_index_size
+              << ", _input_index_size=" << _input_rowsets_index_size
               << ", output_rowset_data_size=" << _output_rowset->data_disk_size()
+              << ", output_rowset_index_size=" << _output_rowset->index_disk_size()
+              << ", output_rowset_total_size=" << _output_rowset->total_disk_size()
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", output_segments_num=" << _output_rowset->num_segments();
     return Status::OK();
@@ -170,7 +175,7 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
     if (stub == nullptr) {
-        return Status::Aborted("get rpc stub failed");
+        return Status::Aborted("get rpc stub failed, host={}, port={}", addr.host, addr.brpc_port);
     }
 
     brpc::Controller cntl;
@@ -264,10 +269,11 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
             return false;
         }
         for (auto& rowset : _input_rowsets) {
-            _input_rowsets_size += rowset->data_disk_size();
+            _input_rowsets_data_size += rowset->data_disk_size();
             _input_row_num += rowset->num_rows();
             _input_num_segments += rowset->num_segments();
-            _input_index_size += rowset->index_disk_size();
+            _input_rowsets_index_size += rowset->index_disk_size();
+            _input_rowsets_total_size += rowset->data_disk_size() + rowset->index_disk_size();
         }
         _output_version = *proper_version;
     }
@@ -368,7 +374,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
     // name may have different versions.
     VLOG_DEBUG << "single replica compaction begin to download files, remote path="
-               << _mask_token(remote_url_prefix) << " local_path=" << local_path;
+               << mask_token(remote_url_prefix) << " local_path=" << local_path;
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(local_path));
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
@@ -404,20 +410,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         return Status::InternalError("single compaction init curl failed");
     }
     for (auto& file_name : file_name_list) {
-        // The file name of the variant column with the inverted index contains %
-        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
-        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
-        // We need to handle %, otherwise it will cause an HTTP 404 error.
-        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
-        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
-        // https://datatracker.ietf.org/doc/html/rfc3986
-        auto output = std::unique_ptr<char, decltype(&curl_free)>(
-                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
-        if (!output) {
-            return Status::InternalError("escape file name failed, file name={}", file_name);
-        }
-        std::string encoded_filename(output.get());
-        auto remote_file_url = remote_url_prefix + encoded_filename;
+        auto remote_file_url = remote_url_prefix + file_name;
 
         // get file length
         uint64_t file_size = 0;
@@ -446,10 +439,10 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         std::string local_file_path = local_path + file_name;
 
         LOG(INFO) << "single replica compaction begin to download file from: "
-                  << _mask_token(remote_file_url) << " to: " << local_file_path
+                  << mask_token(remote_file_url) << " to: " << local_file_path
                   << ". size(B): " << file_size << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
@@ -461,7 +454,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", remote_path=" << mask_token(remote_file_url)
                              << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
@@ -591,11 +584,6 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;
-}
-
-std::string SingleReplicaCompaction::_mask_token(const std::string& str) {
-    std::regex pattern("token=[\\w|-]+");
-    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris

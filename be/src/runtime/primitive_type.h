@@ -162,12 +162,6 @@ struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using ColumnType = vectorized::ColumnFloat32;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_TIME> {
-    using CppType = double;
-    using StorageFieldType = CppType;
-    using ColumnType = vectorized::ColumnFloat64;
-};
-template <>
 struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using CppType = double;
     using StorageFieldType = CppType;
@@ -243,13 +237,13 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
-    using CppType = vectorized::IPv4;
+    using CppType = IPv4;
     using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
-    using CppType = vectorized::IPv6;
+    using CppType = IPv6;
     using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnIPv6;
 };

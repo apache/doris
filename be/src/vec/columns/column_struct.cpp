@@ -187,7 +187,7 @@ const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos) {
 
 int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs_,
                              int nan_direction_hint) const {
-    const ColumnStruct& rhs = assert_cast<const ColumnStruct&>(rhs_);
+    const ColumnStruct& rhs = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     const size_t lhs_tuple_size = columns.size();
     const size_t rhs_tuple_size = rhs.tuple_size();
@@ -243,11 +243,19 @@ void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
+void ColumnStruct::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i]->insert_many_from(src_concrete.get_column(i), position, length);
+    }
+}
+
 void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->insert_range_from(*assert_cast<const ColumnStruct&>(src).columns[i], start,
-                                      length);
+        columns[i]->insert_range_from(
+                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i],
+                start, length);
     }
 }
 
@@ -256,7 +264,8 @@ void ColumnStruct::insert_range_from_ignore_overflow(const IColumn& src, size_t 
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
         columns[i]->insert_range_from_ignore_overflow(
-                *assert_cast<const ColumnStruct&>(src).columns[i], start, length);
+                *assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(src).columns[i],
+                start, length);
     }
 }
 
@@ -304,28 +313,10 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
-bool ColumnStruct::could_shrinked_column() {
-    const size_t tuple_size = columns.size();
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->could_shrinked_column()) {
-            return true;
-        }
+void ColumnStruct::shrink_padding_chars() {
+    for (auto& column : columns) {
+        column->shrink_padding_chars();
     }
-    return false;
-}
-
-MutableColumnPtr ColumnStruct::get_shrinked_column() {
-    const size_t tuple_size = columns.size();
-    MutableColumns new_columns(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->could_shrinked_column()) {
-            new_columns[i] = columns[i]->get_shrinked_column();
-        } else {
-            new_columns[i] = columns[i]->get_ptr();
-        }
-    }
-    return ColumnStruct::create(std::move(new_columns));
 }
 
 void ColumnStruct::reserve(size_t n) {

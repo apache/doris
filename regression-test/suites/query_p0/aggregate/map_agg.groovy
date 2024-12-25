@@ -322,4 +322,35 @@ suite("map_agg") {
                , day
         ) t order by 1, 2;
     """
+
+    sql "DROP TABLE IF EXISTS `test_map_agg_2`;"
+    sql """
+        CREATE TABLE `test_map_agg_2` (
+        `k1` int NULL,
+        `k2` int NULL,
+        `v1` text NULL,
+        `v2` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`, `k2`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES ( 'replication_num' = '1');
+    """
+
+    sql """
+        insert into `test_map_agg_2` values
+            (    3 ,    1 , 'k'    , 'j'    ),
+            (    3 ,    2 , 'a'    , 'a3'   ),
+            (    5 ,    2 , 'a'    , 'a5'   ),
+            (    1 ,    1 , 'ee'   , 'nn'   ),
+            (    1 ,    1 , 'a'    , 'b'    ),
+            (    1 ,    2 , 'a'    , 'b'    ),
+            (    1 ,    3 , 'c'    , 'c'    ),
+            (    2 ,    1 , 'e'    , 'f'    ),
+            (    2 ,    2 , 'a'    , 'a2'   ),
+            (    4 ,    2 , 'b'    , 'bddd' ),
+            (    4 ,    2 , 'a'    , 'a4'   );
+    """
+
+    sql "set experimental_ignore_storage_data_distribution = 0;"
+    qt_test_dumplicate "select k2, m['b'] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
  }

@@ -28,7 +28,7 @@ import com.google.common.base.Preconditions;
 import lombok.Getter;
 
 @Getter
-public class AlterSystemStmt extends DdlStmt {
+public class AlterSystemStmt extends DdlStmt implements NotFallbackInParser {
 
     private final AlterClause alterClause;
 

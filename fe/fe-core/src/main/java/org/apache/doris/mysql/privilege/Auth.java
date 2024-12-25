@@ -36,8 +36,10 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -54,6 +56,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
@@ -86,6 +89,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -550,6 +554,10 @@ public class Auth implements Writable {
         }
     }
 
+    public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
+        dropUserInternal(userIdent, ignoreIfNonExists, false);
+    }
+
     // drop user
     public void dropUser(DropUserStmt stmt) throws DdlException {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
@@ -677,6 +685,9 @@ public class Auth implements Writable {
             throws DdlException {
         writeLock();
         try {
+            if (!isReplay) {
+                checkTablePatternExist(tblPattern, privs);
+            }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");
@@ -692,6 +703,36 @@ public class Auth implements Writable {
             LOG.info("finished to grant privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void checkTablePatternExist(TablePattern tablePattern, PrivBitSet privs) throws DdlException {
+        Objects.requireNonNull(tablePattern, "tablePattern can not be null");
+        Objects.requireNonNull(privs, "privs can not be null");
+        if (privs.containsPrivs(Privilege.CREATE_PRIV)) {
+            return;
+        }
+        PrivLevel privLevel = tablePattern.getPrivLevel();
+        if (privLevel == PrivLevel.GLOBAL) {
+            return;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tablePattern.getQualifiedCtl());
+        if (catalog == null) {
+            throw new DdlException("catalog:" + tablePattern.getQualifiedCtl() + " does not exist");
+        }
+        if (privLevel == PrivLevel.CATALOG) {
+            return;
+        }
+        DatabaseIf db = catalog.getDbNullable(tablePattern.getQualifiedDb());
+        if (db == null) {
+            throw new DdlException("database:" + tablePattern.getQualifiedDb() + " does not exist");
+        }
+        if (privLevel == PrivLevel.DATABASE) {
+            return;
+        }
+        TableIf table = db.getTableNullable(tablePattern.getTbl());
+        if (table == null) {
+            throw new DdlException("table:" + tablePattern.getTbl() + " does not exist");
         }
     }
 
@@ -912,6 +953,11 @@ public class Auth implements Writable {
                 false /* set by resolver */, false);
     }
 
+    public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
+        setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
+                false /* set by resolver */, false);
+    }
+
     public void replaySetPassword(PrivInfo info) {
         try {
             setPasswordInternal(info.getUserIdent(), info.getPasswd(), null, true /* err on non exist */,
@@ -955,6 +1001,12 @@ public class Auth implements Writable {
         LOG.info("finished to set ldap password.");
     }
 
+    public void setLdapPassword(String ldapPassword) {
+        ldapInfo = new LdapInfo(ldapPassword);
+        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
+        LOG.info("finished to set ldap password.");
+    }
+
     public void replaySetLdapPassword(LdapInfo info) {
         ldapInfo = info;
         if (LOG.isDebugEnabled()) {
@@ -971,8 +1023,16 @@ public class Auth implements Writable {
         createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
     }
 
+    public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
+        createRoleInternal(role, ignoreIfExists, comment, false);
+    }
+
     public void alterRole(AlterRoleStmt stmt) throws DdlException {
         alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
+    }
+
+    public void alterRole(String role, String comment) throws DdlException {
+        alterRoleInternal(role, comment, false);
     }
 
     public void replayCreateRole(PrivInfo info) {
@@ -1028,6 +1088,10 @@ public class Auth implements Writable {
     // drop role
     public void dropRole(DropRoleStmt stmt) throws DdlException {
         dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
+    }
+
+    public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
+        dropRoleInternal(role, ignoreIfNonExists, false);
     }
 
     public void replayDropRole(PrivInfo info) {
@@ -1165,6 +1229,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getResourceTags(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean isAllowResourceTagDowngrade(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.isAllowResourceTagDowngrade(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1403,6 +1476,13 @@ public class Auth implements Writable {
             userAuthInfo.add(FeConstants.null_string);
         } else {
             userAuthInfo.add(Joiner.on("; ").join(workloadGroupPrivs));
+        }
+
+        // compute groups
+        if (cloudClusterPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(cloudClusterPrivs));
         }
 
         userAuthInfos.add(userAuthInfo);

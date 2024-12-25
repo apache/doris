@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW OPEN TABLES
-public class ShowOpenTableStmt extends ShowStmt {
+public class ShowOpenTableStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Database", ScalarType.createVarchar(64)))

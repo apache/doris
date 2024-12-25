@@ -83,9 +83,7 @@
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 
-namespace doris {
-class TMasterInfo;
-} // namespace doris
+namespace doris {} // namespace doris
 
 static void help(const char*);
 
@@ -579,11 +577,11 @@ int main(int argc, char** argv) {
     stop_work_if_error(status, "Doris Be http service did not start correctly, exiting");
 
     // 4. heart beat server
-    doris::TMasterInfo* master_info = exec_env->master_info();
+    doris::ClusterInfo* cluster_info = exec_env->cluster_info();
     std::unique_ptr<doris::ThriftServer> heartbeat_thrift_server;
     doris::Status heartbeat_status = doris::create_heartbeat_server(
             exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,
-            doris::config::heartbeat_service_thread_count, master_info);
+            doris::config::heartbeat_service_thread_count, cluster_info);
 
     stop_work_if_error(heartbeat_status, "Heartbeat services did not start correctly, exiting");
 
@@ -601,6 +599,8 @@ int main(int argc, char** argv) {
     daemon.start();
     stop_work_if_error(
             status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
+
+    exec_env->storage_engine().notify_listeners();
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)

@@ -76,7 +76,8 @@ public class SupportJavaDateFormatter implements ExpressionPatternRuleFactory {
         return function;
     }
 
-    private static Expression translateJavaFormatter(Expression formatterExpr) {
+    /** translateJavaFormatter */
+    public static Expression translateJavaFormatter(Expression formatterExpr) {
         if (formatterExpr.isLiteral() && formatterExpr.getDataType().isStringLikeType()) {
             Literal literal = (Literal) formatterExpr;
             String originFormatter = literal.getStringValue();

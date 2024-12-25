@@ -84,6 +84,7 @@ suite("test_ignore_above_in_index", "p0") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
-
+    sql """ set enable_common_expr_pushdown = true; """
     qt_sql "select count() from ${tableName2} where clientip > '17.0';"
+    qt_sql "select count() from ${tableName2} where clientip > '17.0' or status = 200;"
 }

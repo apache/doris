@@ -28,6 +28,7 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 VHiveTableWriter::VHiveTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs,
@@ -242,15 +243,19 @@ Status VHiveTableWriter::_filter_block(doris::vectorized::Block& block,
 }
 
 Status VHiveTableWriter::close(Status status) {
+    Status result_status;
     int64_t partitions_to_writers_size = _partitions_to_writers.size();
     {
         SCOPED_RAW_TIMER(&_close_ns);
         for (const auto& pair : _partitions_to_writers) {
             Status st = pair.second->close(status);
-            if (st != Status::OK()) {
+            if (!st.ok()) {
                 LOG(WARNING) << fmt::format("partition writer close failed for partition {}",
                                             st.to_string());
-                continue;
+                if (result_status.ok()) {
+                    result_status = st;
+                    continue;
+                }
             }
         }
         _partitions_to_writers.clear();
@@ -266,7 +271,7 @@ Status VHiveTableWriter::close(Status status) {
         COUNTER_SET(_close_timer, _close_ns);
         COUNTER_SET(_write_file_counter, _write_file_count);
     }
-    return Status::OK();
+    return result_status;
 }
 
 std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer(
@@ -363,7 +368,8 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             _t_sink, std::move(partition_name), update_mode, _write_output_vexpr_ctxs,
             std::move(column_names), std::move(write_info),
             (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
-            file_format_type, write_compress_type, hive_table_sink.hadoop_config);
+            file_format_type, write_compress_type, &hive_table_sink.serde_properties,
+            hive_table_sink.hadoop_config);
 }
 
 std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::Block& block,

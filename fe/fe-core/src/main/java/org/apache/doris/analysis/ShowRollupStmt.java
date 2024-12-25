@@ -31,7 +31,7 @@ import com.google.common.base.Strings;
 //
 // Syntax:
 //      SHOW ROLLUP { FROM | IN } table [ FROM db ]
-public class ShowRollupStmt extends ShowStmt {
+public class ShowRollupStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Table", ScalarType.createVarchar(20)))

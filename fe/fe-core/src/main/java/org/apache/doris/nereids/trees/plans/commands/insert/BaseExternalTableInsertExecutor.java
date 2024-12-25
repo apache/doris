@@ -47,8 +47,6 @@ import java.util.Optional;
  */
 public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(BaseExternalTableInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
-    protected long txnId = INVALID_TXN_ID;
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
     protected final TransactionManager transactionManager;
     protected final String catalogName;
@@ -70,15 +68,6 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         }
     }
 
-    public long getTxnId() {
-        return txnId;
-    }
-
-    /**
-     * collect commit infos from BEs
-     */
-    protected abstract void setCollectCommitInfoFunc();
-
     /**
      * At this time, FE has successfully collected all commit information from BEs.
      * Before commit this txn, commit information need to be analyzed and processed.
@@ -93,7 +82,6 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     @Override
     public void beginTransaction() {
         txnId = transactionManager.begin();
-        setCollectCommitInfoFunc();
     }
 
     @Override

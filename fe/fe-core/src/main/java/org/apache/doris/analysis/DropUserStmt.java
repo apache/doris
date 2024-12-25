@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 // drop user cmy@['domain'];
 // drop user cmy  <==> drop user cmy@'%'
 // drop user cmy@'192.168.1.%'
-public class DropUserStmt extends DdlStmt {
+public class DropUserStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean ifExists;
     private UserIdentity userIdent;
@@ -63,8 +63,8 @@ public class DropUserStmt extends DdlStmt {
 
         userIdent.analyze();
 
-        if (userIdent.isRootUser()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not drop root user");
+        if (userIdent.isSystemUser()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not drop system user");
         }
 
         // only user with GLOBAL level's GRANT_PRIV can drop user.

@@ -255,7 +255,7 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
         return {.resp = {convert_to_obj_response(Status::OK())},
                 .file_size = outcome.GetResult().GetContentLength()};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return {.resp = {convert_to_obj_response(Status::NotFound(""))}};
+        return {.resp = {convert_to_obj_response(Status::Error<ErrorCode::NOT_FOUND, false>(""))}};
     } else {
         return {.resp = {convert_to_obj_response(
                                  s3fs_error(outcome.GetError(),

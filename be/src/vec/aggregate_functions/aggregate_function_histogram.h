@@ -44,6 +44,7 @@
 #include "vec/utils/histogram_helpers.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -192,7 +193,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
@@ -208,16 +209,19 @@ public:
 
         if constexpr (std::is_same_v<T, std::string>) {
             this->data(place).add(
-                    assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data_at(row_num));
         } else {
-            this->data(place).add(assert_cast<const ColVecType&>(*columns[0]).get_data()[row_num]);
+            this->data(place).add(
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                            .get_data()[row_num]);
         }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -240,3 +244,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

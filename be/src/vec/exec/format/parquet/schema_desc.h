@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "runtime/types.h"
+#include "util/slice.h"
 
 namespace doris::vectorized {
 
@@ -49,10 +50,15 @@ struct FieldSchema {
     int16_t repeated_parent_def_level = 0;
     std::vector<FieldSchema> children;
 
+    //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
+    bool is_type_compatibility = false;
+
     FieldSchema() = default;
     ~FieldSchema() = default;
     FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
+
+    int32_t field_id;
 };
 
 class FieldDescriptor {
@@ -65,6 +71,7 @@ private:
     std::unordered_map<std::string, const FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
+    std::unordered_map<int, std::string> _field_id_name_mapping;
 
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
                               FieldSchema* physical_field);
@@ -84,12 +91,13 @@ private:
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
 
-    TypeDescriptor convert_to_doris_type(tparquet::LogicalType logicalType);
+    std::pair<TypeDescriptor, bool> convert_to_doris_type(tparquet::LogicalType logicalType);
 
-    TypeDescriptor convert_to_doris_type(const tparquet::SchemaElement& physical_schema);
+    std::pair<TypeDescriptor, bool> convert_to_doris_type(
+            const tparquet::SchemaElement& physical_schema);
 
 public:
-    TypeDescriptor get_doris_type(const tparquet::SchemaElement& physical_schema);
+    std::pair<TypeDescriptor, bool> get_doris_type(const tparquet::SchemaElement& physical_schema);
 
     // org.apache.iceberg.avro.AvroSchemaUtil#sanitize will encode special characters,
     // we have to decode these characters
@@ -124,6 +132,10 @@ public:
     std::string debug_string() const;
 
     int32_t size() const { return _fields.size(); }
+
+    bool has_parquet_field_id() const { return _field_id_name_mapping.size() > 0; }
+
+    const doris::Slice get_column_name_from_field_id(int32_t id) const;
 };
 
 } // namespace doris::vectorized

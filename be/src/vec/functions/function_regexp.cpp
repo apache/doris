@@ -50,6 +50,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct RegexpReplaceImpl {
     static constexpr auto name = "regexp_replace";
@@ -184,8 +185,9 @@ struct RegexpReplaceOneImpl {
     }
 };
 
+template <bool ReturnNull>
 struct RegexpExtractImpl {
-    static constexpr auto name = "regexp_extract";
+    static constexpr auto name = ReturnNull ? "regexp_extract_or_null" : "regexp_extract";
     // 3 args
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnString::Chars& result_data,
@@ -201,7 +203,8 @@ struct RegexpExtractImpl {
             }
             const auto& index_data = index_col->get_int(i);
             if (index_data < 0) {
-                StringOP::push_empty_string(i, result_data, result_offset);
+                ReturnNull ? StringOP::push_null_string(i, result_data, result_offset, null_map)
+                           : StringOP::push_empty_string(i, result_data, result_offset);
                 continue;
             }
             _execute_inner_loop<false>(context, str_col, pattern_col, index_data, result_data,
@@ -220,7 +223,8 @@ struct RegexpExtractImpl {
         const auto& index_data = index_col->get_int(0);
         if (index_data < 0) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                StringOP::push_empty_string(i, result_data, result_offset);
+                ReturnNull ? StringOP::push_null_string(i, result_data, result_offset, null_map)
+                           : StringOP::push_empty_string(i, result_data, result_offset);
             }
             return;
         }
@@ -260,7 +264,8 @@ struct RegexpExtractImpl {
 
         int max_matches = 1 + re->NumberOfCapturingGroups();
         if (index_data >= max_matches) {
-            StringOP::push_empty_string(index_now, result_data, result_offset);
+            ReturnNull ? StringOP::push_null_string(index_now, result_data, result_offset, null_map)
+                       : StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
         }
 
@@ -268,7 +273,8 @@ struct RegexpExtractImpl {
         bool success =
                 re->Match(str_sp, 0, str.size, re2::RE2::UNANCHORED, &matches[0], max_matches);
         if (!success) {
-            StringOP::push_empty_string(index_now, result_data, result_offset);
+            ReturnNull ? StringOP::push_null_string(index_now, result_data, result_offset, null_map)
+                       : StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
         }
         const re2::StringPiece& match = matches[index_data];
@@ -377,16 +383,15 @@ struct RegexpExtractAllImpl {
     }
 };
 
+// template FunctionRegexpFunctionality is used for regexp_xxxx series functions, not for regexp match.
 template <typename Impl>
-class FunctionRegexp : public IFunction {
+class FunctionRegexpFunctionality : public IFunction {
 public:
     static constexpr auto name = Impl::name;
 
-    static FunctionPtr create() { return std::make_shared<FunctionRegexp>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpFunctionality>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     size_t get_number_of_arguments() const override {
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
@@ -425,7 +430,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
 
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -449,9 +454,6 @@ public:
         } else {
             default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block,
                                                  arguments);
-        }
-        for (int i = 0; i < argument_size; i++) {
-            check_set_nullable(argument_columns[i], result_null_map, col_const[i]);
         }
 
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
@@ -485,10 +487,11 @@ public:
 };
 
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRegexp<RegexpReplaceImpl>>();
-    factory.register_function<FunctionRegexp<RegexpExtractImpl>>();
-    factory.register_function<FunctionRegexp<RegexpReplaceOneImpl>>();
-    factory.register_function<FunctionRegexp<RegexpExtractAllImpl>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpReplaceImpl>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<true>>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpReplaceOneImpl>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpExtractAllImpl>>();
 }
 
 } // namespace doris::vectorized

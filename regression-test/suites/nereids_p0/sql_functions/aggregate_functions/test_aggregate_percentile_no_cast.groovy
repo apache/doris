@@ -94,4 +94,21 @@ suite("test_aggregate_percentile_no_cast") {
     sql "INSERT INTO percentile_test_db values(1,10), (2,8), (2,114) ,(3,10) ,(5,29) ,(6,101)"
     qt_select "select id,percentile(level,0.5) , percentile(level,0.55) , percentile(level,0.805) , percentile_array(level,[0.5,0.55,0.805])from percentile_test_db group by id order by id"
 
+    sql "DROP TABLE IF EXISTS percentile_test_db2"
+    sql """
+        CREATE TABLE IF NOT EXISTS percentile_test_db2 (
+            id int,
+	          level double
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        ) 
+        """
+    explain {
+        sql("""select percentile_array(level,[0.5,0.55,0.805])from percentile_test_db2;""")
+        notContains("cast")
+    }
+    sql "INSERT INTO percentile_test_db2 values(1,10.1), (2,8.2), (2,114.3) ,(3,10.4) ,(5,29.5) ,(6,101.6)"
+    qt_select "select percentile_array(level,[0.5,0.55,0.805])from percentile_test_db2;"
 }

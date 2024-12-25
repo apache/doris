@@ -32,14 +32,15 @@ namespace doris {
 
 namespace vectorized {
 class Arena;
+#include "common/compile_check_begin.h"
 
-Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                    int end_idx, BufferWritable& bw,
+Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                    int64_t end_idx, BufferWritable& bw,
                                                     FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                       BufferWritable& bw,
                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -169,6 +170,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
     for (int idx = 0, start = 0; idx <= slice.size; idx++) {
         char c = (idx == slice.size) ? collection_delimiter : slice[idx];
         if (c == collection_delimiter) {
+            if (options.escape_char != 0 && idx > 0 && slice[idx - 1] == options.escape_char) {
+                continue;
+            }
             slices.emplace_back(slice.data + start, idx - start);
             start = idx + 1;
         }
@@ -189,8 +193,8 @@ Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_hive_text(
-        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -209,15 +213,17 @@ void DataTypeArraySerDe::serialize_one_cell_to_hive_text(
         if (i != start) {
             bw.write(delimiter);
         }
-        nested_serde->serialize_one_cell_to_hive_text(nested_column, i, bw, options,
-                                                      hive_text_complex_type_delimiter_level + 1);
+        RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_hive_text(
+                nested_column, i, bw, options, hive_text_complex_type_delimiter_level + 1));
     }
+    return Status::OK();
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena* mem_pool, int32_t col_id,
-                                                 int row_num) const {
-    result.writeKey(col_id);
+                                                 int64_t row_num) const {
+    // JsonbKeyValue::keyid_type is uint16_t and col_id is int32_t, need a cast
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
     StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
@@ -228,7 +234,7 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int row_num) const {
+                                                  Arena& mem_pool, int64_t row_num) const {
     // Use allocator instead of stack memory, since rapidjson hold the reference of String value
     // otherwise causes stack use after free
     auto& column_array = static_cast<const ColumnArray&>(column);
@@ -269,8 +275,8 @@ void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVa
 }
 
 void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int start,
-                                               int end, const cctz::time_zone& ctz) const {
+                                               arrow::ArrayBuilder* array_builder, int64_t start,
+                                               int64_t end, const cctz::time_zone& ctz) const {
     auto& array_column = static_cast<const ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     auto& nested_data = array_column.get_data();
@@ -311,7 +317,7 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
 template <bool is_binary_format>
 Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                  int row_idx_of_mysql, bool col_const,
+                                                  int64_t row_idx_of_mysql, bool col_const,
                                                   const FormatOptions& options) const {
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
@@ -326,7 +332,7 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
 
     const auto begin_arr_element = offsets[row_idx_of_col_arr - 1];
     const auto end_arr_element = offsets[row_idx_of_col_arr];
-    for (int j = begin_arr_element; j < end_arr_element; ++j) {
+    for (auto j = begin_arr_element; j < end_arr_element; ++j) {
         if (j != begin_arr_element) {
             if (0 != result.push_string(", ", 2)) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -360,14 +366,14 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                 MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                  bool col_const,
                                                  const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                 MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
                                                  bool col_const,
                                                  const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
@@ -375,8 +381,9 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
 
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
-                                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                                               int end, std::vector<StringRef>& buffer_list) const {
+                                               orc::ColumnVectorBatch* orc_col_batch, int64_t start,
+                                               int64_t end,
+                                               std::vector<StringRef>& buffer_list) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -397,8 +404,8 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
     return Status::OK();
 }
 
-Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                              int end) const {
+Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                              int64_t end) const {
     const auto& array_col = assert_cast<const ColumnArray&>(column);
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::LIST);

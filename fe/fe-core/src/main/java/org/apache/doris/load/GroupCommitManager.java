@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.SlidingWindowCounter;
 import org.apache.doris.mysql.privilege.Auth;
@@ -106,7 +107,7 @@ public class GroupCommitManager {
     /**
      * Check the wal before the endTransactionId is finished or not.
      */
-    public boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
+    private boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
         boolean empty = true;
         for (int i = 0; i < aliveBeIds.size(); i++) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(i));
@@ -137,7 +138,10 @@ public class GroupCommitManager {
         return size;
     }
 
-    public long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
+    private long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
+        if (FeConstants.runningUnitTest) {
+            return 0;
+        }
         PGetWalQueueSizeResponse response = null;
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         long size = 0;
@@ -186,26 +190,40 @@ public class GroupCommitManager {
         return size;
     }
 
-    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context, boolean isCloud)
+    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context)
             throws LoadException, DdlException {
         // If a group commit request is sent to the follower FE, we will send this request to the master FE. master FE
         // can select a BE and return this BE id to follower FE.
+        String clusterName = "";
+        if (Config.isCloudMode()) {
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cluster name", e);
+                throw new LoadException(e.getMessage());
+            }
+        }
         if (!Env.getCurrentEnv().isMaster()) {
             try {
                 long backendId = new MasterOpExecutor(context)
-                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster(), isCloud);
+                        .getGroupCommitLoadBeId(tableId, clusterName);
                 return Env.getCurrentSystemInfo().getBackend(backendId);
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
             }
         } else {
-            // Master FE will select BE by itself.
-            return Env.getCurrentSystemInfo()
-                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster(), isCloud));
+            try {
+                // Master FE will select BE by itself.
+                return Env.getCurrentSystemInfo()
+                    .getBackend(selectBackendForGroupCommitInternal(tableId, clusterName));
+            } catch (Exception e) {
+                LOG.warn("get backend failed, tableId: {}, exception", tableId, e);
+                throw new LoadException(e.getMessage());
+            }
         }
     }
 
-    public long selectBackendForGroupCommitInternal(long tableId, String cluster, boolean isCloud)
+    public long selectBackendForGroupCommitInternal(long tableId, String cluster)
             throws LoadException, DdlException {
         // Understanding Group Commit and Backend Selection Logic
         //
@@ -237,7 +255,7 @@ public class GroupCommitManager {
         // a BE is chosen at random. This BE is then recorded along with the mapping of table A and its load level.
         // This approach ensures that group commits can effectively batch data together
         // while managing the load on each BE efficiently.
-        return isCloud ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
+        return Config.isCloudMode() ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
                 : selectBackendForLocalGroupCommitInternal(tableId);
     }
 
@@ -314,13 +332,11 @@ public class GroupCommitManager {
                 // Another thread gets the same tableId but can not find this tableId.
                 // So another thread needs to get the random backend.
                 Long backendId = tableToBeMap.get(encode(cluster, tableId));
-                Backend backend;
-                if (backendId != null) {
-                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                } else {
+                if (backendId == null) {
                     return null;
                 }
-                if (backend.isActive() && !backend.isDecommissioned()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(encode(cluster, tableId));
@@ -337,7 +353,7 @@ public class GroupCommitManager {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         for (Backend backend : backends) {
-            if (backend.isActive() && !backend.isDecommissioned()) {
+            if (backend.isAlive() && !backend.isDecommissioned()) {
                 tableToBeMap.put(encode(cluster, tableId), backend.getId());
                 tableToPressureMap.put(tableId,
                         new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));
@@ -376,13 +392,13 @@ public class GroupCommitManager {
         }
     }
 
-    public void updateLoadDataInternal(long tableId, long receiveData) {
+    private void updateLoadDataInternal(long tableId, long receiveData) {
         if (tableToPressureMap.containsKey(tableId)) {
             tableToPressureMap.get(tableId).add(receiveData);
-            LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,
+            LOG.info("Update load data for table {}, receiveData {}, tablePressureMap {}", tableId, receiveData,
                     tableToPressureMap.toString());
-        } else {
-            LOG.warn("can not find backend id: {}", tableId);
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("can not find table id {}", tableId);
         }
     }
 }

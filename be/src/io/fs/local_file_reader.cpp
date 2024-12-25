@@ -34,11 +34,13 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -67,6 +69,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = store_paths[i].path;
         data_dir_info.storage_medium = store_paths[i].storage_medium;
         data_dir_info.data_dir_type = DataDirType::OLAP_DATA_DIR;
+        data_dir_info.bvar_name = "local_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -75,6 +78,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = spill_store_paths[i].path;
         data_dir_info.storage_medium = spill_store_paths[i].storage_medium;
         data_dir_info.data_dir_type = doris::DataDirType::SPILL_DISK_DIR;
+        data_dir_info.bvar_name = "spill_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -83,6 +87,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = cache_paths[i].path;
         data_dir_info.storage_medium = TStorageMedium::REMOTE_CACHE;
         data_dir_info.data_dir_type = doris::DataDirType::DATA_CACHE_DIR;
+        data_dir_info.bvar_name = "local_cache_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 }
@@ -136,6 +141,15 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     while (bytes_req != 0) {
         auto res = SYNC_POINT_HOOK_RETURN_VALUE(::pread(_fd, to, bytes_req, offset),
                                                 "LocalFileReader::pread", _fd, to);
+        DBUG_EXECUTE_IF("LocalFileReader::read_at_impl.io_error", {
+            auto sub_path = dp->param<std::string>("sub_path", "");
+            if ((sub_path.empty() && _path.filename().compare(kTestFilePath)) ||
+                (!sub_path.empty() && _path.native().find(sub_path) != std::string::npos)) {
+                res = -1;
+                errno = EIO;
+                LOG(WARNING) << Status::IOError("debug read io error: {}", _path.native());
+            }
+        });
         if (UNLIKELY(-1 == res && errno != EINTR)) {
             return localfs_error(errno, fmt::format("failed to read {}", _path.native()));
         }

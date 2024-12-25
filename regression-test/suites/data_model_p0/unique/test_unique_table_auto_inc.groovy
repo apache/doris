@@ -47,7 +47,7 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_sql "select * from ${table1};"
+    order_qt_sql "select * from ${table1};"
     sql """ insert into ${table1} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
     qt_sql "select * from ${table1} order by id"
     sql "drop table if exists ${table1};"
@@ -117,7 +117,7 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_sql "select * from ${table3};"
+    order_qt_sql "select * from ${table3};"
     sql """ insert into ${table3} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
     qt_sql "select * from ${table3} order by id"
     sql "drop table if exists ${table3};"
@@ -152,7 +152,7 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_update_inplace "select * from ${table4};"
+    order_qt_update_inplace "select * from ${table4};"
     sql "drop table if exists ${table4};"
 
     // test for partial update, auto inc col is key
@@ -380,16 +380,7 @@ suite("test_unique_table_auto_inc") {
 ,(3,'EUROPE','ly final courts cajole furiously final excuse')
 ,(4,'MIDDLE EAST','uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl');"""
     qt_sql "select * from ${table11} order by r_regionkey;"
-    sql 'set enable_nereids_planner=true'
-    sql "set experimental_enable_nereids_planner=true;"
-    sql 'set enable_nereids_dml=true'
     sql "update ${table11} set r_comment = 'foobar' where  r_regionkey <= 10;"
-    qt_sql "select * from ${table11} order by r_regionkey;"
-
-    sql 'set enable_nereids_planner=false'
-    sql "set experimental_enable_nereids_planner=false;"
-    sql 'set enable_nereids_dml=false'
-    sql "update ${table11} set r_comment = 'barfoo' where  r_regionkey <= 10;"
     qt_sql "select * from ${table11} order by r_regionkey;"
     sql "drop table if exists ${table11};"
 
@@ -414,15 +405,7 @@ suite("test_unique_table_auto_inc") {
 ,(3,'EUROPE','ly final courts cajole furiously final excuse')
 ,(4,'MIDDLE EAST','uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl');"""
     qt_sql "select * from ${table12} order by r_regionkey;"
-    sql 'set enable_nereids_planner=true'
-    sql "set experimental_enable_nereids_planner=true;"
-    sql 'set enable_nereids_dml=true'
     sql """insert into ${table12} select r_regionkey, "test1", "test2" from ${table12} where r_regionkey=3;"""
-    qt_sql "select * from ${table12} order by r_regionkey;"
-    sql 'set enable_nereids_planner=false'
-    sql "set experimental_enable_nereids_planner=false;"
-    sql 'set enable_nereids_dml=false'
-    sql """insert into ${table12} select r_regionkey, "test3", "test4" from ${table12} where r_regionkey=4;"""
     qt_sql "select * from ${table12} order by r_regionkey;"
     sql "drop table if exists ${table12};"
 

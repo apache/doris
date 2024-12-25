@@ -18,13 +18,9 @@
 package org.apache.doris.cloud.planner;
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.GroupCommitPlanner;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
@@ -40,15 +36,5 @@ public class CloudGroupCommitPlanner extends GroupCommitPlanner {
             String groupCommit)
             throws UserException, TException {
         super(db, table, targetColumnNames, queryId, groupCommit);
-    }
-
-    @Override
-    protected void selectBackends(ConnectContext ctx) throws DdlException {
-        try {
-            backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(this.table.getId(), ctx, true);
-        } catch (LoadException e) {
-            throw new DdlException("No suitable backend");
-        }
     }
 }

@@ -96,7 +96,7 @@ std::string MultiTablePipe::parse_dst_table(const char* data, size_t size) {
 
 Status MultiTablePipe::dispatch(const std::string& table, const char* data, size_t size,
                                 AppendFunc cb) {
-    if (size == 0 || strlen(data) == 0) {
+    if (size == 0) {
         LOG(WARNING) << "empty data for table: " << table << ", ctx: " << _ctx->brief();
         return Status::InternalError("empty data");
     }
@@ -197,7 +197,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
         // plan this load
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        TNetworkAddress master_addr = exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = exec_env->cluster_info()->master_fe_addr;
         int64_t stream_load_put_start_time = MonotonicNanos();
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -251,7 +251,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         _inflight_cnt++;
 
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
-                plan, [this, plan](RuntimeState* state, Status* status) {
+                plan, QuerySource::ROUTINE_LOAD, [this, plan](RuntimeState* state, Status* status) {
                     DCHECK(state);
                     auto pair = _planned_tables.find(plan.table_name);
                     if (pair == _planned_tables.end()) {

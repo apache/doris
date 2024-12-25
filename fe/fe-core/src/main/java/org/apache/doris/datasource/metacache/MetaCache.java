@@ -57,7 +57,7 @@ public class MetaCache<T> {
         CacheFactory namesCacheFactory = new CacheFactory(
                 expireAfterWriteSec,
                 refreshAfterWriteSec,
-                maxSize,
+                1, // names cache has one and only one entry
                 true,
                 null);
         CacheFactory objCacheFactory = new CacheFactory(
@@ -90,7 +90,7 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
-    public void updateCache(String objName, T obj) {
+    public void updateCache(String objName, T obj, long id) {
         metaObjCache.put(objName, Optional.of(obj));
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
@@ -100,9 +100,10 @@ public class MetaCache<T> {
                 return v;
             }
         });
+        idToName.put(id, objName);
     }
 
-    public void invalidate(String objName) {
+    public void invalidate(String objName, long id) {
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
@@ -112,11 +113,13 @@ public class MetaCache<T> {
             }
         });
         metaObjCache.invalidate(objName);
+        idToName.remove(id);
     }
 
     public void invalidateAll() {
         namesCache.invalidateAll();
         metaObjCache.invalidateAll();
+        idToName.clear();
     }
 
 }

@@ -64,7 +64,7 @@ public:
 
     bool fill_all_columns() const override { return _file_format_reader->fill_all_columns(); }
 
-    virtual Status init_row_filters(const TFileRangeDesc& range) = 0;
+    virtual Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) = 0;
 
 protected:
     void _collect_profile_before_close() override {

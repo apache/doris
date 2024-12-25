@@ -28,5 +28,6 @@ public class HMSProperties {
     // required
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     public static final List<String> REQUIRED_FIELDS = Collections.singletonList(HMSProperties.HIVE_METASTORE_URIS);
-
+    public static final String  ENABLE_HMS_EVENTS_INCREMENTAL_SYNC = "hive.enable_hms_events_incremental_sync";
+    public static final String  HMS_EVENTIS_BATCH_SIZE_PER_RPC = "hive.hms_events_batch_size_per_rpc";
 }

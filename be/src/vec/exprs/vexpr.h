@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -39,8 +40,10 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
 
@@ -53,6 +56,7 @@ class RowDescriptor;
 class RuntimeState;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
@@ -66,12 +70,13 @@ namespace vectorized {
 // the relatioinship between threads and classes.
 class VExpr {
 public:
-    // resize inserted param column to make sure column size equal to block.rows()
-    // and return param column index
-    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
+    // resize inserted param column to make sure column size equal to block.rows() and return param column index
+    // keep return type same with block::columns()
+    static uint32_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
         // usually elem.column always is const column, so we just clone it.
         elem.column = elem.column->clone_resized(size);
         block->insert(std::move(elem));
+        // just inserted. so no need to check underflow.
         return block->columns() - 1;
     }
 
@@ -116,20 +121,18 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
-    // execute current expr with inverted index to filter block. Given a roaringbitmap of match rows
-    virtual Status eval_inverted_index(
-            VExprContext* context,
-            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                         segment_v2::InvertedIndexIterator*>>&
-                    colid_to_inverted_index_iter,
-            uint32_t num_rows, roaring::Roaring* bitmap) const {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
+    // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+        return Status::OK();
     }
+
+    Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                    uint32_t segment_num_rows);
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
-                                          int* result_column_id, std::vector<size_t>& args) {
+                                          int* result_column_id, ColumnNumbers& args) {
         return execute(context, block, result_column_id);
     };
 
@@ -145,6 +148,9 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+
+    bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
+
     virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
@@ -152,8 +158,21 @@ public:
     TExprOpcode::type op() const { return _opcode; }
 
     void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
-    VExprSPtr get_child(int i) const { return _children[i]; }
-    int get_num_children() const { return _children.size(); }
+    VExprSPtr get_child(uint16_t i) const { return _children[i]; }
+    // Expr's children number is restricted by org.apache.doris.common.Config#expr_children_limit, 10000 default. and strongly not recommend to change.
+    // There's little to worry about it. uint16 is enough.
+    uint16_t get_num_children() const { return static_cast<uint16_t>(_children.size()); }
+
+    virtual bool is_rf_wrapper() const {
+        return std::ranges::any_of(_children.begin(), _children.end(),
+                                   [](VExprSPtr child) { return child->is_rf_wrapper(); });
+    }
+
+    virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
+        for (auto child : _children) {
+            child->do_judge_selectivity(filter_rows, input_rows);
+        }
+    }
 
     static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
@@ -206,7 +225,7 @@ public:
 
     int fn_context_index() const { return _fn_context_index; }
 
-    static const VExprSPtr expr_without_cast(const VExprSPtr& expr) {
+    static VExprSPtr expr_without_cast(const VExprSPtr& expr) {
         if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
@@ -214,37 +233,29 @@ public:
     }
 
     // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
-    virtual const VExprSPtr get_impl() const { return {}; }
+    virtual VExprSPtr get_impl() const { return {}; }
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
-        LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
-                   << this->debug_string();
-        return nullptr;
+        throw Exception(Status::FatalError(
+                "Method 'get_bloom_filter_func()' is not supported in expression: {}",
+                this->debug_string()));
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
     // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
     virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        LOG(FATAL) << "Method 'get_bitmap_filter_func()' is not supported in expression: "
-                   << this->debug_string();
-        return nullptr;
+        throw Exception(Status::FatalError(
+                "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
+                this->debug_string()));
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                      size_t input_rows_count, const std::string& function_name);
-
-    std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
-                                          const std::string& function_name) const;
+    bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+                      int* result_column_id);
 
     virtual bool can_push_down_to_index() const { return false; }
-    virtual bool can_fast_execute() const { return false; }
-    virtual Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params,
-                                       std::shared_ptr<roaring::Roaring>& result) {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
-    }
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
@@ -283,7 +294,8 @@ protected:
     /// 1. Set constant columns result of function arguments.
     /// 2. Call function's prepare() to initialize function state, fragment-local or
     /// thread-local according the input `FunctionStateScope` argument.
-    Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
+    Status init_function_context(RuntimeState* state, VExprContext* context,
+                                 FunctionContext::FunctionStateScope scope,
                                  const FunctionBasePtr& function) const;
 
     /// Helper function to close function context, fragment-local or thread-local according
@@ -296,7 +308,7 @@ protected:
     TExprOpcode::type _opcode;
     TypeDescriptor _type;
     DataTypePtr _data_type;
-    VExprSPtrs _children;
+    VExprSPtrs _children; // in few hundreds
     TFunction _fn;
 
     /// Index to pass to ExprContext::fn_context() to retrieve this expr's FunctionContext.
@@ -316,7 +328,7 @@ protected:
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
-    bool _can_fast_execute = false;
+    bool _enable_inverted_index_query = true;
 };
 
 } // namespace vectorized
@@ -367,7 +379,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -380,7 +392,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
         } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
@@ -463,6 +475,20 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         string_literal.__set_value(*origin_value);
         (*node).__set_string_literal(string_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    } else if constexpr (T == TYPE_IPV4) {
+        const auto* origin_value = reinterpret_cast<const IPv4*>(data);
+        (*node).__set_node_type(TExprNodeType::IPV4_LITERAL);
+        TIPv4Literal literal;
+        literal.__set_value(*origin_value);
+        (*node).__set_ipv4_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV4));
+    } else if constexpr (T == TYPE_IPV6) {
+        const auto* origin_value = reinterpret_cast<const IPv6*>(data);
+        (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
+        TIPv6Literal literal;
+        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        (*node).__set_ipv6_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }
@@ -473,4 +499,5 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision = 0,
                                  int scale = 0);
 
+#include "common/compile_check_end.h"
 } // namespace doris
