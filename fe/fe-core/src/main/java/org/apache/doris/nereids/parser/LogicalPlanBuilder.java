@@ -4190,7 +4190,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
         }
         DataType returnType = typedVisit(ctx.returnType);
+        returnType = returnType.conversion();
         DataType intermediateType = ctx.intermediateType != null ? typedVisit(ctx.intermediateType) : null;
+        if (intermediateType != null) {
+            intermediateType = intermediateType.conversion();
+        }
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
                 : Maps.newHashMap();
@@ -4243,9 +4247,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
         String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
         FunctionName function = new FunctionName(dbName, functionName);
-        FunctionArgsDefInfo functionArgsDefInfo = null;
+        FunctionArgsDefInfo functionArgsDefInfo;
         if (ctx.functionArguments() != null) {
             functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+        } else {
+            functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
         }
         return new DropFunctionCommand(setType, ifExists, function, functionArgsDefInfo);
     }
@@ -4258,7 +4264,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (child instanceof FunctionArgumentContext) {
                 DataType dataType = visitFunctionArgument((FunctionArgumentContext) child);
                 if (dataType != null) {
-                    argTypeDefs.add(dataType);
+                    argTypeDefs.add(dataType.conversion());
                 } else {
                     isVariadic = true;
                 }

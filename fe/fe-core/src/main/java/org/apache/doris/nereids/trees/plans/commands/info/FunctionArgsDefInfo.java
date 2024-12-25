@@ -42,6 +42,10 @@ public class FunctionArgsDefInfo {
         return argTypes;
     }
 
+    public List<DataType> getArgTypeDefs() {
+        return argTypeDefs;
+    }
+
     public boolean isVariadic() {
         return isVariadic;
     }

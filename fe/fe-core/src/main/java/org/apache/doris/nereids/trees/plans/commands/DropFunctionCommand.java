@@ -23,6 +23,9 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgsDefInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -64,6 +67,10 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // check operation privilege
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
         argsDef.validate();
         function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
         if (SetType.GLOBAL.equals(setType)) {
@@ -72,6 +79,7 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
             String dbName = functionName.getDb();
             if (dbName == null) {
                 dbName = ctx.getDatabase();
+                functionName.setDb(dbName);
             }
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
             db.dropFunction(function, ifExists);
