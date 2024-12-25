@@ -43,7 +43,7 @@ suite("mv_with_date_trunc") {
             l_returnflag char(1) not null,
             l_linestatus char(1) not null,
             l_shipdate date not null,
-            l_commitdate DATETIME not null,
+            l_commitdate DATETIME(6) not null,
             l_receiptdate date not null,
             l_shipinstruct char(25) not null,
             l_shipmode char(10) not null,
@@ -61,7 +61,7 @@ suite("mv_with_date_trunc") {
     sql """
     insert into lineitem
     values
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 00:00:01', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 00:00:00.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 02:01:45', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 03:02:43', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-04-01', '2023-04-01 05:03:42', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
@@ -73,30 +73,1035 @@ suite("mv_with_date_trunc") {
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-01', '2023-10-01 17:09:25', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-01', '2023-10-01 19:10:24', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-01', '2023-10-01 21:11:23', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-15', '2023-10-15 16:12:22', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-15', '2023-10-15 00:05:12', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-15', '2023-10-15 23:59:59', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-15', '2023-10-15 00:00:00', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-15', '2023-10-15 00:00:00.000001', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-15', '2023-10-15 23:59:59.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-16', '2023-10-16 00:00:00', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-16', '2023-10-16 00:05:03', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-16', '2023-10-16 23:59:59', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-16', '2023-10-16 00:00:00.000001', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-16', '2023-10-16 23:59:59.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17 00:00:00', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17 00:05:05', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17 23:59:59', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17 00:00:00.000001', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17 23:59:59.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k','2023-10-18', '2023-10-18 00:00:00','2023-10-18', 'a', 'b', 'yyyyyyyyy'),
-    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k','2023-10-18', '2023-10-18 00:05:12','2023-10-18', 'a', 'b', 'yyyyyyyyy'),
-    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k','2023-10-18', '2023-10-18 23:59:59','2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k','2023-10-18', '2023-10-18 00:00:00.000001','2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k','2023-10-18', '2023-10-18 23:59:59.999999','2023-10-18', 'a', 'b', 'yyyyyyyyy'),
     (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o','2023-10-19', '2023-10-19 00:00:00','2023-10-19', 'c', 'd', 'xxxxxxxxx'),
-    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o','2023-10-19', '2023-10-19 00:05:15','2023-10-19', 'c', 'd', 'xxxxxxxxx'),
-    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o','2023-10-19', '2023-10-19 23:59:59','2023-10-19', 'c', 'd', 'xxxxxxxxx');
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o','2023-10-19', '2023-10-19 00:00:00.000001','2023-10-19', 'c', 'd', 'xxxxxxxxx'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o','2023-10-19', '2023-10-19 23:59:59.999999','2023-10-19', 'c', 'd', 'xxxxxxxxx');
     """
 
     sql """analyze table lineitem with sync;"""
-    sql """alter table lineitem modify column l_comment set stats ('row_count'='9');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='27');"""
 
     // second, minute ,hour, day, week, month, quarter, year
     // 1. expr in date_trunc is simple col
     // 1.1 positive case, use field data type is datetime
     // day
+    def mv1_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'day') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'day');
+    """
+    def query1_0 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_commitdate >= '2023-10-17' and  l_commitdate < '2023-10-18'
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'day');
+    """
+    order_qt_query1_0_before "${query1_0}"
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    order_qt_query1_0_after "${query1_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+
+    def mv1_1 = """
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'day') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
+              date_trunc(l_commitdate, 'day');
+    """
+    def query1_1 = """
+        select
+          l_shipmode,
+          count(*)
+        from
+          lineitem
+        where
+          '2023-10-17' <= l_commitdate and '2023-10-18' > l_commitdate
+        group by
+          l_shipmode;
+    """
+    order_qt_query1_1_before "${query1_1}"
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    order_qt_query1_1_after "${query1_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
+
+
+    def mv1_1_0 = """
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'day') as day_trunc
+            from
+              lineitem;
+    """
+    def query1_1_0 = """
+        select
+          l_shipmode
+        from
+          lineitem
+        where
+          '2023-10-17' <= l_commitdate and '2023-10-18' > l_commitdate;
+    """
+    order_qt_query1_1_0_before "${query1_1_0}"
+    // without group, should success
+    async_mv_rewrite_success(db, mv1_1_0, query1_1_0, "mv1_1_0")
+    order_qt_query1_1_0_after "${query1_1_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1_0"""
+
+
+    def mv1_1_1 = """
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'day') as day_trunc
+            from
+              lineitem;
+    """
+    def query1_1_1 = """
+        select
+          l_shipmode
+        from
+          lineitem
+        where
+          '2023-10-17' <= date_trunc(l_commitdate, 'day') and '2023-10-18' > date_trunc(l_commitdate, 'day');
+    """
+    order_qt_query1_1_1_before "${query1_1_1}"
+    async_mv_rewrite_success(db, mv1_1_1, query1_1_1, "mv1_1_1")
+    order_qt_query1_1_1_after "${query1_1_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1_1"""
+
+
+    // second
+    def mv1_2 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'second') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'second');
+    """
+    def query1_2 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_commitdate >= '2023-10-17 00:05:08' and  l_commitdate < '2023-10-18'
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_2_before "${query1_2}"
+    async_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
+    order_qt_query1_2_after "${query1_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
+
+
+    def mv1_3 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'second') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'second');
+    """
+    def query1_3 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-01-17 00:05:08' <= l_shipdate and '2023-10-18' > l_shipdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_3_before "${query1_3}"
+    async_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
+    order_qt_query1_3_after "${query1_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
+
+
+    def mv1_3_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'second') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_3_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-10-16 00:05:08' <= l_shipdate and '2023-10-18' > l_shipdate;
+    """
+    order_qt_query1_3_0_before "${query1_3_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_3_0, query1_3_0, "mv1_3_0")
+    order_qt_query1_3_0_after "${query1_3_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3_0"""
+
+
+    def mv1_3_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'second') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_3_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-10-16 00:05:08' <= date_trunc(l_shipdate, 'second') and '2023-10-18' > date_trunc(l_shipdate, 'second');
+    """
+    order_qt_query1_3_1_before "${query1_3_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_3_1, query1_3_1, "mv1_3_1")
+    order_qt_query1_3_1_after "${query1_3_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3_1"""
+
+
+    def mv1_3_2 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'second') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_3_2 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-01-17 00:05:08.999999' <= date_trunc(l_commitdate, 'second') and '2023-10-18' > date_trunc(l_commitdate, 'second');
+    """
+    order_qt_query1_3_2_before "${query1_3_2}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_3_2, query1_3_2, "mv1_3_2")
+    order_qt_query1_3_2_after "${query1_3_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3_2"""
+
+
+    def mv1_3_3 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'second') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_3_3 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-01-17 00:05:08.999999' <= l_commitdate and '2023-10-18' > l_commitdate;
+    """
+    order_qt_query1_3_3_before "${query1_3_3}"
+    // use micro second,should fail
+    async_mv_rewrite_fail(db, mv1_3_3, query1_3_3, "mv1_3_3")
+    order_qt_query1_3_3_after "${query1_3_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3_3"""
+
+
+    // minute
+    def mv1_4 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'minute') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'minute');
+    """
+    def query1_4 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_shipdate >= '2023-01-17 00:05:00' and  l_shipdate < '2023-10-18'
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_4_before "${query1_4}"
+    async_mv_rewrite_success(db, mv1_4, query1_4, "mv1_4")
+    order_qt_query1_4_after "${query1_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
+
+
+    def mv1_5 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'minute') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'minute');
+    """
+    def query1_5 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-10-18' > l_commitdate and '2023-01-17 00:05:00' <= l_commitdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_5_before "${query1_5}"
+    async_mv_rewrite_success(db, mv1_5, query1_5, "mv1_5")
+    order_qt_query1_5_after "${query1_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
+
+
+    def mv1_5_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'minute') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_5_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-10-18' > l_commitdate and '2023-10-16 00:05:00' <= l_commitdate;
+    """
+    order_qt_query1_5_0_before "${query1_5_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_5_0, query1_5_0, "mv1_5_0")
+    order_qt_query1_5_0_after "${query1_5_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5_0"""
+
+    def mv1_5_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'minute') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_5_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-10-18' > date_trunc(l_commitdate, 'minute') and '2023-10-16 00:05:00' <= date_trunc(l_commitdate, 'minute');
+    """
+    order_qt_query1_5_1_before "${query1_5_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_5_1, query1_5_1, "mv1_5_1")
+    order_qt_query1_5_1_after "${query1_5_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5_1"""
+
+
+    // hour
+    def mv1_6 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'hour') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'hour');
+    """
+    def query1_6 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_commitdate < '2023-10-18' and l_commitdate >= '2023-05-17 01:00:00'
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_6_before "${query1_6}"
+    async_mv_rewrite_success(db, mv1_6, query1_6, "mv1_6")
+    order_qt_query1_6_after "${query1_6}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_6"""
+
+
+    def mv1_7 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'hour') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'hour');
+    """
+    def query1_7 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-05-17 01:00:00' <= l_commitdate and '2023-10-18' > l_commitdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_7_before "${query1_7}"
+    async_mv_rewrite_success(db, mv1_7, query1_7, "mv1_7")
+    order_qt_query1_7_after "${query1_7}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_7"""
+
+    def mv1_7_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'hour') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_7_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-10-16 01:00:00' <= l_commitdate and '2023-10-18' > l_commitdate;
+    """
+    order_qt_query1_7_0_before "${query1_7_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_7_0, query1_7_0, "mv1_7_0")
+    order_qt_query1_7_0_after "${query1_7_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_7_0"""
+
+
+    def mv1_7_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'hour') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_7_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-10-16 01:00:00' <= date_trunc(l_commitdate, 'hour') and '2023-10-18' > date_trunc(l_commitdate, 'hour');
+    """
+    order_qt_query1_7_1_before "${query1_7_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_7_1, query1_7_1, "mv1_7_1")
+    order_qt_query1_7_1_after "${query1_7_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_7_1"""
+
+
+    // week
+    def mv1_8 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'week') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'week');
+    """
+    def query1_8 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_shipdate < '2023-09-04' and '2023-01-16' <=  l_shipdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_8_before "${query1_8}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_8, query1_8, "mv1_8")
+    order_qt_query1_8_after "${query1_8}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_8"""
+
+
+    def mv1_9 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'week') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'week');
+    """
+    def query1_9 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-01-16' <= l_commitdate and '2023-09-04' > l_commitdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_9_before "${query1_9}"
+    async_mv_rewrite_success(db, mv1_9, query1_9, "mv1_9")
+    order_qt_query1_9_after "${query1_9}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_9"""
+
+
+    def mv1_9_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'week') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_9_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-01-16' <= l_commitdate and '2023-09-04' > l_commitdate;
+    """
+    order_qt_query1_9_0_before "${query1_9_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_9_0, query1_9_0, "mv1_9_0")
+    order_qt_query1_9_0_after "${query1_9_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_9_0"""
+
+
+
+    def mv1_9_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'week') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_9_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-01-16' <= date_trunc(l_commitdate, 'week') and '2023-09-04' > date_trunc(l_commitdate, 'week');
+    """
+    order_qt_query1_9_1_before "${query1_9_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_9_1, query1_9_1, "mv1_9_1")
+    order_qt_query1_9_1_after "${query1_9_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_9_1"""
+
+    // month
+    def mv1_10 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'month') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'month');
+    """
+    def query1_10 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_shipdate >= '2023-02-01' and  l_shipdate < '2023-12-01'
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_10_before "${query1_10}"
+    async_mv_rewrite_success(db, mv1_10, query1_10, "mv1_10")
+    order_qt_query1_10_after "${query1_10}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_10"""
+
+
+    def mv1_11 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'month') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'month');
+    """
+    def query1_11 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-02-01' <= l_commitdate and '2023-12-01' > l_commitdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_11_before "${query1_11}"
+    async_mv_rewrite_success(db, mv1_11, query1_11, "mv1_11")
+    order_qt_query1_11_after "${query1_11}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_11"""
+
+
+    def mv1_11_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'month') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_11_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-02-01' <= l_commitdate and '2023-12-01' > l_commitdate;
+    """
+    order_qt_query1_11_0_before "${query1_11_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_11_0, query1_11_0, "mv1_11_0")
+    order_qt_query1_11_0_after "${query1_11_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_11_0"""
+
+
+    def mv1_11_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'month') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_11_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-02-01' <= date_trunc(l_commitdate, 'month') and '2023-12-01' > date_trunc(l_commitdate, 'month');
+    """
+    order_qt_query1_11_1_before "${query1_11_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_11_1, query1_11_1, "mv1_11_1")
+    order_qt_query1_11_1_after "${query1_11_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_11_1"""
+
+
+    // quarter
+    def mv1_12 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'quarter') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'quarter');
+    """
+    def query1_12 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_commitdate >= '2023-04-01' and  l_commitdate < '2023-10-01'
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_12_before "${query1_12}"
+    async_mv_rewrite_success(db, mv1_12, query1_12, "mv1_12")
+    order_qt_query1_12_after "${query1_12}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_12"""
+
+
+    def mv1_13 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'quarter') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'quarter');
+    """
+    def query1_13 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-04-01' <= l_shipdate and '2023-10-01' > l_shipdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_13_before "${query1_13}"
+    async_mv_rewrite_success(db, mv1_13, query1_13, "mv1_13")
+    order_qt_query1_13_after "${query1_13}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_13"""
+
+
+    def mv1_13_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'quarter') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_13_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-04-01' <= l_shipdate and '2023-10-01' > l_shipdate;
+    """
+    order_qt_query1_13_0_before "${query1_13_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_13_0, query1_13_0, "mv1_13_0")
+    order_qt_query1_13_0_after "${query1_13_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_13_0"""
+
+
+    def mv1_13_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'quarter') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_13_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-04-01' <= date_trunc(l_shipdate, 'quarter') and '2023-10-01' > date_trunc(l_shipdate, 'quarter');
+    """
+    order_qt_query1_13_1_before "${query1_13_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_13_1, query1_13_1, "mv1_13_1")
+    order_qt_query1_13_1_after "${query1_13_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_13_1"""
+
+
+    // year
+    def mv1_14 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'year') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'year');
+    """
+    def query1_14 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    l_commitdate >= '2023-01-01' and  l_commitdate < '2024-01-01'
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_14_before "${query1_14}"
+    async_mv_rewrite_success(db, mv1_14, query1_14, "mv1_14")
+    order_qt_query1_14_after "${query1_14}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_14"""
+
+
+    def mv1_15 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'year') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'year');
+    """
+    def query1_15 = """
+    select
+    l_shipmode,
+    count(*)
+    from
+    lineitem
+    where
+    '2023-01-01' <= l_commitdate and '2024-01-01' > l_commitdate
+    group by
+    l_shipmode;
+    """
+    order_qt_query1_15_before "${query1_15}"
+    async_mv_rewrite_success(db, mv1_15, query1_15, "mv1_15")
+    order_qt_query1_15_after "${query1_15}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_15"""
+
+
+    def mv1_15_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'year') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_15_0 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-01-01' <= l_commitdate and '2024-01-01' > l_commitdate;
+    """
+    order_qt_query1_15_0_before "${query1_15_0}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_15_0, query1_15_0, "mv1_15_0")
+    order_qt_query1_15_0_after "${query1_15_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_15_0"""
+
+
+    def mv1_15_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'year') as day_trunc
+    from
+    lineitem;
+    """
+    def query1_15_1 = """
+    select
+    l_shipmode
+    from
+    lineitem
+    where
+    '2023-01-01' <= date_trunc(l_commitdate, 'year') and '2024-01-01' > date_trunc(l_commitdate, 'year');
+    """
+    order_qt_query1_15_1_before "${query1_15_1}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_15_1, query1_15_1, "mv1_15_1")
+    order_qt_query1_15_1_after "${query1_15_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_15_1"""
+
+
+    // use ComparisonPredicate except >= and <， should fail
+    def mv2_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_commitdate, 'day') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_commitdate, 'day');
+    """
+    def query2_0 = """
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
+               l_commitdate <= '2023-09-04' and '2023-01-16' <=  l_commitdate
+            group by
+              l_shipmode;
+            """
+    order_qt_query2_0_before "${query2_0}"
+    async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0")
+    order_qt_query2_0_after "${query2_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
+
+
+    def mv2_1 = """
+            select
+              l_shipmode,
+              date_trunc(l_shipdate, 'week') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
+              date_trunc(l_shipdate, 'week');
+            """
+    def query2_1 = """
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
+              '2023-01-16' = l_shipdate
+            group by
+              l_shipmode;
+            """
+    order_qt_query2_1_before "${query2_1}"
+    async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
+    order_qt_query2_1_after "${query2_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
+
+    // use un expect constant should fail
+    def mv2_2 = """
+            select
+              l_shipmode,
+              date_trunc(l_shipdate, 'minute') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
+              date_trunc(l_shipdate, 'minute');
+            """
+    def query2_2 = """
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
+              l_shipdate >= '2023-01-17 00:05:01' and  l_shipdate < '2023-10-18'
+            group by
+              l_shipmode;
+            """
+    order_qt_query2_2_before "${query2_2}"
+    // l_shipdate >= '2023-01-17 00:05:01' because l_shipdate data type is date, so
+    // simply to l_shipdate >= '2023-01-18 00:00:00'
+    async_mv_rewrite_success(db, mv2_2, query2_2, "mv2_2")
+    order_qt_query2_2_after "${query2_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
+
+
+    def mv2_3 = """
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'minute') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
+              date_trunc(l_commitdate, 'minute');
+            """
+    def query2_3 = """
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
+              l_commitdate >= '2023-01-17 00:05:01' and  l_commitdate < '2023-10-18'
+            group by
+              l_shipmode;
+            """
+    order_qt_query2_3_before "${query2_3}"
+    async_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
+    order_qt_query2_3_after "${query2_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
+
+
+    // 2. expr in date_trunc is cmplex expr
+    def mv3_0 = """
+    select
+    l_shipmode,
+    date_add(l_commitdate, INTERVAL 2 DAY) as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_add(l_commitdate, INTERVAL 2 DAY);
+    """
+    def query3_0 = """
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
+              '2023-10-01' <=  date_add(l_commitdate, INTERVAL 2 DAY) and '2023-10-30 00:10:00' > date_add(l_commitdate, INTERVAL 2 DAY)
+            group by
+              l_shipmode;
+            """
+    order_qt_query3_0_before "${query3_0}"
+    async_mv_rewrite_fail(db, mv3_0, query3_0, "mv3_0")
+    order_qt_query3_0_after "${query3_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
+
+
+    def mv3_1 = """
+            select
+              l_shipmode,
+              date_trunc(date_add(l_commitdate, INTERVAL 2 DAY), 'day') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
+              date_trunc(date_add(l_commitdate, INTERVAL 2 DAY), 'day');
+            """
+    def query3_1 = """
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
+              '2023-10-01' <=  date_add(l_commitdate, INTERVAL 2 DAY) and '2023-10-30 00:10:00' >  date_add(l_commitdate, INTERVAL 2 DAY)
+            group by
+              l_shipmode;
+            """
+    order_qt_query3_1_before "${query3_1}"
+    async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
+    order_qt_query3_1_after "${query3_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
+
+
     def mv3_2 = """
             select
               l_shipmode,
@@ -109,14 +1114,14 @@ suite("mv_with_date_trunc") {
               date_trunc(l_commitdate, 'day');
             """
     def query3_2 = """
-            select 
-              l_shipmode, 
-              count(*) 
-            from 
-              lineitem 
-            where 
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
               date_add(l_commitdate, INTERVAL 2 DAY) >= '2023-10-01' and  date_add(l_commitdate, INTERVAL 2 DAY) < '2023-10-25'
-            group by 
+            group by
               l_shipmode;
             """
     order_qt_query3_2_before "${query3_2}"
@@ -126,25 +1131,25 @@ suite("mv_with_date_trunc") {
 
 
     def mv3_3 = """
-            select 
-              l_shipmode, 
-              date_trunc(l_commitdate, 'day') as day_trunc, 
-              count(*) 
-            from 
-              lineitem 
-            group by 
-              l_shipmode, 
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'day') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
               date_trunc(l_commitdate, 'day');
             """
     def query3_3 = """
-            select 
-              l_shipmode, 
-              count(*) 
-            from 
-              lineitem 
-            where 
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
               '2023-10-01' <=  date_add(l_commitdate, INTERVAL 2 DAY) and '2023-10-30' >  date_add(l_commitdate, INTERVAL 2 DAY)
-            group by 
+            group by
               l_shipmode;
             """
     order_qt_query3_3_before "${query3_3}"
@@ -155,25 +1160,25 @@ suite("mv_with_date_trunc") {
 
     // use ComparisonPredicate except >= and <， should fail
     def mv3_4 = """
-            select 
-              l_shipmode, 
-              date_trunc(l_commitdate, 'day') as day_trunc, 
-              count(*) 
-            from 
-              lineitem 
-            group by 
-              l_shipmode, 
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'day') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
               date_trunc(l_commitdate, 'day');
             """
     def query3_4 = """
-            select 
-              l_shipmode, 
-              count(*) 
-            from 
-              lineitem 
-            where 
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
               date_add(l_commitdate, INTERVAL 2 DAY) >= '2023-10-01' and  date_add(l_commitdate, INTERVAL 2 DAY) <= '2023-10-25'
-            group by 
+            group by
               l_shipmode;
             """
     order_qt_query3_4_before "${query3_4}"
@@ -184,30 +1189,89 @@ suite("mv_with_date_trunc") {
 
     // use un expect constant should fail
     def mv3_5 = """
-            select 
-              l_shipmode, 
-              date_trunc(l_commitdate, 'day') as day_trunc, 
-              count(*) 
-            from 
-              lineitem 
-            group by 
-              l_shipmode, 
+            select
+              l_shipmode,
+              date_trunc(l_commitdate, 'day') as day_trunc,
+              count(*)
+            from
+              lineitem
+            group by
+              l_shipmode,
               date_trunc(l_commitdate, 'day');
             """
     def query3_5 = """
-            select 
-              l_shipmode, 
-              count(*) 
-            from 
-              lineitem 
-            where 
+            select
+              l_shipmode,
+              count(*)
+            from
+              lineitem
+            where
               '2023-10-01' <=  date_add(l_commitdate, INTERVAL 2 DAY) and '2023-10-30 00:10:00' >  date_add(l_commitdate, INTERVAL 2 DAY)
-            group by 
+            group by
               l_shipmode;
             """
     order_qt_query3_5_before "${query3_5}"
     async_mv_rewrite_fail(db, mv3_5, query3_5, "mv3_5")
     order_qt_query3_5_after "${query3_5}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_5"""
+
+    // some partition is invalid, should compensate partition
+    create_async_partition_mv(db, "mv4_0", """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'day') as day_trunc,
+    count(*)
+    from
+    lineitem
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'day');
+    """, "(day_trunc)")
+
+
+    create_async_partition_mv(db, "mv4_1", """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'day') as day_trunc
+    from
+    lineitem;
+    """, "(day_trunc)")
+
+    sql """
+    insert into lineitem
+    values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 00:00:00.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 02:01:45', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 03:02:43', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
+    """
+
+    def query4_0 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'day') as day_trunc,
+    count(*)
+    from
+    lineitem
+    where l_shipdate >= '2023-01-01' and l_shipdate < '2023-05-01'
+    group by
+    l_shipmode,
+    date_trunc(l_shipdate, 'day');
+    """
+    mv_rewrite_success(query4_0, "mv4_0")
+    order_qt_query4_0_after "${query4_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
+
+
+    def query4_1 = """
+    select
+    l_shipmode,
+    date_trunc(l_shipdate, 'day') as day_trunc
+    from
+    lineitem
+    where l_shipdate >= '2023-01-01' and l_shipdate < '2023-05-01';
+    """
+    mv_rewrite_success_without_check_chosen(query4_1, "mv4_1")
+    order_qt_query4_1_after "${query4_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
 }
