@@ -17,9 +17,7 @@
 
 #include "arrow_stream_reader.h"
 
-#include "arrow/array.h"
 #include "arrow/io/buffered.h"
-#include "arrow/io/stdio.h"
 #include "arrow/ipc/options.h"
 #include "arrow/ipc/reader.h"
 #include "arrow/record_batch.h"
@@ -29,6 +27,8 @@
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {
@@ -114,7 +114,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
 
 Status ArrowStreamReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                       std::unordered_set<std::string>* missing_cols) {
-    for (auto& slot : _file_slot_descs) {
+    for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
     return Status::OK();
