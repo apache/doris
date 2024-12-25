@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,6 +53,7 @@ import java.util.Set;
  */
 public class AdjustTopNProject extends OneRewriteRuleFactory {
     public static final Logger LOG = LogManager.getLogger(AdjustTopNProject.class);
+
     @Override
     public Rule build() {
         return logicalTopN(logicalProject(logicalAggregate()))
