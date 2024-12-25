@@ -18,9 +18,7 @@
 #include "lakesoul_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
-#include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -45,7 +43,7 @@ LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
           _state(state),
           _profile(profile) {
     std::vector<std::string> required_fields;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
     }
 
@@ -68,7 +66,7 @@ Status LakeSoulJniReader::get_next_block(Block* block, size_t* read_rows, bool* 
 
 Status LakeSoulJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                       std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();

@@ -17,6 +17,8 @@
 
 #include "vec/exec/format/table/equality_delete.h"
 
+#include "exprs/create_predicate_function.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -66,7 +68,7 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
                         ->get_null_map_data();
         _hybrid_set->find_batch_nullable(
                 remove_nullable(column_and_type->column)->assume_mutable_ref(), rows, null_map,
-                *_filter.get());
+                *_filter);
         if (_hybrid_set->contain_null()) {
             auto* filter_data = _filter->data();
             for (size_t i = 0; i < rows; ++i) {
@@ -74,8 +76,7 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
             }
         }
     } else {
-        _hybrid_set->find_batch(column_and_type->column->assume_mutable_ref(), rows,
-                                *_filter.get());
+        _hybrid_set->find_batch(column_and_type->column->assume_mutable_ref(), rows, *_filter);
     }
     // should reverse _filter
     auto* filter_data = _filter->data();
@@ -83,7 +84,7 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
         filter_data[i] = !filter_data[i];
     }
 
-    Block::filter_block_internal(data_block, *_filter.get(), data_block->columns());
+    Block::filter_block_internal(data_block, *_filter, data_block->columns());
     return Status::OK();
 }
 
@@ -141,7 +142,7 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
         }
     }
 
-    Block::filter_block_internal(data_block, *_filter.get(), data_block->columns());
+    Block::filter_block_internal(data_block, *_filter, data_block->columns());
     return Status::OK();
 }
 

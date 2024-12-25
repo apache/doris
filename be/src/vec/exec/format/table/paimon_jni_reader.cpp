@@ -18,23 +18,21 @@
 #include "paimon_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
 const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
@@ -46,7 +44,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
         : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
     std::vector<std::string> column_types;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         column_names.emplace_back(desc->col_name());
         column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
     }
@@ -68,11 +66,11 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     }
 
     // Used to create paimon option
-    for (auto& kv : range.table_format_params.paimon_params.paimon_options) {
+    for (const auto& kv : range.table_format_params.paimon_params.paimon_options) {
         params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
     }
     if (range.table_format_params.paimon_params.__isset.hadoop_conf) {
-        for (auto& kv : range.table_format_params.paimon_params.hadoop_conf) {
+        for (const auto& kv : range.table_format_params.paimon_params.hadoop_conf) {
             params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
         }
     }
@@ -86,7 +84,7 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
 
 Status PaimonJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                     std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();
