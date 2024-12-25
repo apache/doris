@@ -1128,6 +1128,9 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public static void compatibilityAuthIndexChange(PrivBitSet privBitSet) {
+        if (privBitSet == null) {
+            return;
+        }
         int currentVersion = Env.getCurrentEnvJournalVersion();
         // not cloud mode,
         // For versions greater than VERSION_123,
