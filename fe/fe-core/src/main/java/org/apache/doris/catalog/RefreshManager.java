@@ -32,8 +32,8 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.persist.OperationType;
-import org.apache.doris.qe.DdlExecutor;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -284,9 +284,9 @@ public class RefreshManager {
                          * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
                          * because the default value of invalidCache is true.
                          * */
-                        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
+                        RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand(catalogName, null);
                         try {
-                            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+                            refreshCatalogCommand.handleRefreshCatalog();
                         } catch (Exception e) {
                             LOG.warn("failed to refresh catalog {}", catalogName, e);
                         }

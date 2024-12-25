@@ -426,4 +426,98 @@ suite("push_down_count_through_join_one_side") {
     qt_with_hint_groupby_pushdown_nested_queries """
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join_one_side) */  count(*) from (select * from count_t_one_side where score > 20) t1 join (select * from count_t_one_side where id < 100) t2 on t1.id = t2.id group by t1.name;
     """
+
+    sql """
+    drop table if exists dw_user_b2c_tracking_info_tmp_ymd;
+    create table dw_user_b2c_tracking_info_tmp_ymd (
+        guid int,
+        dt varchar,
+        first_visit_time varchar
+    )Engine=Olap
+    DUPLICATE KEY(guid)
+    distributed by hash(dt) buckets 3
+    properties('replication_num' = '1');
+
+    insert into dw_user_b2c_tracking_info_tmp_ymd values (1, '2024-08-19', '2024-08-19');
+
+    drop table if exists dwd_tracking_sensor_init_tmp_ymd;
+    create table dwd_tracking_sensor_init_tmp_ymd (
+        guid int,
+        dt varchar,
+        tracking_type varchar
+    )Engine=Olap
+    DUPLICATE KEY(guid)
+    distributed by hash(dt) buckets 3
+    properties('replication_num' = '1');
+
+    insert into dwd_tracking_sensor_init_tmp_ymd values(1, '2024-08-19', 'click'), (1, '2024-08-19', 'click');
+    """
+    sql """ 
+    set disable_join_reorder=true;
+    """
+
+    qt_shape """
+    explain shape plan
+    SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE)*/
+        Count(*)                            AS accee593,
+       CASE
+         WHEN dwd_tracking_sensor_init_tmp_ymd.dt =
+              Substring(dw_user_b2c_tracking_info_tmp_ymd.first_visit_time, 1,
+              10) THEN
+         '是'
+         WHEN dwd_tracking_sensor_init_tmp_ymd.dt >
+              Substring(dw_user_b2c_tracking_info_tmp_ymd.first_visit_time, 1,
+              10) THEN
+         '否'
+         ELSE '-1'
+       end                                 AS a1302fb2,
+       dwd_tracking_sensor_init_tmp_ymd.dt AS ad466123
+    FROM   dwd_tracking_sensor_init_tmp_ymd
+        LEFT JOIN dw_user_b2c_tracking_info_tmp_ymd
+                ON dwd_tracking_sensor_init_tmp_ymd.guid =
+                    dw_user_b2c_tracking_info_tmp_ymd.guid
+                    AND dwd_tracking_sensor_init_tmp_ymd.dt =
+                        dw_user_b2c_tracking_info_tmp_ymd.dt
+    WHERE  dwd_tracking_sensor_init_tmp_ymd.dt = '2024-08-19'
+        AND dw_user_b2c_tracking_info_tmp_ymd.dt = '2024-08-19'
+        AND dwd_tracking_sensor_init_tmp_ymd.dt >=
+            Substring(dw_user_b2c_tracking_info_tmp_ymd.first_visit_time, 1, 10)
+        AND dwd_tracking_sensor_init_tmp_ymd.tracking_type = 'click'
+    GROUP  BY 2,
+            3
+    ORDER  BY 3 ASC
+    LIMIT  10000; 
+    """
+
+    qt_agg_pushed  """
+    SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE)*/
+        Count(*)                            AS accee593,
+       CASE
+         WHEN dwd_tracking_sensor_init_tmp_ymd.dt =
+              Substring(dw_user_b2c_tracking_info_tmp_ymd.first_visit_time, 1,
+              10) THEN
+         '是'
+         WHEN dwd_tracking_sensor_init_tmp_ymd.dt >
+              Substring(dw_user_b2c_tracking_info_tmp_ymd.first_visit_time, 1,
+              10) THEN
+         '否'
+         ELSE '-1'
+       end                                 AS a1302fb2,
+       dwd_tracking_sensor_init_tmp_ymd.dt AS ad466123
+    FROM   dwd_tracking_sensor_init_tmp_ymd
+        LEFT JOIN dw_user_b2c_tracking_info_tmp_ymd
+                ON dwd_tracking_sensor_init_tmp_ymd.guid =
+                    dw_user_b2c_tracking_info_tmp_ymd.guid
+                    AND dwd_tracking_sensor_init_tmp_ymd.dt =
+                        dw_user_b2c_tracking_info_tmp_ymd.dt
+    WHERE  dwd_tracking_sensor_init_tmp_ymd.dt = '2024-08-19'
+        AND dw_user_b2c_tracking_info_tmp_ymd.dt = '2024-08-19'
+        AND dwd_tracking_sensor_init_tmp_ymd.dt >=
+            Substring(dw_user_b2c_tracking_info_tmp_ymd.first_visit_time, 1, 10)
+        AND dwd_tracking_sensor_init_tmp_ymd.tracking_type = 'click'
+    GROUP  BY 2,
+            3
+    ORDER  BY 3 ASC
+    LIMIT  10000; 
+    """
 }

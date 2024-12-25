@@ -34,7 +34,7 @@ suite("test_unique_table") {
                 date_value date
             )
             UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1","enable_unique_key_skip_bitmap_column" = "false");
         """
     sql "insert into ${tbName} values(0, 1, 'test char', '2000-01-01')"
     sql "insert into ${tbName} values(0, 2, 'test int', '2000-02-02')"

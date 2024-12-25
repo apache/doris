@@ -72,12 +72,13 @@ public class DropTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertEquals("DROP TABLE `db1`.`table1`", stmt.toString());
+        // one with force.
+        Assert.assertEquals("DROP TABLE `db1`.`table1` FORCE", stmt.toString());
     }
 
     @Test
     public void testDefaultNormal() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, noDbTbl, true);
+        DropTableStmt stmt = new DropTableStmt(false, noDbTbl, false);
         stmt.analyze(analyzer);
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());

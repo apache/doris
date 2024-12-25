@@ -33,6 +33,7 @@ public class EnableFeatureClause extends AlterTableClause {
     public enum Features {
         BATCH_DELETE,
         SEQUENCE_LOAD,
+        UPDATE_FLEXIBLE_COLUMNS,
         UNKNOWN
     }
 
@@ -78,6 +79,10 @@ public class EnableFeatureClause extends AlterTableClause {
                 if (properties == null || properties.isEmpty()) {
                     throw new AnalysisException("Properties is not set");
                 }
+                break;
+            case "UPDATE_FLEXIBLE_COLUMNS":
+                this.needSchemaChange = true;
+                this.feature = Features.UPDATE_FLEXIBLE_COLUMNS;
                 break;
             default:
                 throw new AnalysisException("unknown feature name: " + featureName);

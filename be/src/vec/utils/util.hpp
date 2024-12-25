@@ -173,12 +173,12 @@ inline std::string remove_suffix(const std::string& name, const std::string& suf
 };
 
 inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
-    auto res_data_column = ColumnUInt8::create(size, 1);
+    ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     if (is_nullable) {
-        auto null_map = ColumnVector<UInt8>::create(size, 0);
-        return ColumnNullable::create(std::move(res_data_column), std::move(null_map));
+        auto null_map = ColumnVector<UInt8>::create(1, 0);
+        res_data_column = ColumnNullable::create(res_data_column, std::move(null_map));
     }
-    return res_data_column;
+    return ColumnConst::create(std::move(res_data_column), size);
 }
 
 // change null element to true element
@@ -197,7 +197,7 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
             data[i] |= null_map[i];
         }
         memset(null_map, 0, rows);
-    } else if (argument != nullptr && argument->has_null()) {
+    } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
         auto* __restrict data =

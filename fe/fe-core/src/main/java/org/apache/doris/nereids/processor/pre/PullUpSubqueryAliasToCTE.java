@@ -59,7 +59,7 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
     public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
                                           StatementContext context) {
         if (alias.child() instanceof LogicalSelectHint
-                && ((LogicalSelectHint) alias.child()).isIncludeLeading()) {
+                && ((LogicalSelectHint) alias.child()).isIncludeHint("Leading")) {
             aliasQueries.add((LogicalSubQueryAlias<Plan>) alias);
             List<String> tableName = new ArrayList<>();
             tableName.add(alias.getAlias());

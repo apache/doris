@@ -32,7 +32,7 @@ import lombok.Getter;
 
 import java.util.List;
 
-public class CancelAlterSystemStmt extends CancelStmt {
+public class CancelAlterSystemStmt extends CancelStmt implements NotFallbackInParser {
 
     protected List<String> params;
     @Getter

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -108,7 +109,8 @@ public class DemoTest extends TestWithFeService {
 
         // 7. query
         // TODO: we can not process real query for now. So it has to be a explain query
-        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1";
+        String queryStr = "explain select /*+ SET_VAR(disable_nereids_rules=PRUNE_EMPTY_PARTITION, "
+                + "enable_parallel_result_sink=true) */ * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
@@ -117,5 +119,16 @@ public class DemoTest extends TestWithFeService {
         PlanFragment fragment = fragments.get(0);
         Assertions.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
         Assertions.assertEquals(0, fragment.getChildren().size());
+
+        queryStr = "explain select /*+ SET_VAR(disable_nereids_rules=PRUNE_EMPTY_PARTITION, "
+                + "enable_parallel_result_sink=false) */ * from db1.tbl1";
+        stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        planner = stmtExecutor.planner();
+        fragments = planner.getFragments();
+        Assertions.assertEquals(2, fragments.size());
+        fragment = fragments.get(0);
+        Assertions.assertTrue(fragment.getPlanRoot() instanceof ExchangeNode);
+        Assertions.assertEquals(1, fragment.getChildren().size());
     }
 }

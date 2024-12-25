@@ -99,7 +99,6 @@ suite("test_s3_tvf_with_resource", "p0") {
 
     // test outfile to s3
     def outfile_url = outfile_to_S3()
-    // outfile_url like: s3://doris-build-hk-1308700295/est_s3_tvf/export_test/exp_f2cb650bbb94431a-ab0bc3e6f3e89f04_*
 
     // 1. normal
     try {
@@ -188,7 +187,6 @@ suite("test_s3_tvf_with_resource", "p0") {
     String viewName = "test_s3_tvf_with_resource_view"
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on ${db}.${viewName} to ${user}"""
     sql "drop view if exists ${viewName}"
     sql """
         create view ${viewName} as
@@ -199,7 +197,7 @@ suite("test_s3_tvf_with_resource", "p0") {
                            "resource" = "${resource_name}"
                        )  where k1 > 100  order by k3,k2,k1;
         """
-
+    sql """grant select_priv on ${db}.${viewName} to ${user}"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -208,7 +206,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
     // not have usage priv, can not select tvf with resource
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
         test {
                 sql """
                     SELECT * FROM S3 (
@@ -223,7 +221,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     }
 
     // only have select_priv of view,can select view with resource
-    connect(user=user, password="${pwd}", url=url) {
+    connect(user, "${pwd}", url) {
             sql """SELECT * FROM ${viewName};"""
     }
 

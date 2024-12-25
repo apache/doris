@@ -22,6 +22,11 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+
 public class TruncateTableRecord {
     @SerializedName(value = "dbId")
     private long dbId;
@@ -35,6 +40,8 @@ public class TruncateTableRecord {
     private boolean isEntireTable = false;
     @SerializedName(value = "rawSql")
     private String rawSql = "";
+    @SerializedName(value = "op")
+    private Map<Long, String> oldPartitions = new HashMap<>();
 
     public TruncateTableRecord(TruncateTableInfo info) {
         this.dbId = info.getDbId();
@@ -43,9 +50,18 @@ public class TruncateTableRecord {
         this.table = info.getTable();
         this.isEntireTable = info.isEntireTable();
         this.rawSql = info.getRawSql();
+        this.oldPartitions = info.getOldPartitions();
+    }
+
+    public Collection<Long> getOldPartitionIds() {
+        return oldPartitions == null ? new ArrayList<>() : oldPartitions.keySet();
     }
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public static TruncateTableRecord fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, TruncateTableRecord.class);
     }
 }

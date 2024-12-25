@@ -124,7 +124,7 @@ public class StructLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("STRUCT(");
         for (int i = 0; i < fields.size(); i++) {

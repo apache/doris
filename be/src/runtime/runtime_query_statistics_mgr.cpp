@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -116,7 +117,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
         int32_t fragment_id = entry.first;
         const std::vector<std::shared_ptr<TRuntimeProfileTree>>& fragment_profile = entry.second;
         std::vector<TDetailedReportParams> detailed_params;
-
+        bool is_first = true;
         for (auto pipeline_profile : fragment_profile) {
             if (pipeline_profile == nullptr) {
                 auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
@@ -128,6 +129,9 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
 
             TDetailedReportParams tmp;
             THRIFT_MOVE_VALUES(tmp, profile, *pipeline_profile);
+            // First profile is fragment level
+            tmp.__set_is_fragment_level(is_first);
+            is_first = false;
             // tmp.fragment_instance_id is not needed for pipeline x
             detailed_params.push_back(std::move(tmp));
         }
@@ -161,7 +165,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
 
     TReportExecStatusParams req;
     THRIFT_MOVE_VALUES(req, query_profile, profile);
-    req.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
+    req.__set_backend_id(ExecEnv::GetInstance()->cluster_info()->backend_id);
     // invalid query id to avoid API compatibility during upgrade
     req.__set_query_id(TUniqueId());
     req.__set_done(is_done);
@@ -340,7 +344,7 @@ void RuntimeQueryStatisticsMgr::register_query_statistics(std::string query_id,
 }
 
 void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     // 1 get query statistics map
     std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
     std::map<std::string, std::pair<bool, bool>> qs_status; // <finished, timeout>
@@ -514,53 +518,31 @@ void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int6
 
 void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
-
-    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
 
     // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
     for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
         TQueryStatistics tqs;
         qs_ctx_ptr->collect_query_statistics(&tqs);
-        insert_int_value(0, be_id, block);
-        insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
-        insert_string_value(2, query_id, block);
+        SchemaScannerHelper::insert_int64_value(0, be_id, block);
+        SchemaScannerHelper::insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
+        SchemaScannerHelper::insert_string_value(2, query_id, block);
 
         int64_t task_time = qs_ctx_ptr->_is_query_finished
                                     ? qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time
                                     : MonotonicMillis() - qs_ctx_ptr->_query_start_time;
-        insert_int_value(3, task_time, block);
-        insert_int_value(4, tqs.cpu_ms, block);
-        insert_int_value(5, tqs.scan_rows, block);
-        insert_int_value(6, tqs.scan_bytes, block);
-        insert_int_value(7, tqs.max_peak_memory_bytes, block);
-        insert_int_value(8, tqs.current_used_memory_bytes, block);
-        insert_int_value(9, tqs.shuffle_send_bytes, block);
-        insert_int_value(10, tqs.shuffle_send_rows, block);
+        SchemaScannerHelper::insert_int64_value(3, task_time, block);
+        SchemaScannerHelper::insert_int64_value(4, tqs.cpu_ms, block);
+        SchemaScannerHelper::insert_int64_value(5, tqs.scan_rows, block);
+        SchemaScannerHelper::insert_int64_value(6, tqs.scan_bytes, block);
+        SchemaScannerHelper::insert_int64_value(7, tqs.max_peak_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(8, tqs.current_used_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(9, tqs.shuffle_send_bytes, block);
+        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_rows, block);
 
         std::stringstream ss;
         ss << qs_ctx_ptr->_query_type;
-        insert_string_value(11, ss.str(), block);
+        SchemaScannerHelper::insert_string_value(11, ss.str(), block);
     }
 }
 

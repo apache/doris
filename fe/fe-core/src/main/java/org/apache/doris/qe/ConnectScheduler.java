@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -92,6 +93,8 @@ public class ConnectScheduler {
     // Register one connection with its connection id.
     public boolean registerConnection(ConnectContext ctx) {
         if (numberConnection.incrementAndGet() > maxConnections) {
+            LOG.info("Number connection {} has reach upper limit {}. Connection map : [{}]",
+                    numberConnection.get(), maxConnections, connectionMap);
             numberConnection.decrementAndGet();
             return false;
         }
@@ -99,6 +102,8 @@ public class ConnectScheduler {
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
         AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
         if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+            LOG.info("User {}'s connection {} has reached upper limit {}. connByUser: [{}]", ctx.getQualifiedUser(),
+                    conns.get(), ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser()), connByUser);
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
@@ -145,11 +150,11 @@ public class ConnectScheduler {
         return null;
     }
 
-    public void cancelQuery(String queryId) {
+    public void cancelQuery(String queryId, Status cancelReason) {
         for (ConnectContext ctx : connectionMap.values()) {
             TUniqueId qid = ctx.queryId();
             if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
-                ctx.cancelQuery();
+                ctx.cancelQuery(cancelReason);
                 break;
             }
         }

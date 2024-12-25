@@ -31,7 +31,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 struct StreamingHtMinReductionEntry {
     // Use 'streaming_ht_min_reduction' if the total size of hash table bucket directories in
     // bytes is greater than this threshold.
@@ -59,10 +59,9 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
-          dummy_mapped_data(std::make_shared<char>('A')),
           batch_size(state->batch_size()),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
-          _agg_data(std::make_unique<AggregatedDataVariants>()),
+          _agg_data(std::make_unique<DistinctDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
@@ -72,7 +71,6 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
     _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
@@ -95,12 +93,8 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
 
-    if (_probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
-    } else {
-        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
-    }
+    DCHECK_EQ(p._total_size_of_aggregate_states, 0);
+    RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     return Status::OK();
 }
 
@@ -139,8 +133,8 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
                         // TODO chenhao
                         //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                        double current_reduction =
-                                static_cast<double>(aggregated_input_rows) / ht_rows;
+                        double current_reduction = static_cast<double>(aggregated_input_rows) /
+                                                   static_cast<double>(ht_rows);
 
                         // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
                         // inaccurate, which could lead to a divide by zero below.
@@ -171,8 +165,8 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
 
 Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+    RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
@@ -198,7 +192,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         }
     }
 
-    int rows = in_block->rows();
+    size_t rows = in_block->rows();
     _distinct_row.clear();
     _distinct_row.reserve(rows);
 
@@ -303,13 +297,10 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                         size_t row = 0;
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin, _arena);
-                            ctor(key, dummy_mapped_data.get());
+                            ctor(key);
                             distinct_row.push_back(row);
                         };
-                        auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = dummy_mapped_data.get();
-                            distinct_row.push_back(row);
-                        };
+                        auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
                         for (; row < num_rows; ++row) {
@@ -334,7 +325,9 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
                                    ? tnode.distribute_expr_lists[0]
                                    : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
-          _require_bucket_distribution(require_bucket_distribution) {
+          _require_bucket_distribution(require_bucket_distribution),
+          _without_key(tnode.agg_node.grouping_exprs.empty()) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -361,7 +354,7 @@ Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState*
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 
@@ -369,15 +362,15 @@ Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState*
     return Status::OK();
 }
 
-Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::prepare(state));
+Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::open(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -389,7 +382,7 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+                state, _child->row_desc(), intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
@@ -412,12 +405,6 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-
-    return Status::OK();
-}
-
-Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -462,11 +449,10 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
     local_state._make_nullable_output_key(block);
     if (!_is_streaming_preagg) {
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
-    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     // If the limit is not reached, it is important to ensure that _aggregated_block is empty
     // because it may still contain data.
     // However, if the limit is reached, there is no need to output data even if some exists.
@@ -506,8 +492,12 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     _aggregated_block->clear();
     // If the limit is reached, there may still be remaining data in the cache block.
     // If the limit is not reached, the cache block must be empty.
-    DCHECK(_reach_limit || _aggregated_block->empty());
-    DCHECK(_reach_limit || _cache_block.empty());
+    // If the query is canceled, it might not satisfy the above conditions.
+    if (!state->is_cancelled()) {
+        if (!_reach_limit && !_cache_block.empty()) {
+            LOG_WARNING("If the limit is not reached, the cache block must be empty.");
+        }
+    }
     _cache_block.clear();
     return Base::close(state);
 }

@@ -194,12 +194,12 @@ java_version="$(
 )"
 if [[ "${java_version}" -eq 17 ]]; then
     if [[ -z "${JAVA_OPTS_FOR_JDK_17}" ]]; then
-        log "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf"
+        echo "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf"
         exit 1
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 else
-    log "ERROR: The jdk_version is ${java_version}, must be 17."
+    echo "ERROR: The jdk_version is ${java_version}, must be 17."
     exit 1
 fi
 log "Using Java version ${java_version}"
@@ -256,6 +256,12 @@ log "start time: ${CUR_DATE}"
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend
     HELPER="-helper ${HELPER}"
+fi
+
+if [[ "${OPT_VERSION}" != "" ]]; then
+    export DORIS_LOG_TO_STDERR=1
+    ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE --version
+    exit 0
 fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then

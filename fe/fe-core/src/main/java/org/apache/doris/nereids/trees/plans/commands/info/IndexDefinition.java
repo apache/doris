@@ -26,6 +26,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -93,7 +94,9 @@ public class IndexDefinition {
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
+            boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -105,6 +108,14 @@ public class IndexDefinition {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
@@ -121,7 +132,8 @@ public class IndexDefinition {
             if (indexType == IndexType.INVERTED) {
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                            colType.toCatalogDataType().getPrimitiveType(), properties);
+                            colType.toCatalogDataType().getPrimitiveType(), properties,
+                            invertedIndexFileStorageFormat);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
                 }
@@ -141,9 +153,9 @@ public class IndexDefinition {
                         throw new AnalysisException(
                                 "gram_size should be integer and less than 256");
                     }
-                    if (bfSize > 65536 || bfSize < 64) {
+                    if (bfSize > 65535 || bfSize < 64) {
                         throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65536");
+                                "bf_size should be integer and between 64 and 65535");
                     }
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
@@ -207,6 +219,6 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment);
+                comment, null);
     }
 }

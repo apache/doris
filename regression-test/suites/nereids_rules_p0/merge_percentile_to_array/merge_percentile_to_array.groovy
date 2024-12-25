@@ -57,4 +57,8 @@ suite("merge_percentile_to_array") {
             percentile(abs(a), 0.55) as c2 from test_merge_percentile group by a) t;      
     """
 
+    order_qt_same_percentile """select sum(a),percentile(pk, 0.1) as c1 , percentile(pk, 0.1) as c2 ,
+            percentile(pk, 0.4) as c2 from test_merge_percentile;"""
+    order_qt_same_percentile_group_by """select sum(a),percentile(pk, 0.1) as c1 , percentile(pk, 0.1) as c2 ,
+            percentile(pk, 0.4) as c2 from test_merge_percentile group by a;"""
 }

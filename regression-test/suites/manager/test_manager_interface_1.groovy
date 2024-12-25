@@ -118,7 +118,7 @@ suite('test_manager_interface_1',"p0") {
     
 	    sql """ drop table test_metadata_name_ids """ 
 
-        qt_metadata_2 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
+        qt_metadata_3 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
             where CATALOG_NAME="internal" and DATABASE_NAME ="test_manager_metadata_name_ids" and TABLE_NAME="test_metadata_name_ids";""" 
     }
     test_metadata_name_ids()
@@ -273,18 +273,19 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(result[0][0].toLowerCase() ==  "test_manager_tb_1")
 
         
-        result = sql """ show create table  test_manager_tb_1"""   
+        result = sql """ show create table  test_manager_tb_1"""
+        logger.info ("result = ${result}")   
         assertTrue(result[0][0] == "test_manager_tb_1") // TABLE NAME
         // assertTrue(result[0][1].substring() == "test_manager_tb_1") //DDL 
         def ddl_str =  result[0][1] 
         def idx =  ddl_str.indexOf("PROPERTIES")
         assertTrue(idx != -1 );
         assertTrue( ddl_str.startsWith("""CREATE TABLE `test_manager_tb_1` (
-  `k1` TINYINT NULL,
-  `k2` DECIMAL(10, 2) NULL DEFAULT "10.05",
-  `k3` CHAR(10) NULL COMMENT 'string column',
-  `k4` INT NOT NULL DEFAULT "1" COMMENT 'int column',
-  `k5` TEXT NULL
+  `k1` tinyint NULL,
+  `k2` decimal(10,2) NULL DEFAULT "10.05",
+  `k3` char(10) NULL COMMENT 'string column',
+  `k4` int NOT NULL DEFAULT "1" COMMENT 'int column',
+  `k5` text NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`k1`, `k2`, `k3`)
 COMMENT 'manager_test_table'
@@ -495,128 +496,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     test_table_index()
 
 
-
-
-
-// show proc '/current_query_stmts'
-// show proc '/current_queries'
-// show processlist
-// kill query $query_id
-// SHOW PROC '/cluster_health/tablet_health' 
-    def test_proc = {
-
-        def futures = []
-        
-
-        futures.add( thread {
-
-            try{
-                sql """ select sleep(4.809); """
-            }catch(Exception e){
-                
-            }
-        })
-        futures.add( thread {
-            sleep(1000);
-            List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
-            logger.info("result = ${result}" )
-            def x = 0
-            def queryid = ""
-            logger.info("result = ${result}")
-
-            for( int i = 0;i<result.size();i++) {
-                if (result[i][7] != null && result[i][7].contains("sleep(4.809)") )//Statement
-                {
-                    x = 1
-                    queryid = result[i][0]
-                    logger.info("query ID = ${queryid}")
-                    assertTrue(result[i][0]!= null) //QueryId
-                    assertTrue(result[i][1]!= null) //ConnectionId
-                    assertTrue(result[i][2]!= null)//Catalog
-                    assertTrue(result[i][3]!= null)//Database
-                    assertTrue(result[i][4]!= null)//User
-                    assertTrue(result[i][5]!= null)//ExecTime
-                    assertTrue(result[i][5].isNumber())//ExecTime
-                    assertTrue(result[i][6]!= null)//SqlHash
-                }
-            }
-            assertTrue(x == 1)
-            
-            x = 0 
-            result = sql """  show proc '/current_queries' """
-            logger.info("result = ${result}")
-            for( int i = 0;i<result.size();i++) {
-                if (result[i][0] == queryid )//QueryId
-                {
-                    x = 1
-                    assertTrue(result[i][5]!= null)//ScanBytes
-                    assertTrue(result[i][6]!= null)//ProcessBytes
-                }
-            }
-            assertTrue(x == 1)
-
-            result = sql """  show processlist  """
-            logger.info("result = ${result}")
-            for( int i =0 ;i < result.size();i++ ){
-                assertTrue( result[i][2].toLowerCase() != "null"  )//User
-                assertTrue( result[i][3].toLowerCase() != "null"  )//Host
-                assertTrue( result[i][5].toLowerCase() != "null"  )//Catalog
-                assertTrue( result[i][6].toLowerCase() != "null"  )//Db
-                assertTrue( result[i][10].toLowerCase() != "null"  )//QueryId
-                if (result[i][10] == queryid) {
-                    x = 1
-                }
-            }
-
-            assertTrue(x == 1)
-            sql """ kill query "${queryid}" """
-            
-            x =  0
-            sleep(5000)
-
-            result = sql """  show proc '/current_queries' """
-            logger.info("result = ${result}")
-            for( int i = 0;i<result.size();i++) {
-                if (result[i][0] == queryid )//QueryId
-                {
-                    x = 1
-                }
-            }
-            assertTrue(x == 0)
-        })
-        futures.each { it.get() }
-
-
-        def tablet_num  = 0;
-        def healthy_num = 0;
-        def total_tablet_num  = 0;
-        def total_healthy_num = 0;
-        result = sql """  SHOW PROC '/cluster_health/tablet_health' """ 
-        logger.info("result = ${result}" )
-
-        for( int i =0 ;i < result.size();i++ ){
-            assertTrue(result[i][0].toLowerCase() != null ) // DbId
-            if (result[i][0].toLowerCase() == "total") {
-                total_tablet_num = result[i][2].toBigInteger();
-                total_healthy_num = result[i][3].toBigInteger();
-            }else {
-                tablet_num += result[i][2].toBigInteger();
-                healthy_num += result[i][3].toBigInteger();
-                
-            }
-            // assertTrue(result[i][2]()) // TabletNum
-            // assertTrue(result[i][3]()) // HealthyNum
-        }
-        assertTrue(total_healthy_num == healthy_num )
-        assertTrue(total_healthy_num == healthy_num )
-    
-
-
-    }
-    test_proc();
-
-
-
 //select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
     def  test_active_query = {
 
@@ -680,28 +559,28 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         assertTrue(result[0][0] == "audit_log")
 
         assertTrue(result[0][1].contains("CREATE TABLE `audit_log`"))
-        assertTrue(result[0][1].contains("`query_id` VARCHAR(48) NULL,"))
-        assertTrue(result[0][1].contains("`time` DATETIME(3) NULL,"))
-        assertTrue(result[0][1].contains("`client_ip` VARCHAR(128) NULL,")) 
-        assertTrue(result[0][1].contains("`user` VARCHAR(128) NULL,")) 
-        assertTrue(result[0][1].contains("`catalog` VARCHAR(128) NULL")) 
-        assertTrue(result[0][1].contains("`db` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`state` VARCHAR(128) NULL"))
-        assertTrue(result[0][1].contains("`error_code` INT NULL,"))
-        assertTrue(result[0][1].contains("`error_message` TEXT NULL,"))
-        assertTrue(result[0][1].contains("`query_time` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`scan_bytes` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`scan_rows` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`return_rows` BIGINT NULL,")) 
-        assertTrue(result[0][1].contains("`stmt_id` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`is_query` TINYINT NULL,"))
-        assertTrue(result[0][1].contains("`frontend_ip` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`cpu_time_ms` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`sql_hash` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`sql_digest` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`peak_memory_bytes` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`workload_group` TEXT NULL,"))
-        assertTrue(result[0][1].contains("`stmt` TEXT NULL"))
+        assertTrue(result[0][1].contains("`query_id` varchar(48) NULL,"))
+        assertTrue(result[0][1].contains("`time` datetime(3) NULL,"))
+        assertTrue(result[0][1].contains("`client_ip` varchar(128) NULL,")) 
+        assertTrue(result[0][1].contains("`user` varchar(128) NULL,")) 
+        assertTrue(result[0][1].contains("`catalog` varchar(128) NULL")) 
+        assertTrue(result[0][1].contains("`db` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`state` varchar(128) NULL"))
+        assertTrue(result[0][1].contains("`error_code` int NULL,"))
+        assertTrue(result[0][1].contains("`error_message` text NULL,"))
+        assertTrue(result[0][1].contains("`query_time` bigint NULL,"))
+        assertTrue(result[0][1].contains("`scan_bytes` bigint NULL,"))
+        assertTrue(result[0][1].contains("`scan_rows` bigint NULL,"))
+        assertTrue(result[0][1].contains("`return_rows` bigint NULL,")) 
+        assertTrue(result[0][1].contains("`stmt_id` bigint NULL,"))
+        assertTrue(result[0][1].contains("`is_query` tinyint NULL,"))
+        assertTrue(result[0][1].contains("`frontend_ip` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`cpu_time_ms` bigint NULL,"))
+        assertTrue(result[0][1].contains("`sql_hash` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`sql_digest` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`peak_memory_bytes` bigint NULL,"))
+        assertTrue(result[0][1].contains("`workload_group` text NULL,"))
+        assertTrue(result[0][1].contains("`stmt` text NULL"))
 
         assertTrue(result[0][1].contains("ENGINE=OLAP"))
 

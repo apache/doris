@@ -31,11 +31,14 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
 import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.paimon.PaimonMetadataCache;
+import org.apache.doris.datasource.paimon.PaimonMetadataCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,6 +94,7 @@ public class ExternalMetaCacheMgr {
     private ExternalRowCountCache rowCountCache;
     private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
+    private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
     public ExternalMetaCacheMgr() {
         rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
@@ -100,7 +104,7 @@ public class ExternalMetaCacheMgr {
 
         commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size * 1000,
+                Config.max_external_cache_loader_thread_pool_size * 10000,
                 "CommonRefreshExecutor", 10, true);
 
         // The queue size should be large enough,
@@ -121,6 +125,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr = new HudiPartitionMgr(commonRefreshExecutor);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
+        paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
     }
 
     public ExecutorService getFileListingExecutor() {
@@ -166,6 +171,10 @@ public class ExternalMetaCacheMgr {
         return icebergMetadataCacheMgr.getIcebergMetadataCache();
     }
 
+    public PaimonMetadataCache getPaimonMetadataCache() {
+        return paimonMetadataCacheMgr.getPaimonMetadataCache();
+    }
+
     public MaxComputeMetadataCache getMaxComputeMetadataCache(long catalogId) {
         return maxComputeMetadataCacheMgr.getMaxComputeMetadataCache(catalogId);
     }
@@ -188,6 +197,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.removePartitionProcessor(catalogId);
         icebergMetadataCacheMgr.removeCache(catalogId);
         maxComputeMetadataCacheMgr.removeCache(catalogId);
+        paimonMetadataCacheMgr.removeCache(catalogId);
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -203,6 +213,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.cleanTablePartitions(catalogId, dbName, tblName);
         icebergMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         maxComputeMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
+        paimonMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
         }
@@ -221,6 +232,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
         icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
+        paimonMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
         }
@@ -238,6 +250,7 @@ public class ExternalMetaCacheMgr {
         hudiPartitionMgr.cleanPartitionProcess(catalogId);
         icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
         maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
+        paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid catalog cache for {}", catalogId);
         }
@@ -295,5 +308,16 @@ public class ExternalMetaCacheMgr {
         MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterWriteSec, refreshAfterWriteSec,
                 maxSize, namesCacheLoader, metaObjCacheLoader, removalListener);
         return metaCache;
+    }
+
+    public static Map<String, String> getCacheStats(CacheStats cacheStats, long estimatedSize) {
+        Map<String, String> stats = Maps.newHashMap();
+        stats.put("hit_ratio", String.valueOf(cacheStats.hitRate()));
+        stats.put("hit_count", String.valueOf(cacheStats.hitCount()));
+        stats.put("read_count", String.valueOf(cacheStats.hitCount() + cacheStats.missCount()));
+        stats.put("eviction_count", String.valueOf(cacheStats.evictionCount()));
+        stats.put("average_load_penalty", String.valueOf(cacheStats.averageLoadPenalty()));
+        stats.put("estimated_size", String.valueOf(estimatedSize));
+        return stats;
     }
 }

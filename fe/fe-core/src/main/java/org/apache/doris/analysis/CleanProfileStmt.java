@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 /**
  * CLEAN ALL PROFILE;
  */
-public class CleanProfileStmt extends DdlStmt {
+public class CleanProfileStmt extends DdlStmt implements NotFallbackInParser {
     public CleanProfileStmt() {
     }
 

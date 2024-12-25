@@ -164,7 +164,7 @@ public enum JoinType {
         return this == LEFT_ANTI_JOIN;
     }
 
-    public final boolean isLefSemiJoin() {
+    public final boolean isLeftSemiJoin() {
         return this == LEFT_SEMI_JOIN;
     }
 

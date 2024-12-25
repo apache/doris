@@ -44,3 +44,87 @@ col3	array<int>	Yes	false	\N	NONE
 col4	map<int,int>	Yes	false	\N	NONE
 col5	struct<f1:int>	Yes	false	\N	NONE
 
+-- !sql_before --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql --
+col0	bigint	No	true	\N	
+col2	int	No	false	\N	NONE
+col3	array<int>	Yes	false	\N	NONE
+col4	map<int,int>	Yes	false	\N	NONE
+col5	struct<f1:int>	Yes	false	\N	NONE
+col6	variant	Yes	false	\N	NONE
+
+-- !sql_after --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql_before --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql --
+col0	bigint	No	true	\N	
+col2	int	No	false	\N	NONE
+col3	array<int>	Yes	false	\N	NONE
+col4	map<int,int>	No	false	\N	NONE
+col5	struct<f1:int>	No	false	\N	NONE
+col6	variant	No	false	\N	NONE
+
+-- !sql_after --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql_before --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql --
+col0	bigint	No	true	\N	
+col2	int	No	false	\N	NONE
+col3	array<int>	Yes	false	\N	NONE
+col4	map<int,int>	Yes	false	\N	NONE
+col5	struct<f1:int>	Yes	false	\N	NONE
+col6	variant	Yes	false	\N	NONE
+
+-- !sql_after --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql_before --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql --
+col0	bigint	No	true	\N	
+col2	int	No	false	\N	NONE
+col3	array<int>	No	false	\N	NONE
+col4	map<int,int>	Yes	false	\N	NONE
+col5	struct<f1:int>	No	false	\N	NONE
+col6	variant	No	false	\N	NONE
+
+-- !sql_after --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql_before --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql --
+col0	bigint	No	true	\N	
+col2	int	No	false	\N	NONE
+col3	array<int>	Yes	false	\N	NONE
+col4	map<int,int>	Yes	false	\N	NONE
+col5	struct<f1:int>	Yes	false	\N	NONE
+col6	variant	Yes	false	\N	NONE
+
+-- !sql_after --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql_before --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+
+-- !sql --
+col0	bigint	No	true	\N	
+col2	int	No	false	\N	NONE
+col3	array<int>	No	false	\N	NONE
+col4	map<int,int>	No	false	\N	NONE
+col5	struct<f1:int>	Yes	false	\N	NONE
+col6	variant	No	false	\N	NONE
+
+-- !sql_after --
+1	2	[1, 2]	{1:2}	{"f1":1}	{"a":[1,2,3]}
+

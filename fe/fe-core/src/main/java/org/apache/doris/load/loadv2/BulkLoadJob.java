@@ -46,7 +46,7 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -147,6 +147,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             bulkLoadJob.setComment(stmt.getComment());
             bulkLoadJob.setJobProperties(stmt.getProperties());
             bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
+            // In the construction method, there may not be table information yet
+            bulkLoadJob.rebuildAuthorizationInfo();
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
@@ -177,6 +179,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    public void rebuildAuthorizationInfo() throws MetaNotFoundException {
+        this.authorizationInfo = gatherAuthInfo();
     }
 
     @Override

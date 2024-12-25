@@ -32,7 +32,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -101,7 +100,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> tabletIds = pair.first;
         long totalRowCount = info.indexId == -1
                 ? tbl.getRowCount()
-                : ((OlapTable) tbl).getRowCountForIndex(info.indexId);
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         double scaleFactor = (double) totalRowCount / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
         if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
@@ -113,66 +112,60 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String tabletStr = tabletIds.stream()
                 .map(Object::toString)
                 .collect(Collectors.joining(", "));
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(
-                info.jobType.equals(JobType.SYSTEM), false)) {
-            // Get basic stats, including min and max.
-            ResultRow basicStats = collectBasicStat(r);
-            String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
-                    ? basicStats.get(0) : null);
-            String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
-                    ? basicStats.get(1) : null);
+        // Get basic stats, including min and max.
+        ResultRow basicStats = collectBasicStat();
+        String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
+                ? basicStats.get(0) : null);
+        String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
+                ? basicStats.get(1) : null);
 
-            boolean limitFlag = false;
-            long rowsToSample = pair.second;
-            Map<String, String> params = buildSqlParams();
-            params.put("scaleFactor", String.valueOf(scaleFactor));
-            params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
-            params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
-            params.put("min", StatisticsUtil.quote(min));
-            params.put("max", StatisticsUtil.quote(max));
-            params.put("rowCount", String.valueOf(totalRowCount));
-            params.put("type", col.getType().toString());
-            params.put("limit", "");
-            if (needLimit()) {
-                // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
-                // the scaleFactor.
-                rowsToSample = Math.min(getSampleRows(), pair.second);
-                // Empty table doesn't need to limit.
-                if (rowsToSample > 0) {
-                    limitFlag = true;
-                    params.put("limit", "limit " + rowsToSample);
-                    params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
-                }
+        boolean limitFlag = false;
+        long rowsToSample = pair.second;
+        Map<String, String> params = buildSqlParams();
+        params.put("scaleFactor", String.valueOf(scaleFactor));
+        params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
+        params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
+        params.put("min", StatisticsUtil.quote(min));
+        params.put("max", StatisticsUtil.quote(max));
+        params.put("rowCount", String.valueOf(totalRowCount));
+        params.put("type", col.getType().toString());
+        params.put("limit", "");
+        if (needLimit()) {
+            // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
+            // the scaleFactor.
+            rowsToSample = Math.min(getSampleRows(), pair.second);
+            // Empty table doesn't need to limit.
+            if (rowsToSample > 0) {
+                limitFlag = true;
+                params.put("limit", "limit " + rowsToSample);
+                params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
             }
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql;
-            if (useLinearAnalyzeTemplate()) {
-                // For single unique key, use count as ndv.
-                if (isSingleUniqueKey()) {
-                    params.put("ndvFunction", String.valueOf(totalRowCount));
-                } else {
-                    params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
-                }
-                sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
-            } else {
-                params.put("dataSizeFunction", getDataSizeFunction(col, true));
-                if (col.getType().isStringType()) {
-                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_STRING_TEMPLATE);
-                } else {
-                    sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
-                }
-            }
-            LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
-                    + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
-                    + "is single unique key [{}]",
-                    col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
-                    limitFlag, tbl.isDistributionColumn(col.getName()),
-                    tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
-            runQuery(sql);
         }
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql;
+        if (useLinearAnalyzeTemplate()) {
+            // For single unique key, use count as ndv.
+            if (isSingleUniqueKey()) {
+                params.put("ndvFunction", String.valueOf(totalRowCount));
+            } else {
+                params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            }
+            sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
+        } else {
+            params.put("dataSizeFunction", getDataSizeFunction(col, true));
+            params.put("subStringColName", getStringTypeColName(col));
+            sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
+        }
+        LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
+                + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
+                + "is single unique key [{}]",
+                col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
+                limitFlag, tbl.isDistributionColumn(col.getName()),
+                tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
+        runQuery(sql);
     }
 
-    protected ResultRow collectBasicStat(AutoCloseConnectContext context) {
+    protected ResultRow collectBasicStat() {
         // Agg table value columns has no zone map.
         // For these columns, skip collecting min and max value to avoid scan whole table.
         if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
@@ -184,14 +177,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Map<String, String> params = buildSqlParams();
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
-        stmtExecutor = new StmtExecutor(context.connectContext, sql);
-        ResultRow resultRow = stmtExecutor.executeInternalQuery().get(0);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime)
-                    + " Min max SQL: " + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
+        ResultRow resultRow;
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            resultRow = stmtExecutor.executeInternalQuery().get(0);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime) + " Min max SQL: "
+                        + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
+            }
+            // Release the reference to stmtExecutor, reduce memory usage.
+            stmtExecutor = null;
         }
-        // Release the reference to stmtExecutor, reduce memory usage.
-        stmtExecutor = null;
         return resultRow;
     }
 
@@ -325,7 +321,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 int seekTid = (int) ((i + seek) % ids.size());
                 long tabletId = ids.get(seekTid);
                 sampleTabletIds.add(tabletId);
-                actualSampledRowCount += materializedIndex.getTablet(tabletId).getRowCount(true);
+                actualSampledRowCount += materializedIndex.getTablet(tabletId)
+                        .getMinReplicaRowCount(p.getVisibleVersion());
                 if (actualSampledRowCount >= sampleRows && !forPartitionColumn) {
                     enough = true;
                     break;

@@ -21,27 +21,30 @@ suite("view_p0") {
         create view test_view as select 1,to_base64(AES_ENCRYPT('doris','doris')); 
     """
     qt_sql "select * from test_view;"
-    
+
     sql """DROP TABLE IF EXISTS test_view_table"""
-    
+
     sql """ 
         create table test_view_table (id int) distributed by hash(id) properties('replication_num'='1');
     """
-    
+
     sql """insert into test_view_table values(1);"""
-    
+
     sql """DROP VIEW IF EXISTS test_varchar_view"""
-    
+
     sql """ 
         create view test_varchar_view (id) as  SELECT GROUP_CONCAT(cast( id as varchar)) from test_view_table; 
     """
-    
+
     qt_sql "select * from test_varchar_view;"
     qt_sql "select cast( id as varchar(65533)) from test_view_table;"
-    
+
+    qt_information_schema1 "select * from information_schema.views where TABLE_SCHEMA='regression_test_view_p0' and TABLE_NAME='test_varchar_view' order by table_catalog, table_schema, table_name;"
+    qt_information_schema2 "select * from information_schema.views where TABLE_SCHEMA='regression_test_view_p0' and TABLE_NAME='test_view' order by table_catalog, table_schema, table_name;"
+
     // array view
     sql """DROP TABLE IF EXISTS test_array_tbl_1"""
-    
+
     sql """ 
            CREATE TABLE `test_array_tbl_1` (
              `id` int(11) NULL COMMENT "",
@@ -60,7 +63,7 @@ suite("view_p0") {
             "storage_format" = "V2"
             );
     """
-    
+
     sql """DROP TABLE IF EXISTS test_array_tbl_2"""
     sql """ 
            CREATE TABLE `test_array_tbl_2` (
@@ -81,11 +84,11 @@ suite("view_p0") {
             );
     """
     sql """INSERT into test_array_tbl_1 values(1,'2023-08-01',"DORID_FIELD1","DORID_FIELD2",["cat","dog"],["cat","dog"])"""
-    
+
     sql """INSERT into test_array_tbl_2 values(1,'2023-08-01',"DORID_FIELD1","DORID_FIELD2",["cat","dog"],["cat","dog"])"""
-    
+
     sql """DROP VIEW IF EXISTS test_element_at_view"""
-    
+
     sql """ 
         CREATE VIEW test_element_at_view AS
         SELECT id, dm, pn, field3, ms, ek[sm] AS ek
@@ -135,10 +138,19 @@ suite("view_p0") {
 
     sql """CREATE VIEW IF NOT EXISTS `test_view_abc`(`a`) AS WITH T1 AS (SELECT 1 AS 'a'), T2 AS (SELECT 2 AS 'a') SELECT T1.a FROM T1 UNION ALL SELECT T2.a FROM T2;"""
 
-    sql "drop view if exists test_view_abc;" 
+    sql "drop view if exists test_view_abc;"
+
+    sql "drop view if exists test_view_aes;"
+    sql """CREATE VIEW IF NOT EXISTS `test_view_aes`
+           AS
+           SELECT aes_decrypt(from_base64("EXp7k7M9Zv1mIwPpno28Hg=="), '17IMZrGdwWf2Piy8', 'II2HLtihr5TQpQgR', 'AES_128_CBC');
+    """
+    qt_select_aes "SELECT * FROM test_view_aes;"
+    qt_show_aes "SHOW CREATE VIEW test_view_aes;"
+    sql "drop view if exists test_view_aes;"
 
     sql """DROP TABLE IF EXISTS test_view_table2"""
-    
+
     sql """ 
         CREATE TABLE test_view_table2 (
             c_date varchar(50)
@@ -163,3 +175,4 @@ suite("view_p0") {
     sql """ drop view if exists test_view_table2_view;"""
     sql """DROP TABLE IF EXISTS test_view_table2"""
 }
+

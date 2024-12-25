@@ -45,6 +45,10 @@ ExecEnv::~ExecEnv() {
 }
 
 #ifdef BE_TEST
+void ExecEnv::set_inverted_index_searcher_cache(
+        segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache) {
+    _inverted_index_searcher_cache = inverted_index_searcher_cache;
+}
 void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
     _storage_engine = std::move(engine);
 }
@@ -54,16 +58,23 @@ void ExecEnv::set_write_cooldown_meta_executors() {
 #endif // BE_TEST
 
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
-    return GetInstance()->storage_engine().get_tablet(tablet_id);
+    auto storage_engine = GetInstance()->_storage_engine.get();
+    return storage_engine != nullptr
+                   ? storage_engine->get_tablet(tablet_id)
+                   : ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
 }
 
 const std::string& ExecEnv::token() const {
-    return _master_info->token;
+    return _cluster_info->token;
 }
 
-std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_frontends() {
+std::vector<TFrontendInfo> ExecEnv::get_frontends() {
     std::lock_guard<std::mutex> lg(_frontends_lock);
-    return _frontends;
+    std::vector<TFrontendInfo> infos;
+    for (const auto& cur_fe : _frontends) {
+        infos.push_back(cur_fe.second.info);
+    }
+    return infos;
 }
 
 void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
@@ -164,6 +175,11 @@ void ExecEnv::wait_for_all_tasks_done() {
         sleep(1);
         ++wait_seconds_passed;
     }
+}
+
+bool ExecEnv::check_auth_token(const std::string& auth_token) {
+    return _cluster_info->curr_auth_token == auth_token ||
+           _cluster_info->last_auth_token == auth_token;
 }
 
 } // namespace doris

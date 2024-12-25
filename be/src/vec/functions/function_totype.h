@@ -29,7 +29,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/functions/cast_type_to_either.h"
 #include "vec/functions/function.h"
 #include "vec/utils/util.hpp"
 
@@ -53,7 +52,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return execute_impl<typename Impl::ReturnType>(block, arguments, result, input_rows_count);
     }
 
@@ -68,7 +67,7 @@ private:
     // handle result == DataTypeString
     template <typename T>
         requires std::is_same_v<T, DataTypeString>
-    Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
+    Status execute_impl(Block& block, const ColumnNumbers& arguments, uint32_t result,
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
         if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
@@ -96,7 +95,7 @@ private:
     }
     template <typename T>
         requires(!std::is_same_v<T, DataTypeString>)
-    Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
+    Status execute_impl(Block& block, const ColumnNumbers& arguments, uint32_t result,
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
         if constexpr (Impl::TYPE_INDEX == TypeIndex::String) {
@@ -144,7 +143,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override {
+                        uint32_t result, size_t /*input_rows_count*/) const override {
         DCHECK_EQ(arguments.size(), 2);
         const auto& [lcol, left_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -219,7 +218,7 @@ public:
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override {
+                        uint32_t result, size_t /*input_rows_count*/) const override {
         const auto& left = block.get_by_position(arguments[0]);
         const auto& right = block.get_by_position(arguments[1]);
         return execute_inner_impl<ResultDataType>(left, right, block, arguments, result);
@@ -314,7 +313,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_EQ(arguments.size(), 2);
 
@@ -323,7 +322,6 @@ public:
         for (int i = 0; i < 2; ++i) {
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
-            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
@@ -395,14 +393,13 @@ public:
         }
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         ColumnPtr argument_columns[2];
         bool col_const[2];
         for (int i = 0; i < 2; ++i) {
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
-            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         auto res = Impl::ColumnType::create();
@@ -468,7 +465,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         auto& col_ptr = block.get_by_position(arguments[0]).column;
@@ -506,7 +503,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
         auto res = Impl::ColumnType::create();

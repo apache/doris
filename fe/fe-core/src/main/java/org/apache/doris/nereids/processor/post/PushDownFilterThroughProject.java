@@ -32,7 +32,8 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter = (PhysicalFilter<? extends Plan>) super.visit(filter, context);
         Plan child = filter.child();
-        if (!(child instanceof PhysicalProject)) {
+        // don't push down filter if child project contains NoneMovableFunction
+        if (!(child instanceof PhysicalProject) || ((PhysicalProject) child).containsNoneMovableFunction()) {
             return filter;
         }
 

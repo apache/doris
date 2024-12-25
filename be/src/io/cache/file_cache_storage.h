@@ -24,6 +24,22 @@ namespace doris::io {
 
 class BlockFileCache;
 
+using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
+
+enum FileCacheStorageType { DISK = 0, MEMORY = 1 };
+
+struct FileWriterMapKeyHash {
+    std::size_t operator()(const FileWriterMapKey& w) const {
+        char* v1 = (char*)&w.first.value_;
+        char* v2 = (char*)&w.second;
+        char buf[24];
+        memcpy(buf, v1, 16);
+        memcpy(buf + 16, v2, 8);
+        std::string_view str(buf, 24);
+        return std::hash<std::string_view> {}(str);
+    }
+};
+
 // The interface is for organizing datas in disk
 class FileCacheStorage {
 public:
@@ -40,10 +56,17 @@ public:
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
     // change the block meta
-    virtual Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) = 0;
+    virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) = 0;
+    virtual Status change_key_meta_expiration(const FileCacheKey& key,
+                                              const uint64_t expiration) = 0;
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
+    // force clear all current data in the cache
+    virtual Status clear(std::string& msg) = 0;
+    virtual FileCacheStorageType get_type() = 0;
+    // get local cached file
+    virtual std::string get_local_file(const FileCacheKey& key) = 0;
 };
 
 } // namespace doris::io

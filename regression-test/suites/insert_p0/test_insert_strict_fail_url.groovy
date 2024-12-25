@@ -69,11 +69,18 @@ suite("test_insert_strict_fail_url") {
         INSERT INTO ${srcName} SELECT * FROM ${srcName};
     """
 
+    // The error message may vary due to variations in fuzzy execution instance number or batch size.
+    // like this:
+    // Insert has filtered data in strict mode. url: http://172.16.0.10:8041/api/_load_error_log?
+    // file=__shard_303/error_log_insert_stmt_a1ccfb9c67ba40f5-900d0db1d06a19dd_a1ccfb9c67ba40f5_900d0db1d06a19dd
+    // or like this:
+    // [DATA_QUALITY_ERROR]Encountered unqualified data, stop processing. url: http://172.16.0.10:8041/api/_load_error_log?
+    // file=__shard_303/error_log_insert_stmt_a1ccfb9c67ba40f5-900d0db1d06a19dd_a1ccfb9c67ba40f5_900d0db1d06a19dd
     expectExceptionLike({
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "Insert has filtered data in strict mode. url: ")
+    }, "error_log")
 
     sql """
         INSERT INTO ${srcName} SELECT * FROM ${srcName};
@@ -83,5 +90,5 @@ suite("test_insert_strict_fail_url") {
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing. url: ")
+    }, "error_log") 
 }

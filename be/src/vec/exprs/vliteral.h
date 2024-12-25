@@ -52,6 +52,7 @@ public:
     std::string value() const;
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
+    const DataTypePtr& get_data_type() const { return _data_type; }
 
     bool is_literal() const override { return true; }
 

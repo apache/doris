@@ -159,6 +159,9 @@ public class FloatLiteral extends NumericLiteralExpr {
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
+            if (Double.isInfinite(getValue())) {
+                return Double.toString(getValue());
+            }
             return BigDecimal.valueOf(getValue()).toPlainString();
         }
     }

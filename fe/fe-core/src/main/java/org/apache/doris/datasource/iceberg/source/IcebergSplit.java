@@ -37,6 +37,8 @@ public class IcebergSplit extends FileSplit {
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;
     private Map<String, String> config;
+    // tableLevelRowCount will be set only table-level count push down opt is available.
+    private long tableLevelRowCount = -1;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -46,5 +48,11 @@ public class IcebergSplit extends FileSplit {
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;
+        this.selfSplitWeight = length;
+    }
+
+    public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
+        this.deleteFileFilters = deleteFileFilters;
+        this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
     }
 }

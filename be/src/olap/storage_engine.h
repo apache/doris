@@ -69,9 +69,10 @@ class Thread;
 class ThreadPool;
 class TxnManager;
 class ReportWorker;
-class CreateTabletIdxCache;
+class CreateTabletRRIdxCache;
 struct DirInfo;
 class SnapshotManager;
+class WorkloadGroup;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -105,7 +106,7 @@ public:
     virtual bool stopped() = 0;
 
     // start all background threads. This should be call after env is ready.
-    virtual Status start_bg_threads() = 0;
+    virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) = 0;
 
@@ -278,7 +279,7 @@ public:
         return _default_rowset_type;
     }
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
@@ -532,7 +533,7 @@ private:
     // next index for create tablet
     std::map<TStorageMedium::type, int> _last_use_index;
 
-    std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
+    std::unique_ptr<CreateTabletRRIdxCache> _create_tablet_idx_lru_cache;
 
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
 };
@@ -540,7 +541,7 @@ private:
 // lru cache for create tabelt round robin in disks
 // key: partitionId_medium
 // value: index
-class CreateTabletIdxCache : public LRUCachePolicyTrackingManual {
+class CreateTabletRRIdxCache : public LRUCachePolicy {
 public:
     // get key, delimiter with DELIMITER '-'
     static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
@@ -557,10 +558,10 @@ public:
         int idx = 0;
     };
 
-    CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE,
-                                           capacity, LRUCacheType::NUMBER,
-                                           /*stale_sweep_time_s*/ 30 * 60) {}
+    CreateTabletRRIdxCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             /*stale_sweep_time_s*/ 30 * 60, 1) {}
 };
 
 struct DirInfo {

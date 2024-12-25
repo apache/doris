@@ -20,7 +20,6 @@ package org.apache.doris.plsql.executor;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.plsql.exception.QueryException;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -47,7 +46,7 @@ public class PlsqlQueryExecutor implements QueryExecutor {
             autoCloseCtx.call();
             context.setRunProcedure(true);
             ConnectProcessor processor = new MysqlConnectProcessor(context);
-            processor.executeQuery(MysqlCommand.COM_QUERY, sql);
+            processor.executeQuery(sql);
             StmtExecutor executor = context.getExecutor();
             if (executor.getParsedStmt().getResultExprs() != null) {
                 return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(),

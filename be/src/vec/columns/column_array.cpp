@@ -25,6 +25,7 @@
 #include <cstring>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -78,16 +79,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
-bool ColumnArray::could_shrinked_column() {
-    return data->could_shrinked_column();
-}
-
-MutableColumnPtr ColumnArray::get_shrinked_column() {
-    if (could_shrinked_column()) {
-        return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
-    } else {
-        return ColumnArray::create(data->assume_mutable(), offsets->assume_mutable());
-    }
+void ColumnArray::shrink_padding_chars() {
+    data->shrink_padding_chars();
 }
 
 std::string ColumnArray::get_name() const {
@@ -130,7 +123,7 @@ Field ColumnArray::operator[](size_t n) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -147,7 +140,7 @@ void ColumnArray::get(size_t n, Field& res) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -158,58 +151,18 @@ void ColumnArray::get(size_t n, Field& res) const {
 }
 
 StringRef ColumnArray::get_data_at(size_t n) const {
-    /** Returns the range of memory that covers all elements of the array.
-      * Works for arrays of fixed length values.
-      * For arrays of strings and arrays of arrays, the resulting chunk of memory may not be one-to-one correspondence with the elements,
-      *  since it contains only the data laid in succession, but not the offsets.
-      */
-    size_t offset_of_first_elem = offset_at(n);
-    StringRef first;
-    if (offset_of_first_elem < get_data().size()) {
-        first = get_data().get_data_at(offset_of_first_elem);
-    }
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Method get_data_at is not supported for " + get_name());
+}
 
-    size_t array_size = size_at(n);
-    if (array_size == 0) {
-        return StringRef(first.data, 0);
-    }
-
-    size_t offset_of_last_elem = offset_at(n + 1) - 1;
-    StringRef last = get_data().get_data_at(offset_of_last_elem);
-
-    return StringRef(first.data, last.data + last.size - first.data);
+void ColumnArray::insert_data(const char* pos, size_t length) {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Method insert_data is not supported for " + get_name());
 }
 
 bool ColumnArray::is_default_at(size_t n) const {
     const auto& offsets_data = get_offsets();
     return offsets_data[n] == offsets_data[static_cast<ssize_t>(n) - 1];
-}
-
-void ColumnArray::insert_data(const char* pos, size_t length) {
-    /** Similarly - only for arrays of fixed length values.
-      */
-    if (!data->is_fixed_and_contiguous()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data should have_fixed_size, {} is not suitable",
-                               get_name());
-    }
-
-    size_t field_size = data->size_of_value_if_fixed();
-
-    size_t elems = 0;
-
-    if (length) {
-        const char* end = pos + length;
-        for (; pos + field_size <= end; pos += field_size, ++elems)
-            data->insert_data(pos, field_size);
-
-        if (pos != end)
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Incorrect length argument for method ColumnArray::insert_data");
-        __builtin_unreachable();
-    }
-
-    get_offsets().push_back(get_offsets().back() + elems);
 }
 
 StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
@@ -388,7 +341,8 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
 
     if (!get_data().is_nullable() && src.get_data().is_nullable()) {
         // Note: we can't process the case of 'Array(Nullable(nest))'
-        DCHECK(false);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "insert '{}' into '{}'", src.get_name(),
+                        get_name());
     } else if (get_data().is_nullable() && !src.get_data().is_nullable()) {
         // Note: here we should process the case of 'Array(NotNullable(nest))'
         reinterpret_cast<ColumnNullable*>(&get_data())
@@ -424,6 +378,8 @@ void ColumnArray::reserve(size_t n) {
 void ColumnArray::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_data().resize(get_offsets().back());
 }
 
 size_t ColumnArray::byte_size() const {
@@ -600,17 +556,19 @@ ColumnPtr ColumnArray::filter_string(const Filter& filt, ssize_t result_size_hin
     size_t col_size = get_offsets().size();
     column_match_filter_size(col_size, filt.size());
 
-    if (0 == col_size) return ColumnArray::create(data);
+    if (!col_size) {
+        return ColumnArray::create(data);
+    }
 
     auto res = ColumnArray::create(data->clone_empty());
 
-    const ColumnString& src_string = typeid_cast<const ColumnString&>(*data);
+    const auto& src_string = assert_cast<const ColumnString&>(*data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
     const auto& src_string_offsets = src_string.get_offsets();
     const auto& src_offsets = get_offsets();
 
-    ColumnString::Chars& res_chars = typeid_cast<ColumnString&>(res->get_data()).get_chars();
-    auto& res_string_offsets = typeid_cast<ColumnString&>(res->get_data()).get_offsets();
+    ColumnString::Chars& res_chars = assert_cast<ColumnString&>(res->get_data()).get_chars();
+    auto& res_string_offsets = assert_cast<ColumnString&>(res->get_data()).get_offsets();
     auto& res_offsets = res->get_offsets();
 
     if (result_size_hint < 0) {
@@ -667,7 +625,7 @@ size_t ColumnArray::filter_string(const Filter& filter) {
         return ColumnArray::create(data);
     }
 
-    ColumnString& src_string = typeid_cast<ColumnString&>(*data);
+    auto& src_string = assert_cast<ColumnString&>(*data);
     auto* src_chars = src_string.get_chars().data();
     auto* src_string_offsets = src_string.get_offsets().data();
     auto* src_offsets = get_offsets().data();
@@ -728,22 +686,17 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
     if (size == 0) return ColumnArray::create(data);
 
     Filter nested_filt(get_offsets().back());
+    ssize_t nested_result_size_hint = 0;
     for (size_t i = 0; i < size; ++i) {
-        if (filt[i])
+        if (filt[i]) {
             memset(&nested_filt[offset_at(i)], 1, size_at(i));
-        else
+            nested_result_size_hint += size_at(i);
+        } else {
             memset(&nested_filt[offset_at(i)], 0, size_at(i));
+        }
     }
 
     auto res = ColumnArray::create(data->clone_empty());
-
-    ssize_t nested_result_size_hint = 0;
-    if (result_size_hint < 0)
-        nested_result_size_hint = result_size_hint;
-    else if (result_size_hint && result_size_hint < 1000000000 &&
-             data->size() < 1000000000) /// Avoid overflow.
-        nested_result_size_hint = result_size_hint * data->size() / size;
-
     res->data = data->filter(nested_filt, nested_result_size_hint);
 
     auto& res_offsets = res->get_offsets();
@@ -839,6 +792,12 @@ void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indice
     }
 }
 
+void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnArray::insert_from(src, position);
+    }
+}
+
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
     if (replicate_offsets.empty()) return clone_empty();
 
@@ -871,16 +830,18 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
     MutableColumnPtr res = clone_empty();
 
-    if (0 == col_size) return res;
+    if (!col_size) {
+        return res;
+    }
 
-    ColumnArray& res_arr = typeid_cast<ColumnArray&>(*res);
+    auto& res_arr = assert_cast<ColumnArray&>(*res);
 
     const typename ColumnVector<T>::Container& src_data =
-            typeid_cast<const ColumnVector<T>&>(*data).get_data();
+            assert_cast<const ColumnVector<T>&>(*data).get_data();
     const auto& src_offsets = get_offsets();
 
     typename ColumnVector<T>::Container& res_data =
-            typeid_cast<ColumnVector<T>&>(res_arr.get_data()).get_data();
+            assert_cast<ColumnVector<T>&>(res_arr.get_data()).get_data();
     auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
@@ -918,17 +879,19 @@ ColumnPtr ColumnArray::replicate_string(const IColumn::Offsets& replicate_offset
 
     MutableColumnPtr res = clone_empty();
 
-    if (0 == col_size) return res;
+    if (!col_size) {
+        return res;
+    }
 
-    ColumnArray& res_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(*res);
+    auto& res_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(*res);
 
-    const ColumnString& src_string = typeid_cast<const ColumnString&>(*data);
+    const auto& src_string = assert_cast<const ColumnString&>(*data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
     const auto& src_string_offsets = src_string.get_offsets();
     const auto& src_offsets = get_offsets();
 
-    ColumnString::Chars& res_chars = typeid_cast<ColumnString&>(res_arr.get_data()).get_chars();
-    auto& res_string_offsets = typeid_cast<ColumnString&>(res_arr.get_data()).get_offsets();
+    ColumnString::Chars& res_chars = assert_cast<ColumnString&>(res_arr.get_data()).get_chars();
+    auto& res_string_offsets = assert_cast<ColumnString&>(res_arr.get_data()).get_offsets();
     auto& res_offsets = res_arr.get_offsets();
 
     res_chars.reserve(src_chars.size() / col_size * replicate_offsets.back());

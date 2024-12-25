@@ -263,3 +263,91 @@ CREATE TABLE catalog_pg_test.num_zero (
     id varchar(20) NULL,
     num numeric NULL
 );
+
+CREATE TABLE catalog_pg_test.test_all_types_array (
+	id int4 NOT NULL,
+	char_value _bpchar NULL,
+	varchar_value _varchar NULL,
+	date_value _date NULL,
+	smallint_value _int2 NULL,
+	int_value _int4 NULL,
+	bigint_value _int8 NULL,
+	timestamp_value _timestamp NULL,
+	decimal_value _numeric NULL,
+	bit_value _bit NULL,
+	real_value _float4 NULL,
+	cidr_value _cidr NULL,
+	inet_value _inet NULL,
+	macaddr_value _macaddr NULL,
+	bitn_value _bit NULL,
+	bitnv_value _varbit NULL,
+	jsonb_value _jsonb NULL,
+	point_value _point NULL,
+	line_value _line NULL,
+	lseg_value _lseg NULL,
+	box_value _box NULL,
+	path_value _path NULL,
+	polygon_value _polygon NULL,
+	circle_value _circle NULL
+);
+
+
+CREATE TABLE catalog_pg_test.test_all_types_2d_array (
+	id int4 NOT NULL,
+	char_value _bpchar NULL,
+	varchar_value _varchar NULL,
+	date_value _date NULL,
+	smallint_value _int2 NULL,
+	int_value _int4 NULL,
+	bigint_value _int8 NULL,
+	timestamp_value _timestamp NULL,
+	decimal_value _numeric NULL,
+	bit_value _bit NULL,
+	real_value _float4 NULL,
+	cidr_value _cidr NULL,
+	inet_value _inet NULL,
+	macaddr_value _macaddr NULL,
+	bitn_value _bit NULL,
+	bitnv_value _varbit NULL,
+	jsonb_value _jsonb NULL,
+	point_value _point NULL,
+	line_value _line NULL,
+	lseg_value _lseg NULL,
+	box_value _box NULL,
+	path_value _path NULL,
+	polygon_value _polygon NULL,
+	circle_value _circle NULL
+);
+
+CREATE TABLE catalog_pg_test.test_all_support_types_array (
+        id int4 NOT NULL,
+        char_value bpchar[] NULL,
+        varchar_value varchar[] NULL,
+        text_value text[] null,
+        date_value date[] NULL,
+        smallint_value int2[] NULL,
+        int_value int4[] NULL,
+        bigint_value int8[] NULL,
+        timestamp_value timestamp[] NULL,
+        timestamptz_value timestamptz[] null,
+        bool_value bool[] NULL,
+        float4_value float4[] null,
+        float8_value float8[] null
+);
+
+CREATE TABLE catalog_pg_test.test_all_support_types_array_2d (
+    id int4 NOT NULL,
+    char_value bpchar[][] NULL,
+    varchar_value varchar[][] NULL,
+    text_value text[][] NULL,
+    date_value date[][] NULL,
+    smallint_value int2[][] NULL,
+    int_value int4[][] NULL,
+    bigint_value int8[][] NULL,
+    timestamp_value timestamp[][] NULL,
+    timestamptz_value timestamptz[][] NULL,
+    bool_value bool[][] NULL,
+    float4_value float4[][] NULL,
+    float8_value float8[][] NULL
+);
+

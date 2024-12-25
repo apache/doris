@@ -221,6 +221,35 @@
 19	Supplier#000000019	edZT3es,nBFD8lBXTGeTl	24	34-278-310-2731	6150.38	refully final foxes across the dogged theodolites sleep slyly abou
 20	Supplier#000000020	iybAE,RmTymrZVYaFZva2SH,j	3	13-715-945-6730	530.82	n, ironic ideas would nag blithely about the slyly regular accounts. silent, expr
 
+-- !parquet_brotli --
+1	Supplier#000000001	 N kD4on9OM Ipw3,gf0JBoQDd7tgrzrddZ	17	27-918-335-1736	5755.94	each slyly above the careful
+2	Supplier#000000002	89eJ5ksX3ImxJQBvxObC,	5	15-679-861-2259	4032.68	 slyly bold instructions. idle dependen
+3	Supplier#000000003	q1,G3Pj6OjIuUYfUoH18BFTKP5aU9bEV3	1	11-383-516-1199	4192.40	blithely silent requests after the express dependencies are sl
+4	Supplier#000000004	Bk7ah4CK8SYQTepEmvMkkgMwg	15	25-843-787-7479	4641.08	riously even requests above the exp
+5	Supplier#000000005	Gcdm2rJRzl5qlTVzc	11	21-151-690-3663	-283.84	. slyly regular pinto bea
+6	Supplier#000000006	tQxuVm7s7CnK	14	24-696-997-4969	1365.79	final accounts. regular dolphins use against the furiously ironic decoys. 
+7	Supplier#000000007	s,4TicNGB4uO6PaSqNBUq	23	33-990-965-2201	6820.35	s unwind silently furiously regular courts. final requests are deposits. requests wake quietly blit
+8	Supplier#000000008	9Sq4bBH2FQEmaFOocY45sRTxo6yuoG	17	27-498-742-3860	7627.85	al pinto beans. asymptotes haggl
+9	Supplier#000000009	1KhUgZegwM3ua7dsYmekYBsK	10	20-403-398-8662	5302.37	s. unusual, even requests along the furiously regular pac
+10	Supplier#000000010	Saygah3gYWMp72i PY	24	34-852-489-8585	3891.91	ing waters. regular requests ar
+11	Supplier#000000011	JfwTs,LZrV, M,9C	18	28-613-996-1505	3393.08	y ironic packages. slyly ironic accounts affix furiously; ironically unusual excuses across the flu
+12	Supplier#000000012	aLIW  q0HYd	8	18-179-925-7181	1432.69	al packages nag alongside of the bold instructions. express, daring accounts
+13	Supplier#000000013	HK71HQyWoqRWOX8GI FpgAifW,2PoH	3	13-727-620-7813	9107.22	requests engage regularly instructions. furiously special requests ar
+14	Supplier#000000014	EXsnO5pTNj4iZRm	15	25-656-247-5058	9189.82	l accounts boost. fluffily bold warhorses wake
+15	Supplier#000000015	olXVbNBfVzRqgokr1T,Ie	8	18-453-357-6394	308.56	 across the furiously regular platelets wake even deposits. quickly express she
+16	Supplier#000000016	YjP5C55zHDXL7LalK27zfQnwejdpin4AMpvh	22	32-822-502-4215	2972.26	ously express ideas haggle quickly dugouts? fu
+17	Supplier#000000017	c2d,ESHRSkK3WYnxpgw6aOqN0q	19	29-601-884-9219	1687.81	eep against the furiously bold ideas. fluffily bold packa
+18	Supplier#000000018	PGGVE5PWAMwKDZw 	16	26-729-551-1115	7040.82	accounts snooze slyly furiously bold 
+19	Supplier#000000019	edZT3es,nBFD8lBXTGeTl	24	34-278-310-2731	6150.38	refully final foxes across the dogged theodolites sleep slyly abou
+20	Supplier#000000020	iybAE,RmTymrZVYaFZva2SH,j	3	13-715-945-6730	530.82	n, ironic ideas would nag blithely about the slyly regular accounts. silent, expr
+
+-- !parquet_decimal256 --
+1	99999999999999999999999999999999999999.99999999999999999999999999999999999999
+2	-99999999999999999999999999999999999999.99999999999999999999999999999999999999
+3	1E-38
+4	-1E-38
+5	0E-38
+
 -- !orc --
 1	goldenrod lavender spring chocolate lace	Manufacturer#1	Brand#13	PROMO BURNISHED COPPER	7	JUMBO PKG	901.00	ly. slyly ironi
 2	blush thistle blue yellow saddle	Manufacturer#1	Brand#13	LARGE BRUSHED BRASS	1	LG CASE	902.00	lar accounts amo
@@ -614,4 +643,48 @@ string_col	text	Yes	false	\N	NONE
 string_col	text	Yes	false	\N	NONE
 string_col	text	Yes	false	\N	NONE
 tinyint_col	tinyint	Yes	false	\N	NONE
+
+-- !create_view --
+0	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+1	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+10	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+100	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+101	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+102	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+103	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+104	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+105	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+106	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+107	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+108	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+109	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+11	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+110	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+111	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+112	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+113	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+114	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+115	2	3	4	5	6.6	7.7	8.8	abc	def	ghiaaaaaa	2020-10-10	2020-10-10 11:12:59
+
+-- !alter_view --
+0
+1
+10
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+11
+110
+111
+112
+113
+114
+115
 

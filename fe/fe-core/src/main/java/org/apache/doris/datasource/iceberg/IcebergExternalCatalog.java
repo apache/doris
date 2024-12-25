@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -39,6 +40,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_HADOOP = "hadoop";
     public static final String ICEBERG_GLUE = "glue";
     public static final String ICEBERG_DLF = "dlf";
+    public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -51,6 +53,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        preExecutionAuthenticator = new PreExecutionAuthenticator();
         initCatalog();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);

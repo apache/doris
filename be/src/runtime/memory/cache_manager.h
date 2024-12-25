@@ -40,7 +40,8 @@ public:
 #ifdef BE_TEST
             _caches.erase(it);
 #else
-            LOG(FATAL) << "Repeat register cache " << CachePolicy::type_string(cache->type());
+            throw Exception(Status::FatalError("Repeat register cache {}",
+                                               CachePolicy::type_string(cache->type())));
 #endif // BE_TEST
         }
         _caches.insert({cache->type(), cache});
@@ -80,6 +81,9 @@ public:
                 type, config::cache_prune_interval_sec, now, *last_timestamp);
         return false;
     }
+
+    int64_t for_each_cache_refresh_capacity(double adjust_weighted,
+                                            RuntimeProfile* profile = nullptr);
 
 private:
     std::mutex _caches_lock;

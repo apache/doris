@@ -23,6 +23,7 @@
 
 #include <sstream>
 
+#include "common/exception.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
 #include "jsonb_writer.h"
@@ -42,7 +43,8 @@ public:
     const std::string to_json_string(const char* data, size_t size) {
         JsonbDocument* pdoc = doris::JsonbDocument::createDocument(data, size);
         if (!pdoc) {
-            LOG(FATAL) << "invalid json binary value: " << std::string_view(data, size);
+            throw Exception(Status::FatalError("invalid json binary value: {}",
+                                               std::string_view(data, size)));
         }
         return to_json_string(pdoc->getValue());
     }

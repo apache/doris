@@ -26,6 +26,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
+import org.apache.doris.fs.remote.RemoteFSPhantomManager;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
@@ -75,8 +76,14 @@ public class DFSFileSystem extends RemoteFileSystem {
     @VisibleForTesting
     @Override
     public FileSystem nativeFileSystem(String remotePath) throws UserException {
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
             synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
                 if (dfsFileSystem == null) {
                     Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
@@ -92,10 +99,11 @@ public class DFSFileSystem extends RemoteFileSystem {
                                 throw new RuntimeException(e);
                             }
                         });
+                        operations = new HDFSFileOperations(dfsFileSystem);
+                        RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
-                        throw new UserException(e);
+                        throw new UserException("Failed to get dfs FileSystem for " + e.getMessage(), e);
                     }
-                    operations = new HDFSFileOperations(dfsFileSystem);
                 }
             }
         }
@@ -480,5 +488,10 @@ public class DFSFileSystem extends RemoteFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;
+    }
+
+    @VisibleForTesting
+    public HadoopAuthenticator getAuthenticator() {
+        return authenticator;
     }
 }

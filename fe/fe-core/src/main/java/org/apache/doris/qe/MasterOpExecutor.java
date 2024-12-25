@@ -22,6 +22,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
@@ -86,7 +87,7 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
-        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+        if (ctx.isTxnModel()) {
             if (result.isSetTxnLoadInfo()) {
                 ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
             } else {
@@ -102,8 +103,8 @@ public class MasterOpExecutor {
         waitOnReplaying();
     }
 
-    public long getGroupCommitLoadBeId(long tableId, String cluster, boolean isCloud) throws Exception {
-        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster, isCloud));
+    public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
         waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
@@ -211,9 +212,16 @@ public class MasterOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
 
-        String cluster = ctx.getCloudCluster(false);
-        if (!Strings.isNullOrEmpty(cluster)) {
-            params.setCloudCluster(cluster);
+        if (Config.isCloudMode()) {
+            String cluster = "";
+            try {
+                cluster = ctx.getCloudCluster(false);
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud compute group", e);
+            }
+            if (!Strings.isNullOrEmpty(cluster)) {
+                params.setCloudCluster(cluster);
+            }
         }
 
         // query options
@@ -244,12 +252,11 @@ public class MasterOpExecutor {
         return params;
     }
 
-    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster, boolean isCloud) {
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster) {
         final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
-        groupCommitParams.setIsCloud(isCloud);
 
         final TMasterOpRequest params = new TMasterOpRequest();
         // node ident
@@ -350,7 +357,9 @@ public class MasterOpExecutor {
                         .put(TTransportException.UNKNOWN, "Unknown exception")
                         .put(TTransportException.NOT_OPEN, "Connection is not open")
                         .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
-                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.TIMED_OUT,
+                                "Connection timeout, please check network state or enlarge session variable:"
+                                        + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
                         .build();

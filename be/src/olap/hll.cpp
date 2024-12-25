@@ -367,43 +367,4 @@ int64_t HyperLogLog::estimate_cardinality() const {
     return (int64_t)(estimate + 0.5);
 }
 
-void HllSetResolver::parse() {
-    // skip LengthValueType
-    char* pdata = _buf_ref;
-    _set_type = (HllDataType)pdata[0];
-    char* sparse_data = nullptr;
-    switch (_set_type) {
-    case HLL_DATA_EXPLICIT:
-        // first byte : type
-        // second～five byte : hash values's number
-        // five byte later : hash value
-        _explicit_num = (ExplicitLengthValueType)(pdata[sizeof(SetTypeValueType)]);
-        _explicit_value =
-                (uint64_t*)(pdata + sizeof(SetTypeValueType) + sizeof(ExplicitLengthValueType));
-        break;
-    case HLL_DATA_SPARSE:
-        // first byte : type
-        // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
-        // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
-        _sparse_count = (SparseLengthValueType*)(pdata + sizeof(SetTypeValueType));
-        sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-        for (int i = 0; i < *_sparse_count; i++) {
-            auto* index = (SparseIndexType*)sparse_data;
-            sparse_data += sizeof(SparseIndexType);
-            auto* value = (SparseValueType*)sparse_data;
-            _sparse_map[*index] = *value;
-            sparse_data += sizeof(SetTypeValueType);
-        }
-        break;
-    case HLL_DATA_FULL:
-        // first byte : type
-        // second byte later : hll register value
-        _full_value_position = pdata + sizeof(SetTypeValueType);
-        break;
-    default:
-        // HLL_DATA_EMPTY
-        break;
-    }
-}
-
 } // namespace doris

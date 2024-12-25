@@ -183,4 +183,9 @@ public class FunctionName {
     public int hashCode() {
         return 31 * Objects.hashCode(db) + Objects.hashCode(fn);
     }
+
+    @Override
+    public FunctionName clone() {
+        return new FunctionName(db, fn);
+    }
 }

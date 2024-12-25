@@ -143,6 +143,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalTopN[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "stats", statistics,
                 "limit", limit,
                 "offset", offset,
                 "orderKeys", orderKeys,

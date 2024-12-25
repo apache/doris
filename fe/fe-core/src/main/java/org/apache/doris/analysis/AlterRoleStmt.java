@@ -26,7 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class AlterRoleStmt extends DdlStmt {
+public class AlterRoleStmt extends DdlStmt implements NotFallbackInParser {
 
     private String role;
 

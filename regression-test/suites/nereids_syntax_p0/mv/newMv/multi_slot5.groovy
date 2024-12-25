@@ -50,10 +50,7 @@ suite ("multi_slot5") {
 
     order_qt_select_star "select * from multi_slot5 order by k1,k4;"
 
-    explain {
-        sql("select k1,k2+k3 from multi_slot5 order by k1;")
-        contains "(k123p)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from multi_slot5 order by k1;", "k123p")
     order_qt_select_mv "select k1,k2+k3 from multi_slot5 order by k1;"
 
     order_qt_select_mv "select lhs.k1,rhs.k2 from multi_slot5 as lhs right join multi_slot5 as rhs on lhs.k1=rhs.k1 order by lhs.k1;"
@@ -61,8 +58,6 @@ suite ("multi_slot5") {
     order_qt_select_mv "select k1,version() from multi_slot5 order by k1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k2+k3 from multi_slot5 order by k1;")
-        contains "(k123p)"
-    }
+    sql """alter table multi_slot5 modify column k1 set stats ('row_count'='5');"""
+    mv_rewrite_success("select k1,k2+k3 from multi_slot5 order by k1;", "k123p")
 }

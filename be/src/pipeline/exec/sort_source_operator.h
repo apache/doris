@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -48,7 +49,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     bool is_source() const override { return true; }
@@ -70,4 +70,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

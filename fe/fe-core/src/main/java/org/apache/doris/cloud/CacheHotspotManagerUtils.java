@@ -25,6 +25,7 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -69,9 +70,10 @@ public class CacheHotspotManagerUtils {
                 + "    last_access_time DATETIMEV2)\n"
                 + "    UNIQUE KEY(cluster_id, backend_id, table_id, index_id, partition_id, insert_day)\n"
                 + "    PARTITION BY RANGE (insert_day) ()\n"
-                + "    DISTRIBUTED BY HASH (cluster_id)\n"
+                + "    DISTRIBUTED BY HASH (cluster_id) BUCKETS 1\n"
                 + "    PROPERTIES (\n"
                 + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n"
                 + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
                 + "    \"dynamic_partition.start\" = \"-7\",\n"
                 + "    \"dynamic_partition.end\" = \"3\",\n"
@@ -231,7 +233,6 @@ public class CacheHotspotManagerUtils {
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1);
         // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
-        sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
@@ -255,7 +256,11 @@ public class CacheHotspotManagerUtils {
             this.previousContext = ConnectContext.get();
             this.connectContext = connectContext;
             connectContext.setThreadLocalInfo();
-            connectContext.getCloudCluster();
+            try {
+                connectContext.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+            }
         }
 
         @Override

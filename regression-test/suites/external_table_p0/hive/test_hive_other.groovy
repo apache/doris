@@ -74,7 +74,7 @@ suite("test_hive_other", "p0,external,hive,external_docker,external_docker_hive"
         sql """create user ext_catalog_user identified by '12345'"""
         sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
         sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
-        connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
+        connect('ext_catalog_user', '12345', context.config.jdbcUrl) {
             def database_lists = sql """show databases from ${catalog_name}"""
             boolean ok = false;
             for (int i = 0; i < database_lists.size(); ++i) {

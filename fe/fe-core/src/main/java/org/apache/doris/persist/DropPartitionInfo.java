@@ -60,11 +60,11 @@ public class DropPartitionInfo implements Writable {
         this.recycleTime = recycleTime;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP PARTITION ");
+        sb.append("DROP ");
         if (isTempPartition) {
             sb.append("TEMPORARY ");
         }
-        sb.append("`").append(partitionName).append("`");
+        sb.append("PARTITION `").append(partitionName).append("`");
         if (forceDrop) {
             sb.append(" FORCE");
         }

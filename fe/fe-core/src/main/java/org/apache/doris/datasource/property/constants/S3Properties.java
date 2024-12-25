@@ -32,6 +32,7 @@ import com.amazonaws.auth.InstanceProfileCredentialsProvider;
 import com.amazonaws.auth.SystemPropertiesCredentialsProvider;
 import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
@@ -197,7 +198,8 @@ public class S3Properties extends BaseProperties {
     private static void checkProvider(Map<String, String> properties) throws DdlException {
         if (properties.containsKey(PROVIDER)) {
             properties.put(PROVIDER, properties.get(PROVIDER).toUpperCase());
-            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER)))) {
+            // S3 Provider properties should be case insensitive.
+            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER).toUpperCase()))) {
                 throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP");
             }
         }
@@ -296,10 +298,10 @@ public class S3Properties extends BaseProperties {
         s3Info.setMaxConn(Integer.parseInt(maxConnections == null
                 ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
         String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
-        s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
+        s3Info.setRequestTimeoutMs(Integer.parseInt(requestTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
-        s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
+        s3Info.setConnTimeoutMs(Integer.parseInt(connTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
@@ -330,7 +332,17 @@ public class S3Properties extends BaseProperties {
             builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
         }
         if (properties.containsKey(S3Properties.PROVIDER)) {
-            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER)));
+            // S3 Provider properties should be case insensitive.
+            builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER).toUpperCase()));
+        }
+
+        if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            String value = properties.get(PropertyConverter.USE_PATH_STYLE);
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(value), "use_path_style cannot be empty");
+            Preconditions.checkArgument(value.equalsIgnoreCase("true")
+                    || value.equalsIgnoreCase("false"),
+                    "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
+            builder.setUsePathStyle(value.equalsIgnoreCase("true"));
         }
         return builder;
     }

@@ -234,6 +234,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             // So only base index and indexes that have all the keys could be used.
             List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
                     .filter(index -> table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
+                    .filter(index -> containAllKeyColumns(table, index))
                     .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get(),
                             requiredExpr.get(), predicatesSupplier.get()))
                     .collect(Collectors.toList());

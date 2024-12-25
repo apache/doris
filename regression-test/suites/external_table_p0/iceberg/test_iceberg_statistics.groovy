@@ -22,7 +22,7 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
             String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
             String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String catalog_name = "test_iceberg_rest_catalog"
+            String catalog_name = "test_iceberg_rest_catalog_2"
             String db_name = "format_v2"
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -35,6 +35,9 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
                     "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
                     "s3.region" = "us-east-1"
                 );"""
+
+            def result = sql """show frontends;"""
+            logger.info("Frontends info: " + result)
 
             def table_id_mor = get_table_id(catalog_name, db_name, "sample_mor_parquet")
             def table_id_cow = get_table_id(catalog_name, db_name, "sample_cow_parquet")
@@ -54,4 +57,3 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
         }
     }
 }
-

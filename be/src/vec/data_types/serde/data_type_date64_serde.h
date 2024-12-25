@@ -45,9 +45,9 @@ class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
 public:
     DataTypeDate64SerDe(int nesting_level = 1) : DataTypeNumberSerDe<Int64>(nesting_level) {};
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
@@ -57,36 +57,37 @@ public:
                                                const FormatOptions& options) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
+                               int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const;
 };
 
 class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
 public:
     DataTypeDateTimeSerDe(int nesting_level = 1) : DataTypeDate64SerDe(nesting_level) {};
 
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,

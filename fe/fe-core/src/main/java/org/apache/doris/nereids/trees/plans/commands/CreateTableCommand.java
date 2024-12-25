@@ -54,6 +54,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
@@ -98,7 +99,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         List<String> ctasCols = createTableInfo.getCtasColumns();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         // must disable constant folding by be, because be constant folding may return wrong type
-        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
+        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
         Plan plan = planner.planWithLock(new UnboundResultSink<>(query), PhysicalProperties.ANY, ExplainLevel.NONE);
         if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.

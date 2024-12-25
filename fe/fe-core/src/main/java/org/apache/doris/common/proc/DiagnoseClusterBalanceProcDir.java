@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.LoadStatisticForTag;
@@ -140,10 +139,9 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
                 .collect(Collectors.toList());
         boolean isPartitionBal = Config.tablet_rebalancer_type.equalsIgnoreCase("partition");
         if (isPartitionBal) {
-            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             baseBalance.name = "Partition Balance";
             List<Integer> tabletNums = availableBeIds.stream()
-                    .map(beId -> invertedIndex.getTabletNumByBackendId(beId))
+                    .map(beId -> infoService.getTabletNumByBackendId(beId))
                     .collect(Collectors.toList());
             int minTabletNum = tabletNums.stream().mapToInt(v -> v).min().orElse(0);
             int maxTabletNum = tabletNums.stream().mapToInt(v -> v).max().orElse(0);

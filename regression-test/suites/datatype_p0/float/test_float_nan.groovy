@@ -19,10 +19,16 @@ suite("test_float_nan", "datatype_p0") {
     def tableName = "tbl_test_float_nan"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "CREATE  TABLE if NOT EXISTS ${tableName} (k int, value float) DUPLICATE KEY(k) DISTRIBUTED BY HASH (k) BUCKETS 1 PROPERTIES ('replication_num' = '1');"
-    sql """insert into ${tableName} select 1, sqrt(-1);"""
+    test {
+        sql """insert into ${tableName} select 1, sqrt(-1);"""
+        exception "errCode"
+    }
 
     qt_select "select * from ${tableName} order by 1;"
-    qt_select "select sqrt(-1);"
+    test {
+        sql "select sqrt(-1);"
+        exception "errCode"
+    }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

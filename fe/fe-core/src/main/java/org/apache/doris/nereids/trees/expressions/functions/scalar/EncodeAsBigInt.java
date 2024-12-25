@@ -34,7 +34,7 @@ import java.util.List;
  * ScalarFunction 'EncodeAsBigInt'.
  */
 public class EncodeAsBigInt extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable, EncodeStrToInteger {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)

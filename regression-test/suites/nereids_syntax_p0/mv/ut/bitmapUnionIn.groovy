@@ -30,6 +30,7 @@ suite ("bitmapUnionIn") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",1);"""
     sql """insert into bitmapUnionIn values("2020-01-02",2,"b",2);"""
 
@@ -42,26 +43,18 @@ suite ("bitmapUnionIn") {
     sql "analyze table bitmapUnionIn with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from bitmapUnionIn order by time_col;")
-        contains "(bitmapUnionIn)"
-    }
+    mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
     order_qt_select_star "select * from bitmapUnionIn order by time_col,tag_id;"
 
-    explain {
-        sql("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;")
-        contains "(bitmapUnionIn_mv)"
-    }
+    mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
+            "bitmapUnionIn_mv")
     order_qt_select_mv "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from bitmapUnionIn order by time_col;")
-        contains "(bitmapUnionIn)"
-    }
+    sql """alter table bitmapUnionIn modify column time_col set stats ('row_count'='3');"""
 
-    explain {
-        sql("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;")
-        contains "(bitmapUnionIn_mv)"
-    }
+    mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
+
+    mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
+            "bitmapUnionIn_mv")
 }

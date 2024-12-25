@@ -97,7 +97,8 @@ public:
     static const char* WEBSOCKET_PROTOCOL;
     static const char* WWW_AUTHENTICATE;
 
-    static const std::string JsonType;
+    static const std::string JSON_TYPE;
+    static const std::string AUTH_TOKEN;
 };
 
 } // namespace doris

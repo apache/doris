@@ -17,6 +17,9 @@
 
 suite("alias_conflict") {
 
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     sql """ DROP TABLE IF EXISTS `test_alias_conflict1` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict2` """
     sql """ DROP TABLE IF EXISTS `test_alias_conflict3` """
@@ -163,7 +166,7 @@ suite("alias_conflict") {
        'user'='${context.config.jdbcUser}',
        'password'='${context.config.jdbcPassword}',
        'jdbc_url' = '${context.config.jdbcUrl}',
-       'driver_url' = 'https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.4.0/mysql-connector-j-8.4.0.jar',
+       'driver_url' = "${driver_url}",
        'driver_class' = 'com.mysql.cj.jdbc.Driver'
         );
     """

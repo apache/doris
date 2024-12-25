@@ -117,6 +117,7 @@ suite("test_index_range_between_select", "inverted_index_select"){
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
         }
+        sql """ set enable_common_expr_pushdown = true; """
 
         // case1: test simple between case
         // case1.0: test data index colume select in specific between condition

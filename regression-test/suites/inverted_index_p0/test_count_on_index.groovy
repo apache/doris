@@ -93,7 +93,7 @@ suite("test_count_on_index_httplogs", "p0") {
                             """
         }
     
-    def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
+    def stream_load_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
         
         // load the json data
@@ -137,16 +137,47 @@ suite("test_count_on_index_httplogs", "p0") {
         create_httplogs_dup_table.call(testTable_dup)
         create_httplogs_unique_table.call(testTable_unique)
 
-        load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
-        load_httplogs_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
+        stream_load_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
+        stream_load_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
         sql """set experimental_enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
         sql """analyze table ${testTable_dup} with sync""";
-        // wait BE report every partition's row count
-        sleep(10000)
         // case1: test duplicate table
+        def executeSqlWithRetry = { String sqlQuery, int maxRetries = 3, int waitSeconds = 1 ->
+            def attempt = 0
+            def success = false
+
+            while (attempt < maxRetries && !success) {
+                try {
+                    explain {
+                        // Wait for BE to report every partition's row count
+                        sleep(10000)
+                        sql(sqlQuery)
+                        notContains("cardinality=0")
+                    }
+                    success = true
+                } catch (Exception e) {
+                    attempt++
+                    log.error("Attempt ${attempt} failed: ${e.message}")
+                    if (attempt < maxRetries) {
+                        log.info("Retrying... (${attempt + 1}/${maxRetries}) after ${waitSeconds} second(s).")
+                        sleep(waitSeconds * 1000)
+                    } else {
+                        log.error("All ${maxRetries} attempts failed.")
+                        throw e
+                    }
+                }
+            }
+        }
+        // make sure row count stats is not 0 for duplicate table
+        executeSqlWithRetry("SELECT COUNT() FROM ${testTable_dup}")
+        // make sure row count stats is not 0 for unique table
+        sql """analyze table ${testTable_unique} with sync""";
+        executeSqlWithRetry("SELECT COUNT() FROM ${testTable_unique}")
+
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"
@@ -277,6 +308,103 @@ suite("test_count_on_index_httplogs", "p0") {
         // case4: test compound query when inverted_index_query disable
         qt_sql "SELECT  COUNT() from ${testTable_dup} where request = 'images'  or (size = 0 and status > 400)"
         qt_sql "SELECT /*+SET_VAR(enable_inverted_index_query=false) */ COUNT() from ${testTable_dup} where request = 'images'  or (size = 0 and status > 400)"
+
+        // case5: test complex count to testify bad case
+        def tableName5 = 'test_count_on_index_bad_case'
+        sql "DROP TABLE IF EXISTS ${tableName5}"
+        sql """
+        CREATE TABLE `${tableName5}` (
+          `a` DATE NOT NULL COMMENT '',
+          `b` VARCHAR(4096) NULL COMMENT '',
+          `c` VARCHAR(4096) NULL COMMENT '',
+          `d` VARCHAR(4096) NULL COMMENT '',
+          `e` VARCHAR(4096) NULL COMMENT '',
+          INDEX idx_a(`a`) USING INVERTED COMMENT '',
+          INDEX idx_e(`e`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`a`, `b`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`a`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+        stream_load_data.call(tableName5, 'test_count_on_index_bad_case', 'true', 'json', 'count-on-index.json')
+        def bad_sql = """
+        SELECT
+          COUNT(CASE WHEN c IN ('c1', 'c2', 'c3') AND d = 'd1' THEN b END) AS num1,
+          COUNT(CASE WHEN e = 'e1' AND c IN ('c1', 'c2', 'c3') THEN b END) AS num2
+        FROM ${tableName5}
+        WHERE a = '2024-07-26'
+          AND e = 'e1';
+        """
+        explain {
+            sql("${bad_sql}")
+                contains "pushAggOp=NONE"
+        }
+        qt_sql_bad "${bad_sql}"
+        def bad_sql2 = """
+        SELECT
+            COUNT(cond1) AS num1,
+            COUNT(cond2) AS num2
+        FROM (
+            SELECT
+                CASE
+                    WHEN c IN ('c1', 'c2', 'c3') AND d = 'd1' THEN b
+                END AS cond1,
+                CASE
+                    WHEN e = 'e1' AND c IN ('c1', 'c2', 'c3') THEN b
+                END AS cond2
+            FROM
+                ${tableName5}
+            WHERE
+                a = '2024-07-26'
+                AND e = 'e1'
+        ) AS project;
+        """
+        explain {
+            sql("${bad_sql2}")
+                contains "pushAggOp=NONE"
+        }
+        qt_sql_bad2 "${bad_sql2}"
+
+        // case 6: test select count() from table where a or b;
+        def tableName6 = 'test_count_where_or'
+        sql "DROP TABLE IF EXISTS ${tableName6}"
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName6} (
+            `key_id` varchar(20) NULL COMMENT '',
+            `value1` int NULL,
+            `value2` bigint NULL,
+            INDEX idx_key (`key_id`) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_v1 (`value1`) USING INVERTED,
+            INDEX idx_v2 (`value2`) USING INVERTED
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key_id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`key_id`) BUCKETS 3
+        PROPERTIES("replication_num" = "1");
+        """
+
+        sql "INSERT INTO ${tableName6} values ('dt_bjn001', 100, 200);"
+        sql "INSERT INTO ${tableName6} values ('dt_bjn002', 300, 400);"
+        sql "INSERT INTO ${tableName6} values ('dt_bjn003', 500, 600);"
+
+        sql "sync"
+        sql "analyze table  ${tableName6} with sync;"
+        explain {
+            sql("select COUNT() from ${tableName6} where value1 > 20 or value2 < 10")
+            contains "pushAggOp=COUNT_ON_INDEX"
+        }
+        explain {
+            sql("select COUNT(value1) from ${tableName6} where value1 > 20 and value2 > 5")
+            contains "pushAggOp=COUNT_ON_INDEX"
+        }
+        explain {
+            sql("select COUNT(value1) from ${tableName6} where value1 > 20 or value2 < 10")
+            contains "pushAggOp=NONE"
+        }
+
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

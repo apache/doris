@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.UserException;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
@@ -139,9 +139,23 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA
                 .add(new ColumnDef("return_rows", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA
+                .add(new ColumnDef("shuffle_send_rows", TypeDef.create(PrimitiveType.BIGINT),
+                        ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA
+                .add(new ColumnDef("shuffle_send_bytes", TypeDef.create(PrimitiveType.BIGINT),
+                        ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA
+                .add(new ColumnDef("scan_bytes_from_local_storage", TypeDef.create(PrimitiveType.BIGINT),
+                        ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA
+                .add(new ColumnDef("scan_bytes_from_remote_storage", TypeDef.create(PrimitiveType.BIGINT),
+                        ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("stmt_id", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("stmt_type", TypeDef.createVarchar(48), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("is_query", TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(
+                new ColumnDef("is_nereids", TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("frontend_ip", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA
                 .add(new ColumnDef("cpu_time_ms", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
@@ -151,6 +165,9 @@ public class InternalSchema {
                 new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(
                 new ColumnDef("workload_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(
+                new ColumnDef("compute_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
     }
 
@@ -168,7 +185,7 @@ public class InternalSchema {
             case StatisticConstants.HISTOGRAM_TBL_NAME:
                 schema = HISTO_STATS_SCHEMA;
                 break;
-            case AuditLoaderPlugin.AUDIT_LOG_TABLE:
+            case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
                 break;
             default:

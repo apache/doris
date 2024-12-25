@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.qe.ConnectContext;
@@ -136,15 +137,25 @@ public class DecimalV3Type extends FractionalType {
             enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
         }
         if (enableDecimal256) {
-            Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL256_PRECISION,
-                    "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision);
+            if (!(precision > 0 && precision <= MAX_DECIMAL256_PRECISION)) {
+                throw new AnalysisException(
+                        "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision
+                );
+            }
         } else {
-            Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION,
-                    "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision);
+            if (!(precision > 0 && precision <= MAX_DECIMAL128_PRECISION)) {
+                throw new AnalysisException(
+                        "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision
+                );
+            }
         }
-        Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
-        Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
-                + " but precision is " + precision, ", scale is " + scale);
+        if (scale < 0) {
+            throw new AnalysisException("scale should not smaller than 0, but real scale is " + scale);
+        }
+        if (precision < scale) {
+            throw new AnalysisException("precision should not smaller than scale,"
+                    + " but precision is " + precision + ", scale is " + scale);
+        }
         return new DecimalV3Type(precision, scale);
     }
 

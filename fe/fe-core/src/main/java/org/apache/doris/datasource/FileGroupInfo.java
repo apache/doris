@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
@@ -43,6 +44,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -52,7 +54,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.PriorityQueue;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * FileTable encapsulates a set of files to be scanned into a Table like structure,
@@ -83,11 +89,13 @@ public class FileGroupInfo {
     private boolean strictMode;
     private int loadParallelism;
     // set by getFileStatusAndCalcInstance
+    private int numInstances = 1;
     private long bytesPerInstance = 0;
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
     private List<String> hiddenColumns = null;
-    private boolean isPartialUpdate = false;
+    private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    private String sequenceMapCol = null;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -109,7 +117,8 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate) {
+            TFileType fileType, List<String> hiddenColumns, TUniqueKeyUpdateMode uniqueKeyUpdateMode,
+            String sequenceMapCol) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -122,7 +131,8 @@ public class FileGroupInfo {
         this.strictMode = strictMode;
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
-        this.isPartialUpdate = isPartialUpdate;
+        this.uniqueKeyUpdateMode = uniqueKeyUpdateMode;
+        this.sequenceMapCol = sequenceMapCol;
     }
 
     public Table getTargetTable() {
@@ -163,8 +173,21 @@ public class FileGroupInfo {
         return hiddenColumns;
     }
 
-    public boolean isPartialUpdate() {
-        return isPartialUpdate;
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniqueKeyUpdateMode;
+    }
+
+    public boolean isFixedPartialUpdate() {
+        return uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+    }
+
+    public boolean isFlexiblePartialUpdate() {
+        return uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
+    }
+
+
+    public String getSequenceMapCol() {
+        return sequenceMapCol;
     }
 
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {
@@ -172,7 +195,6 @@ public class FileGroupInfo {
             throw new UserException("No source file in this table(" + targetTable.getName() + ").");
         }
 
-        int numInstances = 1;
         if (jobType == JobType.BULK_LOAD) {
             long totalBytes = 0;
             for (TBrokerFileStatus fileStatus : fileStatuses) {
@@ -191,6 +213,7 @@ public class FileGroupInfo {
             }
         } else {
             // stream load, not need to split
+            numInstances = 1;
             bytesPerInstance = Long.MAX_VALUE;
         }
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
@@ -199,6 +222,75 @@ public class FileGroupInfo {
     public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
                                          FederationBackendPolicy backendPolicy,
                                          List<TScanRangeLocations> scanRangeLocations) throws UserException {
+        // Currently, we do not support mixed file types (or compress types).
+        // If any of the file is unsplittable, all files will be treated as unsplittable.
+        boolean isSplittable = true;
+        for (TBrokerFileStatus fileStatus : fileStatuses) {
+            TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            TFileCompressType compressType =
+                    Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path);
+            // Now only support split plain text
+            if (compressType == TFileCompressType.PLAIN
+                    && ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
+                    || formatType == TFileFormatType.FORMAT_JSON)) {
+                // is splittable
+            } else {
+                isSplittable = false;
+                break;
+            }
+        }
+
+        if (isSplittable) {
+            createScanRangeLocationsSplittable(context, backendPolicy, scanRangeLocations);
+        } else {
+            createScanRangeLocationsUnsplittable(context, backendPolicy, scanRangeLocations);
+        }
+    }
+
+    public void createScanRangeLocationsUnsplittable(FileLoadScanNode.ParamCreateContext context,
+                                                      FederationBackendPolicy backendPolicy,
+                                                      List<TScanRangeLocations> scanRangeLocations)
+                                                      throws UserException {
+        List<Long> fileSizes = fileStatuses.stream().map(x -> x.size).collect(Collectors.toList());
+        List<List<Integer>> groups = assignFilesToInstances(fileSizes, numInstances);
+        for (List<Integer> group : groups) {
+            TScanRangeLocations locations = newLocations(context.params, brokerDesc, backendPolicy);
+            for (int i : group) {
+                TBrokerFileStatus fileStatus = fileStatuses.get(i);
+                TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+                context.params.setFormatType(formatType);
+                TFileCompressType compressType =
+                        Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path);
+                context.params.setCompressType(compressType);
+                List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+                        context.fileGroup.getColumnNamesFromPath());
+                TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath);
+                locations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+            }
+            scanRangeLocations.add(locations);
+        }
+    }
+
+    public static List<List<Integer>> assignFilesToInstances(List<Long> fileSizes, int instances) {
+        int n = Math.min(fileSizes.size(), instances);
+        PriorityQueue<Pair<Long, List<Integer>>> pq = new PriorityQueue<>(n, Comparator.comparingLong(Pair::key));
+        for (int i = 0; i < n; i++) {
+            pq.add(Pair.of(0L, new ArrayList<>()));
+        }
+        List<Integer> index = IntStream.range(0, fileSizes.size()).boxed().collect(Collectors.toList());
+        index.sort((i, j) -> Long.compare(fileSizes.get(j), fileSizes.get(i)));
+        for (int i : index) {
+            Pair<Long, List<Integer>> p = pq.poll();
+            p.value().add(i);
+            pq.add(Pair.of(p.key() + fileSizes.get(i), p.value()));
+        }
+        return pq.stream().map(Pair::value).collect(Collectors.toList());
+    }
+
+    public void createScanRangeLocationsSplittable(FileLoadScanNode.ParamCreateContext context,
+                                                   FederationBackendPolicy backendPolicy,
+                                                   List<TScanRangeLocations> scanRangeLocations) throws UserException {
+
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
         long curInstanceBytes = 0;
         long curFileOffset = 0;
@@ -217,27 +309,16 @@ public class FileGroupInfo {
             // Assign scan range locations only for broker load.
             // stream load has only one file, and no need to set multi scan ranges.
             if (tmpBytes > bytesPerInstance && jobType != JobType.STREAM_LOAD) {
-                // Now only support split plain text
-                if (compressType == TFileCompressType.PLAIN
-                        && ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
-                        || formatType == TFileFormatType.FORMAT_JSON)) {
-                    long rangeBytes = bytesPerInstance - curInstanceBytes;
-                    TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
-                            columnsFromPath);
-                    curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-                    curFileOffset += rangeBytes;
-                } else {
-                    TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, leftBytes,
-                            columnsFromPath);
-                    curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-                    i++;
-                }
+                long rangeBytes = bytesPerInstance - curInstanceBytes;
+                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
+                        columnsFromPath);
+                curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                curFileOffset += rangeBytes;
 
                 // New one scan
                 scanRangeLocations.add(curLocations);
                 curLocations = newLocations(context.params, brokerDesc, backendPolicy);
                 curInstanceBytes = 0;
-
             } else {
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);

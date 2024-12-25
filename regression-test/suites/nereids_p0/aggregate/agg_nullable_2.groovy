@@ -331,19 +331,19 @@ suite("agg_nullable_2") {
         contains "colUniqueId=null, type=bigint, nullable=false"
     }
     
-    qt_select_group_array_intersect """select group_array_intersect(kaint) from agg_nullable_test_2;"""
+    qt_select_group_array_intersect """select array_sort(group_array_intersect(kaint)) from agg_nullable_test_2;"""
     explain {
         sql("verbose select group_array_intersect(kaint) from agg_nullable_test_2;")
         contains "colUniqueId=null, type=array<int>, nullable=false"
     }
 
-    qt_select_group_array_intersect2 """select group_array_intersect(kaint) from agg_nullable_test_2 group by id;"""
+    qt_select_group_array_intersect2 """select array_sort(group_array_intersect(kaint)) from agg_nullable_test_2 group by id;"""
     explain {
         sql("verbose select group_array_intersect(kaint) from agg_nullable_test_2 group by id;")
         contains "colUniqueId=null, type=array<int>, nullable=false"
     }
 
-    qt_select_group_array_intersect_n """select group_array_intersect(knaint) from agg_nullable_test_2;"""
+    qt_select_group_array_intersect_n """select array_sort(group_array_intersect(knaint)) from agg_nullable_test_2;"""
     explain {
         sql("verbose select group_array_intersect(knaint) from agg_nullable_test_2;")
         contains "colUniqueId=null, type=array<int>, nullable=false"
@@ -491,6 +491,24 @@ suite("agg_nullable_2") {
     explain {
         sql("verbose select group_concat(knvchrs1) from agg_nullable_test_2;")
         contains "colUniqueId=null, type=varchar(65533), nullable=true"
+    }
+
+    qt_select_linear_histogram """select linear_histogram(kint, 10) from agg_nullable_test_2;"""
+    explain {
+        sql("verbose select linear_histogram(kint, 10) from agg_nullable_test_2;")
+        contains "colUniqueId=null, type=varchar(65533), nullable=false"
+    }
+
+    qt_select_linear_histogram2 """select linear_histogram(kint, 10) from agg_nullable_test_2 group by id;"""
+    explain {
+        sql("verbose select linear_histogram(kint, 10) from agg_nullable_test_2 group by id;")
+        contains "colUniqueId=null, type=varchar(65533), nullable=false"
+    }
+
+    qt_select_linear_histogram_n """select linear_histogram(knint, 10) from agg_nullable_test_2;"""
+    explain {
+        sql("verbose select linear_histogram(knint, 10) from agg_nullable_test_2;")
+        contains "colUniqueId=null, type=varchar(65533), nullable=false"
     }
 
     qt_select_multi_distinct_group_concat """select multi_distinct_group_concat(kvchrs1) from agg_nullable_test_2;"""

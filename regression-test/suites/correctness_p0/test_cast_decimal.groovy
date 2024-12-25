@@ -23,7 +23,6 @@ suite("test_cast_decimal") {
 
     sql """drop table if exists test_ttt"""
     sql """create table test_ttt(big_key bigint)DISTRIBUTED BY HASH(big_key) BUCKETS 1 PROPERTIES ("replication_num" = "1");"""
-    sql """set enable_nereids_planner=false;"""
     sql """set enable_fold_constant_by_be = false; """
     sql """SELECT 1
             FROM test_ttt e1

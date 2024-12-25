@@ -71,7 +71,7 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
             min_pair.first = str_val;
             min_pair.second = i;
         }
-        column_vector_key_str->insert(cast_to_nearest_field_type(str_val));
+        column_vector_key_str->insert(Field(cast_to_nearest_field_type(str_val)));
     }
 
     // Prepare test function and parameters.
@@ -84,7 +84,7 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
         DataTypes data_types = {std::make_shared<DataTypeInt32>(),
                                 i == 0 ? (DataTypePtr)std::make_shared<DataTypeInt32>()
                                        : (DataTypePtr)std::make_shared<DataTypeString>()};
-        auto agg_function = factory.get(min_max_by_type, data_types);
+        auto agg_function = factory.get(min_max_by_type, data_types, false, -1);
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);

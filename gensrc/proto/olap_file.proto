@@ -343,6 +343,7 @@ enum IndexType {
 enum InvertedIndexStorageFormatPB {
     V1 = 0;
     V2 = 1;
+    V3 = 2;
 }
 
 message TabletIndexPB {
@@ -357,6 +358,12 @@ message TabletIndexPB {
 enum SortType {
     LEXICAL = 0;
     ZORDER  = 1;
+}
+
+enum UniqueKeyUpdateModePB {
+    UPSERT = 0;
+    UPDATE_FIXED_COLUMNS = 1;
+    UPDATE_FLEXIBLE_COLUMNS = 2;
 }
 
 // ATTN: When adding or deleting fields, please update `message TabletSchemaCloudPB`
@@ -385,13 +392,15 @@ message TabletSchemaPB {
     repeated string partial_update_input_columns = 21; // deprecated
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
-    repeated int32 cluster_key_idxes = 24;
+    repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
 
     optional bool variant_enable_flatten_nested = 28 [default=false];
+    optional int32 skip_bitmap_col_idx = 29 [default = -1];
+    optional int64 storage_page_size = 30 [default=65536];
 }
 
 message TabletSchemaCloudPB {
@@ -416,13 +425,15 @@ message TabletSchemaCloudPB {
     reserved 21; // deprecated partial_update_input_columns
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
-    repeated int32 cluster_key_idxes = 24;
+    repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
     optional bool enable_mow_light_delete = 28 [default=false];
     optional bool enable_variant_flatten_nested = 29 [default=false];
+    optional int32 skip_bitmap_col_idx = 30 [default = -1];
+    optional int64 storage_page_size = 31 [default=65536];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }
@@ -612,7 +623,7 @@ message RowsetBinlogMetasPB {
 }
 
 message PartialUpdateInfoPB {
-    optional bool is_partial_update = 1 [default = false];
+    optional bool is_partial_update = 1 [default = false]; // deprecated
     repeated string partial_update_input_columns = 2;
     repeated uint32 missing_cids = 3;
     repeated uint32 update_cids = 4;
@@ -624,4 +635,6 @@ message PartialUpdateInfoPB {
     optional bool is_schema_contains_auto_inc_column = 10 [default = false];
     repeated string default_values = 11;
     optional int64 max_version_in_flush_phase = 12 [default = -1];
+    optional int32 nano_seconds = 13 [default = 0];
+    optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
 }

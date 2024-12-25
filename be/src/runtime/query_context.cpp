@@ -26,11 +26,9 @@
 #include <exception>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <utility>
 
 #include "common/logging.h"
-#include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
@@ -74,12 +72,11 @@ const std::string toString(QuerySource queryType) {
 
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
+                           bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
         : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
-          _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
           _query_options(query_options),
           _query_source(query_source) {
@@ -89,7 +86,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
+            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker, true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -110,6 +107,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
+    DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -149,17 +147,15 @@ QueryContext::~QueryContext() {
     std::string mem_tracker_msg;
     if (query_mem_tracker->peak_consumption() != 0) {
         mem_tracker_msg = fmt::format(
-                ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                 "PeakUsed={}",
-                print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                MemTracker::print_bytes(query_mem_tracker->consumption()),
-                MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
+                print_id(_query_id), MemCounter::print_bytes(query_mem_tracker->limit()),
+                MemCounter::print_bytes(query_mem_tracker->consumption()),
+                MemCounter::print_bytes(query_mem_tracker->peak_consumption()));
     }
     uint64_t group_id = 0;
     if (_workload_group) {
         group_id = _workload_group->id(); // before remove
-        _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _workload_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -181,8 +177,7 @@ QueryContext::~QueryContext() {
         }
     }
 
-    //TODO: check if pipeline and tracing both enabled
-    if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
+    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
         try {
             ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
         } catch (std::exception& e) {
@@ -198,8 +193,9 @@ QueryContext::~QueryContext() {
     _merge_controller_handler.reset();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-
-    LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
+    DorisMetrics::instance()->query_ctx_cnt->increment(-1);
+    // the only one msg shows query's end. any other msg should append to it if need.
+    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
@@ -327,14 +323,13 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
     }
 }
 
-Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
+void QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     _workload_group = tg;
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                          &_memtable_flush_pool, &_remote_scan_task_scheduler);
-    return Status::OK();
 }
 
 void QueryContext::add_fragment_profile(
@@ -368,9 +363,6 @@ void QueryContext::add_fragment_profile(
 
 void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
-    LOG_INFO(
-            "Pipeline x query context, register query profile, query {}, fragment profile count {}",
-            print_id(_query_id), _profile_map.size());
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
@@ -401,7 +393,7 @@ QueryContext::_collect_realtime_query_profile() const {
                 continue;
             }
 
-            auto profile = fragment_ctx->collect_realtime_profile_x();
+            auto profile = fragment_ctx->collect_realtime_profile();
 
             if (profile.empty()) {
                 std::string err_msg = fmt::format(

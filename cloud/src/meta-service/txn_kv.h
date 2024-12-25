@@ -333,6 +333,10 @@ public:
     // Return the partition boundaries of the database.
     TxnErrorCode get_partition_boundaries(std::vector<std::string>* boundaries);
 
+    // Returns a value where 0 indicates that the client is idle and 1 (or larger) indicates that
+    // the client is saturated. This value is updated every second.
+    double get_client_thread_busyness() const;
+
     static std::string_view fdb_partition_key_prefix() { return "\xff/keyServers/"; }
     static std::string_view fdb_partition_key_end() {
         // '0' is the next byte after '/' in the ASCII table

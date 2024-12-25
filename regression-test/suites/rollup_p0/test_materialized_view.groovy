@@ -14,6 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_materialized_view") {
 
     def tbName1 = "test_materialized_view1"
@@ -47,34 +51,26 @@ suite("test_materialized_view") {
         """
     sql "CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     int max_try_secs = 60
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
+            return true;
         } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return false;
         }
     }
     sql "CREATE materialized VIEW seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;"
     max_try_secs = 60
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName2)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
+            return true;
         } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return false;
         }
     }
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
@@ -97,19 +93,14 @@ suite("test_materialized_view") {
 
     sql "CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     max_try_secs = 60
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
     sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     order_qt_sql "DESC ${tbName1} ALL;"

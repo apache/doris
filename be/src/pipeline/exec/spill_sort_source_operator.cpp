@@ -212,7 +212,7 @@ Status SpillSortLocalState::_create_intermediate_merger(
 }
 Status SpillSortLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
@@ -243,11 +243,6 @@ Status SpillSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* stat
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     _op_name = "SPILL_SORT_SOURCE_OPERATOR";
     return _sort_source_operator->init(tnode, state);
-}
-
-Status SpillSortSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    return _sort_source_operator->prepare(state);
 }
 
 Status SpillSortSourceOperatorX::open(RuntimeState* state) {

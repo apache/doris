@@ -361,7 +361,6 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"date_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 18, 0}};
-    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();

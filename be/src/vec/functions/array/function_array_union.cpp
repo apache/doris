@@ -28,6 +28,7 @@
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
 struct NameArrayUnion {
     static constexpr auto name = "array_union";
 };

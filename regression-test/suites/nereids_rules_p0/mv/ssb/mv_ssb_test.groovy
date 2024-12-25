@@ -61,7 +61,7 @@ suite("mv_ssb_test") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/regression/ssb/sf1/${tableName}.tbl.gz"""
+            file """${getS3Url()}/regression/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 
@@ -358,7 +358,7 @@ suite("mv_ssb_test") {
             OR c_city='UNITED KI5')
             AND (s_city='UNITED KI1'
             OR s_city='UNITED KI5')
-            AND d_yearmonth = 'Dec1997'
+            AND d_yearmonth = 'Jul1992'
             GROUP BY c_city, s_city, d_year
             ORDER BY d_year ASC,  REVENUE DESC;
     """
@@ -373,7 +373,7 @@ suite("mv_ssb_test") {
             OR c_city='UNITED KI5')
             AND (s_city='UNITED KI1'
             OR s_city='UNITED KI5')
-            AND d_yearmonth = 'Dec1997'
+            AND d_yearmonth = 'Jul1992'
             GROUP BY c_city, s_city, d_year
             ORDER BY d_year ASC,  REVENUE DESC;
     """
@@ -428,7 +428,7 @@ suite("mv_ssb_test") {
             AND lo_orderdate = d_datekey
             AND c_region = 'AMERICA'
             AND s_region = 'AMERICA'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND (p_mfgr = 'MFGR#1'
             OR p_mfgr = 'MFGR#2')
             GROUP BY d_year, s_nation, p_category
@@ -444,7 +444,7 @@ suite("mv_ssb_test") {
             AND lo_orderdate = d_datekey
             AND c_region = 'AMERICA'
             AND s_region = 'AMERICA'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND (p_mfgr = 'MFGR#1'
             OR p_mfgr = 'MFGR#2')
             GROUP BY d_year, s_nation, p_category
@@ -465,7 +465,7 @@ suite("mv_ssb_test") {
             AND lo_partkey = p_partkey
             AND lo_orderdate = d_datekey
             AND s_nation = 'UNITED STATES'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND p_category = 'MFGR#14'
             GROUP BY d_year, s_city, p_brand
             ORDER BY d_year, s_city, p_brand;
@@ -479,7 +479,7 @@ suite("mv_ssb_test") {
             AND lo_partkey = p_partkey
             AND lo_orderdate = d_datekey
             AND s_nation = 'UNITED STATES'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND p_category = 'MFGR#14'
             GROUP BY d_year, s_city, p_brand
             ORDER BY d_year, s_city, p_brand;

@@ -33,6 +33,7 @@ suite("test_unique_table_new_sequence") {
         "enable_unique_key_merge_on_write" = "true",
         "function_column.sequence_col" = "v2",
         "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_skip_bitmap_column" = "false",
         "light_schema_change" = "true"
         );
         """
@@ -129,7 +130,7 @@ suite("test_unique_table_new_sequence") {
 
         order_qt_part "SELECT k1, v1, v2 from ${tableName}"
 
-        order_qt_all "SELECT * from ${tableName}"
+        order_qt_all "SELECT k1,v1,v2,v3,v4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__ from ${tableName}"
 
         qt_desc "desc ${tableName}"
 

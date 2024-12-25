@@ -98,7 +98,7 @@ public:
 
     // TODO(zhiqiang): May be override open function?
     Status execute_impl(FunctionContext* /*context*/, Block& block,
-                        const ColumnNumbers& /*arguments*/, size_t result,
+                        const ColumnNumbers& /*arguments*/, uint32_t result,
                         size_t input_rows_count) const override {
         auto col_res = ColumnInt128::create();
         col_res->resize(input_rows_count);

@@ -42,18 +42,18 @@ public class IndexesProcNodeTest {
     public void testFetchResult() throws AnalysisException {
         List<Index> indexes = new ArrayList<>();
         Index indexBitmap = new Index(1, "bitmap_index", Lists.newArrayList("col_1"),
-                IndexType.BITMAP, null, "bitmap index on col_1");
+                IndexType.BITMAP, null, "bitmap index on col_1", Lists.newArrayList(1));
         Map<String, String> invertedProperties = new HashMap<>();
         invertedProperties.put("parser", "unicode");
         Index indexInverted = new Index(2, "inverted_index", Lists.newArrayList("col_2"),
-                        IndexType.INVERTED, invertedProperties, "inverted index on col_2");
+                        IndexType.INVERTED, invertedProperties, "inverted index on col_2", Lists.newArrayList(2));
         Index indexBf = new Index(3, "bloomfilter_index", Lists.newArrayList("col_3"),
-                IndexType.BLOOMFILTER, null, "bloomfilter index on col_3");
+                IndexType.BLOOMFILTER, null, "bloomfilter index on col_3", Lists.newArrayList(3));
         Map<String, String> ngramProperties = new HashMap<>();
         ngramProperties.put("gram_size", "3");
         ngramProperties.put("bf_size", "256");
         Index indexNgramBf = new Index(4, "ngram_bf_index", Lists.newArrayList("col_4"),
-                        IndexType.NGRAM_BF, ngramProperties, "ngram_bf index on col_4");
+                        IndexType.NGRAM_BF, ngramProperties, "ngram_bf index on col_4", Lists.newArrayList(4));
         indexes.add(indexBitmap);
         indexes.add(indexInverted);
         indexes.add(indexBf);

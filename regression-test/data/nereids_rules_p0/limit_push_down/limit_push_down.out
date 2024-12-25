@@ -85,7 +85,7 @@ PhysicalResultSink
 --------PhysicalLimit[LOCAL]
 ----------PhysicalOlapScan[t1]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t2]
+----------PhysicalStorageLayerAggregate[t2]
 
 -- !limit_offset_join --
 PhysicalResultSink
@@ -120,7 +120,7 @@ PhysicalResultSink
 --------------PhysicalTopN[LOCAL_SORT]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalOlapScan[t1]
-------------PhysicalOlapScan[t2]
+------------PhysicalStorageLayerAggregate[t2]
 
 -- !limit_distinct --
 PhysicalResultSink
@@ -133,7 +133,7 @@ PhysicalResultSink
 --------------PhysicalTopN[LOCAL_SORT]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalOlapScan[t1]
-------------PhysicalOlapScan[t2]
+------------PhysicalStorageLayerAggregate[t2]
 
 -- !limit_distinct --
 PhysicalResultSink
@@ -535,7 +535,7 @@ PhysicalResultSink
 --------PhysicalLimit[LOCAL]
 ----------PhysicalOlapScan[t1]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t2]
+----------PhysicalStorageLayerAggregate[t2]
 
 -- !limit_multiple_left_outer_join --
 PhysicalResultSink
@@ -580,9 +580,9 @@ PhysicalResultSink
 ------------PhysicalLimit[LOCAL]
 --------------PhysicalOlapScan[t1]
 ------------PhysicalLimit[LOCAL]
---------------PhysicalOlapScan[t2]
+--------------PhysicalStorageLayerAggregate[t2]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t3]
+----------PhysicalStorageLayerAggregate[t3]
 
 -- !limit_left_outer_join_right_outer_join --
 PhysicalResultSink
@@ -616,7 +616,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t3]
+----------PhysicalStorageLayerAggregate[t3]
 
 -- !limit_right_outer_join_full_outer_join --
 PhysicalResultSink
@@ -639,7 +639,7 @@ PhysicalResultSink
 ------------PhysicalLimit[LOCAL]
 --------------PhysicalOlapScan[t2]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t3]
+----------PhysicalStorageLayerAggregate[t3]
 
 -- !limit_full_outer_join_cross_join --
 PhysicalResultSink
@@ -651,7 +651,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 ------------PhysicalOlapScan[t2]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t3]
+----------PhysicalStorageLayerAggregate[t3]
 
 -- !limit_left_outer_join_right_outer_join_full_outer_join --
 PhysicalResultSink
@@ -678,7 +678,7 @@ PhysicalResultSink
 ------------PhysicalLimit[LOCAL]
 --------------PhysicalOlapScan[t3]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t4]
+----------PhysicalStorageLayerAggregate[t4]
 
 -- !limit_left_outer_join_full_outer_join_cross_join --
 PhysicalResultSink
@@ -692,7 +692,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t3]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t4]
+----------PhysicalStorageLayerAggregate[t4]
 
 -- !limit_right_outer_join_full_outer_join_cross_join --
 PhysicalResultSink
@@ -706,7 +706,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 ------------PhysicalOlapScan[t3]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t4]
+----------PhysicalStorageLayerAggregate[t4]
 
 -- !limit_left_outer_join_right_outer_join_full_outer_join_cross_join --
 PhysicalResultSink

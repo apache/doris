@@ -364,7 +364,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         static_cast<void>(this->data(place).add(columns, 0, batch_size, argument_types));
     }
 

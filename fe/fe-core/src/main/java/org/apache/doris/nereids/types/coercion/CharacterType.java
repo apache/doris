@@ -27,8 +27,12 @@ import org.apache.doris.nereids.types.StringType;
 public abstract class CharacterType extends PrimitiveType {
 
     private static final int WIDTH = 16;
+    public static final int DEFAULT_WIDTH = WIDTH;
 
     protected final int len;
+
+    // When defining SQL schemas, users often tend to set the length of string
+    // fields much longer than actually needed for storage.
 
     public CharacterType(int len) {
         this.len = len;

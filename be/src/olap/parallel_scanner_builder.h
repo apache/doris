@@ -19,8 +19,10 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet.h"
@@ -81,7 +83,7 @@ private:
 
     size_t _rows_per_scanner {_min_rows_per_scanner};
 
-    std::map<RowsetId, SegmentCacheHandle> _segment_cache_handles;
+    std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;
@@ -90,7 +92,7 @@ private:
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
-    std::unordered_map<int64_t, std::vector<RowsetSharedPtr>> _all_rowsets;
+    std::unordered_map<int64_t, TabletReader::ReadSource> _all_read_sources;
 };
 
 } // namespace doris

@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/hll.h"
 #include "util/hash_util.hpp"
@@ -47,6 +48,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
@@ -97,7 +99,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto column = block.get_by_position(arguments[0]).column;
 
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
@@ -153,7 +155,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnHLL::create();
         auto& null_map = res_null_map->get_data();
@@ -167,8 +169,8 @@ public:
         res.reserve(input_rows_count);
 
         std::string decode_buff;
-        int last_decode_buff_len = 0;
-        int curr_decode_buff_len = 0;
+        int64_t last_decode_buff_len = 0;
+        int64_t curr_decode_buff_len = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_size = offsets[i] - offsets[i - 1];
@@ -302,7 +304,7 @@ struct HllToBase64 {
             DCHECK(outlen > 0);
 
             encoded_offset += outlen;
-            offsets[i] = encoded_offset;
+            offsets[i] = cast_set<uint32_t>(encoded_offset);
         }
         return Status::OK();
     }

@@ -20,6 +20,7 @@
 #include <stddef.h>
 
 #include <string>
+#include <vector>
 
 #include "http/http_status.h"
 
@@ -46,6 +47,13 @@ public:
 
     static void send_file(HttpRequest* request, int fd, size_t off, size_t size,
                           bufferevent_rate_limit_group* rate_limit_group = nullptr);
+
+    static void send_files(HttpRequest* request, const std::string& root_dir,
+                           std::vector<std::string> local_files,
+                           bufferevent_rate_limit_group* rate_limit_group);
+
+    static void send_files(HttpRequest* request, const std::string& root_dir,
+                           std::vector<std::string> local_files);
 
     static bool compress_content(const std::string& accept_encoding, const std::string& input,
                                  std::string* output);

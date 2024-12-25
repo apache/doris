@@ -510,6 +510,43 @@ function set_doris_session_variables_from_file() {
     fi
 }
 
+_monitor_regression_log() {
+    if ! command -v inotifywait >/dev/null; then
+        apt install inotify-tools -y
+    fi
+
+    # Path to the log directory
+    local LOG_DIR="${DORIS_HOME}"/regression-test/log
+
+    # keyword to search for in the log files
+    local KEYWORD="Reach limit of connections"
+
+    local query_port
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+
+    echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
+
+    local start_row=1
+    # Monitor the log directory for new files and changes, only one file
+    # shellcheck disable=SC2034
+    inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
+        total_rows=$(wc -l "${directory}${filename}" | awk '{print $1}')
+        if [[ ${start_row} -ge ${total_rows} ]]; then
+            start_row=${total_rows}
+        fi
+        # shellcheck disable=SC2250
+        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -a -q "${KEYWORD}"; then
+            matched=$(grep -a -n "${KEYWORD}" "${directory}${filename}")
+            start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
+            echo "WARNING: find '${matched}' in ${directory}${filename}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+        fi
+        start_row=$((start_row + 1))
+        # echo "start_row ${start_row}" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+    done
+
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"

@@ -100,8 +100,10 @@ public class RelationUtil {
         try {
             DatabaseIf<TableIf> db = catalog.getDb(dbName).orElseThrow(() -> new AnalysisException(
                     "Database [" + dbName + "] does not exist."));
-            TableIf table = db.getTable(tableName).orElseThrow(() -> new AnalysisException(
-                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            Pair<String, String> sourceTblNameWithMetaTblName = catalog.getSourceTableNameWithMetaTableName(tableName);
+            String sourceTableName = sourceTblNameWithMetaTblName.first;
+            TableIf table = db.getTable(sourceTableName).orElseThrow(() -> new AnalysisException(
+                    "Table [" + sourceTableName + "] does not exist in database [" + dbName + "]."));
             return Pair.of(db, table);
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());

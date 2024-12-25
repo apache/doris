@@ -90,7 +90,7 @@ suite("test_generated_column") {
     ;
     """
     qt_gencol_array_function_insert "insert into test_gen_col_array_func values(1,[1,2],[3,2],default);"
-    qt_gencol_array_function_select "select * from test_gen_col_array_func"
+    qt_gencol_array_function_select "select pk,array_sort(a),array_sort(b),array_sort(c) from test_gen_col_array_func order by 1"
 
     sql "drop table if exists test_gen_col_element_at_func"
     qt_gencol_array_function_element_at_create """
@@ -100,7 +100,7 @@ suite("test_generated_column") {
     ;
     """
     qt_gencol_array_function_element_at_insert "insert into test_gen_col_element_at_func values(1,[1,2],[3,2],default);"
-    qt_gencol_array_function_element_at_select "select * from test_gen_col_element_at_func"
+    qt_gencol_array_function_element_at_select "select pk,array_sort(a),array_sort(b),c from test_gen_col_element_at_func order by 1"
 
     sql "drop table if exists gencol_like_t;"
     qt_create_table_like "create table gencol_like_t like test_gen_col_common;"
@@ -133,15 +133,6 @@ suite("test_generated_column") {
     qt_test_aes_encrypt_select_with_db "select * from test_encrypt_key_gen_col_with_db"
 
     qt_describe "describe gencol_refer_gencol"
-
-    //test update
-    sql "drop table if exists test_gen_col_update"
-    sql """create table test_gen_col_update (a int, b int, c int as (a+b))
-    unique key(a)
-    distributed by hash(a) properties("replication_num"="1")"""
-    sql "insert into test_gen_col_update values(1,3,default)"
-    qt_test_update "update test_gen_col_update set b=20"
-    qt_test_update_generated_column "select * from test_gen_col_update"
 
     // test unique table, generated column is not key
     sql "drop table if exists test_gen_col_unique_key"
@@ -232,5 +223,18 @@ suite("test_generated_column") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");"""
         exception "The generated columns can be key columns, or value columns of replace and replace_if_not_null aggregation type."
+    }
+
+    //test update
+    sql "drop table if exists test_gen_col_update"
+    sql """create table test_gen_col_update (a int, b int, c int as (a+b))
+    unique key(a)
+    distributed by hash(a) properties("replication_num"="1")"""
+    sql "insert into test_gen_col_update values(1,3,default)"
+    if (!isClusterKeyEnabled()) {
+        qt_test_update "update test_gen_col_update set b=20"
+        qt_test_update_generated_column "select * from test_gen_col_update"
+    } else {
+        // errCode = 2, detailMessage = The value specified for generated column 'c' in table 'test_gen_col_update' is not allowed
     }
 }

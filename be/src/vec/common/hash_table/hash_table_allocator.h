@@ -29,6 +29,3 @@
   * interrupt the resize loop. Set the allocator parameter accordingly.
   */
 using HashTableAllocator = Allocator<true /* clear_memory */, true /* mmap_populate */>;
-
-template <size_t N = 64>
-using HashTableAllocatorWithStackMemory = AllocatorWithStackMemory<HashTableAllocator, N>;

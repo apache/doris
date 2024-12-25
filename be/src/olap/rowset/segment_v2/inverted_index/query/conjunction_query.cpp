@@ -20,8 +20,9 @@
 namespace doris::segment_v2 {
 
 ConjunctionQuery::ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                   const TQueryOptions& query_options)
+                                   const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher),
+          _io_ctx(io_ctx),
           _index_version(_searcher->getReader()->getIndexVersion()),
           _conjunction_ratio(query_options.inverted_index_conjunction_opt_threshold) {}
 
@@ -48,7 +49,7 @@ void ConjunctionQuery::add(const std::wstring& field_name, const std::vector<std
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermDocs* term_doc = _searcher->getReader()->termDocs(t);
+        TermDocs* term_doc = _searcher->getReader()->termDocs(t, _io_ctx);
         _term_docs.push_back(term_doc);
         iterators.emplace_back(term_doc);
     }

@@ -135,7 +135,8 @@ public class StageProperties extends CopyProperties {
         }
         properties.put(PREFIX, prefix);
         // analyze provider
-        String provider = properties.get(PROVIDER);
+        // S3 Provider properties should be case insensitive.
+        String provider = properties.get(PROVIDER).toUpperCase();
         if (!EnumUtils.isValidEnumIgnoreCase(ObjectStoreInfoPB.Provider.class, provider)) {
             throw new AnalysisException("Property " + PROVIDER + " with invalid value " + provider);
         }

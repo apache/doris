@@ -24,17 +24,21 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -176,5 +180,38 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     @Override
     public boolean hasDistributeHint() {
         return hint != null;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        UsingJoin<?, ?> usingJoin = (UsingJoin<?, ?>) o;
+        return joinType == usingJoin.joinType
+                && Objects.equals(otherJoinConjuncts, usingJoin.otherJoinConjuncts)
+                && Objects.equals(hashJoinConjuncts, usingJoin.hashJoinConjuncts)
+                && Objects.equals(hint, usingJoin.hint);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(joinType, otherJoinConjuncts, hashJoinConjuncts, hint);
+    }
+
+    @Override
+    public String toString() {
+        List<Object> args = Lists.newArrayList(
+                "type", joinType,
+                "hashJoinConjuncts", hashJoinConjuncts,
+                "otherJoinConjuncts", otherJoinConjuncts);
+        if (hint.distributeType != DistributeType.NONE) {
+            args.add("hint");
+            args.add(hint.getExplainString());
+        }
+        return Utils.toSqlString("UsingJoin[" + id.asInt() + "]", args.toArray());
     }
 }

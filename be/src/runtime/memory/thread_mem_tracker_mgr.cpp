@@ -46,16 +46,17 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     DCHECK(mem_tracker);
     CHECK(init());
     flush_untracked_mem();
-    _reserved_mem_stack.push_back(_reserved_mem);
+    _last_attach_snapshots_stack.push_back({_reserved_mem, _consumer_tracker_stack});
     if (_reserved_mem != 0) {
         // _untracked_mem temporary store bytes that not synchronized to process reserved memory,
         // but bytes have been subtracted from thread _reserved_mem.
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
+        _limiter_tracker->release_reserved(_untracked_mem);
         _reserved_mem = 0;
         _untracked_mem = 0;
     }
+    _consumer_tracker_stack.clear();
     _limiter_tracker = mem_tracker;
-    _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
@@ -63,11 +64,11 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
     CHECK(init());
     flush_untracked_mem();
     release_reserved();
-    DCHECK(!_reserved_mem_stack.empty());
-    _reserved_mem = _reserved_mem_stack.back();
-    _reserved_mem_stack.pop_back();
+    DCHECK(!_last_attach_snapshots_stack.empty());
+    _reserved_mem = _last_attach_snapshots_stack.back().reserved_mem;
+    _consumer_tracker_stack = _last_attach_snapshots_stack.back().consumer_tracker_stack;
+    _last_attach_snapshots_stack.pop_back();
     _limiter_tracker = old_mem_tracker;
-    _limiter_tracker_raw = old_mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {

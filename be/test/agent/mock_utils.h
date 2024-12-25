@@ -33,7 +33,7 @@ public:
 
 class MockMasterServerClient : public MasterServerClient {
 public:
-    MockMasterServerClient(const TMasterInfo& master_info,
+    MockMasterServerClient(const ClusterInfo* cluster_info,
                            FrontendServiceClientCache* client_cache);
     MOCK_METHOD2(finish_task, Status(const TFinishTaskRequest request, TMasterResult* result));
     MOCK_METHOD2(report, Status(const TReportRequest request, TMasterResult* result));

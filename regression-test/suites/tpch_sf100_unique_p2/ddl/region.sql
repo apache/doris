@@ -7,6 +7,7 @@ UNIQUE KEY(`r_regionkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "replication_num" = "3"
 )
 

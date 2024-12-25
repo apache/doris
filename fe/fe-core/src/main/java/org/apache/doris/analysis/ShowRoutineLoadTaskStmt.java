@@ -35,7 +35,7 @@ import java.util.List;
 
     where expr: JobName=xxx
  */
-public class ShowRoutineLoadTaskStmt extends ShowStmt {
+public class ShowRoutineLoadTaskStmt extends ShowStmt implements NotFallbackInParser {
     private static final List<String> supportColumn = Arrays.asList("jobname");
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()

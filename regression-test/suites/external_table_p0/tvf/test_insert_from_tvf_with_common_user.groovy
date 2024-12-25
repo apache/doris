@@ -96,7 +96,7 @@ suite("test_insert_from_tvf_with_common_user", "p0") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${common_user}""";
     }
 
-    connect(user = "${common_user}", password = '12345', url = context.config.jdbcUrl) {
+    connect("${common_user}", '12345', context.config.jdbcUrl) {
         sql """ use regression_test_external_table_p0_tvf """
 
         sql """ INSERT INTO ${load_table_name}

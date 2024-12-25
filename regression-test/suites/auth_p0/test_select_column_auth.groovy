@@ -74,7 +74,7 @@ suite("test_select_column_auth","p0,auth") {
     sql """grant select_priv on regression_test to ${user}"""
 
     // table column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName}"
         } catch (Exception e) {
@@ -83,12 +83,12 @@ suite("test_select_column_auth","p0,auth") {
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName}"
     }
 
     // view column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${mv_name}"
         } catch (Exception e) {
@@ -97,12 +97,12 @@ suite("test_select_column_auth","p0,auth") {
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mv_name} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${mv_name}"
     }
 
     // mtmv column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${mtmv_name}"
         } catch (Exception e) {
@@ -111,13 +111,13 @@ suite("test_select_column_auth","p0,auth") {
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${mtmv_name}"
     }
 
 
     // mtmv hit
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "SET enable_materialized_view_rewrite=true"
         try {
             sql "select username, sum(id) from ${dbName}.${tableName} group by username"
@@ -129,7 +129,11 @@ suite("test_select_column_auth","p0,auth") {
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
     sql """grant select_priv(sum_id) on ${dbName}.${mtmv_name} to ${user}"""
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        def show_grants = sql """show grants;"""
+        logger.info("show grants:" + show_grants.toString())
+        // If exec on fe follower, wait meta data is ready on follower
+        Thread.sleep(2000)
         sql "SET enable_materialized_view_rewrite=true"
         explain {
             sql("""select username, sum(id) from ${dbName}.${tableName} group by username""")

@@ -21,6 +21,7 @@
 #include "vec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class IcebergTableSinkOperatorX;
 
@@ -58,13 +59,9 @@ public:
         return Status::OK();
     }
 
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::prepare(state));
-        return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-    }
-
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
 
@@ -86,4 +83,5 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

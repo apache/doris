@@ -26,7 +26,7 @@
 
 namespace doris {
 namespace vectorized {
-
+#include "common/compile_check_begin.h"
 /** Higher-order functions for arrays.
   * These functions optionally apply a map (transform) to array (or multiple arrays of identical size) by lambda function,
   *  and return some result based on that transformation.
@@ -48,7 +48,7 @@ public:
 
     String get_name() const override { return name; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& typed_column = block.get_by_position(arguments[0]);
         auto ptr = typed_column.column->convert_to_full_column_if_const();
         const typename Impl::column_type* column_array;
@@ -72,5 +72,6 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

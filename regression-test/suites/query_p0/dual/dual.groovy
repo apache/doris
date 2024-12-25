@@ -73,14 +73,6 @@ suite('dual') {
         exception "Table [dual] does not exist in database [regression_test_query_p0_dual]"
     }
 
-    // Disable and enable Nereids planner to check behavior differences
-    sql "set enable_nereids_planner = false"
-    test {
-        sql "select 1 from `dual`"
-        exception "Unknown table 'dual'"
-    }
-    sql "set enable_nereids_planner = true"
-
     // Tests for unknown column errors
     test {
         sql "select a from dual"

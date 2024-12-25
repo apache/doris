@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<SortSharedState>(state, parent) {}
@@ -30,7 +31,9 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
                                          const DescriptorTbl& descs)
         : OperatorX<SortLocalState>(pool, tnode, operator_id, descs),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
-          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0) {}
+          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
@@ -40,19 +43,11 @@ Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status SortSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-    // spill sort _child_x may be nullptr.
-    if (_child_x) {
-        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
-    }
-    return Status::OK();
-}
-
 Status SortSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-    // spill sort _child_x may be nullptr.
-    if (_child_x) {
+    // spill sort _child may be nullptr.
+    if (_child) {
+        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
     return Status::OK();
@@ -85,4 +80,5 @@ Status SortSourceOperatorX::build_merger(RuntimeState* state,
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

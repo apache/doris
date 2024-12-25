@@ -111,6 +111,7 @@ suite("test_index_range_not_in_select", "inverted_index_select"){
             }
             assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
         }
+        sql """ set enable_common_expr_pushdown = true; """
 
         for (int i = 0; i < 2; i++) {
             logger.info("select table with index times " + i)

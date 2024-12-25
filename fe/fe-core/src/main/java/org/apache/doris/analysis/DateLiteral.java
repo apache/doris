@@ -730,6 +730,39 @@ public class DateLiteral extends LiteralExpr {
         return new String(dateTimeChars, 0, 19);
     }
 
+    public String getStringValue(Type type) {
+        char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
+
+        // Populate the date part
+        fillPaddedValue(dateTimeChars, 0, year, 4);
+        dateTimeChars[4] = '-';
+        fillPaddedValue(dateTimeChars, 5, month, 2);
+        dateTimeChars[7] = '-';
+        fillPaddedValue(dateTimeChars, 8, day, 2);
+
+        if (type.isDate() || type.isDateV2()) {
+            return new String(dateTimeChars, 0, 10);
+        }
+
+        // Populate the time part
+        dateTimeChars[10] = ' ';
+        fillPaddedValue(dateTimeChars, 11, hour, 2);
+        dateTimeChars[13] = ':';
+        fillPaddedValue(dateTimeChars, 14, minute, 2);
+        dateTimeChars[16] = ':';
+        fillPaddedValue(dateTimeChars, 17, second, 2);
+
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+            dateTimeChars[19] = '.';
+            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            return new String(dateTimeChars, 0, 20 + scale);
+        }
+
+        return new String(dateTimeChars, 0, 19);
+    }
+
     @Override
     public String getStringValueForArray(FormatOptions options) {
         return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();

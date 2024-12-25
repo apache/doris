@@ -23,8 +23,6 @@
 #include <fmt/format.h>
 
 #include <limits>
-#include <ostream>
-#include <string>
 
 #include "olap/decimal12.h"
 #include "runtime/decimalv2_value.h"
@@ -300,6 +298,14 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
     } else {
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
+}
+
+template <typename T>
+void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
 }
 
 template <typename T>

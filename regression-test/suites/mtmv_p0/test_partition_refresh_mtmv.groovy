@@ -113,20 +113,17 @@ suite("test_partition_refresh_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
 
-    try {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-                BUILD DEFERRED REFRESH AUTO ON MANUAL
-                partition by(`date`)
-                DISTRIBUTED BY RANDOM BUCKETS 2
-                PROPERTIES ('replication_num' = '1')
-                AS
-                SELECT * FROM ${tableNameNum};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableNameNum};
+    """
+
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
 

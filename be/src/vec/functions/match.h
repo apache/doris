@@ -59,8 +59,6 @@ const std::string MATCH_PHRASE_EDGE_FUNCTION = "match_phrase_edge";
 
 class FunctionMatchBase : public IFunction {
 public:
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     size_t get_number_of_arguments() const override { return 2; }
 
     String get_name() const override { return "match"; }
@@ -71,7 +69,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override;
+                        uint32_t result, size_t input_rows_count) const override;
 
     virtual Status execute_match(FunctionContext* context, const std::string& column_name,
                                  const std::string& match_query_str, size_t input_rows_count,
@@ -82,10 +80,9 @@ public:
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
 
-    void analyse_query_str_token(std::vector<std::string>* query_tokens,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const std::string& match_query_str,
-                                 const std::string& field_name) const;
+    std::vector<std::string> analyse_query_str_token(InvertedIndexCtx* inverted_index_ctx,
+                                                     const std::string& match_query_str,
+                                                     const std::string& field_name) const;
 
     std::vector<std::string> analyse_data_token(const std::string& column_name,
                                                 InvertedIndexCtx* inverted_index_ctx,
@@ -95,6 +92,11 @@ public:
                                                 int32_t& current_src_array_offset) const;
 
     Status check(FunctionContext* context, const std::string& function_name) const;
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
 class FunctionMatchAny : public FunctionMatchBase {
@@ -178,10 +180,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) const override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "FunctionMatchPhraseEdge not support execute_match");
-    }
+                         ColumnUInt8::Container& result) const override;
 };
 
 } // namespace doris::vectorized

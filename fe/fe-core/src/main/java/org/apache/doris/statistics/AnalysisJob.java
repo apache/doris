@@ -126,7 +126,7 @@ public class AnalysisJob {
                 values.add(data.toSQL(true));
             }
             insertStmt += values.toString();
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
                 stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
                 executeWithExceptionOnFail(stmtExecutor);
             } catch (Exception t) {
@@ -154,7 +154,7 @@ public class AnalysisJob {
                                 + queryState.getErrorMessage());
             }
         } finally {
-            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
+            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().originStmt,
                     stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(),
                     true);
         }

@@ -583,10 +583,10 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct) {
     DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
     Tuple t1, t2;
-    t1.push_back(String("amory cute"));
+    t1.push_back(Field(String("amory cute")));
     t1.push_back(__int128_t(37));
     t1.push_back(true);
-    t2.push_back("null");
+    t2.push_back(Field("null"));
     t2.push_back(__int128_t(26));
     t2.push_back(false);
     MutableColumnPtr struct_column = st->create_column();
@@ -614,7 +614,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct2) {
     DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
     Tuple t1, t2;
-    t1.push_back(String("amory cute"));
+    t1.push_back(Field(String("amory cute")));
     t1.push_back(37);
     t1.push_back(true);
     t2.push_back("null");

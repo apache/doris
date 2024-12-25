@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -47,15 +48,24 @@ import java.util.Map;
  * show tablets' detail info within an index
  */
 public class TabletsProcDir implements ProcDirInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
-            .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
-            .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
-            .add("LstConsistencyCheckTime").add("CheckVersion")
-            .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
-            .add("MetaUrl").add("CompactionStatus")
-            .add("CooldownReplicaId").add("CooldownMetaId")
-            .build();
+    public static final ImmutableList<String> TITLE_NAMES;
+
+    static {
+        ImmutableList.Builder<String> builder = new ImmutableList.Builder<String>()
+                .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
+                .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
+                .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
+                .add("LstConsistencyCheckTime").add("CheckVersion")
+                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
+                .add("MetaUrl").add("CompactionStatus")
+                .add("CooldownReplicaId").add("CooldownMetaId");
+
+        if (Config.isCloudMode()) {
+            builder.add("PrimaryBackendId");
+        }
+
+        TITLE_NAMES = builder.build();
+    }
 
     private Table table;
     private MaterializedIndex index;
@@ -124,12 +134,15 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(FeConstants.null_string); // compaction status
                     tabletInfo.add(-1); // cooldown replica id
                     tabletInfo.add(""); // cooldown meta id
+                    if (Config.isCloudMode()) {
+                        tabletInfo.add(-1L); // primary backend id
+                    }
 
                     tabletInfos.add(tabletInfo);
                 } else {
                     for (Replica replica : tablet.getReplicas()) {
                         if ((version > -1 && replica.getVersion() != version)
-                                || (backendId > -1 && replica.getBackendId() != backendId)
+                                || (backendId > -1 && replica.getBackendIdWithoutException() != backendId)
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
@@ -137,7 +150,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         // tabletId -- replicaId -- backendId -- version -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
-                        tabletInfo.add(replica.getBackendId());
+                        tabletInfo.add(replica.getBackendIdWithoutException());
                         tabletInfo.add(replica.getSchemaHash());
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getLastSuccessVersion());
@@ -155,7 +168,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replicaIdToQueryHits.getOrDefault(replica.getId(), 0L));
                         tabletInfo.add(replica.getPathHash());
                         tabletInfo.add(pathHashToRoot.getOrDefault(replica.getPathHash(), ""));
-                        Backend be = backendMap.get(replica.getBackendId());
+                        Backend be = backendMap.get(replica.getBackendIdWithoutException());
                         String host = (be == null ? Backend.DUMMY_IP : be.getHost());
                         int port = (be == null ? 0 : be.getHttpPort());
                         String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
@@ -169,6 +182,9 @@ public class TabletsProcDir implements ProcDirInterface {
                             tabletInfo.add("");
                         } else {
                             tabletInfo.add(replica.getCooldownMetaId().toString());
+                        }
+                        if (Config.isCloudMode()) {
+                            tabletInfo.add(((CloudReplica) replica).getPrimaryBackendId());
                         }
                         tabletInfos.add(tabletInfo);
                     }

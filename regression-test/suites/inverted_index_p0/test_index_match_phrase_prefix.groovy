@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_prefix", "p0"){
+suite("test_index_match_phrase_prefix", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_prefix"
     def indexTbName2 = "test_index_match_phrase_prefix2"
 
@@ -98,28 +98,32 @@ suite("test_index_match_phrase_prefix", "p0"){
         load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
         qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'ima'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/h'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/hm'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix '/french/images/n'; """
+        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix '/french/tickets/images/ti'; """
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
+
         qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'ima'; """
         qt_sql """ select count() from ${indexTbName1} where request like '%ima%'; """
 
-        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/h'; """
         qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'images/h'; """
         qt_sql """ select count() from ${indexTbName1} where request like '%images/h%'; """
 
-        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/hm'; """
         qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix 'images/hm'; """
         qt_sql """ select count() from ${indexTbName1} where request like '%images/hm%'; """
 
-        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix '/french/images/n'; """
+
         qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix '/french/images/n'; """
         qt_sql """ select count() from ${indexTbName1} where request like '%/french/images/n%'; """
 
-        qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix '/french/tickets/images/ti'; """
         qt_sql """ select count() from ${indexTbName2} where request match_phrase_prefix '/french/tickets/images/ti'; """
         qt_sql """ select count() from ${indexTbName1} where request like '%/french/tickets/images/ti%'; """
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

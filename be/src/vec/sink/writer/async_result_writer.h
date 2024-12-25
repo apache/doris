@@ -19,7 +19,7 @@
 #include <concurrentqueue.h>
 
 #include <condition_variable>
-#include <queue>
+#include <queue> // IWYU pragma: keep
 
 #include "runtime/result_writer.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -49,7 +49,7 @@ class Block;
  *  pipeline execution engine performance.
  *
  *  The Sub class of AsyncResultWriter need to impl two virtual function
- *     * Status open() the first time IO work like: create file/ connect networking
+ *     * Status open() the first time IO work like: create file/ connect network
  *     * Status write() do the real IO work for block 
  */
 class AsyncResultWriter : public ResultWriter {
@@ -64,7 +64,7 @@ public:
 
     virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
 
-    // sink the block date to date queue, it is async
+    // sink the block data to data queue, it is async
     Status sink(Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
@@ -76,7 +76,7 @@ protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
 
-    std::unique_ptr<Block> _get_free_block(Block*, int rows);
+    std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
     void _return_free_block(std::unique_ptr<Block>);
 

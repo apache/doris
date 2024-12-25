@@ -41,10 +41,11 @@ public class JdbcDB2Client extends JdbcClient {
 
     @Override
     public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
+            conn = getConnection();
             if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
                 String currentDatabase = conn.getSchema().trim();
                 remoteDatabaseNames.add(currentDatabase);

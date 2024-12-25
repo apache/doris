@@ -325,8 +325,15 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
-                    dbName, partitionValues);
+            // Avoid printing too much log
+            String partitionValuesMsg;
+            if (partitionValues.size() <= 3) {
+                partitionValuesMsg = partitionValues.toString();
+            } else {
+                partitionValuesMsg = partitionValues.subList(0, 3) + "... total: " + partitionValues.size();
+            }
+            throw new HMSClientException("failed to get partition for table %s in db %s with value [%s]", e, tblName,
+                    dbName, partitionValuesMsg);
         }
     }
 
@@ -340,8 +347,15 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
-                    dbName, partitionNames);
+            // Avoid printing too much log
+            String partitionNamesMsg;
+            if (partitionNames.size() <= 3) {
+                partitionNamesMsg = partitionNames.toString();
+            } else {
+                partitionNamesMsg = partitionNames.subList(0, 3) + "... total: " + partitionNames.size();
+            }
+            throw new HMSClientException("failed to get partitions for table %s in db %s with value [%s]", e, tblName,
+                    dbName, partitionNamesMsg);
         }
     }
 

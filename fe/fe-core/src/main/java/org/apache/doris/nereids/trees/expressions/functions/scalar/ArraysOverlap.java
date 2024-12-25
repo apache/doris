@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,7 +40,7 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
-                    .args(ArrayType.of(new AnyDataType(0)), ArrayType.of(new FollowToAnyDataType(0)))
+                    .args(ArrayType.of(new AnyDataType(0)), ArrayType.of(new AnyDataType(0)))
     );
 
     /**

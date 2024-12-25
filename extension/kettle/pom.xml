@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.pentaho.di.plugins</groupId>
+    <artifactId>pdi-plugins</artifactId>
+    <version>9.4.0.0-343</version>
+  </parent>
+
+  <artifactId>doris-stream-loader</artifactId>
+  <version>9.4.0.0-343</version>
+  <packaging>pom</packaging>
+
+  <name>PDI Doris Stream Loader Plugin</name>
+  <description>This plugin is for pentaho Data integration (ETL) a.k.a kettle</description>
+  <url>http://www.pentaho.com/</url>
+
+  <modules>
+    <module>impl</module>
+    <module>ui</module>
+    <module>assemblies</module>
+  </modules>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+      <comments>A business-friendly OSS license</comments>
+    </license>
+  </licenses>
+
+  <properties>
+    <org.eclipse.swt.version>4.6</org.eclipse.swt.version>
+    <jface.version>3.3.0-I20070606-0010</jface.version>
+    <pdi.version>9.4.0.0-343</pdi.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>pentaho-kettle</groupId>
+        <artifactId>kettle-engine</artifactId>
+        <version>${pdi.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>pentaho-kettle</groupId>
+        <artifactId>kettle-core</artifactId>
+        <version>${pdi.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>pentaho-kettle</groupId>
+        <artifactId>kettle-ui-swt</artifactId>
+        <version>${pdi.version}</version>
+        <scope>provided</scope>
+      </dependency>
+
+      <!-- SWT is required to compile,inorder to work with architecture -->
+      <dependency>
+        <groupId>org.eclipse.swt</groupId>
+        <artifactId>org.eclipse.swt.gtk.linux.x86_64</artifactId>
+        <version>${org.eclipse.swt.version}</version>
+        <scope>provided</scope>
+        <exclusions>
+          <exclusion>
+            <artifactId>*</artifactId>
+            <groupId>*</groupId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse</groupId>
+        <artifactId>jface</artifactId>
+        <version>${jface.version}</version>
+        <scope>provided</scope>
+        <exclusions>
+          <exclusion>
+            <artifactId>*</artifactId>
+            <groupId>*</groupId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <!--test dependencies-->
+      <dependency>
+       <groupId>pentaho-kettle</groupId>
+       <artifactId>kettle-core</artifactId>
+       <version>${pdi.version}</version>
+       <classifier>tests</classifier>
+       <scope>test</scope>
+      </dependency>
+      <dependency>
+         <groupId>pentaho-kettle</groupId>
+         <artifactId>kettle-engine</artifactId>
+         <version>${pdi.version}</version>
+         <classifier>tests</classifier>
+         <scope>test</scope>
+       </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>

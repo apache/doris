@@ -69,10 +69,11 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
         file "baseall.txt"
     }
 
-    def load_with_injection = { injection, error_msg->
+    def load_with_injection = { injection, error_msg, success=false->
         try {
             GetDebugPoint().enableDebugPointForAllBEs(injection)
             sql "insert into test select * from baseall where k1 <= 3"
+            assertTrue(success, String.format("Expected Exception '%s', actual success", expect_errmsg))
         } catch(Exception e) {
             logger.info(e.getMessage())
             assertTrue(e.getMessage().contains(error_msg))
@@ -87,8 +88,6 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
     load_with_injection("StreamSinkFileWriter.finalize.finalize_failed", "failed to send segment eos to any replicas")
     // LoadStreams stream wait failed
     load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed", "StreamWrite failed, err=32")
-    // LoadStreams keeping stream when release
-    load_with_injection("LoadStreams.release.keeping_streams", "")
 
     sql """ DROP TABLE IF EXISTS `baseall` """
     sql """ DROP TABLE IF EXISTS `test` """

@@ -18,7 +18,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_partition_create_tablet_rr") {
+suite("test_partition_create_tablet_rr", "docker") {
     def options = new ClusterOptions()
     options.beNum = 1
     options.feConfigs.add('disable_balance=true')
@@ -26,7 +26,8 @@ suite("test_partition_create_tablet_rr") {
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'report_disk_state_interval_seconds=1',
-        "partition_disk_index_lru_size=$partition_disk_index_lru_size"
+        "partition_disk_index_lru_size=$partition_disk_index_lru_size",
+        'sys_log_verbose_modules=*'
     ]
     options.beDisks = ['HDD=4','SSD=4']
     options.enableDebugPoints()

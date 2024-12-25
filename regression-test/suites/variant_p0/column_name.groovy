@@ -28,8 +28,6 @@ suite("regression_test_variant_column_name", "variant_type"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """ 
 
-    // sql "set experimental_enable_nereids_planner = false"
-
     sql """insert into ${table_name} values (1, '{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}')"""
     qt_sql """select v['中文'], v['\\\u4E2C\\\u6587'] from ${table_name}"""
     // sql """insert into ${table_name} values (2, '{}')"""

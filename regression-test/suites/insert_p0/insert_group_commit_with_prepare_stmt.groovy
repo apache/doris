@@ -144,6 +144,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             UNIQUE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "40",
                 "replication_num" = "1"
             );
             """
@@ -206,6 +207,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             DUPLICATE KEY(`id`, `name`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
+                "group_commit_interval_ms" = "40",
                 "replication_num" = "1"
             );
             """

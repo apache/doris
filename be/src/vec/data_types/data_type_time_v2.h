@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -49,7 +50,7 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /**
  * Use UInt32 as underlying type to represent DateV2 type.
  * Specifically, a dateV2 type is represented as (YYYY (23 bits), MM (4 bits), dd (5 bits)).
@@ -73,7 +74,8 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         DateV2Value<DateV2ValueType> value;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+        if (value.from_date_str(node.date_literal.value.c_str(),
+                                cast_set<Int32>(node.date_literal.value.size()))) {
             return value.to_date_int_val();
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
@@ -150,8 +152,8 @@ public:
         DateV2Value<DateTimeV2ValueType> value;
         const int32_t scale =
                 node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size(),
-                                scale)) {
+        if (value.from_date_str(node.date_literal.value.c_str(),
+                                cast_set<int32_t>(node.date_literal.value.size()), scale)) {
             return value.to_date_int_val();
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
@@ -181,5 +183,5 @@ template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -65,8 +65,8 @@ public class Exists extends SubqueryExpr {
     }
 
     @Override
-    public String toSql() {
-        return "EXISTS (SUBQUERY) " + super.toSql();
+    public String computeToSql() {
+        return "EXISTS (SUBQUERY) " + super.computeToSql();
     }
 
     @Override

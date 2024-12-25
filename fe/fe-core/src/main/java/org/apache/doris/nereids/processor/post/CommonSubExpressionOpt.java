@@ -29,7 +29,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.collect.Lists;
 
-import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,8 +68,10 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
         for (Expression expr : projects) {
             expr.accept(collector, null);
         }
-        Map<Expression, Alias> aliasMap = new HashMap<>();
+        // use linkedHashMap to make projects order stable
+        Map<Expression, Alias> aliasMap = new LinkedHashMap<>();
         if (!collector.commonExprByDepth.isEmpty()) {
+            Set<Alias> previousAlias = new HashSet<>();
             for (int i = 1; i <= collector.commonExprByDepth.size(); i++) {
                 List<NamedExpression> layer = Lists.newArrayList();
                 layer.addAll(inputSlots);
@@ -87,7 +90,14 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                         aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
                     }
                 });
-                layer.addAll(aliasMap.values());
+                for (Alias alias : aliasMap.values()) {
+                    if (previousAlias.contains(alias)) {
+                        layer.add(alias.toSlot());
+                    } else {
+                        layer.add(alias);
+                        previousAlias.add(alias);
+                    }
+                }
                 multiLayers.add(layer);
             }
             // final layer

@@ -27,6 +27,7 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -55,6 +56,9 @@ public class JavaUdfDataType {
     public static final JavaUdfDataType DECIMAL64 = new JavaUdfDataType("DECIMAL64", TPrimitiveType.DECIMAL64, 8);
     public static final JavaUdfDataType DECIMAL128 = new JavaUdfDataType("DECIMAL128", TPrimitiveType.DECIMAL128I,
             16);
+
+    public static final JavaUdfDataType IPV4 = new JavaUdfDataType("IPV4", TPrimitiveType.IPV4, 4);
+    public static final JavaUdfDataType IPV6 = new JavaUdfDataType("IPV6", TPrimitiveType.IPV6, 16);
     public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfDataType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
     public static final JavaUdfDataType MAP_TYPE = new JavaUdfDataType("MAP_TYPE", TPrimitiveType.MAP, 0);
     public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfDataType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
@@ -83,6 +87,8 @@ public class JavaUdfDataType {
         JavaUdfDataTypeSet.add(ARRAY_TYPE);
         JavaUdfDataTypeSet.add(MAP_TYPE);
         JavaUdfDataTypeSet.add(STRUCT_TYPE);
+        JavaUdfDataTypeSet.add(IPV4);
+        JavaUdfDataTypeSet.add(IPV6);
     }
 
     private final String description;
@@ -156,6 +162,8 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE, JavaUdfDataType.STRUCT_TYPE);
         } else if (c == java.util.HashMap.class) {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
+        } else if (c == InetAddress.class) {
+            return Sets.newHashSet(JavaUdfDataType.IPV4, JavaUdfDataType.IPV6);
         }
         return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
     }

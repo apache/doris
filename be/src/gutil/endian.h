@@ -60,8 +60,8 @@ inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
 }
 
 inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
-    wide::UInt256 result{gbswap_64(host_int.items[3]), gbswap_64(host_int.items[2]),
-                         gbswap_64(host_int.items[1]), gbswap_64(host_int.items[0])};
+    wide::UInt256 result {gbswap_64(host_int.items[3]), gbswap_64(host_int.items[2]),
+                          gbswap_64(host_int.items[1]), gbswap_64(host_int.items[0])};
     return result;
 }
 
@@ -136,6 +136,9 @@ public:
     static unsigned __int128 FromHost128(unsigned __int128 x) { return x; }
     static unsigned __int128 ToHost128(unsigned __int128 x) { return x; }
 
+    static wide::UInt256 FromHost256(wide::UInt256 x) { return x; }
+    static wide::UInt256 ToHost256(wide::UInt256 x) { return x; }
+
     static bool IsLittleEndian() { return true; }
 
 #elif defined IS_BIG_ENDIAN
@@ -148,6 +151,12 @@ public:
 
     static uint64 FromHost64(uint64 x) { return gbswap_64(x); }
     static uint64 ToHost64(uint64 x) { return gbswap_64(x); }
+
+    static unsigned __int128 FromHost128(unsigned __int128 x) { return gbswap_128(x); }
+    static unsigned __int128 ToHost128(unsigned __int128 x) { return gbswap_128(x); }
+
+    static wide::UInt256 FromHost256(wide::UInt256 x) { return gbswap_256(x); }
+    static wide::UInt256 ToHost256(wide::UInt256 x) { return gbswap_256(x); }
 
     static bool IsLittleEndian() { return false; }
 

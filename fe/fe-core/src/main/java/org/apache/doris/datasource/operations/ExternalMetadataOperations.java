@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.operations;
 
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
@@ -34,7 +34,7 @@ public class ExternalMetadataOperations {
         return new HiveMetadataOps(hiveConf, jdbcClientConfig, catalog);
     }
 
-    public static IcebergMetadataOps newIcebergMetadataOps(IcebergExternalCatalog dorisCatalog, Catalog catalog) {
+    public static IcebergMetadataOps newIcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         return new IcebergMetadataOps(dorisCatalog, catalog);
     }
 }

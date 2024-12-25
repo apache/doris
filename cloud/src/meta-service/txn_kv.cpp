@@ -140,6 +140,10 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
     return TxnErrorCode::TXN_OK;
 }
 
+double FdbTxnKv::get_client_thread_busyness() const {
+    return fdb_database_get_main_thread_busyness(database_->db());
+}
+
 } // namespace doris::cloud
 
 namespace doris::cloud::fdb {
@@ -373,6 +377,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
+    g_bvar_txn_kv_get_count_normalized << 1;
     auto release_fut = [fut, &sw](int*) {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get << sw.elapsed_us();
@@ -430,6 +435,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
 
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
+    g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
 
@@ -615,6 +621,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 
     size_t num_keys = keys.size();
     res->reserve(keys.size());
+    g_bvar_txn_kv_get_count_normalized << keys.size();
     std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
     futures.reserve(opts.concurrency);
     for (size_t i = 0; i < num_keys; i += opts.concurrency) {

@@ -68,8 +68,8 @@ suite("test_javaudtf_int") {
         qt_select1 """ SELECT user_id, varchar_col, e1 FROM ${tableName} lateral view  udtf_int(user_id) temp as e1 order by user_id; """
 
         test {
-            sql """ select /*+SET_VAR(enable_fallback_to_original_planner=true)*/ udtf_int(1); """
-            exception "UDTF function do not support this"
+            sql """ select udtf_int(1); """
+            exception "PROJECT can not contains TableGeneratingFunction expression: udtf_int(1)"
         }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udtf_int(int);")

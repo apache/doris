@@ -27,7 +27,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 
@@ -60,6 +60,9 @@ public class PluginMgr implements Writable {
 
     // all dynamic plugins should have unique names,
     private final Set<String> dynamicPluginNames;
+
+    // Save this handler for external call
+    private AuditLoader auditLoader = null;
 
     public PluginMgr() {
         plugins = new Map[PluginType.MAX_PLUGIN_TYPE_SIZE];
@@ -113,8 +116,8 @@ public class PluginMgr implements Writable {
         }
 
         // AuditLoader: log audit log to internal table
-        AuditLoaderPlugin auditLoaderPlugin = new AuditLoaderPlugin();
-        if (!registerBuiltinPlugin(auditLoaderPlugin.getPluginInfo(), auditLoaderPlugin)) {
+        this.auditLoader = new AuditLoader();
+        if (!registerBuiltinPlugin(auditLoader.getPluginInfo(), auditLoader)) {
             LOG.warn("failed to register audit log builder");
         }
 
@@ -293,6 +296,10 @@ public class PluginMgr implements Writable {
 
         m.values().forEach(d -> {
             if (d.getStatus() == PluginStatus.INSTALLED) {
+                if (d.getPlugin() == null) {
+                    LOG.warn("PluginLoader({}) status is INSTALLED, but plugin is null", d);
+                    return;
+                }
                 l.add(d.getPlugin());
             }
         });
@@ -357,6 +364,12 @@ public class PluginMgr implements Writable {
             }
         }
         return rows;
+    }
+
+    public void flushAuditLog() {
+        if (auditLoader != null) {
+            auditLoader.loadIfNecessary(true);
+        }
     }
 
     public void readFields(DataInputStream dis) throws IOException {

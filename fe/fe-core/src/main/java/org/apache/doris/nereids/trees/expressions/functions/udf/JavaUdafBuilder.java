@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -48,6 +49,11 @@ public class JavaUdafBuilder extends UdfBuilder {
         return Suppliers.memoize(() -> udaf.getSignatures().get(0).argumentsTypes.stream()
                 .map(DataType.class::cast)
                 .collect(Collectors.toList())).get();
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return udaf.getSignatures();
     }
 
     @Override

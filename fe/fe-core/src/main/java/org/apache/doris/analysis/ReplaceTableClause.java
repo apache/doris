@@ -37,11 +37,14 @@ public class ReplaceTableClause extends AlterTableClause {
     // if true, the new table and the old table will be exchanged.
     // default is true.
     private boolean swapTable;
+    // isForce used when swap is false, then original table need to keep in recycle bin or not.
+    private boolean isForce;
 
-    public ReplaceTableClause(String tblName, Map<String, String> properties) {
+    public ReplaceTableClause(String tblName, Map<String, String> properties, boolean isForce) {
         super(AlterOpType.REPLACE_TABLE);
         this.tblName = tblName;
         this.properties = properties;
+        this.isForce = isForce;
     }
 
     public String getTblName() {
@@ -50,6 +53,10 @@ public class ReplaceTableClause extends AlterTableClause {
 
     public boolean isSwapTable() {
         return swapTable;
+    }
+
+    public boolean isForce() {
+        return isForce;
     }
 
     @Override

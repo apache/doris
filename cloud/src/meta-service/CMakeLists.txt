@@ -12,6 +12,7 @@ add_library(MetaService
     meta_server.cpp
     meta_service.cpp
     meta_service_http.cpp
+    injection_point_http.cpp
     meta_service_job.cpp
     meta_service_resource.cpp
     meta_service_schema.cpp
@@ -24,4 +25,5 @@ add_library(MetaService
     doris_txn.cpp
     mem_txn_kv.cpp
     http_encode_key.cpp
+    txn_lazy_committer.cpp
 )

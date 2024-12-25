@@ -20,10 +20,15 @@ suite("test_export_max_file_size", "p2") {
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
-    String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-    String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
-    String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
-    String user_name = context.config.otherConfigs.get("extHiveHmsUser")
+    String dfsNameservices=context.config.otherConfigs.get("dfsNameservices")
+    String dfsHaNamenodesHdfsCluster=context.config.otherConfigs.get("dfsHaNamenodesHdfsCluster")
+    String dfsNamenodeRpcAddress1=context.config.otherConfigs.get("dfsNamenodeRpcAddress1")
+    String dfsNamenodeRpcAddress2=context.config.otherConfigs.get("dfsNamenodeRpcAddress2")
+    String dfsNamenodeRpcAddress3=context.config.otherConfigs.get("dfsNamenodeRpcAddress3")
+    String dfsNameservicesPort=context.config.otherConfigs.get("dfsNameservicesPort")
+    String hadoopSecurityAuthentication =context.config.otherConfigs.get("hadoopSecurityAuthentication")
+    String hadoopKerberosKeytabPath =context.config.otherConfigs.get("hadoopKerberosKeytabPath")
+    String hadoopKerberosPrincipal =context.config.otherConfigs.get("hadoopKerberosPrincipal")
 
 
     def table_export_name = "test_export_max_file_size"
@@ -76,10 +81,19 @@ suite("test_export_max_file_size", "p2") {
     sql """ 
             insert into ${table_export_name}
             select * from hdfs(
-            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}${load_data_path}",
-            "hadoop.username" = "${user_name}",
-            "column_separator" = ",",
-            "format" = "csv");
+                "uri" = "hdfs://${dfsNameservices}${load_data_path}",
+                "format" = "csv",
+                "dfs.data.transfer.protection" = "integrity",
+                'dfs.nameservices'="${dfsNameservices}",
+                'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
+                'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
+                'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
+                'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
+                'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
+                'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
+                'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
+                'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            );
         """
 
     
@@ -104,17 +118,24 @@ suite("test_export_max_file_size", "p2") {
         def uuid = UUID.randomUUID().toString()
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "${fs}${outFilePath}"
+            EXPORT TABLE ${table_export_name} TO "hdfs://${dfsNameservices}${outFilePath}"
             PROPERTIES(
                 "label" = "${uuid}",
                 "format" = "${format}",
-                "column_separator"=",",
                 "max_file_size" = "5MB",
                 "delete_existing_files"="${isDelete}"
             )
             with HDFS (
-                "fs.defaultFS"="${fs}",
-                "hadoop.username" = "${user_name}"
+                "dfs.data.transfer.protection" = "integrity",
+                'dfs.nameservices'="${dfsNameservices}",
+                'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
+                'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
+                'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
+                'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
+                'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
+                'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
+                'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
+                'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             );
         """
 
@@ -129,16 +150,26 @@ suite("test_export_max_file_size", "p2") {
             sql """ 
                 insert into ${table_load_name}
                 select * from hdfs(
-                "uri" = "${outfile_url}${j}.csv",
-                "hadoop.username" = "${user_name}",
-                "column_separator" = ",",
-                "format" = "csv");
+                    "uri" = "${outfile_url}${j}.csv",
+                    "format" = "csv",
+                    "dfs.data.transfer.protection" = "integrity",
+                    'dfs.nameservices'="${dfsNameservices}",
+                    'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
+                    'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
+                    'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
+                    'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
+                    'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
+                    'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
+                    'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
+                    'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                );
             """
         }
     }
 
     // begin test
     test_export('csv', 'csv', true);
-    order_qt_select """ select * from ${table_load_name} order by user_id limit 1000"""
+    order_qt_select """ select * from ${table_load_name} order by user_id limit 1000 """
+    order_qt_select_cnt """ select count(*) from ${table_load_name} """
 
 }

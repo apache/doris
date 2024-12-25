@@ -104,5 +104,27 @@ public:
     static void read_int_metric_from_cgroup_file(
             const std::filesystem::path& file_path,
             std::unordered_map<std::string, int64_t>& metrics_map);
+
+    static Status read_string_line_from_cgroup_file(const std::filesystem::path& file_path,
+                                                    std::string* line_ptr);
+
+    // cpuset_line: 0-4,6,8-10
+    static Status parse_cpuset_line(std::string cpuset_line, int* cpu_count_ptr);
+
+    static int get_cgroup_limited_cpu_number(int physical_cores);
+
+    static int get_cgroup_v2_cpu_quota_number(std::filesystem::path& current_path,
+                                              const std::filesystem::path& default_cg_mout_path,
+                                              int cpu_num);
+
+    static int get_cgroup_v2_cpuset_number(std::filesystem::path& current_path,
+                                           const std::filesystem::path& default_cg_mout_path,
+                                           int cpu_num);
+
+    static int get_cgroup_v1_cpu_quota_number(std::filesystem::path& current_path,
+                                              const std::filesystem::path& default_cg_mout_path,
+                                              int cpu_num);
+
+    static int get_cgroup_v1_cpuset_number(std::filesystem::path& current_path, int cpu_num);
 };
 } // namespace doris

@@ -19,12 +19,10 @@
 
 #include <bvar/bvar.h>
 
+#include "runtime/process_profile.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
-
-std::mutex GlobalMemoryArbitrator::_reserved_trackers_lock;
-std::unordered_map<std::string, MemTracker::MemCounter> GlobalMemoryArbitrator::_reserved_trackers;
 
 bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
         "meminfo_vm_rss_sub_allocator_cache",
@@ -36,14 +34,22 @@ bvar::PassiveStatus<int64_t> g_sys_mem_avail(
         "meminfo_sys_mem_avail", [](void*) { return GlobalMemoryArbitrator::sys_mem_available(); },
         nullptr);
 
-std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
+std::atomic<int64_t> GlobalMemoryArbitrator::_process_reserved_memory = 0;
 std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
+std::mutex GlobalMemoryArbitrator::cache_adjust_capacity_lock;
+std::condition_variable GlobalMemoryArbitrator::cache_adjust_capacity_cv;
+std::atomic<bool> GlobalMemoryArbitrator::cache_adjust_capacity_notify {false};
+std::atomic<double> GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted {1};
+std::mutex GlobalMemoryArbitrator::memtable_memory_refresh_lock;
+std::condition_variable GlobalMemoryArbitrator::memtable_memory_refresh_cv;
+std::atomic<bool> GlobalMemoryArbitrator::memtable_memory_refresh_notify {false};
 
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
+        doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
         return false;
     }
-    int64_t old_reserved_mem = _s_process_reserved_memory.load(std::memory_order_relaxed);
+    int64_t old_reserved_mem = _process_reserved_memory.load(std::memory_order_relaxed);
     int64_t new_reserved_mem = 0;
     do {
         new_reserved_mem = old_reserved_mem + bytes;
@@ -51,32 +57,24 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
                              refresh_interval_memory_growth.load(std::memory_order_relaxed) +
                              new_reserved_mem >=
                      MemInfo::soft_mem_limit())) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
             return false;
         }
-    } while (!_s_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
-                                                               std::memory_order_relaxed));
-    {
-        std::lock_guard<std::mutex> l(_reserved_trackers_lock);
-        _reserved_trackers[doris::thread_context()->thread_mem_tracker()->label()].add(bytes);
-    }
+    } while (!_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
+                                                             std::memory_order_relaxed));
     return true;
 }
 
 void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
-    _s_process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
-    {
-        std::lock_guard<std::mutex> l(_reserved_trackers_lock);
-        auto label = doris::thread_context()->thread_mem_tracker()->label();
-        auto it = _reserved_trackers.find(label);
-        if (it == _reserved_trackers.end()) {
-            DCHECK(false) << "release unknown reserved memory " << label << ", bytes: " << bytes;
-            return;
-        }
-        _reserved_trackers[label].sub(bytes);
-        if (_reserved_trackers[label].current_value() == 0) {
-            _reserved_trackers.erase(it);
-        }
+    _process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
+}
+
+int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {
+    doris::ThreadContext* thread_context = doris::thread_context(true);
+    if (thread_context) {
+        return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
     }
+    return bytes;
 }
 
 } // namespace doris

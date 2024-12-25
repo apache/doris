@@ -23,12 +23,14 @@ import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -78,6 +80,13 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
         String ruleName = stmt.getRuleName();
+        return getSqlBlockRule(ruleName);
+    }
+
+    /**
+     * Get SqlBlockRule by rulename.
+     **/
+    public List<SqlBlockRule> getSqlBlockRule(String ruleName) throws AnalysisException {
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
@@ -107,12 +116,15 @@ public class SqlBlockRuleMgr implements Writable {
      * Create SqlBlockRule for create stmt.
      **/
     public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
+        createSqlBlockRule(SqlBlockRule.fromCreateStmt(stmt), stmt.isIfNotExists());
+    }
+
+    public void createSqlBlockRule(SqlBlockRule sqlBlockRule, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
-            SqlBlockRule sqlBlockRule = SqlBlockRule.fromCreateStmt(stmt);
             String ruleName = sqlBlockRule.getName();
             if (existRule(ruleName)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("the sql block rule " + ruleName + " already create");
@@ -137,9 +149,12 @@ public class SqlBlockRuleMgr implements Writable {
      * Alter SqlBlockRule for alter stmt.
      **/
     public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
+        alterSqlBlockRule(SqlBlockRule.fromAlterStmt(stmt));
+    }
+
+    public void alterSqlBlockRule(SqlBlockRule sqlBlockRule) throws AnalysisException, DdlException {
         writeLock();
         try {
-            SqlBlockRule sqlBlockRule = SqlBlockRule.fromAlterStmt(stmt);
             String ruleName = sqlBlockRule.getName();
             if (!existRule(ruleName)) {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
@@ -194,12 +209,15 @@ public class SqlBlockRuleMgr implements Writable {
      * Drop SqlBlockRule for drop stmt.
      **/
     public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
+        dropSqlBlockRule(stmt.getRuleNames(), stmt.isIfExists());
+    }
+
+    public void dropSqlBlockRule(List<String> ruleNames, boolean isIfExists) throws DdlException {
         writeLock();
         try {
-            List<String> ruleNames = stmt.getRuleNames();
             for (String ruleName : ruleNames) {
                 if (!existRule(ruleName)) {
-                    if (stmt.isIfExists()) {
+                    if (isIfExists) {
                         continue;
                     }
                     throw new DdlException("the sql block rule " + ruleName + " not exist");
@@ -225,6 +243,9 @@ public class SqlBlockRuleMgr implements Writable {
      * Match SQL according to rules.
      **/
     public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
+        if (Config.sql_block_rule_ignore_admin && (Auth.ROOT_USER.equals(user) || Auth.ADMIN_USER.equals(user))) {
+            return;
+        }
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().internalSession) {
             return;

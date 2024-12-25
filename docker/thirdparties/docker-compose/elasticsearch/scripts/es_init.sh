@@ -48,11 +48,14 @@ curl "http://${ES_5_HOST}:9200/test1" -H "Content-Type:application/json" -X PUT 
 curl "http://${ES_5_HOST}:9200/test2_20220808" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test2.json'
 # create index test2_20220809
 curl "http://${ES_5_HOST}:9200/test2_20220809" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test2.json'
+# create index test3_20231005
+curl "http://${ES_5_HOST}:9200/test3_20231005" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test3.json'
 # put data for test1
 curl "http://${ES_5_HOST}:9200/test1/doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1_es6.json'
 curl "http://${ES_5_HOST}:9200/test1/doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2_es6.json'
 # only difference between es5 and es6
 curl "http://${ES_5_HOST}:9200/test1/doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3_es5.json'
+curl "http://${ES_5_HOST}:9200/test1/doc/4" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data4_es6.json'
 # put data for test2_20220808
 curl "http://${ES_5_HOST}:9200/test2_20220808/doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1_es6.json'
 curl "http://${ES_5_HOST}:9200/test2_20220808/doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2_es6.json'
@@ -61,6 +64,8 @@ curl "http://${ES_5_HOST}:9200/test2_20220808/doc/3" -H "Content-Type:applicatio
 curl "http://${ES_5_HOST}:9200/test2_20220809/doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1_es6.json'
 curl "http://${ES_5_HOST}:9200/test2_20220809/doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2_es6.json'
 curl "http://${ES_5_HOST}:9200/test2_20220809/doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3_es5.json'
+# put data for test3_20231005
+curl "http://${ES_5_HOST}:9200/test3_20231005/doc/1?routing=my_routing_value" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data6.json'
 # put _meta for array
 curl "http://${ES_5_HOST}:9200/test1/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
 curl "http://${ES_5_HOST}:9200/test2_20220808/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
@@ -84,10 +89,13 @@ curl "http://${ES_6_HOST}:9200/test1" -H "Content-Type:application/json" -X PUT 
 curl "http://${ES_6_HOST}:9200/test2_20220808" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test2.json'
 # create index test2_20220809
 curl "http://${ES_6_HOST}:9200/test2_20220809" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test2.json'
+# create index test3_20231005
+curl "http://${ES_6_HOST}:9200/test3_20231005" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test3.json'
 # put data for test1
 curl "http://${ES_6_HOST}:9200/test1/doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1_es6.json'
 curl "http://${ES_6_HOST}:9200/test1/doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2_es6.json'
 curl "http://${ES_6_HOST}:9200/test1/doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3_es6.json'
+curl "http://${ES_6_HOST}:9200/test1/doc/4" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data4_es6.json'
 # put data for test2_20220808
 curl "http://${ES_6_HOST}:9200/test2_20220808/doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1_es6.json'
 curl "http://${ES_6_HOST}:9200/test2_20220808/doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2_es6.json'
@@ -96,6 +104,8 @@ curl "http://${ES_6_HOST}:9200/test2_20220808/doc/3" -H "Content-Type:applicatio
 curl "http://${ES_6_HOST}:9200/test2_20220809/doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1_es6.json'
 curl "http://${ES_6_HOST}:9200/test2_20220809/doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2_es6.json'
 curl "http://${ES_6_HOST}:9200/test2_20220809/doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3_es6.json'
+# put data for test3_20231005
+curl "http://${ES_6_HOST}:9200/test3_20231005/doc/1?routing=my_routing_value" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data6.json'
 # put _meta for array
 curl "http://${ES_6_HOST}:9200/test1/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
 curl "http://${ES_6_HOST}:9200/test2_20220808/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
@@ -125,6 +135,7 @@ curl "http://${ES_7_HOST}:9200/test1/_doc/1" -H "Content-Type:application/json" 
 curl "http://${ES_7_HOST}:9200/test1/_doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2.json'
 curl "http://${ES_7_HOST}:9200/test1/_doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3.json'
 curl "http://${ES_7_HOST}:9200/test1/_doc/4" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data4.json'
+curl "http://${ES_7_HOST}:9200/test1/_doc/5" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data5.json'
 # put data for test2_20220808
 curl "http://${ES_7_HOST}:9200/test2_20220808/_doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1.json'
 curl "http://${ES_7_HOST}:9200/test2_20220808/_doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2.json'
@@ -136,7 +147,7 @@ curl "http://${ES_7_HOST}:9200/test2_20220809/_doc/2" -H "Content-Type:applicati
 curl "http://${ES_7_HOST}:9200/test2_20220809/_doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3.json'
 curl "http://${ES_7_HOST}:9200/test2_20220809/_doc/4" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data4.json'
 # put data for test3_20231005
-curl "http://${ES_7_HOST}:9200/test3_20231005/_doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data5.json'
+curl "http://${ES_7_HOST}:9200/test3_20231005/_doc/1?routing=my_routing_value" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data6.json'
 
 # put _meta for array
 curl "http://${ES_7_HOST}:9200/test1/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
@@ -170,6 +181,7 @@ curl "http://${ES_8_HOST}:9200/test1/_doc/1" -H "Content-Type:application/json" 
 curl "http://${ES_8_HOST}:9200/test1/_doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2.json'
 curl "http://${ES_8_HOST}:9200/test1/_doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3.json'
 curl "http://${ES_8_HOST}:9200/test1/_doc/4" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data4.json'
+curl "http://${ES_8_HOST}:9200/test1/_doc/5" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data5.json'
 # put data for test2_20220808
 curl "http://${ES_8_HOST}:9200/test2_20220808/_doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1.json'
 curl "http://${ES_8_HOST}:9200/test2_20220808/_doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2.json'
@@ -181,7 +193,7 @@ curl "http://${ES_8_HOST}:9200/test2_20220809/_doc/2" -H "Content-Type:applicati
 curl "http://${ES_8_HOST}:9200/test2_20220809/_doc/3" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data3.json'
 curl "http://${ES_8_HOST}:9200/test2_20220809/_doc/4" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data4.json'
 # put data for test3_20231005
-curl "http://${ES_8_HOST}:9200/test3_20231005/_doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data5.json'
+curl "http://${ES_8_HOST}:9200/test3_20231005/_doc/1?routing=my_routing_value" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data6.json'
 
 # put _meta for array
 curl "http://${ES_8_HOST}:9200/test1/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"

@@ -27,6 +27,7 @@ Suite.metaClass.get_catalog_id = {String catalog_name /* param */ ->
         }
     }
     log.info("get catalogid: " + catalog_id)
+    log.info("show proc info: " + catalogs)
     return catalog_id
 }
 

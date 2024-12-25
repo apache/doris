@@ -66,7 +66,6 @@ public class WindowExpression extends Expression {
                 .add(function)
                 .addAll(partitionKeys)
                 .addAll(orderKeys)
-                .add(windowFrame)
                 .build());
         this.function = function;
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
@@ -153,6 +152,9 @@ public class WindowExpression extends Expression {
         if (index < children.size()) {
             return new WindowExpression(func, partitionKeys, orderKeys, (WindowFrame) children.get(index));
         }
+        if (windowFrame.isPresent()) {
+            return new WindowExpression(func, partitionKeys, orderKeys, windowFrame.get());
+        }
         return new WindowExpression(func, partitionKeys, orderKeys);
     }
 
@@ -177,7 +179,7 @@ public class WindowExpression extends Expression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(function.toSql()).append(" OVER(");
         if (!partitionKeys.isEmpty()) {

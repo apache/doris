@@ -20,6 +20,8 @@ package org.apache.doris.common.jni.utils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -56,6 +58,20 @@ public class TypeNativeBytes {
         // Convert the byte order back if necessary
         byte[] originalBytes = convertByteOrder(bytes);
         return new BigInteger(originalBytes);
+    }
+
+    public static InetAddress getInetAddress(byte[] bytes) {
+        // Convert the byte order back if necessary
+        byte[] originalBytes = convertByteOrder(bytes);
+        try {
+            return InetAddress.getByAddress(originalBytes);
+        } catch (UnknownHostException e) {
+            return null;
+        }
+    }
+
+    public static byte[] getInetAddressBytes(InetAddress v) {
+        return convertByteOrder(v.getAddress());
     }
 
     public static byte[] getDecimalBytes(BigDecimal v, int scale, int size) {

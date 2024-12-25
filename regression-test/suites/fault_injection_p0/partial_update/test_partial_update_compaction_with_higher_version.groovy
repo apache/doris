@@ -194,7 +194,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
 
         // let the second partial update load publish
         disable_block_in_publish()
-        t1.join()
+        t2.join()
         Thread.sleep(300)
 
         order_qt_sql "select * from ${table1};"

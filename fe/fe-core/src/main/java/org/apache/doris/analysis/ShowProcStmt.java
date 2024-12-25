@@ -31,7 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROC statement. Used to show proc information, only admin can use.
-public class ShowProcStmt extends ShowStmt {
+public class ShowProcStmt extends ShowStmt implements NotFallbackInParser {
     private String path;
     private ProcNodeInterface node;
 

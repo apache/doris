@@ -152,7 +152,7 @@ suite("test_ingest_binlog_index") {
         }
 
         target_sql " sync "
-        res = target_sql """SELECT * FROM ${tableName}"""
+        def res = target_sql """SELECT * FROM ${tableName}"""
         if (tableName.contains("mow")) {
             assertEquals(res.size(), insert_data(tableName).size() / 2 as Integer)
         } else {

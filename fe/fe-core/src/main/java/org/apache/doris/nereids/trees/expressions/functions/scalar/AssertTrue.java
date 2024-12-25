@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
@@ -36,7 +37,7 @@ import java.util.List;
  * ScalarFunction 'assert_true'.
  */
 public class AssertTrue extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, NoneMovableFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).args(BooleanType.INSTANCE, VarcharType.SYSTEM_DEFAULT));

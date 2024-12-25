@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_policy.h"
@@ -33,7 +34,7 @@
 
 namespace doris {
 
-class RowsetMeta {
+class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
     ~RowsetMeta();
@@ -363,9 +364,10 @@ public:
         return _rowset_meta_pb.inverted_index_file_info();
     }
 
-    void add_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+    void add_inverted_index_files_info(
+            const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
 
-    void update_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+    int64_t get_metadata_size() const override;
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

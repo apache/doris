@@ -33,6 +33,7 @@
 #include "agent/utils.h"
 #include "agent/workload_group_listener.h"
 #include "agent/workload_sched_policy_listener.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -48,9 +49,9 @@ using std::vector;
 
 namespace doris {
 
-AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
-        : _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
-    MasterServerClient::create(master_info);
+AgentServer::AgentServer(ExecEnv* exec_env, const ClusterInfo* cluster_info)
+        : _cluster_info(cluster_info), _topic_subscriber(new TopicSubscriber()) {
+    MasterServerClient::create(cluster_info);
 
 #if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
@@ -169,7 +170,7 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
             "ALTER_TABLE", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
 
     _workers[TTaskType::CLONE] = std::make_unique<TaskWorkerPool>(
-            "CLONE", config::clone_worker_count, [&engine, &master_info = _master_info](auto&& task) { return clone_callback(engine, master_info, task); });
+            "CLONE", config::clone_worker_count, [&engine, &cluster_info = _cluster_info](auto&& task) { return clone_callback(engine, cluster_info, task); });
 
     _workers[TTaskType::STORAGE_MEDIUM_MIGRATE] = std::make_unique<TaskWorkerPool>(
             "STORAGE_MEDIUM_MIGRATE", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
@@ -187,13 +188,13 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
             "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
+            "REPORT_TASK", _cluster_info, config::report_task_interval_seconds, [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds, [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
+            "REPORT_DISK_STATE", _cluster_info, config::report_disk_state_interval_seconds, [&engine, &cluster_info = _cluster_info] { report_disk_callback(engine, cluster_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_OLAP_TABLE", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); }));
+            "REPORT_OLAP_TABLET", _cluster_info, config::report_tablet_interval_seconds,[&engine, &cluster_info = _cluster_info] { report_tablet_callback(engine, cluster_info); }));
     // clang-format on
 }
 
@@ -211,13 +212,27 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
             [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
-    _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _master_info, config::report_task_interval_seconds,
-            [&master_info = _master_info] { report_task_callback(master_info); }));
+    // cloud, drop tablet just clean clear_cache, so just one thread do it
+    _workers[TTaskType::DROP] = std::make_unique<TaskWorkerPool>(
+            "DROP_TABLE", 1, [&engine](auto&& task) { return drop_tablet_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
-            [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
+            "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
+            [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_DISK_STATE", _cluster_info, config::report_disk_state_interval_seconds,
+            [&engine, &cluster_info = _cluster_info] {
+                report_disk_callback(engine, cluster_info);
+            }));
+
+    if (config::enable_cloud_tablet_report) {
+        _report_workers.push_back(std::make_unique<ReportWorker>(
+                "REPORT_OLAP_TABLET", _cluster_info, config::report_tablet_interval_seconds,
+                [&engine, &cluster_info = _cluster_info] {
+                    report_tablet_callback(engine, cluster_info);
+                }));
+    }
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
@@ -226,8 +241,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                                const std::vector<TAgentTaskRequest>& tasks) {
     Status ret_st;
 
-    // TODO check master_info here if it is the same with that of heartbeat rpc
-    if (_master_info.network_address.hostname.empty() || _master_info.network_address.port == 0) {
+    // TODO check cluster_info here if it is the same with that of heartbeat rpc
+    if (_cluster_info->master_fe_addr.hostname.empty() || _cluster_info->master_fe_addr.port == 0) {
         Status ret_st = Status::Cancelled("Have not get FE Master heartbeat yet");
         ret_st.to_thrift(&agent_result.status);
         return;

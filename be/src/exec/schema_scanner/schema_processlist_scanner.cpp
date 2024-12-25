@@ -30,6 +30,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_columns = {
         {"CURRENT_CONNECTED", TYPE_VARCHAR, sizeof(StringRef), false},
@@ -126,7 +127,7 @@ Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[row_idx] = &int_vals[row_idx];
             } else if (_s_processlist_columns[col_idx].type == TYPE_DATETIMEV2) {
                 auto* dv = reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(&int_vals[row_idx]);
-                if (!dv->from_date_str(column_value.data(), column_value.size(), -1,
+                if (!dv->from_date_str(column_value.data(), (int)column_value.size(), -1,
                                        config::allow_zero_date)) {
                     return Status::InternalError(
                             "process list meet invalid data, column={}, data={}, reason={}",

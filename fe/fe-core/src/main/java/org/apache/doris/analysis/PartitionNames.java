@@ -81,6 +81,14 @@ public class PartitionNames implements ParseNode, Writable {
         this.count = partitionCount;
     }
 
+    // for nereids
+    public PartitionNames(boolean isTemp, List<String> partitionNames, boolean isStar, long partitionCount) {
+        this.partitionNames = partitionNames;
+        this.isTemp = isTemp;
+        this.isStar = isStar;
+        this.count = partitionCount;
+    }
+
     public List<String> getPartitionNames() {
         return partitionNames;
     }

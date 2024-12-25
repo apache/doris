@@ -17,7 +17,6 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/functions/array/function_array_binary.h"
 #include "vec/functions/array/function_array_map.h"
 #include "vec/functions/array/function_array_nary.h"
@@ -25,6 +24,7 @@
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
 struct NameArrayIntersect {
     static constexpr auto name = "array_intersect";
 };
@@ -42,7 +42,7 @@ struct IntersectAction {
     bool apply_null() { return result_null_flag; }
 
     // Handle Non-Null element.
-    void apply(Map& map, const int arg_idx, const int row_idx,
+    void apply(Map& map, const size_t arg_idx, const size_t row_idx,
                const ColumnArrayExecutionData& param) {
         current_null_flag = false;
         size_t start_off = (*param.offsets_ptr)[row_idx - 1];

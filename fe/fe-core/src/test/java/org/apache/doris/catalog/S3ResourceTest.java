@@ -222,4 +222,20 @@ public class S3ResourceTest {
         modify.put("s3.access_key", "aaa");
         s3Resource.modifyProperties(modify);
     }
+
+    @Test
+    public void testHttpScheme() throws DdlException {
+        // if https:// is set, it should be replaced with http://
+        Map<String, String> properties = new HashMap<>();
+        properties.put("AWS_ENDPOINT", "https://aaa");
+        properties.put("AWS_REGION", "bbb");
+        properties.put("AWS_ROOT_PATH", "/path/to/root");
+        properties.put("AWS_ACCESS_KEY", "xxx");
+        properties.put("AWS_SECRET_KEY", "yyy");
+        properties.put("AWS_BUCKET", "test-bucket");
+        properties.put("s3_validity_check", "false");
+        S3Resource s3Resource = new S3Resource("s3_2");
+        s3Resource.setProperties(properties);
+        Assert.assertEquals(s3Resource.getProperty(S3Properties.ENDPOINT), "https://aaa");
+    }
 }

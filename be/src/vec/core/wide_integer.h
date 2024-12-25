@@ -79,7 +79,12 @@ public:
     // ctors
     constexpr integer() noexcept = default;
 
+    template <size_t Bits2, typename Signed2>
+    constexpr integer(const integer<Bits2, Signed2> rhs) noexcept;
+
     template <typename T>
+        requires(std::is_arithmetic_v<T> || std::is_same_v<T, __int128> ||
+                 std::is_same_v<T, unsigned __int128>)
     constexpr integer(T rhs) noexcept;
 
     template <typename T>

@@ -284,7 +284,7 @@ suite("test_stream_load_properties", "p0") {
                     def json = parseJson(result)
                     assertEquals("fail", json.Status.toLowerCase())
                     assertEquals(20, json.NumberTotalRows)
-                    assertEquals(loadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberLoadedRows)
                     assertEquals(filteredRows[i], json.NumberFilteredRows)
                     assertEquals(0, json.NumberUnselectedRows)
                 }

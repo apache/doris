@@ -55,7 +55,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ToDataType to_type;
         auto column = to_type.create_column();
         column->reserve(input_rows_count);

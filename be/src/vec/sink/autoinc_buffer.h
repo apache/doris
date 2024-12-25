@@ -18,12 +18,14 @@
 #pragma once
 #include <list>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "util/threadpool.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class VOlapTableSink;
 class OlapTableBlockConvertor;
@@ -118,8 +120,8 @@ public:
 
     GlobalAutoIncBuffers() {
         static_cast<void>(ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
-                                  .set_min_threads(config::auto_inc_fetch_thread_num)
-                                  .set_max_threads(config::auto_inc_fetch_thread_num)
+                                  .set_min_threads(cast_set<int>(config::auto_inc_fetch_thread_num))
+                                  .set_max_threads(cast_set<int>(config::auto_inc_fetch_thread_num))
                                   .set_max_queue_size(std::numeric_limits<int>::max())
                                   .build(&_fetch_autoinc_id_executor));
     }
@@ -147,3 +149,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

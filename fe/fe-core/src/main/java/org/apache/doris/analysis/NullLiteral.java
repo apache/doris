@@ -52,6 +52,7 @@ public class NullLiteral extends LiteralExpr {
     public static NullLiteral create(Type type) {
         NullLiteral l = new NullLiteral();
         l.type = type;
+        l.analysisDone();
         return l;
     }
 

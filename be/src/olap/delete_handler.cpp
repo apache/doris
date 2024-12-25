@@ -346,6 +346,8 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
 }
 
 template <typename SubPredType>
+    requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
+             std::is_same_v<SubPredType, std::string>)
 Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
                                          TabletSchemaSPtr delete_pred_related_schema,
                                          const RepeatedPtrField<SubPredType>& sub_pred_list,
@@ -353,10 +355,13 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
     for (const auto& sub_predicate : sub_pred_list) {
         TCondition condition;
         RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
-        int32_t col_unique_id;
-        if constexpr (std::is_same_v<SubPredType, DeletePredicatePB>) {
-            col_unique_id = sub_predicate.col_unique_id;
-        } else {
+        int32_t col_unique_id = -1;
+        if constexpr (std::is_same_v<SubPredType, DeleteSubPredicatePB>) {
+            if (sub_predicate.has_column_unique_id()) [[likely]] {
+                col_unique_id = sub_predicate.column_unique_id();
+            }
+        }
+        if (col_unique_id < 0) {
             const auto& column =
                     *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
             col_unique_id = column.unique_id();
@@ -384,8 +389,7 @@ template Status DeleteHandler::_parse_column_pred<std::string>(
         DeleteConditions* delete_conditions);
 
 Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
-                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
-                           bool with_sub_pred_v2) {
+                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
     _predicate_arena = std::make_unique<vectorized::Arena>();
@@ -400,7 +404,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         const auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if (with_sub_pred_v2 && !delete_condition.sub_predicates_v2().empty()) {
+        if (!delete_condition.sub_predicates_v2().empty()) {
             RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
@@ -411,7 +415,20 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            auto col_unique_id = in_predicate.column_unique_id();
+
+            int32_t col_unique_id = -1;
+            if (in_predicate.has_column_unique_id()) {
+                col_unique_id = in_predicate.column_unique_id();
+            } else {
+                // if upgrade from version 2.0.x, column_unique_id maybe not set
+                const auto& pre_column =
+                        *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
+                col_unique_id = pre_column.unique_id();
+            }
+            if (col_unique_id == -1) {
+                return Status::Error<ErrorCode::DELETE_INVALID_CONDITION>(
+                        "cannot get column_unique_id for column {}", condition.column_name);
+            }
             condition.__set_column_unique_id(col_unique_id);
 
             if (in_predicate.is_not_in()) {

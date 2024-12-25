@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewEsScanner;
@@ -52,13 +53,12 @@ private:
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;
-    std::unique_ptr<RuntimeProfile> _es_profile;
     // FIXME: non-static data member '_rows_read_counter' of 'EsScanLocalState' shadows member inherited from type 'ScanLocalStateBase'
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    RuntimeProfile::Counter* _rows_read_counter = nullptr;
+    RuntimeProfile::Counter* _blocks_read_counter = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -72,7 +72,7 @@ public:
                     const DescriptorTbl& descs, int parallel_tasks);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class EsScanLocalState;
@@ -87,4 +87,5 @@ private:
     std::vector<std::string> _column_names;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

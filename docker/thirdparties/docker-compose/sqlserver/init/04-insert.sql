@@ -17,6 +17,7 @@
 use doris_test;
 
 Insert into dbo.student values (1, 'doris', 18), (2, 'alice', 19), (3, 'bob', 20);
+UPDATE STATISTICS dbo.student;
 
 Insert into dbo.test_int values
 (1, 0, 1, 1), (2, 1, -1, -1),

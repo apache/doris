@@ -32,13 +32,13 @@ suite("test_role", "account") {
     sql """GRANT SELECT_PRIV ON ${context.config.defaultDb} TO ROLE '${role}'"""
     sql """GRANT SELECT_PRIV ON ${dbName} TO ROLE '${role}'"""
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"""
-    def result1 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    def result1 = connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"
     }
     assertEquals(result1.size(), 1)
 
     sql """REVOKE SELECT_PRIV ON ${dbName} FROM ROLE '${role}'"""
-    def result2 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    def result2 = connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"
     }
     assertEquals(result2.size(), 0)

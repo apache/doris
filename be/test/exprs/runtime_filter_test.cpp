@@ -105,11 +105,6 @@ std::shared_ptr<IRuntimeFilter> create_runtime_filter(TRuntimeFilterType::type t
 
     EXPECT_TRUE(status.ok()) << status.to_string();
 
-    if (auto bf = runtime_filter->get_bloomfilter()) {
-        status = bf->init_with_fixed_length();
-        EXPECT_TRUE(status.ok()) << status.to_string();
-    }
-
     return status.ok() ? runtime_filter : nullptr;
 }
 

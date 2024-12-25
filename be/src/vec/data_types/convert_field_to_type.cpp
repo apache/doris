@@ -30,6 +30,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/bitmap_value.h"
@@ -44,6 +45,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 /** Checking for a `Field from` of `From` type falls to a range of values of type `To`.
   * `From` and `To` - numeric types. They can be floating-point types.
   * `From` is one of UInt64, Int64, Float64,
@@ -257,7 +259,8 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         JsonbWriter writer;
         Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                         src);
-        *to = JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        *to = JsonbField(writer.getOutput()->getBuffer(),
+                         cast_set<UInt32, size_t, false>(writer.getOutput()->getSize()));
         return;
     } else if (which_type.is_variant_type()) {
         if (src.get_type() == Field::Types::VariantMap) {

@@ -64,6 +64,16 @@ public:
 
     void stop();
 
+    std::vector<std::string> get_all_load_channel_ids() {
+        std::vector<std::string> result;
+        std::lock_guard<std::mutex> lock(_lock);
+
+        for (auto& [id, _] : _load_channels) {
+            result.push_back(id.to_string());
+        }
+        return result;
+    }
+
 private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
@@ -72,13 +82,12 @@ private:
 
     Status _start_bg_worker();
 
-    class LastSuccessChannelCache : public LRUCachePolicyTrackingManual {
+    class LastSuccessChannelCache : public LRUCachePolicy {
     public:
         LastSuccessChannelCache(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE,
-                                               capacity, LRUCacheType::SIZE, -1,
-                                               DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                               DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 
 protected:

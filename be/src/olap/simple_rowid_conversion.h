@@ -22,6 +22,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 
@@ -37,7 +38,7 @@ public:
         _cur_dst_segment_rowid = 0;
         for (auto seg_rows : num_rows) {
             _segments_rowid_map.emplace(seg_rows.first,
-                                        std::vector<uint32_t>(seg_rows.second, UINT32_MAX));
+                                        DorisVector<uint32_t>(seg_rows.second, UINT32_MAX));
         }
     }
 
@@ -72,7 +73,7 @@ private:
     // key:   index indicates src segment.
     // value: index indicates row id of source segment, value indicates row id of destination
     //        segment. UINT32_MAX indicates current row not exist.
-    std::map<uint32_t, std::vector<uint32_t>> _segments_rowid_map;
+    DorisMap<uint32_t, DorisVector<uint32_t>> _segments_rowid_map;
 
     // dst rowset id
     RowsetId _rowst_id;

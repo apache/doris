@@ -24,6 +24,7 @@
 #include <string>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/thread_context.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -72,7 +73,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
@@ -130,8 +131,7 @@ private:
         if constexpr (op == ApplyOp::GE) {
             return data >= comp;
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
     // need exception safety

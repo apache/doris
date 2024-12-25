@@ -27,6 +27,7 @@ public class ExpressionNormalizationAndOptimization extends ExpressionRewrite {
                 ImmutableList.<ExpressionRewriteRule>builder()
                         .addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES)
                         .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES)
+                        .addAll(ExpressionOptimization.ADD_RANGE)
                         .build()
         ));
     }

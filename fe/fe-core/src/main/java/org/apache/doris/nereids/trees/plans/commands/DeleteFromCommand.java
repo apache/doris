@@ -334,8 +334,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     private void checkPredicate(Expression predicate) {
         if (predicate instanceof And) {
-            checkPredicate(((And) predicate).left());
-            checkPredicate(((And) predicate).right());
+            And and = (And) predicate;
+            and.children().forEach(child -> checkPredicate(child));
         } else if (predicate instanceof ComparisonPredicate) {
             checkComparisonPredicate((ComparisonPredicate) predicate);
         } else if (predicate instanceof IsNull) {

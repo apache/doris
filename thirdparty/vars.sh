@@ -461,10 +461,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.3-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.3-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.3-for-doris"
-HADOOP_LIBS_MD5SUM="db91164b8b1d6b347fb9199e6be77fb7"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.4-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.6.4-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.4-for-doris"
+HADOOP_LIBS_MD5SUM="6993de49713eb0892e42c8ec57fbdc6c"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
