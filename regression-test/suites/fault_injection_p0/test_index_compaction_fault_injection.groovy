@@ -25,54 +25,11 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
     boolean disableAutoCompaction = false
-  
+
     def set_be_config = { key, value ->
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
-    def trigger_full_compaction_on_tablets = { tablets ->
-        for (def tablet : tablets) {
-            String tablet_id = tablet.TabletId
-            String backend_id = tablet.BackendId
-            int times = 1
-
-            String compactionStatus;
-            do{
-                def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-                compactionStatus = parseJson(out.trim()).status.toLowerCase();
-            } while (compactionStatus!="success" && times<=10 && compactionStatus!="e-6010")
-
-
-            if (compactionStatus == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction && compactionStatus!="e-6010") {
-                assertEquals("success", compactionStatus)
-            }
-        }
-    }
-
-    def wait_full_compaction_done = { tablets ->
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                String backend_id = tablet.BackendId
-                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
         }
     }
 
@@ -105,7 +62,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         }
     }
 
-    def insert_data = { -> 
+    def insert_data = { ->
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """
         sql """ INSERT INTO ${tableName} VALUES (2, "andy", "andy love apple", 100); """
@@ -114,14 +71,14 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", "bason hate pear", 99); """
     }
 
-    def run_sql = { -> 
+    def run_sql = { ->
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where hobbies match "pear" order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where score < 100 order by id, name, hobbies, score """
     }
 
-    def run_test = { tablets ->
+    def run_test = { tablets, table_name ->
         insert_data.call()
 
         run_sql.call()
@@ -143,8 +100,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         try {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_throw_error")
-            trigger_full_compaction_on_tablets.call(tablets)
-            wait_full_compaction_done.call(tablets)
+            trigger_and_wait_compaction(table_name, "full")
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
         }
@@ -155,10 +111,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         logger.info("trigger_full_compaction_on_tablets normally")
         // trigger full compactions for all tablets in ${tableName}
         // this time, index compaction of some columns will be skipped because of the fault injection
-        trigger_full_compaction_on_tablets.call(tablets)
-
-        // wait for full compaction done
-        wait_full_compaction_done.call(tablets)
+        trigger_and_wait_compaction(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -187,8 +140,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         try {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_status_not_ok")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_status_not_ok")
-            trigger_full_compaction_on_tablets.call(tablets)
-            wait_full_compaction_done.call(tablets)
+            trigger_and_wait_compaction(table_name, "full")
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_status_not_ok")
         }
@@ -210,10 +162,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         logger.info("trigger_full_compaction_on_tablets normally")
         // trigger full compactions for all tablets in ${tableName}
         // this time, index compaction of some columns will be skipped because of the fault injection
-        trigger_full_compaction_on_tablets.call(tablets)
-
-        // wait for full compaction done
-        wait_full_compaction_done.call(tablets)
+        trigger_and_wait_compaction(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -227,7 +176,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // insert more data and trigger full compaction again
         insert_data.call()
-        
+
         sql """ select * from ${tableName} """
 
         // insert 6 rows, so there are 7 rowsets.
@@ -240,10 +189,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         // tigger full compaction for all tablets normally
         // this time, index compaction will be done successfully
         logger.info("trigger_full_compaction_on_tablets normally")
-        trigger_full_compaction_on_tablets.call(tablets)
-
-        // wait for full compaction done
-        wait_full_compaction_done.call(tablets)
+        trigger_and_wait_compaction(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -262,7 +208,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -308,7 +254,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
-        run_test.call(tablets)
+        run_test.call(tablets, tableName)
 
         /**
         * test for unique key table
@@ -329,7 +275,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( 
+            PROPERTIES (
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
@@ -338,7 +284,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
-        run_test.call(tablets)
+        run_test.call(tablets, tableName)
 
     } finally {
         if (has_update_be_config) {

@@ -36,49 +36,6 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         }
     }
 
-    def trigger_full_compaction_on_tablets = { tablets ->
-        for (def tablet : tablets) {
-            String tablet_id = tablet.TabletId
-            String backend_id = tablet.BackendId
-            int times = 1
-
-            String compactionStatus;
-            do{
-                def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-                compactionStatus = parseJson(out.trim()).status.toLowerCase();
-            } while (compactionStatus!="success" && times<=10 && compactionStatus!="e-6010")
-
-
-            if (compactionStatus == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction && compactionStatus!="e-6010") {
-                assertEquals("success", compactionStatus)
-            }
-        }
-    }
-
-    def wait_full_compaction_done = { tablets ->
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                String backend_id = tablet.BackendId
-                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-    }
-
     def get_rowset_count = { tablets ->
         int rowsetCount = 0
         for (def tablet in tablets) {
@@ -201,7 +158,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         "Compaction::construct_skip_inverted_index_index_file_reader_open_error"
     ]
 
-    def run_test = { tablets, debug_point, abnormal ->
+    def run_test = { tablets, debug_point, abnormal, table_name ->
         insert_data.call()
 
         run_sql.call()
@@ -226,8 +183,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         try {
             GetDebugPoint().enableDebugPointForAllBEs(debug_point)
             logger.info("trigger_full_compaction_on_tablets with fault injection: ${debug_point}")
-            trigger_full_compaction_on_tablets.call(tablets)
-            wait_full_compaction_done.call(tablets)
+            trigger_and_wait_compaction(table_name, "full")
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs(debug_point)
         }
@@ -240,10 +196,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
             logger.info("trigger_full_compaction_on_tablets normally")
             // trigger full compactions for all tablets in ${tableName}
             // this time, index compaction of some columns will be skipped because of the fault injection
-            trigger_full_compaction_on_tablets.call(tablets)
-
-            // wait for full compaction done
-            wait_full_compaction_done.call(tablets)
+            trigger_and_wait_compaction(table_name, "full")
         }
 
         // after full compaction, there is only 1 rowset.
@@ -291,7 +244,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
             """
 
             def tablets = sql_return_maparray """ show tablets from ${table_name}; """
-            run_test.call(tablets, debug_point, is_abnormal)
+            run_test.call(tablets, debug_point, is_abnormal, table_name)
         }
     }
 
