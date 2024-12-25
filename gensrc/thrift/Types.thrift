@@ -732,6 +732,7 @@ enum TSortType {
 
 enum TMetadataType {
   ICEBERG,
+  HUDI,
   BACKENDS,
   FRONTENDS,
   CATALOGS,
@@ -745,6 +746,10 @@ enum TMetadataType {
 }
 
 enum TIcebergQueryType {
+  SNAPSHOTS
+}
+
+enum THudiQueryType {
   SNAPSHOTS
 }
 
