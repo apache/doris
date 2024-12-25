@@ -86,7 +86,7 @@ public class AdjustTopNProject extends OneRewriteRuleFactory {
             }
         }
         if (match) {
-            if (project.getProjects().size() >= project.getInputSlots().size()) {
+            if (project.getProjects().size() > project.getInputSlots().size()) {
                 LOG.info("$$$$ before:" +topN.treeString());
                 topN = topN.withChildren(project.children()).withOrderKeys(newOrderKeys);
                 project = (LogicalProject<Plan>) project.withChildren(topN);
