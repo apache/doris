@@ -523,7 +523,8 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
 Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
                                    bool is_drop_table_or_partition, bool had_held_shard_lock) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
-              << ", is_drop_table_or_partition=" << is_drop_table_or_partition;
+              << ", is_drop_table_or_partition=" << is_drop_table_or_partition
+              << ", keep_files=" << keep_files;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
     RETURN_IF_ERROR(register_transition_tablet(tablet_id, "drop tablet"));
@@ -558,27 +559,32 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
 
     to_drop_tablet->clear_cache();
 
-    if (!keep_files) {
+    {
         // drop tablet will update tablet meta, should lock
         std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
-                  << "tablet_id=" << tablet_id << ", tablet_path=" << to_drop_tablet->tablet_path();
         // NOTE: has to update tablet here, but must not update tablet meta directly.
         // because other thread may hold the tablet object, they may save meta too.
         // If update meta directly here, other thread may override the meta
         // and the tablet will be loaded at restart time.
         // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
+        //
+        // Until now, only the restore task uses keep files.
         RETURN_IF_ERROR(to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN));
-        // We must record unused remote rowsets path info to OlapMeta before tablet state is marked as TABLET_SHUTDOWN in OlapMeta,
-        // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
-        if (is_drop_table_or_partition) {
-            RETURN_IF_ERROR(to_drop_tablet->remove_all_remote_rowsets());
-        }
-        to_drop_tablet->save_meta();
-        {
-            std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
-            _shutdown_tablets.push_back(to_drop_tablet);
+        if (!keep_files) {
+            LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
+                      << "tablet_id=" << tablet_id
+                      << ", tablet_path=" << to_drop_tablet->tablet_path();
+            // We must record unused remote rowsets path info to OlapMeta before tablet state is marked as TABLET_SHUTDOWN in OlapMeta,
+            // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
+            if (is_drop_table_or_partition) {
+                RETURN_IF_ERROR(to_drop_tablet->remove_all_remote_rowsets());
+            }
+            to_drop_tablet->save_meta();
+            {
+                std::lock_guard<std::shared_mutex> wrdlock(_shutdown_tablets_lock);
+                _shutdown_tablets.push_back(to_drop_tablet);
+            }
         }
     }
 
