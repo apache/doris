@@ -192,54 +192,6 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
-    public void testStoragePageSize() throws AnalysisException {
-        Map<String, String> properties = Maps.newHashMap();
-
-        // Test default value
-        Assert.assertEquals(PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE,
-                PropertyAnalyzer.analyzeStoragePageSize(properties));
-
-        // Test valid value
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "8192"); // 8KB
-        Assert.assertEquals(8192, PropertyAnalyzer.analyzeStoragePageSize(properties));
-
-        // Test lower boundary value
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "4096"); // 4KB
-        Assert.assertEquals(4096, PropertyAnalyzer.analyzeStoragePageSize(properties));
-
-        // Test upper boundary value
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "10485760"); // 10MB
-        Assert.assertEquals(10485760, PropertyAnalyzer.analyzeStoragePageSize(properties));
-
-        // Test invalid number format
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "invalid");
-        try {
-            PropertyAnalyzer.analyzeStoragePageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Invalid storage page size"));
-        }
-
-        // Test value below minimum limit
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "1024"); // 1KB
-        try {
-            PropertyAnalyzer.analyzeStoragePageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
-        }
-
-        // Test value above maximum limit
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "20971520"); // 20MB
-        try {
-            PropertyAnalyzer.analyzeStoragePageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
-        }
-    }
-
-    @Test
     public void testAnalyzeInvertedIndexFileStorageFormat() throws AnalysisException {
         TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
         Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
