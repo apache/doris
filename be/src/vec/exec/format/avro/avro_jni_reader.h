@@ -18,9 +18,8 @@
 #pragma once
 
 #include <rapidjson/document.h>
-#include <stddef.h>
 
-#include <memory>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,11 +30,8 @@
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeProfile;
-
 class RuntimeState;
-
 class SlotDescriptor;
 namespace vectorized {
 class Block;
@@ -44,7 +40,7 @@ struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /**
  * Read avro-format file
  */
@@ -74,7 +70,7 @@ public:
     Status init_fetch_table_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    TFileType::type get_file_type();
+    TFileType::type get_file_type() const;
 
     Status init_fetch_table_schema_reader();
 
