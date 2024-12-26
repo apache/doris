@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -138,6 +139,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        return child().getDataType() instanceof DateLikeType && targetType instanceof DateLikeType;
+        if (child().getDataType() instanceof DateLikeType && targetType instanceof DateLikeType) {
+            return true;
+        } else if (child().getDataType() instanceof IntegralType && targetType instanceof DateLikeType) {
+            return true;
+        }
+        return false;
     }
 }
