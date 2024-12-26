@@ -354,7 +354,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 backendToPartitionInfos = getMowLock(mowTableList,
                         tabletCommitInfos, transactionId, null);
             }
-            commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
+            commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
                     mowTableList, backendToPartitionInfos);
         } catch (Exception e) {
             if (!mowTableList.isEmpty()) {
@@ -481,7 +481,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return baseTabletIds;
     }
 
-    private void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
             List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
             throws UserException {
@@ -1226,7 +1226,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, null);
-        commitTransaction(db.getId(), tableList, transactionId, null, null, true, mowTableList, null);
+        commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true, mowTableList, null);
     }
 
     @Override
