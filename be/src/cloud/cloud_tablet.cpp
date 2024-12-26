@@ -724,20 +724,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
     }
 
-    DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
-    for (auto iter = delete_bitmap->delete_bitmap.begin();
-         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
-        // skip sentinel mark, which is used for delete bitmap correctness check
-        if (std::get<1>(iter->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
-            new_delete_bitmap->merge(
-                    {std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
-                    iter->second);
-        }
-    }
-
-    auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get()));
+    RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -761,6 +748,24 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         }
     });
 
+    return Status::OK();
+}
+
+Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
+                                             DeleteBitmapPtr delete_bitmap, int64_t lock_id) {
+    DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
+    for (auto iter = delete_bitmap->delete_bitmap.begin();
+         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
+        // skip sentinel mark, which is used for delete bitmap correctness check
+        if (std::get<1>(iter->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            new_delete_bitmap->merge(
+                    {std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
+                    iter->second);
+        }
+    }
+    auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
+                                                            new_delete_bitmap.get()));
     return Status::OK();
 }
 
