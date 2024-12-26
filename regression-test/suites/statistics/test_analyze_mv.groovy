@@ -726,6 +726,7 @@ suite("test_analyze_mv") {
 
     // ** Embedded test for skip auto analyze when table is empty again
     sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""
+    stats_dropped("mvTestDup")
     empty_test = sql """show auto analyze mvTestDup"""
     assertEquals(0, empty_test.size())
     empty_test = sql """show column stats mvTestDup"""
