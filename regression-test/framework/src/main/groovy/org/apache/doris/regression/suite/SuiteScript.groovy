@@ -41,7 +41,7 @@ abstract class SuiteScript extends Script {
             group +=",p0"
         }
 
-        if (!context.suiteFilter.call(suiteName, group)) {
+        if (!context.suiteFilter.call(suiteName, group, context.file)) {
             return
         }
 
@@ -60,6 +60,10 @@ abstract class SuiteScript extends Script {
             groupPath = path.substring(0, path.indexOf(File.separator + "sql"))
         }
         List<String> groups = ["default"]
+
+        if (groupPath.contains("nonConcurrent")) {
+            groups.add("nonConcurrent")
+        }
 
         def grouped_p = groupPath.split(File.separator)
             .collect {it.trim()}
