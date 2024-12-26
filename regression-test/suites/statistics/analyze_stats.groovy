@@ -19,6 +19,22 @@ import java.util.stream.Collectors
 
 suite("test_analyze") {
 
+    def stats_dropped = { table ->
+        def result1 = sql """show column cached stats $table"""
+        def result2 = sql """show column stats $table"""
+        boolean dropped = false
+        for (int i = 0; i < 120; i++) {
+            if (0 == result1.size() && 0 == result2.size()) {
+                dropped = true;
+                break;
+            }
+            Thread.sleep(1000)
+            result1 = sql """show column cached stats $table"""
+            result2 = sql """show column stats $table"""
+        }
+        assertTrue(dropped)
+    }
+
     String db = "test_analyze"
 
     String tbl = "analyzetestlimited_duplicate_all"
@@ -1159,6 +1175,8 @@ PARTITION `p599` VALUES IN (599)
         ALTER TABLE analyze_test_with_schema_update ADD COLUMN tbl_name VARCHAR(256) DEFAULT NULL;
     """
 
+    stats_dropped("analyze_test_with_schema_update")
+
     sql """
         ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
     """
@@ -1356,6 +1374,7 @@ PARTITION `p599` VALUES IN (599)
     def result_before_truncate = sql """show column stats ${tbl}"""
     assertEquals(14, result_before_truncate.size())
     sql """TRUNCATE TABLE ${tbl}"""
+    stats_dropped(tbl)
     def result_after_truncate = sql """show column stats ${tbl}"""
     assertEquals(0, result_after_truncate.size())
     result_after_truncate = sql """show column cached stats ${tbl}"""
@@ -1382,6 +1401,7 @@ PARTITION `p599` VALUES IN (599)
     assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][8].substring(1, 1025)
 
     sql """TRUNCATE TABLE ${tbl}"""
+    stats_dropped(tbl)
     result_after_truncate = sql """show column stats ${tbl}"""
     assertEquals(0, result_after_truncate.size())
     sql """ANALYZE TABLE ${tbl} WITH SYNC"""
