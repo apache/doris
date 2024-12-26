@@ -23,23 +23,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-
-#include "olap/schema.h"
-#include "runtime/descriptors.cpp"
+#include "arrow/type.h"
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_map.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 // this test is gonna to be a data type serialize and deserialize functions
@@ -155,7 +146,7 @@ public:
             std::string value;
             int l_idx = 0;
             int c_idx = 0;
-            std::vector<string> row;
+            std::vector<std::string> row;
             while (std::getline(lineStream, value, spliter)) {
                 if (idxes.contains(l_idx)) {
                     // load csv data
@@ -210,7 +201,7 @@ public:
         if (generate_res_file) {
             // generate res
             auto pos = file_path.find_last_of(".");
-            string hive_format = is_hive_format ? "_hive" : "";
+            std::string hive_format = is_hive_format ? "_hive" : "";
             std::string res_file = file_path.substr(0, pos) + hive_format + "_serde_res.csv";
             std::ofstream res_f(res_file);
             if (!res_f.is_open()) {
@@ -230,6 +221,8 @@ public:
     }
 
     // standard hive text ser-deserialize assert function
+    // pb serde now is only used RPCFncall and fold_constant_executor which just write column data to pb value means
+    // just call write_column_to_pb
     static void assert_pb_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& col = load_cols[i];
@@ -263,6 +256,21 @@ public:
     static void assert_jsonb_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         Arena pool;
         auto jsonb_column = ColumnString::create(); // jsonb column
+        // maybe these load_cols has different size, so we keep it same
+        size_t max_row_size = load_cols[0]->size();
+        for (size_t i = 1; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() > max_row_size) {
+                max_row_size = load_cols[i]->size();
+            }
+        }
+        // keep same rows
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() < max_row_size) {
+                load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
+            } else if (load_cols[i]->size() > max_row_size) {
+                load_cols[i]->resize(max_row_size);
+            }
+        }
         jsonb_column->reserve(load_cols[0]->size());
         MutableColumns assert_cols;
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -322,6 +330,21 @@ public:
                                     DataTypes types) {
         // make a block to write to arrow
         auto block = std::make_shared<Block>();
+        // maybe these load_cols has different size, so we keep it same
+        size_t max_row_size = load_cols[0]->size();
+        for (size_t i = 1; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() > max_row_size) {
+                max_row_size = load_cols[i]->size();
+            }
+        }
+        // keep same rows
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() < max_row_size) {
+                load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
+            } else if (load_cols[i]->size() > max_row_size) {
+                load_cols[i]->resize(max_row_size);
+            }
+        }
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& col = load_cols[i];
             block->insert(ColumnWithTypeAndName(std::move(col), types[i], types[i]->get_name()));
@@ -330,13 +353,13 @@ public:
         std::cout << "block: " << block->dump_structure() << std::endl;
         std::shared_ptr<arrow::Schema> block_arrow_schema;
         EXPECT_EQ(get_arrow_schema_from_block(*block, &block_arrow_schema, "UTC"), Status::OK());
+        std::cout << "schema: " << block_arrow_schema->ToString(true) << std::endl;
         // convert block to arrow
         std::shared_ptr<arrow::RecordBatch> result;
         cctz::time_zone _timezone_obj; //default UTC
         Status stt = convert_to_arrow_batch(*block, block_arrow_schema,
                                             arrow::default_memory_pool(), &result, _timezone_obj);
         EXPECT_EQ(Status::OK(), stt) << "convert block to arrow failed" << stt.to_string();
-
         // deserialize arrow to block
         auto assert_block = block->clone_empty();
         auto rows = block->rows();
@@ -347,15 +370,20 @@ public:
                     array.get(), 0, column_with_type_and_name.column,
                     column_with_type_and_name.type, rows, _timezone_obj);
             // do check data
+            std::cout << "arrow_column_to_doris_column done: " << column_with_type_and_name.column->get_name()
+                      << " with column size: " << column_with_type_and_name.column->size() <<std::endl;
+            std::cout << assert_block.dump_structure() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
             auto& col = block->get_by_position(i).column;
             auto& assert_col = column_with_type_and_name.column;
+            EXPECT_EQ(assert_col->size(), col->size());
             for (size_t j = 0; j < col->size(); ++j) {
                 auto cell = col->operator[](j);
                 auto assert_cell = assert_col->operator[](j);
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
             }
         }
+        std::cout << "assert block: " << assert_block.dump_structure() << std::endl;
     }
 
     // assert rapidjson format
