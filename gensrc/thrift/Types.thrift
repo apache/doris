@@ -363,6 +363,11 @@ struct TAggregateFunction {
   11: optional string symbol
 }
 
+struct TDictFunction {
+  1: optional i64 dictionary_id
+  2: optional i64 version_id
+}
+
 // Represents a function in the Catalog.
 struct TFunction {
   // Fully qualified function name.
@@ -399,6 +404,7 @@ struct TFunction {
   14: optional bool is_udtf_function = false
   15: optional bool is_static_load = false
   16: optional i64 expiration_time //minutes
+  17: optional TDictFunction dict_function
 }
 
 enum TJdbcOperation {
