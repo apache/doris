@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
@@ -395,6 +396,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             executor.rewrite(exExp, context);
         }, "input -1 is out of boundary");
 
+        Assertions.assertThrows(NotSupportedException.class, () -> {
+            Log exExp = new Log(new DoubleLiteral(1.0d), new DoubleLiteral(1.0d));
+            executor.rewrite(exExp, context);
+        }, "the first input of function log can not be 1.0");
+
         Sqrt sqrt = new Sqrt(new DoubleLiteral(16d));
         rewritten = executor.rewrite(sqrt, context);
         Assertions.assertEquals(new DoubleLiteral(4d), rewritten);
@@ -413,6 +419,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             Power exExp = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
             executor.rewrite(exExp, context);
         }, "infinite result is invalid");
+        Assertions.assertThrows(NotSupportedException.class, () -> {
+            Power exExp = new Power(new DoubleLiteral(-1d), new DoubleLiteral(1.1d));
+            executor.rewrite(exExp, context);
+        }, "input pair of function power can not be negative number and non-integer");
 
         Sin sin = new Sin(new DoubleLiteral(Math.PI / 2));
         rewritten = executor.rewrite(sin, context);
