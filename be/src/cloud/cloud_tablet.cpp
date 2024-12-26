@@ -746,6 +746,21 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
             txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
             txn_info->publish_info));
 
+    DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.enable_sleep", {
+        auto sleep_sec = dp->param<int>("sleep", 5);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
+
+    DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.injected_error", {
+        auto retry = dp->param<bool>("retry", false);
+        if (retry) { // return DELETE_BITMAP_LOCK_ERROR to let it retry
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                    "injected DELETE_BITMAP_LOCK_ERROR");
+        } else {
+            return Status::InternalError<false>("injected non-retryable error");
+        }
+    });
+
     return Status::OK();
 }
 
