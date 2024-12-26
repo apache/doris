@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi;
 
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 
@@ -170,7 +171,8 @@ public class HudiUtilsTest {
 
         // 3. now, we can get the schema from this table.
         HMSExternalCatalog catalog = new HMSExternalCatalog();
-        HMSExternalTable hmsExternalTable = new HMSExternalTable(1, "tb", "db", catalog);
+        HMSExternalDatabase db = new HMSExternalDatabase(catalog, 1, "db", "db");
+        HMSExternalTable hmsExternalTable = new HMSExternalTable(2, "tb", "tb", catalog, db);
         HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable);
 
         // 4. delete the commit file,
