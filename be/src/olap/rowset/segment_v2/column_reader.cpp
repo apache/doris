@@ -289,8 +289,8 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
         // Check if path exist in sparse column
         bool existed_in_sparse_column =
                 _statistics &&
-                _statistics->subcolumns_non_null_size.find(relative_path.get_path()) !=
-                        _statistics->subcolumns_non_null_size.end();
+                _statistics->sparse_column_non_null_size.find(relative_path.get_path()) !=
+                        _statistics->sparse_column_non_null_size.end();
         if (existed_in_sparse_column) {
             // Sparse column exists or reached sparse size limit, read sparse column
             ColumnIterator* inner_iter;
