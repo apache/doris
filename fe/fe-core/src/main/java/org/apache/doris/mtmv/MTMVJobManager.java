@@ -213,6 +213,11 @@ public class MTMVJobManager implements MTMVHookService {
 
     public void onCommit(MTMV mtmv) throws DdlException, JobException {
         MTMVJob job = getJobByMTMV(mtmv);
+        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+            LOG.info("job status of async materialized view: [{}] is: [{}], ignore this event.", mtmv.getName(),
+                    job.getJobStatus());
+            return;
+        }
         MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.COMMIT, Lists.newArrayList(),
                 false);
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
