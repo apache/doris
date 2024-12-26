@@ -78,7 +78,7 @@ public class ExecuteCommand extends Command {
                     && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
                     != preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion;
         boolean needAnalyze = !isShortCircuit || schemaVersionMismatch || !hasShortCircuitContext
-                        || executor.getContext().getStatementContext().hasNondeterministicInPreparedStatement();
+                        || executor.getContext().getStatementContext().hasNondeterministic();
         if (needAnalyze) {
             // execute real statement
             preparedStmtCtx.shortCircuitQueryContext = Optional.empty();

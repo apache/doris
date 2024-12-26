@@ -119,8 +119,7 @@ public class StatementContext implements Closeable {
 
     private boolean isDpHyp = false;
 
-    // Check if doing prepared statement with nondeterministic functions
-    private boolean hasNondeterministicInPreparedStatement = false;
+    private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
     // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
@@ -309,12 +308,12 @@ public class StatementContext implements Closeable {
         this.connectContext = connectContext;
     }
 
-    public void setHasNondeterministicInPreparedStatement(boolean hasNondeterministic) {
-        this.hasNondeterministicInPreparedStatement = hasNondeterministic;
+    public void setHasNondeterministic(boolean hasNondeterministic) {
+        this.hasNondeterministic = hasNondeterministic;
     }
 
-    public boolean hasNondeterministicInPreparedStatement() {
-        return hasNondeterministicInPreparedStatement;
+    public boolean hasNondeterministic() {
+        return hasNondeterministic;
     }
 
     public ConnectContext getConnectContext() {
