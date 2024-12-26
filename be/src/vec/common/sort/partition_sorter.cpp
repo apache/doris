@@ -112,15 +112,11 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
     bool get_enough_data = false;
     while (priority_queue.is_valid()) {
         auto [current, current_rows] = priority_queue.current();
-        current_rows = std::min(current_rows, batch_size - current_output_rows);
-        if (UNLIKELY(_previous_row->impl == nullptr)) {
-            *_previous_row = *current;
-        }
-
         if (_top_n_algorithm == TopNAlgorithm::ROW_NUMBER) {
             // row_number no need to check distinct, just output partition_inner_limit row
             size_t needed_rows = _partition_inner_limit - _output_total_rows - current_output_rows;
-            size_t step = std::min(needed_rows, current_rows);
+            size_t step =
+                    std::min(needed_rows, std::min(current_rows, batch_size - current_output_rows));
             if (step) {
                 for (size_t i = 0; i < num_columns; ++i) {
                     merged_columns[i]->insert_range_from(*current->impl->block->get_columns()[i],
@@ -128,14 +124,12 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                 }
             }
 
-            current_rows -= step;
             current_output_rows += step;
             if ((current_output_rows + _output_total_rows) >= _partition_inner_limit) {
-                //rows has get enough
                 get_enough_data = true;
             }
-            if (!current->impl->is_last(current_rows)) {
-                priority_queue.next(current_rows);
+            if (!current->impl->is_last(step)) {
+                priority_queue.next(step);
             } else {
                 priority_queue.remove_top();
             }
@@ -147,7 +141,8 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                                                    current->impl->pos);
                 }
 
-                bool cmp_res = _previous_row->compare_two_rows(current->impl);
+                bool cmp_res =
+                        _previous_row->impl && _previous_row->compare_two_rows(current->impl);
                 if (!cmp_res) {
                     _output_distinct_rows++;
 
