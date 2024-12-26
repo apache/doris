@@ -412,8 +412,8 @@ public:
                         // insert_range_from now we have no any exception error data to handle, so here will meet crash
                         continue;
                     } else if (*pos + *cl > source_column->size()) {
-                        if (check_column<ColumnArray>(
-                                    remove_nullable(source_column->assume_mutable()))) {
+                        if (is_column<ColumnArray>(
+                                    remove_nullable(source_column->assume_mutable()).get())) {
                             // insert_range_from in array has DCHECK_LG
                             continue;
                         }

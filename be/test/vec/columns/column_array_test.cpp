@@ -276,7 +276,7 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
     //  but we should make sure in creation of array, the nested_column && offsets_column should not be const
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
-                remove_nullable(array_columns[i]->assume_mutable()));
+                remove_nullable(array_columns[i]->assume_mutable()).get());
         auto& type = array_types[i];
         auto column_size = column->size();
         auto column_type = type->get_name();
@@ -321,9 +321,9 @@ TEST_F(ColumnArrayTest, ConvertIfOverflowAndInsertTest) {
             // check ptr is itself
             auto ptr = column->convert_column_if_overflow();
             EXPECT_EQ(ptr.get(), column.get());
-            auto* array_col = check_and_get_column<ColumnArray>(column);
+            auto* array_col = check_and_get_column<ColumnArray>(column.get());
             auto nested_col = array_col->get_data_ptr();
-            auto* array_col1 = check_and_get_column<ColumnArray>(ptr);
+            auto* array_col1 = check_and_get_column<ColumnArray>(ptr.get());
             auto nested_col1 = array_col1->get_data_ptr();
             EXPECT_EQ(nested_col.get(), nested_col1.get());
         } else {
@@ -336,7 +336,7 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
     // test dimension of array
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
-                remove_nullable(array_columns[i]->assume_mutable()));
+                remove_nullable(array_columns[i]->assume_mutable()).get());
         auto check_type = remove_nullable(array_types[i]);
         auto dimension = 0;
         while (is_array(check_type)) {
@@ -355,7 +355,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
     //  in operator[] and get()
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
-                remove_nullable(array_columns[i]->assume_mutable()));
+                remove_nullable(array_columns[i]->assume_mutable()).get());
         auto check_type = remove_nullable(array_types[i]);
         Field a;
         column->get(column->size() - 1, a);
@@ -371,7 +371,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
             std::cout << "cloned size: " << cloned->size() << std::endl;
             // get cloned offset size
             auto cloned_offset_size =
-                    check_and_get_column<ColumnArray>(cloned)->get_offsets().back();
+                    check_and_get_column<ColumnArray>(cloned.get())->get_offsets().back();
             std::cout << "cloned offset size: " << cloned_offset_size << std::endl;
 
             Field f;
@@ -388,7 +388,7 @@ TEST_F(ColumnArrayTest, IsDefaultAtTest) {
     // test is_default_at
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
-                remove_nullable(array_columns[i]->assume_mutable()));
+                remove_nullable(array_columns[i]->assume_mutable()).get());
         auto column_size = column->size();
         for (int j = 0; j < column_size; j++) {
             auto is_default = column->is_default_at(j);
@@ -407,10 +407,10 @@ TEST_F(ColumnArrayTest, HasEqualOffsetsTest) {
     // test has_equal_offsets which more likely used in function, eg: function_array_zip
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
-                remove_nullable(array_columns[i]->assume_mutable()));
+                remove_nullable(array_columns[i]->assume_mutable()).get());
         auto cloned = array_columns[i]->clone_resized(array_columns[i]->size());
         auto cloned_arr =
-                check_and_get_column<ColumnArray>(remove_nullable(cloned->assume_mutable()));
+                check_and_get_column<ColumnArray>(remove_nullable(cloned->assume_mutable()).get());
         // test expect true
         EXPECT_EQ(column->get_offsets().size(), cloned_arr->get_offsets().size());
         EXPECT_TRUE(column->has_equal_offsets(*cloned_arr));
