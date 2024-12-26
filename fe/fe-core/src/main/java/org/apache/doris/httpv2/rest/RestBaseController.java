@@ -49,6 +49,7 @@ import javax.servlet.http.HttpServletResponse;
 public class RestBaseController extends BaseController {
 
     protected static final String NS_KEY = "ns";
+    protected static final String CATALOG_KEY = "catalog";
     protected static final String DB_KEY = "db";
     protected static final String TABLE_KEY = "table";
     protected static final String LABEL_KEY = "label";
