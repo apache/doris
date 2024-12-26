@@ -31,6 +31,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static const int MAX_WARNINGS = 1000;
 
@@ -127,7 +128,7 @@ doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
 }
 
 int FunctionContext::get_num_args() const {
-    return _arg_types.size();
+    return (int)_arg_types.size();
 }
 
 const doris::TypeDescriptor& FunctionContext::get_return_type() const {
@@ -151,4 +152,5 @@ StringRef FunctionContext::create_temp_string_val(int64_t len) {
     return StringRef((uint8_t*)_string_result.c_str(), len);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

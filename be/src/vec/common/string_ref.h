@@ -206,11 +206,11 @@ struct StringRef {
     explicit operator std::string() const { return to_string(); }
     operator std::string_view() const { return std::string_view {data, size}; }
 
-    StringRef substring(int start_pos, int new_len) const {
+    StringRef substring(int64_t start_pos, int64_t new_len) const {
         return {data + start_pos, (new_len < 0) ? (size - start_pos) : new_len};
     }
 
-    StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
+    StringRef substring(int64_t start_pos) const { return substring(start_pos, size - start_pos); }
 
     const char* begin() const { return data; }
     const char* end() const { return data + size; }

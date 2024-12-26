@@ -31,6 +31,7 @@
 #include "runtime/primitive_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         : len(-1), precision(-1), scale(-1) {
@@ -262,8 +263,8 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::STRUCT: {
         type = TYPE_STRUCT;
-        size_t children_size = node.struct_fields_size();
-        for (size_t i = 0; i < children_size; ++i) {
+        int children_size = node.struct_fields_size();
+        for (int i = 0; i < children_size; ++i) {
             const auto& field = node.struct_fields(i);
             field_names.push_back(field.name());
             contains_nulls.push_back(field.contains_null());
@@ -362,4 +363,5 @@ TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale) {
     type_desc.__set_types(node_type);
     return type_desc;
 }
+#include "common/compile_check_end.h"
 } // namespace doris

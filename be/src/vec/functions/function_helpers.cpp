@@ -39,6 +39,7 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
                                                                   const ColumnNumbers& args,
@@ -51,7 +52,7 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
     // just keep one
     for (size_t i = 0; i < args.size(); ++i) {
         bool is_in_res = false;
-        size_t pre_loc = 0;
+        uint32_t pre_loc = 0;
 
         if (need_check_same) {
             for (int j = 0; j < i; ++j) {
@@ -144,4 +145,5 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
     return {};
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -34,6 +34,7 @@
 #include "util/container_util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Thread counters name
 static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
@@ -263,7 +264,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
     int64_t local_time = total_time_counter()->value() - total_child_time;
     // Counters have some margin, set to 0 if it was negative.
     local_time = std::max<int64_t>(0L, local_time);
-    _local_time_percent = static_cast<double>(local_time) / total;
+    _local_time_percent = static_cast<double>(local_time) / static_cast<double>(total);
     _local_time_percent = std::min(1.0, _local_time_percent) * 100;
 
     // Recurse on children
@@ -574,7 +575,7 @@ void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
 }
 
 void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
-    int index = nodes->size();
+    size_t index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
     node.name = _name;
@@ -605,11 +606,11 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
-    node.num_children = children.size();
+    node.num_children = (int)children.size();
     nodes->reserve(nodes->size() + children.size());
 
-    for (int i = 0; i < children.size(); ++i) {
-        int child_idx = nodes->size();
+    for (size_t i = 0; i < children.size(); ++i) {
+        size_t child_idx = nodes->size();
         children[i].first->to_thrift(nodes);
         // fix up indentation flag
         (*nodes)[child_idx].indent = children[i].second;
@@ -626,7 +627,7 @@ int64_t RuntimeProfile::units_per_second(const RuntimeProfile::Counter* total_co
     }
 
     double secs = static_cast<double>(timer->value()) / 1000.0 / 1000.0 / 1000.0;
-    return int64_t(total_counter->value() / secs);
+    return int64_t((double)total_counter->value() / secs);
 }
 
 int64_t RuntimeProfile::counter_sum(const std::vector<Counter*>* counters) {
@@ -709,4 +710,5 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

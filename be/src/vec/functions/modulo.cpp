@@ -32,6 +32,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename A, typename B>
 inline void throw_if_division_leads_to_FPE(A a, B b) {
@@ -63,10 +64,10 @@ struct ModuloImpl {
         if (!is_null) {
             for (size_t i = 0; i < size; i++) {
                 if constexpr (std::is_floating_point_v<ResultType>) {
-                    c[i] = std::fmod((double)a[i], (double)b);
+                    c[i] = static_cast<Result>(std::fmod((double)a[i], (double)b));
                 } else {
                     throw_if_division_leads_to_FPE(a[i], b);
-                    c[i] = a[i] % b;
+                    c[i] = static_cast<Result>(a[i] % b);
                 }
             }
         }
@@ -78,10 +79,10 @@ struct ModuloImpl {
         b += is_null;
 
         if constexpr (std::is_floating_point_v<Result>) {
-            return std::fmod((double)a, (double)b);
+            return static_cast<Result>(std::fmod((double)a, (double)b));
         } else {
             throw_if_division_leads_to_FPE(a, b);
-            return a % b;
+            return static_cast<Result>(a % b);
         }
     }
 
@@ -108,10 +109,11 @@ struct PModuloImpl {
         if (!is_null) {
             for (size_t i = 0; i < size; i++) {
                 if constexpr (std::is_floating_point_v<ResultType>) {
-                    c[i] = std::fmod(std::fmod((double)a[i], (double)b) + (double)b, double(b));
+                    c[i] = static_cast<Result>(
+                            std::fmod(std::fmod((double)a[i], (double)b) + (double)b, double(b)));
                 } else {
                     throw_if_division_leads_to_FPE(a[i], b);
-                    c[i] = (a[i] % b + b) % b;
+                    c[i] = static_cast<Result>((a[i] % b + b) % b);
                 }
             }
         }
@@ -123,10 +125,11 @@ struct PModuloImpl {
         b += is_null;
 
         if constexpr (std::is_floating_point_v<Result>) {
-            return std::fmod(std::fmod((double)a, (double)b) + (double)b, (double)b);
+            return static_cast<Result>(
+                    std::fmod(std::fmod((double)a, (double)b) + (double)b, (double)b));
         } else {
             throw_if_division_leads_to_FPE(a, b);
-            return (a % b + b) % b;
+            return static_cast<Result>((a % b + b) % b);
         }
     }
 
@@ -154,4 +157,5 @@ void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_alias("mod", "fmod");
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
