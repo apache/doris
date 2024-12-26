@@ -1790,10 +1790,12 @@ public class StmtExecutor {
             }
         } finally {
             if (wantToParseSqlForSqlCache) {
-                String originStmt = parsedStmt.getOrigStmt().originStmt;
-                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
-                if (cacheResult != null) {
-                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
+                if (parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
+                    String originStmt = parsedStmt.getOrigStmt().originStmt;
+                    NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
+                    if (cacheResult != null) {
+                        sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
+                    }
                 }
             }
         }
@@ -1887,6 +1889,10 @@ public class StmtExecutor {
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
                 PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
                 sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("hit physical cache, sql {}",
+                            logicalPlanAdapter.getStatementContext().getOriginStatement().originStmt);
+                }
                 return;
             }
         }
@@ -1896,8 +1902,7 @@ public class StmtExecutor {
         // TODO support arrow flight sql
         // NOTE: If you want to add another condition about SessionVariable, please consider whether
         // add to CacheAnalyzer.commonCacheCondition
-        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
-                && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
+        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
@@ -2029,7 +2034,8 @@ public class StmtExecutor {
                 cacheAnalyzer.updateCache();
 
                 Cache cache = cacheAnalyzer.getCache();
-                if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner) {
+                if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner
+                        && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
                     String originStmt = parsedStmt.getOrigStmt().originStmt;
                     context.getEnv().getSqlCacheManager().tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
