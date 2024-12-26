@@ -434,6 +434,8 @@ public class HiveScanNode extends FileQueryScanNode {
             HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
             // 6. set null format
             textParams.setNullFormat(HiveProperties.getNullFormat(table));
+            fileAttributes.setEnableTextValidateUtf8(
+                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
             // set set properties of OpenCSVSerde
             // 1. set column separator
@@ -444,6 +446,8 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setEnclose(HiveProperties.getQuoteChar(table).getBytes()[0]);
             // 4. set escape char
             textParams.setEscape(HiveProperties.getEscapeChar(table).getBytes()[0]);
+            fileAttributes.setEnableTextValidateUtf8(
+                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         } else {
             throw new UserException(
                     "unsupported hive table serde: " + serDeLib);
