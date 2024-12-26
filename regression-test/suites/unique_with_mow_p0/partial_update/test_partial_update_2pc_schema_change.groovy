@@ -42,7 +42,9 @@ suite("test_partial_update_2pc_schema_change", "p0") {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        def user=context.config.jdbcUser
+        def password = context.config.jdbcPassword
+        connect(user, password, context.config.jdbcUrl) {
             sql "use ${db};"
 
             def tableName = "test_partial_update_2pc_schema_change"
