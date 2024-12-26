@@ -54,6 +54,8 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
     }
 
     def test_acid = {
+        
+        sql """set enable_fallback_to_original_planner=false;"""
         try {
             sql """ select * from orc_to_acid_tb """ 
         }catch( Exception e) {
