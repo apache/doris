@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -302,7 +303,7 @@ public class ExternalMetaCacheMgr {
 
     public <T> MetaCache<T> buildMetaCache(String name,
             OptionalLong expireAfterWriteSec, OptionalLong refreshAfterWriteSec, long maxSize,
-            CacheLoader<String, List<String>> namesCacheLoader,
+            CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
             CacheLoader<String, Optional<T>> metaObjCacheLoader,
             RemovalListener<String, Optional<T>> removalListener) {
         MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterWriteSec, refreshAfterWriteSec,
