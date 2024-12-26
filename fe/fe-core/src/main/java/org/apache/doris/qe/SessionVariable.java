@@ -568,8 +568,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SPILL_AGGREGATION_PARTITION_COUNT = "spill_aggregation_partition_count";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String SPILL_HASH_JOIN_PARTITION_COUNT = "spill_hash_join_partition_count";
-    public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT = "spill_revocable_memory_high_watermark_percent";
+    public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT =
+            "spill_revocable_memory_high_watermark_percent";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
+    public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
@@ -2249,6 +2251,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
     public int spillAggregationPartitionCount = 32;
 
+    @VariableMgr.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
+    public long lowMemoryModeBufferLimit = 33554432;
+
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
     @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
@@ -3914,7 +3919,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
-        
+
         // for spill
         tResult.setEnableSpill(enableSpill);
         tResult.setEnableForceSpill(enableForceSpill);
@@ -3928,6 +3933,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRevocableMemoryHighWatermarkPercent(spillRevocableMemoryHighWatermarkPercent);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);

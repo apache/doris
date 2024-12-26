@@ -371,10 +371,12 @@ struct TQueryOptions {
   145: optional bool enable_spill = false
   146: optional bool enable_reserve_memory = true
   147: optional i32 revocable_memory_high_watermark_percent = -1
+
   148: optional i64 spill_sort_mem_limit = 134217728
   149: optional i64 spill_sort_batch_bytes = 8388608
   150: optional i32 spill_aggregation_partition_count = 32
   151: optional i32 spill_hash_join_partition_count = 32
+  152: optional i64 low_memory_mode_buffer_limit = 33554432
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

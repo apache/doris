@@ -108,45 +108,23 @@ Status SpillStreamManager::_init_spill_store_map() {
 
 std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
-    std::vector<SpillDataDir*> stores;
+    std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
-            stores.push_back(store.get());
+            stores_with_usage.emplace_back(store.get(), store->_get_disk_usage(0));
         }
     }
-    if (stores.empty()) {
-        return stores;
+    if (stores_with_usage.empty()) {
+        return {};
     }
 
-    std::sort(stores.begin(), stores.end(), [](SpillDataDir* a, SpillDataDir* b) {
-        return a->_get_disk_usage(0) < b->_get_disk_usage(0);
-    });
+    std::sort(stores_with_usage.begin(), stores_with_usage.end(),
+              [](auto&& a, auto&& b) { return a.second < b.second; });
 
-    size_t seventy_percent_index = stores.size();
-    size_t eighty_five_percent_index = stores.size();
-    for (size_t index = 0; index < stores.size(); index++) {
-        // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->_get_disk_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
-            seventy_percent_index = index;
-        }
-        if (stores[index]->_get_disk_usage(0) > 0.85 &&
-            eighty_five_percent_index == stores.size()) {
-            eighty_five_percent_index = index;
-            break;
-        }
+    std::vector<SpillDataDir*> stores;
+    for (const auto& [store, _] : stores_with_usage) {
+        stores.emplace_back(store);
     }
-
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
-    if (seventy_percent_index != stores.size()) {
-        std::shuffle(stores.begin() + seventy_percent_index,
-                     stores.begin() + eighty_five_percent_index, g);
-    }
-    if (eighty_five_percent_index != stores.size()) {
-        std::shuffle(stores.begin() + eighty_five_percent_index, stores.end(), g);
-    }
-
     return stores;
 }
 
