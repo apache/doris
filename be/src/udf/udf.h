@@ -20,8 +20,11 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -75,6 +78,9 @@ public:
 
     RuntimeState* state() { return _state; }
 
+    void set_dict_function(const TDictFunction& dict_function) { _dict_function = dict_function; }
+
+    std::optional<TDictFunction>& dict_function() { return _dict_function; };
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
@@ -193,6 +199,8 @@ private:
     std::string _string_result;
 
     vectorized::Arena arena;
+
+    std::optional<TDictFunction> _dict_function;
 };
 
 using doris::FunctionContext;
