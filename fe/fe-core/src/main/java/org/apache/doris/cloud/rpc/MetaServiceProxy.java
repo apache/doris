@@ -181,22 +181,30 @@ public class MetaServiceProxy {
                     client = proxy.getProxy();
                     return function.apply(client);
                 } catch (StatusRuntimeException sre) {
-                    if (sre.getStatus().getCode() == Status.Code.UNAVAILABLE || tried == 3) {
-                        if (proxy.needReconn() && client != null) {
-                            client.shutdown(true);
-                        }
+                    LOG.info("lw test code {}, msg {}, trycnt {}", sre.getStatus().getCode(), sre.getMessage(), tried);
+                    if (proxy.needReconn() && client != null) {
+                        client.shutdown(true);
+                    }
+                    //if (sre.getStatus().getCode() == Status.Code.UNAVAILABLE || tried == 3) {
+                    if (tried == 3) {
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (Exception e) {
+                    LOG.info("lw test trycnt {}", tried, e);
                     if (proxy.needReconn() && client != null) {
                         client.shutdown(true);
                     }
-                    throw new RpcException("", e.getMessage(), e);
+                    if (tried == 3) {
+                        throw new RpcException("", e.getMessage(), e);
+                    }
                 } catch (Throwable t) {
+                    LOG.info("lw test trycnt {}", tried, t);
                     if (proxy.needReconn() && client != null) {
                         client.shutdown(true);
                     }
-                    throw new RpcException("", t.getMessage());
+                    if (tried == 3) {
+                        throw new RpcException("", t.getMessage());
+                    }
                 }
             }
             return null; // impossible and unreachable, just make the compiler happy
