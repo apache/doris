@@ -315,7 +315,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                         bottomUp(new PushProjectIntoOneRowRelation()),
                         topDown(new MergeOneRowRelationIntoUnion()),
-                        costBased(topDown(new InferSetOperatorDistinct())),
+                        topDown(new InferSetOperatorDistinct()),
                         topDown(new BuildAggForUnion()),
                         bottomUp(new EliminateEmptyRelation()),
                         // when union has empty relation child and constantExprsList is not empty,
@@ -355,12 +355,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
 
                 topic("Eager aggregation",
-                        costBased(topDown(
+                        topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide(),
                                 new PushDownAggThroughJoinOneSide(),
                                 new PushDownAggThroughJoin()
-                        )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        ),
+                        custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
 
