@@ -160,7 +160,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         DISTRIBUTED BY HASH(k) BUCKETS 4 
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
     """
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
+    
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")

@@ -40,27 +40,30 @@ Status HierarchicalDataReader::create(ColumnIterator** reader, vectorized::PathI
                                       std::unique_ptr<ColumnIterator>&& sparse_reader) {
     // None leave node need merge with root
     auto* stream_iter = new HierarchicalDataReader(path);
-    std::vector<const SubcolumnColumnReaders::Node*> leaves;
-    vectorized::PathsInData leaves_paths;
-    SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
-    for (size_t i = 0; i < leaves_paths.size(); ++i) {
-        if (leaves_paths[i].empty()) {
-            // use set_root to share instead
-            continue;
+    if (node != nullptr) {
+        std::vector<const SubcolumnColumnReaders::Node*> leaves;
+        vectorized::PathsInData leaves_paths;
+        SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
+        for (size_t i = 0; i < leaves_paths.size(); ++i) {
+            if (leaves_paths[i].empty()) {
+                // use set_root to share instead
+                continue;
+            }
+            RETURN_IF_ERROR(stream_iter->add_stream(leaves[i]));
         }
-        RETURN_IF_ERROR(stream_iter->add_stream(leaves[i]));
+        // Make sure the root node is in strem_cache, so that child can merge data with root
+        // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
+        // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
+        // like {"a" : "b" : {"e" : 1.1}} in jsonb format
+        if (read_type == ReadType::MERGE_ROOT) {
+            ColumnIterator* it;
+            RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+            stream_iter->set_root(std::make_unique<SubstreamIterator>(
+                    root->data.file_column_type->create_column(),
+                    std::unique_ptr<ColumnIterator>(it), root->data.file_column_type));
+        }
     }
-    // Make sure the root node is in strem_cache, so that child can merge data with root
-    // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
-    // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
-    // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-    if (read_type == ReadType::MERGE_ROOT) {
-        ColumnIterator* it;
-        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
-        stream_iter->set_root(std::make_unique<SubstreamIterator>(
-                root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
-                root->data.file_column_type));
-    }
+
     // need read from sparse column
     if (sparse_reader) {
         vectorized::MutableColumnPtr sparse_column =
@@ -284,6 +287,7 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
     RETURN_IF_ERROR(_process_nested_columns(container_variant, nested_subcolumns));
 
     RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
+    container_variant.set_num_rows(nrows);
     return Status::OK();
 }
 

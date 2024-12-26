@@ -88,7 +88,7 @@ suite("load_p2", "variant_type,p2"){
 
     try {
         def table_name = "github_events"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
+        
         def s3load_paral_wait = {tbl, fmt, path, paral ->
             String ak = getS3AK()
             String sk = getS3SK()
@@ -167,6 +167,6 @@ suite("load_p2", "variant_type,p2"){
         qt_sql("select count() from github_events")
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        
     }
 }

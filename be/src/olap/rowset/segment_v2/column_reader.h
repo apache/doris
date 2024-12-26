@@ -315,6 +315,9 @@ public:
     int64_t get_metadata_size() const override;
 
 private:
+    Status _create_hierarchical_reader(ColumnIterator** reader, vectorized::PathInData path,
+                                       const SubcolumnColumnReaders::Node* node,
+                                       const SubcolumnColumnReaders::Node* root);
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
