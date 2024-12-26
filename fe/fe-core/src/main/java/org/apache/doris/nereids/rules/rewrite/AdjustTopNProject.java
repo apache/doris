@@ -56,7 +56,7 @@ public class AdjustTopNProject extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalTopN(logicalProject(logicalAggregate()))
+        return logicalTopN(logicalProject())
                 .then(topN -> adjust(topN)).toRule(RuleType.ADJUST_TOPN_PROJECT);
     }
 
