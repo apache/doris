@@ -161,7 +161,7 @@ Status FlushToken::_try_reserve_memory(QueryThreadContext query_thread_context, 
         if (memtable_flush_executor->check_and_inc_has_any_flushing_task()) {
             // If there are already any flushing task, Wait for some time and retry.
             LOG_EVERY_T(INFO, 60) << fmt::format(
-                    "Failed to reserve memory {} for flush memtable, retry after 100ms", size);
+                    "Failed to reserve memory {} for flush memtable, retry after 100ms", PrettyPrinter::print_bytes(size));
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         } else {
             st = Status::OK();

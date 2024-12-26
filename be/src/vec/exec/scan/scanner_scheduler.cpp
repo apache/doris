@@ -382,7 +382,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
                 if (scan_task->cached_blocks.back().first->rows() > 0) {
                     auto block_avg_bytes =
-                            (scan_task->cached_blocks.back().first->allocated_bytes() +
+                            (scan_task->cached_blocks.back().first->bytes() +
                              scan_task->cached_blocks.back().first->rows() - 1) /
                             scan_task->cached_blocks.back().first->rows() * ctx->batch_size();
                     scanner->update_block_avg_bytes(block_avg_bytes);
