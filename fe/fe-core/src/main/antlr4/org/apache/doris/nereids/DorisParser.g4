@@ -305,10 +305,10 @@ unsupportedOtherStatement
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
-    | BACKUP GLOBAL? SNAPSHOT label=multipartIdentifier TO repo=identifier
+    | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
-    | RESTORE GLOBAL? SNAPSHOT label=multipartIdentifier FROM repo=identifier
+    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
@@ -359,8 +359,8 @@ unsupportedShowStatement
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW PROPERTY (FOR user=identifierOrText)? wildWhere?                         #showUserProperties
     | SHOW ALL PROPERTIES wildWhere?                                                #showAllProperties
-    | SHOW GLOBAL? BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
-    | SHOW GLOBAL? BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
+    | SHOW BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
+    | SHOW BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
@@ -496,8 +496,8 @@ unsupportedCancelStatement
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex
     | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
-    | CANCEL GLOBAL? BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
-    | CANCEL GLOBAL? RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
+    | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
+    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
     ;
 
 supportedAdminStatement
@@ -1508,9 +1508,7 @@ valueExpression
     ;
 
 datetimeUnit
-    : YEAR | MONTH
-    | WEEK | DAY
-    | HOUR | MINUTE | SECOND
+    :YEAR | MONTH | QUARTER | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 primaryExpression
@@ -1704,7 +1702,7 @@ interval
     ;
 
 unitIdentifier
-    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 dataTypeWithNullable
@@ -2057,7 +2055,8 @@ nonReserved
     | PROPERTIES
     | PROPERTY
     | QUANTILE_STATE
-    | QUANTILE_UNION
+	| QUANTILE_UNION
+	| QUARTER
     | QUERY
     | QUOTA
     | QUALIFY

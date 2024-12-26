@@ -46,7 +46,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -67,14 +66,6 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    private void readLock() {
-        lock.readLock().lock();
-    }
-
-    private void readUnlock() {
-        lock.readLock().unlock();
     }
 
     /**
@@ -274,21 +265,6 @@ public class SqlBlockRuleMgr implements Writable {
             }
             matchSql(rule, originSql, sqlHash);
         }
-    }
-
-    public List<SqlBlockRule> getAllRulesCopied() {
-        List<SqlBlockRule> rules = Lists.newArrayList();
-        readLock();
-        try {
-            // get all rules
-            for (Entry<String, SqlBlockRule> entry : nameToSqlBlockRuleMap.entrySet()) {
-                SqlBlockRule rule = entry.getValue();
-                rules.add(rule.clone());
-            }
-        } finally {
-            readUnlock();
-        }
-        return rules;
     }
 
     private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
