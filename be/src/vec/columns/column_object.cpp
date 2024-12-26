@@ -75,11 +75,7 @@
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
 
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

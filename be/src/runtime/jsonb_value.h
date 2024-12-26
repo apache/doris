@@ -26,11 +26,7 @@
 
 #include "common/status.h"
 #include "util/hash_util.hpp"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 
 namespace doris {
 
