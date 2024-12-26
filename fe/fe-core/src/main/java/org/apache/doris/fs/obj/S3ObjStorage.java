@@ -102,6 +102,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .equalsIgnoreCase("true");
         forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
                 "false").equalsIgnoreCase("true");
+
+        String endpoint = properties.get(S3Properties.ENDPOINT);
+        String region = properties.get(S3Properties.REGION);
+        this.properties.put(S3Properties.REGION, PropertyConverter.checkRegion(endpoint, region, S3Properties.REGION));
     }
 
     @Override
