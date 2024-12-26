@@ -30,19 +30,21 @@ suite("test_paimon_table_stats", "p0,external,doris,external_docker,external_doc
                 "warehouse" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1"
             );"""
 
-            def assert_stats = { table_name, cnt -> 
+            def assert_stats = { table_name, cnt ->
                 def retry = 0
                 def act = ""
-                while (retry < 10) {
+                sql """desc ${table_name}"""
+                while (retry < 100) {
                     def result = sql """ show table stats ${table_name} """
                     act = result[0][2]
-                    if (act != "0") {
+                    logger.info("current table row count is " + act)
+                    if (!act.equals("-1")) {
                         break;
                     }
                     Thread.sleep(2000)
                     retry++
                 }
-                assertEquals(act, cnt)
+                assertEquals(cnt, act)
             }
 
             // select
