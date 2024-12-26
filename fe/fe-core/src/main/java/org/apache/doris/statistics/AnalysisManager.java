@@ -115,6 +115,7 @@ public class AnalysisManager implements Writable {
     private StatisticsCache statisticsCache;
 
     private AnalysisTaskExecutor taskExecutor;
+    private ThreadPoolExecutor dropStatsExecutors;
 
     // Store task information in metadata.
     protected final NavigableMap<Long, AnalysisInfo> analysisTaskInfoMap =
@@ -136,8 +137,13 @@ public class AnalysisManager implements Writable {
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
-                    Integer.MAX_VALUE);
+                    Integer.MAX_VALUE, "Manual Analysis Job Executor");
             this.statisticsCache = new StatisticsCache();
+            this.dropStatsExecutors = ThreadPoolManager.newDaemonThreadPool(
+                    1, 3, 10,
+                    TimeUnit.DAYS, new LinkedBlockingQueue<>(20),
+                    new ThreadPoolExecutor.DiscardPolicy(),
+                    "Drop stats executor", true);
         }
     }
 
@@ -656,16 +662,49 @@ public class AnalysisManager implements Writable {
             long catalogId = table.getDatabase().getCatalog().getId();
             long dbId = table.getDatabase().getId();
             long tableId = table.getId();
-            removeTableStats(tableId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
-            Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName)
-                    .collect(Collectors.toSet());
-            invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
-            // Drop stats ddl is master only operation.
-            invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
-            StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, table.getId(), cols);
+            asyncDropStatsTask(table, catalogId, dbId, tableId, tableStats);
         } catch (Throwable e) {
             LOG.warn("Failed to drop stats for table {}", table.getName(), e);
+        }
+    }
+
+    class DropStatsTask implements Runnable {
+        private final long catalogId;
+        private final long dbId;
+        private final long tableId;
+        private final TableStatsMeta tableStats;
+        private final TableIf table;
+
+        public DropStatsTask(TableIf table, long catalogId, long dbId, long tableId, TableStatsMeta tableStats) {
+            this.catalogId = catalogId;
+            this.dbId = dbId;
+            this.tableId = tableId;
+            this.tableStats = tableStats;
+            this.table = table;
+        }
+
+        @Override
+        public void run() {
+            try {
+                removeTableStats(tableId);
+                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
+                Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName)
+                        .collect(Collectors.toSet());
+                StatisticsRepository.dropStatisticsByColNames(catalogId, dbId, table.getId(), cols);
+                invalidateLocalStats(catalogId, dbId, tableId, null, tableStats);
+                // Drop stats ddl is master only operation.
+                invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
+            } catch (Throwable e) {
+                LOG.warn("Failed to drop stats for table {}", table.getName(), e);
+            }
+        }
+    }
+
+    public void asyncDropStatsTask(TableIf table, long catalogId, long dbId, long tableId, TableStatsMeta tableStats) {
+        try {
+            dropStatsExecutors.submit(new DropStatsTask(table, catalogId, dbId, tableId, tableStats));
+        } catch (Throwable t) {
+            LOG.info("Failed to submit async drop stats job. reason: {}", t.getMessage());
         }
     }
 

@@ -17,6 +17,22 @@
 
 suite("test_drop_stats_and_truncate") {
 
+    def stats_dropped = { table ->
+        def result1 = sql """show column cached stats $table"""
+        def result2 = sql """show column stats $table"""
+        boolean dropped = false
+        for (int i = 0; i < 120; i++) {
+            if (0 == result1.size() && 0 == result2.size()) {
+                dropped = true;
+                break;
+            }
+            Thread.sleep(1000)
+            result1 = sql """show column cached stats $table"""
+            result2 = sql """show column stats $table"""
+        }
+        assertTrue(dropped)
+    }
+
     sql """drop database if exists test_drop_stats_and_truncate"""
     sql """create database test_drop_stats_and_truncate"""
     sql """use test_drop_stats_and_truncate"""
@@ -100,6 +116,7 @@ suite("test_drop_stats_and_truncate") {
     assertEquals(3, columns.size())
 
     sql """truncate table non_part"""
+    stats_dropped("non_part")
     result = sql """show column stats non_part"""
     assertEquals(0, result.size())
     result = sql """show table stats non_part"""
@@ -147,6 +164,7 @@ suite("test_drop_stats_and_truncate") {
     assertEquals(9, columns.size())
 
     sql """truncate table part"""
+    stats_dropped("part")
     result = sql """show column stats part"""
     assertEquals(0, result.size())
     result = sql """show table stats part"""
