@@ -1508,9 +1508,7 @@ valueExpression
     ;
 
 datetimeUnit
-    : YEAR | MONTH
-    | WEEK | DAY
-    | HOUR | MINUTE | SECOND
+    :YEAR | MONTH | QUARTER | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 primaryExpression
@@ -1704,7 +1702,7 @@ interval
     ;
 
 unitIdentifier
-    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 dataTypeWithNullable
@@ -2057,7 +2055,8 @@ nonReserved
     | PROPERTIES
     | PROPERTY
     | QUANTILE_STATE
-    | QUANTILE_UNION
+	| QUANTILE_UNION
+	| QUARTER
     | QUERY
     | QUOTA
     | QUALIFY
