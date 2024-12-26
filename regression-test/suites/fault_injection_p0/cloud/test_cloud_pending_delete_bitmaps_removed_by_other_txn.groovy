@@ -83,6 +83,7 @@ suite("test_cloud_pending_delete_bitmaps_removed_by_other_txn", "nonConcurrent")
             t2.join()
 
             Thread.sleep(300)
+            // force it read delete bitmaps from MS rather than BE's cache
             GetDebugPoint().enableDebugPointForAllBEs("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss")
             qt_sql "select * from ${table1} order by k1,c1,c2;"
         } catch(Exception e) {
