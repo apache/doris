@@ -228,7 +228,9 @@ suite('test_manager_interface_1',"p0") {
     }
     test_databases()
 
-
+    def removeWhitespaceAndNewlines = { String input ->
+        return input.replaceAll(/[\n\r\s]/, '')
+    }
 
 
 // show tables  && show tables like '$table_name'
@@ -280,7 +282,7 @@ suite('test_manager_interface_1',"p0") {
         def ddl_str =  result[0][1] 
         def idx =  ddl_str.indexOf("PROPERTIES")
         assertTrue(idx != -1 );
-        assertTrue( ddl_str.startsWith("""CREATE TABLE `test_manager_tb_1` (
+        assertTrue( removeWhitespaceAndNewlines(ddl_str).startsWith(removeWhitespaceAndNewlines("""CREATE TABLE `test_manager_tb_1` (
   `k1` tinyint NULL,
   `k2` decimal(10,2) NULL DEFAULT "10.05",
   `k3` char(10) NULL COMMENT 'string column',
@@ -289,7 +291,7 @@ suite('test_manager_interface_1',"p0") {
 ) ENGINE=OLAP
 DUPLICATE KEY(`k1`, `k2`, `k3`)
 COMMENT 'manager_test_table'
-DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
+DISTRIBUTED BY HASH(`k1`) BUCKETS 1""")))
 
         sql """ drop table test_manager_tb_1 """ 
         result = sql """ show tables """ 
