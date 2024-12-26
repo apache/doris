@@ -329,7 +329,10 @@ enum TFunctionBinaryType {
 
   JAVA_UDF,
 
-  AGG_STATE
+  AGG_STATE,
+
+  // use to dict function
+  DICT_FUNC,
 }
 
 // Represents a fully qualified function name.
