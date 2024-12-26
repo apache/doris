@@ -135,17 +135,9 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
             }
         } else {
             for (size_t offset = 0; offset < current_rows; offset++) {
-                current_output_rows++;
-                for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->impl->block->get_columns()[i],
-                                                   current->impl->pos);
-                }
-
                 bool cmp_res =
                         _previous_row->impl && _previous_row->compare_two_rows(current->impl);
                 if (!cmp_res) {
-                    _output_distinct_rows++;
-
                     if (_top_n_algorithm == TopNAlgorithm::DENSE_RANK) {
                         // dense_rank(): 1,1,1,2,2,2,2,.......,2,3,3,3, if SQL: where rk < 3, need output all 1 and 2
                         // dense_rank() maybe need distinct rows of partition_inner_limit
@@ -164,6 +156,12 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                         }
                     }
                     *_previous_row = *current;
+                    _output_distinct_rows++;
+                }
+                current_output_rows++;
+                for (size_t i = 0; i < num_columns; ++i) {
+                    merged_columns[i]->insert_from(*current->impl->block->get_columns()[i],
+                                                   current->impl->pos);
                 }
                 if (!current->impl->is_last(1)) {
                     priority_queue.next(1);
