@@ -36,8 +36,9 @@ import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
-    public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
+    public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
+            IcebergExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.ICEBERG_EXTERNAL_TABLE);
     }
 
     public String getIcebergCatalogType() {

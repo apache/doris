@@ -17,29 +17,21 @@
 
 package org.apache.doris.datasource.jdbc;
 
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.mapping.IdentifierMapping;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.SchemaCacheValue;
 
-public class JdbcIdentifierMapping extends IdentifierMapping {
-    private final JdbcClient jdbcClient;
+import java.util.List;
+import java.util.Map;
 
-    public JdbcIdentifierMapping(boolean isLowerCaseMetaNames, String metaNamesMapping, JdbcClient jdbcClient) {
-        super(isLowerCaseMetaNames, metaNamesMapping);
-        this.jdbcClient = jdbcClient;
+public class JdbcSchemaCacheValue extends SchemaCacheValue {
+    private Map<String, String> remoteColumnNamesMap;
+
+    public JdbcSchemaCacheValue(List<Column> schema, Map<String, String> remoteColumnNamesMap) {
+        super(schema);
+        this.remoteColumnNamesMap = remoteColumnNamesMap;
     }
 
-    @Override
-    protected void loadDatabaseNames() {
-        jdbcClient.getDatabaseNameList();
-    }
-
-    @Override
-    protected void loadTableNames(String localDbName) {
-        jdbcClient.getTablesNameList(localDbName);
-    }
-
-    @Override
-    protected void loadColumnNames(String localDbName, String localTableName) {
-        jdbcClient.getColumnsFromJdbc(localDbName, localTableName);
+    public String getremoteColumnName(String columnName) {
+        return remoteColumnNamesMap.get(columnName);
     }
 }
