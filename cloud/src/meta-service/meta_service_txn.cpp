@@ -996,7 +996,7 @@ void process_mow_when_commit_txn(
                 return;
             }
 
-            if (pending_info.lock_id() != lock_id) {
+            if (pending_info.has_lock_id() && pending_info.lock_id() != lock_id) {
                 code = MetaServiceCode::PENDING_DELETE_BITMAP_WRONG;
                 msg = fmt::format(
                         "wrong lock_id in pending delete bitmap infos, expect lock_id={}, but "

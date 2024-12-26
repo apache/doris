@@ -50,8 +50,8 @@ suite("test_cloud_pending_delete_bitmaps_removed_by_other_txn", "nonConcurrent")
             GetDebugPoint().clearDebugPointsForAllFEs()
             GetDebugPoint().clearDebugPointsForAllBEs()
 
-            // block the first load after it writes pending delete bitmaps in MS and before
-            // it commit txn in MS util its delete bitmap update lock in MS timeout
+            // let the first load fail and retry after it writes pending delete bitmaps in MS and before
+            // it commit txn in MS
             GetDebugPoint().enableDebugPointForAllBEs("CloudTablet::save_delete_bitmap.enable_sleep", [sleep: 5])
             GetDebugPoint().enableDebugPointForAllBEs("CloudTablet::save_delete_bitmap.injected_error", [retry: true])
 
