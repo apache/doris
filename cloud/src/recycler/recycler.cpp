@@ -1551,13 +1551,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
         });
     }
     for (const auto& [resource_id, tablet_id, rowset_id] : rowsets_delete_by_prefix) {
+        LOG_INFO(
+                "delete rowset {} by prefix because it's in BEGIN_PARTIAL_UPDATE state, "
+                "resource_id={}, tablet_id={}, instance_id={}",
+                rowset_id, resource_id, tablet_id, instance_id_);
         concurrent_delete_executor.add(
                 [&]() -> int { return delete_rowset_data(resource_id, tablet_id, rowset_id); });
-    }
-    if (!rowsets_delete_by_prefix.empty()) {
-        LOG_INFO("delete {} rowsets by prefix because they are in BEGIN_PARTIAL_UPDATE state",
-                 rowsets_delete_by_prefix.size())
-                .tag("instance_id", instance_id_);
     }
     bool finished = true;
     std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
