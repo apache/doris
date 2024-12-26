@@ -35,6 +35,7 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/stream_load_pipe.h"
@@ -498,8 +499,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
             if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
                 auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 DCHECK(pipeline_id_to_profile[pip_idx]);
-                RETURN_IF_ERROR(task->prepare(local_params, request.fragment.output_sink,
-                                              _query_ctx.get()));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
+                        local_params, request.fragment.output_sink, _query_ctx.get()));
             }
         }
         {

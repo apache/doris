@@ -317,7 +317,7 @@ public class MTMVPartitionUtil {
         if (!relatedTable.needAutoRefresh()) {
             return true;
         }
-        // check if partitions of related table if changed
+        // check if partitions of related table is changed
         Set<String> snapshotPartitions = mtmv.getRefreshSnapshot().getSnapshotPartitions(mtmvPartitionName);
         if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
             return false;
@@ -536,11 +536,12 @@ public class MTMVPartitionUtil {
 
     private static Map<Long, Long> getTableVersions(MTMV mtmv) {
         Map<Long, Long> res = Maps.newHashMap();
-        if (mtmv.getRelation() == null || mtmv.getRelation().getBaseTablesOneLevel() == null) {
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null || relation.getBaseTablesOneLevel() == null) {
             return res;
         }
         List<OlapTable> olapTables = Lists.newArrayList();
-        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
+        for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevel()) {
             TableIf table = null;
             try {
                 table = MTMVUtil.getTable(baseTableInfo);

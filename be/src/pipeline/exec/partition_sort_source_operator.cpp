@@ -20,6 +20,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -105,4 +106,5 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
 }
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

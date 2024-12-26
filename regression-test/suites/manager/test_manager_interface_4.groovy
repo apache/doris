@@ -122,7 +122,7 @@ suite('test_manager_interface_4',"p0") {
         def healthy_num = 0;
         def total_tablet_num  = 0;
         def total_healthy_num = 0;
-        result = sql """  SHOW PROC '/cluster_health/tablet_health' """ 
+        def result = sql """  SHOW PROC '/cluster_health/tablet_health' """ 
         logger.info("result = ${result}" )
 
         for( int i =0 ;i < result.size();i++ ){

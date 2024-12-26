@@ -702,6 +702,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2, 3}; }
+
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1525,6 +1527,9 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    // should set NULL value of nested data to default,
+    // as iff it's not inited and invalid, the repeat result of length is so large cause overflow
+    bool need_replace_null_data_to_default() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -2137,7 +2142,7 @@ public:
 
         NullMapType* dest_nested_null_map = nullptr;
         auto* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
-        dest_nested_column = dest_nullable_col->get_nested_column_ptr();
+        dest_nested_column = dest_nullable_col->get_nested_column_ptr().get();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
         const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
@@ -4431,7 +4436,7 @@ public:
         } else if (is_ascii) {
             impl_vectors = impl_vectors_ascii<false>;
         }
-        impl_vectors(col_source, col_from, col_to, col_res);
+        impl_vectors(col_source, col_from, col_to, col_res.get());
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }

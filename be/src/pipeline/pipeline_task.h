@@ -61,7 +61,7 @@ public:
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close(Status exec_status);
+    Status close(Status exec_status, bool close_sink = true);
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -135,7 +135,7 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void set_wake_up_by_downstream() { _wake_up_by_downstream = true; }
+    void set_wake_up_early() { _wake_up_early = true; }
 
     void clear_blocking_state() {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
@@ -237,7 +237,7 @@ public:
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
 
-    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+    bool wake_up_early() const { return _wake_up_early; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -319,7 +319,7 @@ private:
 
     std::atomic<bool> _running = false;
     std::atomic<bool> _eos = false;
-    std::atomic<bool> _wake_up_by_downstream = false;
+    std::atomic<bool> _wake_up_early = false;
 };
 
 } // namespace doris::pipeline

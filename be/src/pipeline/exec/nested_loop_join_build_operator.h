@@ -23,6 +23,7 @@
 #include "pipeline/exec/join_build_sink_operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -89,4 +90,5 @@ private:
     RowDescriptor _row_descriptor;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

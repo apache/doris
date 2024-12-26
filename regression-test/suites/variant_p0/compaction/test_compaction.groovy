@@ -27,7 +27,7 @@ suite("test_compaction_variant") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -49,7 +49,7 @@ suite("test_compaction_variant") {
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    v ${var_def} 
+                    v ${var_def}
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
@@ -89,35 +89,7 @@ suite("test_compaction_variant") {
             def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
             // trigger compactions for all tablets in ${tableName}
-            for (def tablet in tablets) {
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactJson = parseJson(out.trim())
-                if (compactJson.status.toLowerCase() == "fail") {
-                    assertEquals(disableAutoCompaction, false)
-                    logger.info("Compaction was done automatically!")
-                }
-                if (disableAutoCompaction) {
-                    assertEquals("success", compactJson.status.toLowerCase())
-                }
-            }
-
-            // wait for all compactions done
-            for (def tablet in tablets) {
-                Awaitility.await().untilAsserted(() -> {
-                    String tablet_id = tablet.TabletId
-                    backend_id = tablet.BackendId
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    return compactionStatus.run_status;
-                });
-            }
+            trigger_and_wait_compaction(tableName, "cumulative")
 
             int rowCount = 0
             for (def tablet in tablets) {
@@ -135,7 +107,7 @@ suite("test_compaction_variant") {
             qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
-            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;" 
+            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"
         }
 
     } finally {

@@ -25,6 +25,7 @@
 #include "vec/common/hash_table/hash_table_set_probe.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -69,7 +70,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    auto probe_rows = in_block->rows();
+    uint32_t probe_rows = cast_set<uint32_t>(in_block->rows());
     if (probe_rows > 0) {
         {
             SCOPED_TIMER(local_state._extract_probe_data_timer);
@@ -220,8 +221,8 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                     ? (valid_element_in_hash_tbl <
                                        arg.hash_table
                                                ->size()) // When intersect, shrink as long as the element decreases
-                                    : (valid_element_in_hash_tbl <
-                                       arg.hash_table->size() *
+                                    : ((double)valid_element_in_hash_tbl <
+                                       (double)arg.hash_table->size() *
                                                need_shrink_ratio); // When except, element decreases need to within the 'need_shrink_ratio' before shrinking
 
                     if (is_need_shrink) {
@@ -231,7 +232,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                 local_state._shared_state->valid_element_in_hash_tbl);
                         while (iter != iter_end) {
                             auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
+                            auto* it = &mapped;
 
                             if constexpr (is_intersect) {
                                 if (it->visited) {
@@ -249,7 +250,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     } else if (is_intersect) {
                         while (iter != iter_end) {
                             auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
+                            auto* it = &mapped;
                             it->visited = false;
                             ++iter;
                         }
@@ -269,4 +270,5 @@ template class SetProbeSinkLocalState<false>;
 template class SetProbeSinkOperatorX<true>;
 template class SetProbeSinkOperatorX<false>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -168,11 +168,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      *
      * @param id Table id.
      * @param name Table name.
-     * @param dbName Database name.
-     * @param catalog HMSExternalCatalog.
+     * @param remoteName Remote table name.
+     * @param catalog HMSExternalDataSource.
+     * @param db Database.
      */
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
+    public HMSExternalTable(long id, String name, String remoteName, HMSExternalCatalog catalog,
+            HMSExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.HMS_EXTERNAL_TABLE);
     }
 
     // Will throw NotSupportedException if not supported hms table.
@@ -543,7 +545,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> getIcebergSchema() {
-        return IcebergUtils.getSchema(catalog, dbName, name);
+        return IcebergUtils.getSchema(catalog, dbName, name, IcebergUtils.UNKNOWN_SNAPSHOT_ID);
     }
 
     private List<Column> getHudiSchema() {
@@ -647,7 +649,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     break;
                 }
             default:
-                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get column stats for dlaType {} is not supported.", dlaType);
+                }
         }
         return Optional.empty();
     }

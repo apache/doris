@@ -32,7 +32,6 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
-#include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
@@ -112,6 +111,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         }
     }
     only_local_exchange = local_size == channels.size();
+    _rpc_channels_num = channels.size() - local_size;
 
     if (!only_local_exchange) {
         _sink_buffer = p.get_sink_buffer(state->fragment_instance_id().lo);
@@ -206,17 +206,12 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
     }
-    size_t local_size = 0;
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->open(state));
         if (channels[i]->is_local()) {
-            local_size++;
             _last_local_channel_idx = i;
         }
     }
-    only_local_exchange = local_size == channels.size();
-
-    _rpc_channels_num = channels.size() - local_size;
 
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
@@ -228,7 +223,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
-    } else if (local_size > 0) {
+    } else if (!only_local_exchange) {
         size_t dep_id = 0;
         for (auto& channel : channels) {
             if (channel->is_local()) {
@@ -283,6 +278,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
           _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
           _enable_local_merge_sort(state->enable_local_merge_sort()),
+          _dest_is_merge(sink.__isset.is_merge && sink.is_merge),
           _fragment_instance_ids(fragment_instance_ids) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
@@ -575,19 +571,13 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
 // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
 // (Note: This does not reduce the total number of RPCs.)
 // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
-/// TODO: Modify this to let FE handle the judgment instead of BE.
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(
         InstanceLoId sender_ins_id) {
-    if (!_child) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "ExchangeSinkOperatorX did not correctly set the child.");
-    }
     // When the child is SortSourceOperatorX or LocalExchangeSourceOperatorX,
     // it is an order-by scenario.
     // In this case, there is only one target instance, and no n * n RPC concurrency will occur.
     // Therefore, sharing a sink buffer is not necessary.
-    if (std::dynamic_pointer_cast<SortSourceOperatorX>(_child) ||
-        std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_child)) {
+    if (_dest_is_merge) {
         return _create_buffer({sender_ins_id});
     }
     if (_state->enable_shared_exchange_sink_buffer()) {

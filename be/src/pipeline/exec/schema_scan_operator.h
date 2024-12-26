@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -88,4 +89,5 @@ private:
     std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
