@@ -563,8 +563,8 @@ public class IcebergUtils {
     }
 
     private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,
-                                                                    String tblName,
-                                                                    boolean isClone) {
+            String tblName,
+            boolean isClone) {
         IcebergMetadataCache metadataCache = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache();
@@ -575,7 +575,7 @@ public class IcebergUtils {
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
+    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name, long schemaId) {
         try {
             return catalog.getPreExecutionAuthenticator().execute(() -> {
                 org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
