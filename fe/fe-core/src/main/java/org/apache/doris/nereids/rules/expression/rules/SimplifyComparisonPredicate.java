@@ -130,7 +130,12 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         if (toScale < rightType.getScale()) {
             if (comparisonPredicate instanceof EqualTo) {
                 long originValue = right.getMicroSecond();
-                right = right.roundCeiling(toScale);
+                try {
+                    right = right.roundCeiling(toScale);
+                } catch (AnalysisException e) {
+                    // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                    return ExpressionUtils.falseOrNull(left);
+                }
                 if (right.getMicroSecond() != originValue) {
                     // TODO: the ideal way is to return an If expr like:
                     // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
@@ -142,7 +147,12 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
                 long originValue = right.getMicroSecond();
-                right = right.roundCeiling(toScale);
+                try {
+                    right = right.roundCeiling(toScale);
+                } catch (AnalysisException e) {
+                    // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                    return BooleanLiteral.FALSE;
+                }
                 if (right.getMicroSecond() != originValue) {
                     return BooleanLiteral.of(false);
                 }
@@ -151,7 +161,15 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 right = right.roundFloor(toScale);
             } else if (comparisonPredicate instanceof LessThan
                     || comparisonPredicate instanceof GreaterThanEqual) {
-                right = right.roundCeiling(toScale);
+                try {
+                    right = right.roundCeiling(toScale);
+                } catch (AnalysisException e) {
+                    // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                    if (comparisonPredicate instanceof LessThan) {
+                        return ExpressionUtils.trueOrNull(left);
+                    }
+                    return ExpressionUtils.falseOrNull(left);
+                }
             } else {
                 return comparisonPredicate;
             }
@@ -172,13 +190,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             if (cast.child().getDataType() instanceof DateTimeType
                     || cast.child().getDataType() instanceof DateTimeV2Type) {
                 if (right instanceof DateTimeV2Literal) {
-                    try {
-                        return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
-                                cp, cast.child(), (DateTimeV2Literal) right);
-                    } catch (AnalysisException e) {
-                        // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
-                        return cp;
-                    }
+                    return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
+                            cp, cast.child(), (DateTimeV2Literal) right);
                 }
             }
 
@@ -195,11 +208,14 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                             return BooleanLiteral.FALSE;
                         } else if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
                             // '9999-12-31' + 1 will overflow
-                            Expression tomorrow = ((DateV2Literal) right).plusDays(1);
-                            if (tomorrow.isNullLiteral()) {
-                                return cp;
+                            if (DateLiteral.isDateOutOfRange(((DateV2Literal) right).toJavaDateType().plusDays(1))) {
+                                if (cp instanceof LessThan) {
+                                    return ExpressionUtils.trueOrNull(cast.child());
+                                } else {
+                                    return ExpressionUtils.falseOrNull(cast.child());
+                                }
                             }
-                            right = tomorrow;
+                            right = ((DateV2Literal) right).plusDays(1);
                         }
                     }
                     if (cast.child().getDataType() instanceof DateV2Type) {

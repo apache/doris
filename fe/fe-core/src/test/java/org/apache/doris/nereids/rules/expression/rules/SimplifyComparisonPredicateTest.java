@@ -304,21 +304,37 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
 
         // test overflow, not cast
         assertRewrite(new LessThan(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")),
-                new LessThan(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")));
+                ExpressionUtils.trueOrNull(date));
         assertRewrite(new LessThan(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")),
-                new LessThan(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")));
+                ExpressionUtils.trueOrNull(date));
         assertRewrite(new LessThan(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")),
-                new LessThan(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")));
+                ExpressionUtils.trueOrNull(datev1));
         assertRewrite(new LessThan(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")),
-                new LessThan(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")));
+                ExpressionUtils.trueOrNull(datev1));
         assertRewrite(new LessThan(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
-                new LessThan(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")));
+                ExpressionUtils.trueOrNull(datetime0));
         assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("9999-12-31 23:59:59.991")),
-                new LessThan(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("9999-12-31 23:59:59.991")));
+                ExpressionUtils.trueOrNull(datetime2));
         assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("9999-12-31 23:59:59.999999")),
-                new LessThan(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("9999-12-31 23:59:59.999999")));
+                ExpressionUtils.trueOrNull(datetime2));
         assertRewrite(new LessThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
-                new LessThan(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")));
+                ExpressionUtils.trueOrNull(datetimev1));
+        assertRewrite(new GreaterThanEqual(new Cast(date, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")),
+                ExpressionUtils.falseOrNull(date));
+        assertRewrite(new GreaterThanEqual(new Cast(date, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")),
+                ExpressionUtils.falseOrNull(date));
+        assertRewrite(new GreaterThanEqual(new Cast(datev1, DateTimeType.INSTANCE), new DateTimeLiteral("9999-12-31 23:59:59")),
+                ExpressionUtils.falseOrNull(datev1));
+        assertRewrite(new GreaterThanEqual(new Cast(datev1, DateTimeV2Type.SYSTEM_DEFAULT), new DateTimeV2Literal("9999-12-31 23:59:59")),
+                ExpressionUtils.falseOrNull(datev1));
+        assertRewrite(new GreaterThanEqual(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
+                ExpressionUtils.falseOrNull(datetime0));
+        assertRewrite(new GreaterThanEqual(new Cast(datetime2, DateTimeV2Type.of(3)), new DateTimeV2Literal("9999-12-31 23:59:59.991")),
+                ExpressionUtils.falseOrNull(datetime2));
+        assertRewrite(new GreaterThanEqual(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("9999-12-31 23:59:59.999999")),
+                ExpressionUtils.falseOrNull(datetime2));
+        assertRewrite(new GreaterThanEqual(new Cast(datetimev1, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
+                ExpressionUtils.falseOrNull(datetimev1));
     }
 
     @Test
