@@ -31,7 +31,6 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -41,7 +40,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -816,10 +814,6 @@ public class HiveMetaStoreClientHelper {
         return hudiSchema;
     }
 
-    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
-        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
-                action);
-    }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
@@ -837,8 +831,13 @@ public class HiveMetaStoreClientHelper {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
         Configuration conf = getConfiguration(table);
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
-        return ugiDoAs(conf, () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration)
-                .setBasePath(hudiBasePath).build());
+        try {
+            return table.getCatalog().getPreExecutionAuthenticator().execute(()
+                    -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration)
+                    .setBasePath(hudiBasePath).build());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get hudi table meta client.", e);
+        }
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {

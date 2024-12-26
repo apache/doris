@@ -107,6 +107,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
         AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
         authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+        preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
     }
 
     @Override
@@ -174,6 +175,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (authenticator == null) {
             AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
             authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
         }
 
         HiveConf hiveConf = null;

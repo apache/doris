@@ -26,7 +26,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -125,8 +124,13 @@ public class IcebergMetadataCache {
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
-        return HiveMetaStoreClientHelper.ugiDoAs(((ExternalCatalog) key.catalog).getConfiguration(),
-            () -> ops.loadTable(key.dbName, key.tableName));
+        try {
+            return ((ExternalCatalog) key.catalog).getPreExecutionAuthenticator().execute(()
+                    -> ops.loadTable(key.dbName, key.tableName));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load table " + key.dbName + "." + key.tableName, e);
+        }
+
     }
 
     @NotNull

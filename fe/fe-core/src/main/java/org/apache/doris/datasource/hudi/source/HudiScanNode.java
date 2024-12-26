@@ -120,8 +120,8 @@ public class HudiScanNode extends HiveScanNode {
      * need to do priv check
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
-            SessionVariable sv) {
+                        Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
+                        SessionVariable sv) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv, sv);
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
@@ -387,9 +387,12 @@ public class HudiScanNode extends HiveScanNode {
             return getIncrementalSplits();
         }
         if (!partitionInit) {
-            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                    () -> getPrunedPartitions(hudiClient));
+            try {
+                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> getPrunedPartitions(hudiClient));
+            } catch (Exception e) {
+                throw new UserException(e.getMessage(), e);
+            }
             partitionInit = true;
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
@@ -449,9 +452,13 @@ public class HudiScanNode extends HiveScanNode {
         }
         if (!partitionInit) {
             // Non partition table will get one dummy partition
-            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                    () -> getPrunedPartitions(hudiClient));
+            try {
+                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> getPrunedPartitions(hudiClient));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to get pruned partitions", e);
+            }
+
             partitionInit = true;
         }
         int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();

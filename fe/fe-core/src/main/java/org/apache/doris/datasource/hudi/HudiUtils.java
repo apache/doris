@@ -244,7 +244,7 @@ public class HudiUtils {
     }
 
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
-            HMSExternalTable hmsTable) {
+                                                          HMSExternalTable hmsTable) {
         TablePartitionValues partitionValues = new TablePartitionValues();
         if (hmsTable.getPartitionColumns().isEmpty()) {
             //isn't partition table.
@@ -262,22 +262,24 @@ public class HudiUtils {
                 return partitionValues;
             }
             String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
-
-            partitionValues =
-                    HiveMetaStoreClientHelper.ugiDoAs(
-                            HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                            () -> processor.getSnapshotPartitionValues(
-                                    hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+            try {
+                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() ->
+                        processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to get partition values for snapshot", e);
+            }
         } else {
             HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {
                 return partitionValues;
             }
-            partitionValues =
-                    HiveMetaStoreClientHelper.ugiDoAs(
-                            HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                            () -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+            try {
+                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to get partition values for snapshot", e);
+            }
         }
         return partitionValues;
     }

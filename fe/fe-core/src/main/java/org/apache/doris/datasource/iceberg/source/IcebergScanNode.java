@@ -31,7 +31,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -183,8 +182,12 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(),
-                () -> doGetSplits(numBackends));
+        try {
+            return source.getCatalog().getPreExecutionAuthenticator().execute(() -> doGetSplits(numBackends));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get splits from iceberg table", e);
+        }
+
     }
 
     private List<Split> doGetSplits(int numBackends) throws UserException {
@@ -250,7 +253,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new NotSupportedException("Unable to read Iceberg table with dropped old partition column.");
         }
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
-                TableScanUtil.planTasks(fileScanTasks, realFileSplitSize, 1, 0)) {
+                     TableScanUtil.planTasks(fileScanTasks, realFileSplitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 if (isPartitionedTable) {
                     StructLike structLike = splitTask.file().partition();
