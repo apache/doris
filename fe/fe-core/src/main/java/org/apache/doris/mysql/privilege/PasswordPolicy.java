@@ -21,8 +21,6 @@ import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -58,7 +56,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class PasswordPolicy implements Writable {
     private static final Logger LOG = LogManager.getLogger(PasswordPolicy.class);
 
-    @SerializedName(value = "lock")
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private static final String EXPIRATION_SECONDS = "password_policy.expiration_seconds";
@@ -76,15 +73,12 @@ public class PasswordPolicy implements Writable {
     private HistoryPolicy historyPolicy = new HistoryPolicy();
     @SerializedName(value = "failedLoginPolicy")
     private FailedLoginPolicy failedLoginPolicy = new FailedLoginPolicy();
-    @SerializedName(value = "qualifiedUser")
-    private UserIdentity userIdent;
 
-    public PasswordPolicy(UserIdentity userIdent) {
-        this.userIdent = userIdent;
+    public PasswordPolicy() {
     }
 
-    public static PasswordPolicy createDefault(UserIdentity userIdent) {
-        return new PasswordPolicy(userIdent);
+    public static PasswordPolicy createDefault() {
+        return new PasswordPolicy();
     }
 
     public void checkAccountLockedAndPasswordExpiration(UserIdentity curUser) throws AuthenticationException {
@@ -147,14 +141,6 @@ public class PasswordPolicy implements Writable {
 
     public ExpirePolicy getExpirePolicy() {
         return expirePolicy;
-    }
-
-    public HistoryPolicy getHistoryPolicy() {
-        return historyPolicy;
-    }
-
-    public FailedLoginPolicy getFailedLoginPolicy() {
-        return failedLoginPolicy;
     }
 
     @Override
@@ -498,15 +484,4 @@ public class PasswordPolicy implements Writable {
             rows.add(row4);
         }
     }
-
-    @Override
-    public PasswordPolicy clone() {
-        PasswordPolicy copied = DeepCopy.copy(this, PasswordPolicy.class, FeConstants.meta_version);
-        if (copied == null) {
-            LOG.warn("failed to clone PasswordPolicy: " + toString());
-            return null;
-        }
-        return copied;
-    }
-
 }
