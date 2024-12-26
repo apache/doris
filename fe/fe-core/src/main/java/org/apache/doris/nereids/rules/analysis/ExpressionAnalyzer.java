@@ -407,14 +407,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
-        StatementContext statementContext = context.cascadesContext.getStatementContext();
 
         // If it is prepared statement in EXECUTE phase, record nonDeterministic info
         if (ConnectContext.get() != null && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE
                 && !buildResult.second.isDeterministic()) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
             statementContext.setHasNondeterministicInPreparedStatement(true);
         }
         if (wantToParseSqlFromSqlCache) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
             if (!buildResult.second.isDeterministic()) {
                 hasNondeterministic = true;
             }
