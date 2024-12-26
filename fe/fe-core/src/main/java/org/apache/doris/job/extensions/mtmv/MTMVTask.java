@@ -292,10 +292,10 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    protected synchronized void executeCancelLogic() {
+    protected synchronized void executeCancelLogic(boolean needWaitCancelComplete) {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
         if (executor != null) {
-            executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"));
+            executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }
         after();
     }
