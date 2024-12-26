@@ -245,7 +245,9 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     *searcher = searcher_result;
 
     // When the meta information has been read, the ioContext needs to be reset to prevent it from being used by other queries.
-    static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIoContext(nullptr);
+    auto stream = static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput();
+    stream->setIoContext(nullptr);
+    stream->setIndexFile(false);
 
     // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
     mem_tracker->consume(index_searcher_builder->get_reader_size());
