@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+
 #include "arrow/type.h"
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
@@ -370,8 +371,10 @@ public:
                     array.get(), 0, column_with_type_and_name.column,
                     column_with_type_and_name.type, rows, _timezone_obj);
             // do check data
-            std::cout << "arrow_column_to_doris_column done: " << column_with_type_and_name.column->get_name()
-                      << " with column size: " << column_with_type_and_name.column->size() <<std::endl;
+            std::cout << "arrow_column_to_doris_column done: "
+                      << column_with_type_and_name.column->get_name()
+                      << " with column size: " << column_with_type_and_name.column->size()
+                      << std::endl;
             std::cout << assert_block.dump_structure() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
             auto& col = block->get_by_position(i).column;

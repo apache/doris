@@ -134,7 +134,6 @@ protected:
         }
     }
 
-
     std::string data_file_dir = "regression-test/data/nereids_function_p0/array/";
     vector<string> data_files = {data_file_dir + "test_array_tinyint.csv",
                                  data_file_dir + "test_array_smallint.csv",
@@ -155,7 +154,7 @@ protected:
                                  data_file_dir + "test_array_decimalv3(38,30).csv",
                                  data_file_dir + "test_array_decimalv3(76,56).csv"};
     vector<ut_type::UTDataTypeDescs> array_descs; // array<> descs matrix
-    MutableColumns array_columns; // column_array list
+    MutableColumns array_columns;                 // column_array list
     DataTypes array_types;
     DataTypeSerDeSPtrs serdes;
 };
@@ -165,7 +164,8 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
     for (int i = 0; i < array_types.size(); i++) {
         auto& type = array_types[i];
         auto& desc = array_descs[i];
-        auto nested_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
+        auto nested_type =
+                assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
 
         TypeDescriptor arr_type_descriptor = {PrimitiveType::TYPE_ARRAY};
         arr_type_descriptor.add_sub_type(desc[0].type_desc.children[0]);
@@ -232,7 +232,8 @@ TEST_F(DataTypeArrayTest, FromAndToStringTest) {
     for (int i = 0; i < array_columns.size(); i++) {
         auto& column = array_columns[i];
         auto& type = array_types[i];
-        std::cout << "type: " << type->get_name() << " for column size: " << column->size() << std::endl;
+        std::cout << "type: " << type->get_name() << " for column size: " << column->size()
+                  << std::endl;
         // datatype array<string> has some different behavior maybe wrong with given data
         if (i == 13) {
             continue;
@@ -301,9 +302,6 @@ TEST_F(DataTypeArrayTest, GetNumberOfDimensionsTest) {
         auto array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         EXPECT_EQ(array_type->get_number_of_dimensions(), desc.size());
     }
-
 }
-
-
 
 } // namespace doris::vectorized
