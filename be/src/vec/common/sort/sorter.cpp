@@ -120,8 +120,8 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
             merged_rows += current_rows;
         }
 
-        if (!current->impl->is_last(current_rows)) {
-            priority_queue_.next(current_rows);
+        if (!current->impl->is_last(current_rows + step)) {
+            priority_queue_.next(current_rows + step);
         } else {
             priority_queue_.remove_top();
         }
