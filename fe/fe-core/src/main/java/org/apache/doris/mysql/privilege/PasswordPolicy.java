@@ -58,7 +58,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class PasswordPolicy implements Writable {
     private static final Logger LOG = LogManager.getLogger(PasswordPolicy.class);
 
-    @SerializedName(value = "lock")
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private static final String EXPIRATION_SECONDS = "password_policy.expiration_seconds";
