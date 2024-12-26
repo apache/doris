@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_dup_schema_key_change_modify1","p0") {
-     def tbName1 = "test_dup_schema_key_change_modify1"
-     def tbName2 = "test_dup_schema_key_change_modify_1"
+     def tbName1 = "test_dup_schema_key_change_modify2"
+     def tbName2 = "test_dup_schema_key_change_modify_2"
      /**
       *  Test the dup model by modify a value type
       */
