@@ -29,7 +29,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized::converter {
-// #include "common/compile_check_begin.h"
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType type>
 constexpr bool is_decimal_type_const() {
@@ -504,7 +504,8 @@ public:
                 auto& v = reinterpret_cast<DstNativeType&>(data[start_idx + i]);
                 v = (DstNativeType)decimal_int128;
             } else {
-                data[start_idx + i] = DstCppType::from_int_frac(src_data[i], 0, _scale);
+                data[start_idx + i] =
+                        DstCppType::from_int_frac(cast_set<int>(src_data[i]), 0, _scale);
             }
         }
 
@@ -537,8 +538,8 @@ public:
         int64_t scale_factor = common::exp10_i64(_scale);
         for (int i = 0; i < rows; ++i) {
             if constexpr (DstPrimitiveType == TYPE_FLOAT || DstPrimitiveType == TYPE_DOUBLE) {
-                data[start_idx + i] =
-                        static_cast<DstCppType>(src_data[i].value / (double)scale_factor);
+                data[start_idx + i] = static_cast<DstCppType>(
+                        static_cast<double>(src_data[i].value) / (double)scale_factor);
             } else {
                 data[start_idx + i] = static_cast<DstCppType>(src_data[i].value / scale_factor);
             }
@@ -548,5 +549,5 @@ public:
     }
 };
 
-// #include "common/compile_check_end.h"
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter
