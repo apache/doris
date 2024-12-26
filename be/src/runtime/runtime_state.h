@@ -565,7 +565,7 @@ public:
         return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory;
     }
 
-    int64_t min_revocable_mem() const {
+    int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }

@@ -859,7 +859,7 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
     auto& local_state = get_local_state(state);
     if (local_state._shared_state->need_to_spill) {
         const auto revocable_size = _revocable_mem_size(state);
-        const auto min_revocable_size = state->min_revocable_mem();
+        const auto min_revocable_size = state->spill_min_revocable_mem();
 
         if (state->get_query_ctx()->low_memory_mode()) {
             return revocable_size >
