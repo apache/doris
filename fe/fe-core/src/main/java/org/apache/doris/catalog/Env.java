@@ -6484,6 +6484,7 @@ public class Env {
         try {
             tableMeta.setId(olapTable.getId());
             tableMeta.setName(olapTable.getName());
+            tableMeta.setType(olapTable.getType().name());
 
             PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
 
