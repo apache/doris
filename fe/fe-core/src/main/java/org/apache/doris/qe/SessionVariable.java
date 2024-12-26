@@ -690,10 +690,13 @@ public class SessionVariable implements Serializable, Writable {
      */
     public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
 
+
     public static final String ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "enable_adaptive_pipeline_task_serial_read_on_limit";
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
+
+    public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2297,6 +2300,13 @@ public class SessionVariable implements Serializable, Writable {
                 + " by default."
     })
     public boolean enableAutoCreateWhenOverwrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_TEXT_VALIDATE_UTF8, needForward = true, description = {
+            "对于 text 类型的文件读取，是否开启utf8编码检查。非utf8字符会显示成乱码。",
+            "For text type file reading, whether to enable utf8 encoding check."
+                    + "non-utf8 characters will be displayed as garbled characters."
+    })
+    public boolean enableTextValidateUtf8 = true;
 
     @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
             "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
