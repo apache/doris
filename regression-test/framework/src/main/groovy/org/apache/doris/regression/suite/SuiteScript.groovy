@@ -41,7 +41,7 @@ abstract class SuiteScript extends Script {
             group +=",p0"
         }
 
-        if (!context.suiteFilter.call(suiteName, group, context.file)) {
+        if (!context.suiteFilter.call(suiteName, group)) {
             return
         }
 
