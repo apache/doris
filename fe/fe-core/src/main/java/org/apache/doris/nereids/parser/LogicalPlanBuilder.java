@@ -448,6 +448,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
@@ -2367,6 +2369,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression start = (Expression) visit(ctx.startTimestamp);
         Expression end = (Expression) visit(ctx.endTimestamp);
         String unit = ctx.unit.getText();
+        // TODO: support quarters_diff
         if ("YEAR".equalsIgnoreCase(unit)) {
             return new YearsDiff(end, start);
         } else if ("MONTH".equalsIgnoreCase(unit)) {
@@ -2394,6 +2397,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String unit = ctx.unit.getText();
         if ("YEAR".equalsIgnoreCase(unit)) {
             return new YearsAdd(end, start);
+        } else if ("QUARTER".equalsIgnoreCase(unit)) {
+            return new QuartersAdd(end, start);
         } else if ("MONTH".equalsIgnoreCase(unit)) {
             return new MonthsAdd(end, start);
         } else if ("WEEK".equalsIgnoreCase(unit)) {
@@ -2409,7 +2414,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         throw new ParseException("Unsupported time stamp add time unit: " + unit
                 + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-
     }
 
     @Override
@@ -2423,6 +2427,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
             return new YearsAdd(timeStamp, amount);
+        } else if ("QUARTER".equalsIgnoreCase(ctx.unit.getText())) {
+            return new QuartersAdd(timeStamp, amount);
         } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
             return new MonthsAdd(timeStamp, amount);
         } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
@@ -2485,6 +2491,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
             return new YearsSub(timeStamp, amount);
+        } else if ("QUARTER".equalsIgnoreCase(ctx.unit.getText())) {
+            return new QuartersSub(timeStamp, amount);
         } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
             return new MonthsSub(timeStamp, amount);
         } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
