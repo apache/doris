@@ -84,9 +84,10 @@ public:
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
                 if constexpr (_is_slice_type()) {
-                    CppType new_value;
-                    RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
-                    _values.insert(new_value);
+                    const auto* s = reinterpret_cast<const Slice*>(v);
+                    auto hash =
+                            DORIS_TRY(BloomFilter::hash(s->data, s->size, _bf_options.strategy));
+                    _hash_values.insert(hash);
                 } else if constexpr (_is_int128()) {
                     int128_t new_value;
                     memcpy(&new_value, v, sizeof(PackedInt128));
@@ -105,25 +106,28 @@ public:
     Status flush() override {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(BloomFilter::create(BLOCK_BLOOM_FILTER, &bf));
-        RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
-        bf->set_has_null(_has_null);
-        for (auto& v : _values) {
-            if constexpr (_is_slice_type()) {
-                Slice* s = (Slice*)&v;
-                bf->add_bytes(s->data, s->size);
-            } else {
+        if constexpr (_is_slice_type()) {
+            RETURN_IF_ERROR(bf->init(_hash_values.size(), _bf_options.fpp, _bf_options.strategy));
+            for (const auto& h : _hash_values) {
+                bf->add_hash(h);
+            }
+        } else {
+            RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
+            for (auto& v : _values) {
                 bf->add_bytes((char*)&v, sizeof(CppType));
             }
         }
+        bf->set_has_null(_has_null);
         _bf_buffer_size += bf->size();
         _bfs.push_back(std::move(bf));
         _values.clear();
+        _hash_values.clear();
         _has_null = false;
         return Status::OK();
     }
 
     Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override {
-        if (_values.size() > 0) {
+        if (_values.size() > 0 || !_hash_values.empty()) {
             RETURN_IF_ERROR(flush());
         }
         index_meta->set_type(BLOOM_FILTER_INDEX);
@@ -172,6 +176,7 @@ private:
     // distinct values
     ValueDict _values;
     std::vector<std::unique_ptr<BloomFilter>> _bfs;
+    std::set<uint64_t> _hash_values;
 };
 
 } // namespace
