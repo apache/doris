@@ -118,19 +118,24 @@ VFileScanner::VFileScanner(
 
 Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
-    _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
-    _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
-    _cast_to_input_block_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
-    _fill_missing_columns_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
-    _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
-    _convert_to_output_block_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
-    _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
-    _not_found_file_counter =
-            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
-    _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
+    _get_block_timer =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
+    _open_reader_timer =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerOpenReaderTime", 1);
+    _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                      "FileScannerCastInputBlockTime", 1);
+    _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                       "FileScannerFillMissingColumnTime", 1);
+    _pre_filter_timer =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerPreFilterTimer", 1);
+    _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                          "FileScannerConvertOuputBlockTime", 1);
+    _empty_file_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
+    _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                     "NotFoundFileNum", TUnit::UNIT, 1);
+    _file_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
