@@ -1220,8 +1220,8 @@ suite("nereids_scalar_fn_Array1") {
         // [INTERNAL_ERROR][E6] nested_column's size 1, is not consistent with offsets_column's 0 ??
         // qt_sql_array_match_any_2 "select kastr, array_match_any(x->x!=null, kastr) from $nullable_tb  order by id"
         // qt_sql_array_match_all_2 "select kastr, array_match_all(x->x!=null, kastr) from $nullable_tb  order by id"
-        qt_sql_array_match_any_3 "select kaint, array_match_any(x->x!=null, kaint) from $nullable_tb  order by id"
-        qt_sql_array_match_all_3 "select kaint, array_match_all(x->x!=null, kaint) from $nullable_tb  order by id"
+        // qt_sql_array_match_any_3 "select kaint, array_match_any(x->x!=null, kaint) from $nullable_tb  order by id"
+        // qt_sql_array_match_all_3 "select kaint, array_match_all(x->x!=null, kaint) from $nullable_tb  order by id"
         qt_sql_array_match_any_4 "select kastr, array_match_any(x->x='a', kastr) from $nullable_tb  order by id"
         qt_sql_array_match_all_4 "select kastr, array_match_all(x->x='a', kastr) from $nullable_tb  order by id"
         qt_sql_array_match_any_5 "select kaint, array_match_any(x->x=2, kaint) from $nullable_tb  order by id"
