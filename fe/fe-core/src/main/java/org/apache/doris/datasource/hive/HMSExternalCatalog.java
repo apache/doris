@@ -101,13 +101,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
      * Default constructor for HMSExternalCatalog.
      */
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment) {
+                              String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
-        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-        authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-        preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
     }
 
     @Override
@@ -171,11 +168,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        preExecutionAuthenticator = new PreExecutionAuthenticator();
-        if (authenticator == null) {
+        this.preExecutionAuthenticator = new PreExecutionAuthenticator();
+        if (this.authenticator == null) {
             AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+            this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
         }
 
         HiveConf hiveConf = null;
@@ -265,7 +262,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
 
-        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null,  dbId, logType, false);
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (useMetaCache.get()) {
             if (isInitialized()) {
                 metaCache.updateCache(dbName, db, Util.genIdByName(getQualifiedName(dbName)));
