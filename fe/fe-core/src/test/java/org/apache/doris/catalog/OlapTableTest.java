@@ -97,7 +97,7 @@ public class OlapTableTest {
         olapTable.resetPropertiesForRestore(false, false, replicaAlloc, false);
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertFalse(olapTable.isColocateTable());
+        Assert.assertTrue(olapTable.isColocateTable());
         Assert.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         // restore with dynamic partition keys

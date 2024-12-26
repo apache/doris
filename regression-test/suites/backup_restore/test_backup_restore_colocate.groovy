@@ -75,7 +75,7 @@ suite("test_backup_restore_colocate", "backup_restore") {
 
     def query = "select * from ${dbName}.${tableName1} as t1, ${dbName}.${tableName2} as t2 where t1.id=t2.id;"
 
-    res = sql "SELECT * FROM ${dbName}.${tableName1}"
+    def res = sql "SELECT * FROM ${dbName}.${tableName1}"
     assertEquals(res.size(), insert_num)
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
@@ -206,8 +206,8 @@ suite("test_backup_restore_colocate", "backup_restore") {
     """
     syncer.waitAllRestoreFinish(dbName)
     // Not support to restore to local table with colocate group
-    records = sql_return_maparray "SHOW restore FROM ${dbName}"
-    row = records[records.size() - 1]
+    def records = sql_return_maparray "SHOW restore FROM ${dbName}"
+    def row = records[records.size() - 1]
     assertTrue(row.Status.contains("with colocate group"))
 
 
