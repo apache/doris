@@ -2746,7 +2746,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         + "' for storage vault '" + storageVaultName + "'");
             }
 
-            olapTable.setStorageVaultName(storageVaultName);
             storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
             if (Strings.isNullOrEmpty(storageVaultId)) {
                 throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
