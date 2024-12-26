@@ -1488,7 +1488,7 @@ public class StmtExecutor {
     }
 
     // Because this is called by other thread
-    public void cancel(String message) {
+    public void cancel(String message, boolean needWaitCancelComplete) {
         Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
         if (insertOverwriteTableCommand.isPresent()) {
             // If the be scheduling has not been triggered yet, cancel the scheduling first
@@ -1504,10 +1504,14 @@ public class StmtExecutor {
         if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
-        if (insertOverwriteTableCommand.isPresent()) {
+        if (insertOverwriteTableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
             insertOverwriteTableCommand.get().waitNotRunning();
         }
+    }
+
+    public void cancel(String message) {
+        cancel(message, true);
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
