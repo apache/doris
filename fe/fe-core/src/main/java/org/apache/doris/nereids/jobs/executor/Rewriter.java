@@ -315,7 +315,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                         bottomUp(new PushProjectIntoOneRowRelation()),
                         topDown(new MergeOneRowRelationIntoUnion()),
-                        topDown(new InferSetOperatorDistinct()),
+                        costBased(topDown(new InferSetOperatorDistinct())),
                         topDown(new BuildAggForUnion()),
                         bottomUp(new EliminateEmptyRelation()),
                         // when union has empty relation child and constantExprsList is not empty,
