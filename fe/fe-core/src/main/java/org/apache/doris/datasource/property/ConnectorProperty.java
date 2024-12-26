@@ -19,7 +19,7 @@
 package org.apache.doris.datasource.property;
 
 public @interface ConnectorProperty {
-    String name();
-    String[] alternativeNames() default {};
+    String[] names() default {};
     String description() default "";
+    boolean supported() default true;
 }

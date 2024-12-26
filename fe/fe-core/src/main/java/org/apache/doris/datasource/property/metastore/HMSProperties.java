@@ -21,23 +21,27 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 public class HMSProperties extends MetastoreProperties {
 
-    @ConnectorProperty(name = "hive.metastore.uri",
+    @ConnectorProperty(names = {"hive.metastore.uri"},
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
 
-    @ConnectorProperty(name = "hive.metastore.authentication.type",
+    @ConnectorProperty(names = {"hive.metastore.authentication.type"},
             description = "The authentication type of the hive metastore.")
     private String hiveMetastoreAuthenticationType = "none";
 
-    @ConnectorProperty(name = "hive.metastore.service.principal",
+    @ConnectorProperty(names = {"hive.metastore.service.principal"},
             description = "The service principal of the hive metastore.")
     private String hiveMetastoreServicePrincipal = "";
 
-    @ConnectorProperty(name = "hive.metastore.client.principal",
+    @ConnectorProperty(names = {"hive.metastore.client.principal"},
             description = "The client principal of the hive metastore.")
     private String hiveMetastoreClientPrincipal = "";
 
-    @ConnectorProperty(name = "hive.metastore.client.keytab",
+    @ConnectorProperty(names = {"hive.metastore.client.keytab"},
             description = "The client keytab of the hive metastore.")
     private String hiveMetastoreClientKeytab = "";
+
+    public HMSProperties() {
+        super(Type.HMS);
+    }
 }

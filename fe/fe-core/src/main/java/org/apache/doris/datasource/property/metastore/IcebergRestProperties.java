@@ -21,15 +21,19 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 public class IcebergRestProperties extends MetastoreProperties {
 
-    @ConnectorProperty(name = "iceberg.rest.uri",
+    @ConnectorProperty(names = {"iceberg.rest.uri"},
             description = "The uri of the iceberg rest catalog service.")
     private String icebergRestUri = "";
 
-    @ConnectorProperty(name = "iceberg.rest.security.type",
+    @ConnectorProperty(names = {"iceberg.rest.security.type"},
             description = "The security type of the iceberg rest catalog service.")
     private String icebergRestSecurityType = "none";
 
-    @ConnectorProperty(name = "iceberg.rest.prefix",
+    @ConnectorProperty(names = {"iceberg.rest.prefix"},
             description = "The prefix of the iceberg rest catalog service.")
     private String icebergRestPrefix = "";
+
+    public IcebergRestProperties() {
+        super(Type.ICEBERG_REST);
+    }
 }

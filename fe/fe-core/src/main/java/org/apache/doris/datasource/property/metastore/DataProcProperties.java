@@ -20,7 +20,11 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 public class DataProcProperties extends MetastoreProperties {
-    @ConnectorProperty(name = "hive.metastore.uri",
+    @ConnectorProperty(names = {"hive.metastore.uri"},
             description = "The uri of the hive metastore in DataProc")
     private String hiveMetastoreUri = "";
+
+    public DataProcProperties() {
+        super(Type.DataProc);
+    }
 }

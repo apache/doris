@@ -21,30 +21,27 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 public class HDFSProperties extends StorageProperties {
 
-    @ConnectorProperty(name = "hdfs.authentication.type",
-            alternativeNames = {"hadoop.security.authentication"},
+    @ConnectorProperty(names = {"hdfs.authentication.type", "hadoop.security.authentication"},
             description = "The authentication type of HDFS. The default value is 'none'.")
     private String hdfsAuthenticationType = "none";
 
-    @ConnectorProperty(name = "hdfs.authentication.kerberos.principal",
-            alternativeNames = {"hadoop.kerberos.principal"},
+    @ConnectorProperty(names = {"hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal"},
             description = "The principal of the kerberos authentication.")
     private String hdfsKerberosPrincipal = "";
 
-    @ConnectorProperty(name = "hdfs.authentication.kerberos.keytab",
-            alternativeNames = {"hadoop.kerberos.keytab"},
+    @ConnectorProperty(names = {"hdfs.authentication.kerberos.keytab", "hadoop.kerberos.keytab"},
             description = "The keytab of the kerberos authentication.")
     private String hdfsKerberosKeytab = "";
 
-    @ConnectorProperty(name = "hdfs.impersonation.enabled",
+    @ConnectorProperty(names = {"hdfs.impersonation.enabled"},
             description = "Whether to enable the impersonation of HDFS.")
     private boolean hdfsImpersonationEnabled = false;
 
-    @ConnectorProperty(name = "hadoop.username",
+    @ConnectorProperty(names = {"hadoop.username"},
             description = "The username of Hadoop. Doris will user this user to access HDFS")
     private String hadoopUsername = "";
 
-    @ConnectorProperty(name = "hadoop.config.resources",
+    @ConnectorProperty(names = {"hadoop.config.resources"},
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 }

@@ -21,51 +21,51 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 public class S3Properties extends StorageProperties {
 
-    @ConnectorProperty(name = "s3.endpoint",
-            alternativeNames = {"oss.endpoint", "cos.endpoint", "obs.endpoint", "gcs.endpoint"},
+    @ConnectorProperty(names = {"s3.endpoint",
+            "oss.endpoint", "cos.endpoint", "obs.endpoint", "gcs.endpoint"},
             description = "The endpoint of S3.")
     protected String s3Endpoint = "";
 
-    @ConnectorProperty(name = "s3.region",
-            alternativeNames = {"oss.region", "cos.region", "obs.region", "gcs.region"},
+    @ConnectorProperty(names = {"s3.region",
+            "oss.region", "cos.region", "obs.region", "gcs.region"},
             description = "The region of S3.")
     protected String s3Region = "";
 
-    @ConnectorProperty(name = "s3.access_key",
-            alternativeNames = {"oss.access_key", "cos.access_key", "obs.access_key", "gcs.access_key"},
+    @ConnectorProperty(names = {"s3.access_key",
+            "oss.access_key", "cos.access_key", "obs.access_key", "gcs.access_key"},
             description = "The access key of S3.")
     protected String s3AccessKey = "";
 
-    @ConnectorProperty(name = "s3.secret_key",
-            alternativeNames = {"oss.secret_key", "cos.secret_key", "obs.secret_key", "gcs.secret_key"},
+    @ConnectorProperty(names = {"s3.secret_key",
+            "oss.secret_key", "cos.secret_key", "obs.secret_key", "gcs.secret_key"},
             description = "The secret key of S3.")
     protected String s3SecretKey = "";
 
-    @ConnectorProperty(name = "s3.connection.maximum",
+    @ConnectorProperty(names = {"s3.connection.maximum"},
             description = "The maximum number of connections to S3.")
     protected String s3ConnectionMaximum = "";
 
-    @ConnectorProperty(name = "s3.connection.request.timeout",
+    @ConnectorProperty(names = {"s3.connection.request.timeout"},
             description = "The request timeout of S3 in second,")
     protected String s3ConnectionRequestTimeoutS = "";
 
-    @ConnectorProperty(name = "s3.connection.timeout",
+    @ConnectorProperty(names = {"s3.connection.timeout"},
             description = "The connection timeout of S3 in second,")
     protected String s3ConnectionTimeoutS = "";
 
-    @ConnectorProperty(name = "s3.sts_endpoint",
+    @ConnectorProperty(names = {"s3.sts_endpoint"},
             description = "The sts endpoint of S3.")
     protected String s3StsEndpoint = "";
 
-    @ConnectorProperty(name = "s3.sts_region",
+    @ConnectorProperty(names = {"s3.sts_region"},
             description = "The sts region of S3.")
     protected String s3StsRegion = "";
 
-    @ConnectorProperty(name = "s3.iam_role",
+    @ConnectorProperty(names = {"s3.iam_role"},
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
-    @ConnectorProperty(name = "s3.external_id",
+    @ConnectorProperty(names = {"s3.external_id"},
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 }

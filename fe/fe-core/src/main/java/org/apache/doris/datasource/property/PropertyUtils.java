@@ -15,24 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.metastore;
+package org.apache.doris.datasource.property;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import com.google.common.collect.Lists;
 
-public class MetastoreProperties {
-    public enum Type {
-        HMS,
-        GLUE,
-        DLF,
-        ICEBERG_REST,
-        DataProc,
-        UNKNOWN
-    }
+import java.lang.reflect.Field;
+import java.util.List;
 
-    protected MetastoreProperties.Type type = MetastoreProperties.Type.UNKNOWN;
+public class PropertyUtils {
 
-    public MetastoreProperties(Type type) {
-        this.type = type;
+    // Get all fields of a class with annotation @ConnectorProperty
+    public static List<Field> getConnectorProperties(Class<?> clazz) {
+        List<Field> fields = Lists.newArrayList();
+        for (Field field : clazz.getDeclaredFields()) {
+            if (field.isAnnotationPresent(ConnectorProperty.class)) {
+                // Get annotation of the field
+                ConnectorProperty connectorProperty = field.getAnnotation(ConnectorProperty.class);
+                if (connectorProperty.supported()) {
+                    fields.add(field);
+                }
+            }
+        }
+        return fields;
     }
 }

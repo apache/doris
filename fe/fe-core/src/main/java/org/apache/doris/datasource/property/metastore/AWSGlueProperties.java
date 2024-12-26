@@ -18,30 +18,72 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.PropertyUtils;
+
+import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
 
 public class AWSGlueProperties extends MetastoreProperties {
 
-    @ConnectorProperty(name = "glue.endpoint",
+    @ConnectorProperty(names = {"glue.endpoint", "aws.region"},
             description = "The endpoint of the AWS Glue.")
     private String glueEndpoint = "";
 
-    @ConnectorProperty(name = "glue.access_key",
+    @ConnectorProperty(names = {"glue.access_key",
+            "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
             description = "The access key of the AWS Glue.")
     private String glueAccessKey = "";
 
-    @ConnectorProperty(name = "glue.secret_key",
+    @ConnectorProperty(names = {"glue.secret_key",
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
             description = "The secret key of the AWS Glue.")
     private String glueSecretKey = "";
 
-    @ConnectorProperty(name = "glue.catalog_id",
-            description = "The catalog id of the AWS Glue.")
+    @ConnectorProperty(names = {"glue.catalog_id"},
+            description = "The catalog id of the AWS Glue.",
+            supported = false)
     private String glueCatalogId = "";
 
-    @ConnectorProperty(name = "glue.iam_role",
-            description = "The IAM role the AWS Glue.")
+    @ConnectorProperty(names = {"glue.iam_role"},
+            description = "The IAM role the AWS Glue.",
+            supported = false)
     private String glueIAMRole = "";
 
-    @ConnectorProperty(name = "glue.external_id",
-            description = "The external id of the AWS Glue.")
+    @ConnectorProperty(names = {"glue.external_id"},
+            description = "The external id of the AWS Glue.",
+            supported = false)
     private String glueExternalId = "";
+
+    // ===== following is converted properties ======
+    public static final String CLIENT_CREDENTIALS_PROVIDER = "client.credentials-provider";
+    public static final String CLIENT_CREDENTIALS_PROVIDER_AK = "client.credentials-provider.glue.access_key";
+    public static final String CLIENT_CREDENTIALS_PROVIDER_SK = "client.credentials-provider.glue.secret_key";
+
+    public AWSGlueProperties(Map<String, String> origProps) {
+        super(Type.GLUE);
+        normalizedProps(origProps);
+    }
+
+    private void normalizedProps(Map<String, String> origProps) {
+        // 1. set fields from original properties
+        List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
+        for (Field field : supportedProps) {
+            field.setAccessible(true);
+            ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
+            String[] names = anno.names();
+            for (String name : names) {
+                if (origProps.containsKey(name)) {
+                    try {
+                        field.set(this, origProps.get(name));
+                    } catch (IllegalAccessException e) {
+                        throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
+                    }
+                    break;
+                }
+            }
+        }
+        // 2. check properties
+
+    }
 }
