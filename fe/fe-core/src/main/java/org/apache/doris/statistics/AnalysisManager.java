@@ -159,12 +159,12 @@ public class AnalysisManager implements Writable {
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
-                    Integer.MAX_VALUE);
+                    Integer.MAX_VALUE, "Manual Analysis Job Executor");
             this.statisticsCache = new StatisticsCache();
             this.dropStatsExecutors = ThreadPoolManager.newDaemonThreadPool(
-                1, 1, 0,
-                TimeUnit.DAYS, new LinkedBlockingQueue<>(10),
-                new ThreadPoolExecutor.AbortPolicy(),
+                1, 3, 10,
+                TimeUnit.DAYS, new LinkedBlockingQueue<>(20),
+                new ThreadPoolExecutor.DiscardPolicy(),
                 "Drop stats executor", true);
         }
     }
@@ -696,20 +696,7 @@ public class AnalysisManager implements Writable {
             long catalogId = table.getDatabase().getCatalog().getId();
             long dbId = table.getDatabase().getId();
             long tableId = table.getId();
-            if (!table.isPartitionedTable() || partitionNames == null
-                    || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
-                removeTableStats(tableId);
-                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
-            }
-            submitAsyncDropStatsTask(catalogId, dbId, tableId, tableStats, partitionNames);
-            // Drop stats ddl is master only operation.
-            Set<String> partitions = null;
-            if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
-                partitions = new HashSet<>(partitionNames.getPartitionNames());
-            }
-            // Drop stats ddl is master only operation.
-            invalidateRemoteStats(catalogId, dbId, tableId, null, partitions, true);
-            StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, partitions);
+            submitAsyncDropStatsTask(table, catalogId, dbId, tableId, tableStats, partitionNames, true);
         } catch (Throwable e) {
             LOG.warn("Failed to drop stats for table {}", table.getName(), e);
         }
@@ -722,30 +709,55 @@ public class AnalysisManager implements Writable {
         private final Set<String> columns;
         private final TableStatsMeta tableStats;
         private final PartitionNames partitionNames;
+        private final TableIf table;
+        private final boolean isMaster;
 
-        public DropStatsTask(long catalogId, long dbId, long tableId, Set<String> columns,
-                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+        public DropStatsTask(TableIf table, long catalogId, long dbId, long tableId, Set<String> columns,
+                             TableStatsMeta tableStats, PartitionNames partitionNames, boolean isMaster) {
             this.catalogId = catalogId;
             this.dbId = dbId;
             this.tableId = tableId;
             this.columns = columns;
             this.tableStats = tableStats;
             this.partitionNames = partitionNames;
+            this.table = table;
+            this.isMaster = isMaster;
         }
 
         @Override
         public void run() {
-            invalidateLocalStats(catalogId, dbId, tableId, columns, tableStats, partitionNames);
+            try {
+                if (isMaster) {
+                    if (!table.isPartitionedTable() || partitionNames == null
+                            || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
+                        removeTableStats(tableId);
+                        Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
+                    }
+                    // Drop stats ddl is master only operation.
+                    Set<String> partitions = null;
+                    if (partitionNames != null && !partitionNames.isStar()
+                            && partitionNames.getPartitionNames() != null) {
+                        partitions = new HashSet<>(partitionNames.getPartitionNames());
+                    }
+                    // Drop stats ddl is master only operation.
+                    StatisticsRepository.dropStatistics(catalogId, dbId, tableId, null, partitions);
+                    invalidateRemoteStats(catalogId, dbId, tableId, null, partitions, true);
+                }
+                invalidateLocalStats(catalogId, dbId, tableId, columns, tableStats, partitionNames);
+            } catch (Throwable t) {
+                LOG.info("Failed to async drop stats for table {}.{}.{}, reason: {}",
+                        catalogId, dbId, tableId, t.getMessage());
+            }
         }
     }
 
-    public void submitAsyncDropStatsTask(long catalogId, long dbId, long tableId,
-                                         TableStatsMeta tableStats, PartitionNames partitionNames) {
+    public void submitAsyncDropStatsTask(TableIf table, long catalogId, long dbId, long tableId,
+                                         TableStatsMeta tableStats, PartitionNames partitionNames, boolean isMaster) {
         try {
-            dropStatsExecutors.submit(new DropStatsTask(catalogId, dbId, tableId, null, tableStats, partitionNames));
+            dropStatsExecutors.submit(new DropStatsTask(table, catalogId, dbId, tableId, null,
+                    tableStats, partitionNames, isMaster));
         } catch (Throwable t) {
-            LOG.info("Failed to drop stats for truncate table {}.{}.{}. Reason:{}",
-                    catalogId, dbId, tableId, t.getMessage());
+            LOG.info("Failed to submit async drop stats job. reason: {}", t.getMessage());
         }
     }
 
