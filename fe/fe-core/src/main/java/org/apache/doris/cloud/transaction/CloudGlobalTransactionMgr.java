@@ -878,14 +878,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
             List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
             List<Long> respCumulativePoints = response.getCumulativePointsList();
-            if (!respBaseCompactionCnts.isEmpty() && !respCumulativeCompactionCnts.isEmpty()
-                    && !respCumulativePoints.isEmpty()) {
-                for (int i = 0; i < tabletList.size(); i++) {
-                    long tabletId = tabletList.get(i);
-                    baseCompactionCnts.put(tabletId, respBaseCompactionCnts.get(i));
-                    cumulativeCompactionCnts.put(tabletId, respCumulativeCompactionCnts.get(i));
-                    cumulativePoints.put(tabletId, respCumulativePoints.get(i));
-                }
+            int size1 = respBaseCompactionCnts.size();
+            int size2 = respCumulativeCompactionCnts.size();
+            int size3 = respCumulativePoints.size();
+            if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()) {
+                throw new UserException("The size of returned compaction cnts can't match the size of tabletList, "
+                        + "tabletList.size()=" + tabletList.size() + ", respBaseCompactionCnts.size()=" + size1
+                                + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()="
+                                        + size3);
+            }
+            for (int i = 0; i < tabletList.size(); i++) {
+                long tabletId = tabletList.get(i);
+                baseCompactionCnts.put(tabletId, respBaseCompactionCnts.get(i));
+                cumulativeCompactionCnts.put(tabletId, respCumulativeCompactionCnts.get(i));
+                cumulativePoints.put(tabletId, respCumulativePoints.get(i));
             }
             totalRetryTime += retryTime;
         }
