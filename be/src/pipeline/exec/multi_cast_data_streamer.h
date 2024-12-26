@@ -81,11 +81,7 @@ public:
         _process_rows = ADD_COUNTER(profile(), "ProcessRows", TUnit::UNIT);
     };
 
-    ~MultiCastDataStreamer() {
-        for (auto& item : _spill_readers) {
-            DCHECK(item.empty());
-        }
-    }
+    ~MultiCastDataStreamer() = default;
 
     Status pull(RuntimeState* state, int sender_idx, vectorized::Block* block, bool* eos);
 

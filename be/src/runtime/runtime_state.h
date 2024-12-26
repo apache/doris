@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -597,6 +598,13 @@ public:
             return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
         }
         return 32;
+    }
+
+    int64_t low_memory_mode_buffer_limit() const {
+        if (_query_options.__isset.low_memory_mode_buffer_limit) {
+            return std::max(_query_options.low_memory_mode_buffer_limit, (int64_t)1);
+        }
+        return 32L * 1024 * 1024;
     }
 
     int spill_revocable_memory_high_watermark_percent() const {
