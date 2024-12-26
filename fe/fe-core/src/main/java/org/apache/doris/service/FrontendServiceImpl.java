@@ -4059,7 +4059,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<List<Backend>> backendsList = new ArrayList<>();
             List<Long> allTabletIds = new ArrayList<>();
             // Get tablets and backends from commitTxnResponse
-            commitTxnResponse.getTabletsList().forEach(tabletCommitInfo -> {
+            TabletCommitInfo.fromThrift(request.getCommitInfos()).forEach(tabletCommitInfo -> {
                 allTabletIds.add(tabletCommitInfo.getTabletId());
                 List<Backend> backends = new ArrayList<>();
                 tabletCommitInfo.getBackendsList().forEach(backendId -> {

@@ -821,11 +821,13 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
 static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
-                                   const std::string& label, CommitTxnResponse& res) {
+                                   const std::string& label,
+                                   const std::vector<TTabletCommitInfo>& commit_infos,
+                                   CommitTxnResponse& res) {
     std::string protobufBytes;
     res.SerializeToString(&protobufBytes);
     auto st = ExecEnv::GetInstance()->send_table_stats_thread_pool()->submit_func(
-            [db_id, txn_id, label, protobufBytes]() -> Status {
+            [db_id, txn_id, label, protobufBytes, &commit_infos]() -> Status {
                 TReportCommitTxnResultRequest request;
                 TStatus result;
 
@@ -838,6 +840,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 request.__set_txnId(txn_id);
                 request.__set_label(label);
                 request.__set_payload(protobufBytes);
+                request.__set_commit_infos(commit_infos);
 
                 Status status;
                 int64_t duration_ns = 0;
@@ -891,7 +894,7 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
-        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
+        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, ctx.commit_infos, res);
     }
 
     return st;

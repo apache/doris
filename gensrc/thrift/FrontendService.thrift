@@ -558,7 +558,7 @@ struct TGroupCommitInfo{
     2: optional i64 groupCommitLoadTableId
     3: optional string cluster
     5: optional bool updateLoadData
-    6: optional i64 tableId 
+    6: optional i64 tableId
     7: optional i64 receiveData
 }
 
@@ -844,7 +844,7 @@ struct TLoadTxnCommitRequest {
     17: optional string auth_code_uuid // deprecated, use token instead
     18: optional bool groupCommit
     19: optional i64 receiveBytes
-    20: optional i64 backendId 
+    20: optional i64 backendId
 }
 
 struct TLoadTxnCommitResult {
@@ -1681,6 +1681,7 @@ struct TReportCommitTxnResultRequest {
     2: optional i64 txnId
     3: optional string label
     4: optional binary payload
+    5: optional list<Types.TTabletCommitInfo> commit_infos
 }
 
 struct TQueryColumn {
