@@ -189,13 +189,9 @@ public class PartitionExprUtil {
 
             SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
-            // as the auto partition table maybe no any partitions firstly, it's should same
-            // as table's storage medium rather than default storage medium
-            if (!olapTable.getStorageMedium()
-                    .equals(singleRangePartitionDesc.getPartitionDataProperty().getStorageMedium())) {
-                singleRangePartitionDesc.getPartitionDataProperty().setStorageMedium(olapTable.getStorageMedium());
-                singleRangePartitionDesc.getPartitionDataProperty().setStorageMediumSpecified(
-                        !olapTable.getStorageMedium().equals(DataProperty.DEFAULT_STORAGE_MEDIUM));
+            // iff table's storage medium is not equal default storage medium,
+            // should add storage medium in partition properties
+            if (!DataProperty.DEFAULT_STORAGE_MEDIUM.equals(olapTable.getStorageMedium())) {
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
                         olapTable.getStorageMedium().name());
             }
