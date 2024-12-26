@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 @Getter
@@ -56,6 +57,8 @@ public abstract class JdbcClient {
     private static final Logger LOG = LogManager.getLogger(JdbcClient.class);
     private static final int HTTP_TIMEOUT_MS = 10000;
     protected static final int JDBC_DATETIME_SCALE = 6;
+
+    private static final Map<URL, ClassLoader> classLoaderMap = new ConcurrentHashMap<>();
 
     private String catalogName;
     protected String dbType;
@@ -154,11 +157,16 @@ public abstract class JdbcClient {
         }
     }
 
-    private void initializeClassLoader(JdbcClientConfig config) {
+    private synchronized void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            ClassLoader parent = getClass().getClassLoader();
-            this.classLoader = URLClassLoader.newInstance(urls, parent);
+            if (classLoaderMap.containsKey(urls[0])) {
+                this.classLoader = classLoaderMap.get(urls[0]);
+            } else {
+                ClassLoader parent = getClass().getClassLoader();
+                this.classLoader = URLClassLoader.newInstance(urls, parent);
+                classLoaderMap.put(urls[0], this.classLoader);
+            }
         } catch (MalformedURLException e) {
             throw new RuntimeException("Error loading JDBC driver.", e);
         }
