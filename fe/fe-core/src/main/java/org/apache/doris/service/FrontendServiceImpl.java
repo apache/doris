@@ -4056,21 +4056,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
             Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
 
-            List<List<Backend>> backendsList = new ArrayList<>();
             List<Long> allTabletIds = new ArrayList<>();
-            // Get tablets and backends from commitTxnResponse
             TabletCommitInfo.fromThrift(request.getCommitInfos()).forEach(tabletCommitInfo -> {
                 allTabletIds.add(tabletCommitInfo.getTabletId());
-                List<Backend> backends = new ArrayList<>();
-                tabletCommitInfo.getBackendsList().forEach(backendId -> {
-                    Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                    if (backend != null) {
-                        backends.add(backend);
-                    }
-                });
-                backendsList.add(backends);
             });
             if (!allTabletIds.isEmpty()) {
+                CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+                List<List<Backend>> backendsList = infoService
+                                                        .getCloudClusterNames()
+                                                        .stream()
+                                                        .filter(name -> !name.equals(clusterName))
+                                                        .map(name -> infoService.getBackendsByClusterName(name))
+                                                        .collect(Collectors.toList());
                 StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
             }
         } catch (InvalidProtocolBufferException e) {
