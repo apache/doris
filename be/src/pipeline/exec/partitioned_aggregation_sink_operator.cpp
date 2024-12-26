@@ -186,9 +186,9 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
         revocable_size = revocable_mem_size(state);
         query_mem_limit = state->get_query_ctx()->get_mem_limit();
         LOG(INFO) << fmt::format(
-                "Query: {}, task {}, agg sink {} eos, need spill: {}, query mem limit: {}, "
-                "revocable memory: {}",
-                print_id(state->query_id()), state->task_id(), node_id(),
+                "Query:{}, agg sink:{}, task:{}, eos, need spill:{}, query mem limit:{}, "
+                "revocable memory:{}",
+                print_id(state->query_id()), node_id(), state->task_id(),
                 local_state._shared_state->is_spilled, PrettyPrinter::print_bytes(query_mem_limit),
                 PrettyPrinter::print_bytes(revocable_size));
 
@@ -268,9 +268,9 @@ Status PartitionedAggSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     const auto size_to_revoke = _parent->revocable_mem_size(state);
     LOG(INFO) << fmt::format(
-            "Query: {}, task {}, agg sink {} revoke_memory, eos: {}, need spill: {}, revocable "
-            "memory: {}",
-            print_id(state->query_id()), state->task_id(), _parent->node_id(), _eos,
+            "Query:{}, agg sink:{}, task:{}, revoke_memory, eos:{}, need spill:{}, revocable "
+            "memory:{}",
+            print_id(state->query_id()), _parent->node_id(), state->task_id(), _eos,
             _shared_state->is_spilled,
             PrettyPrinter::print_bytes(_parent->revocable_mem_size(state)));
     if (!_shared_state->is_spilled) {
@@ -316,16 +316,17 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                 Defer defer {[&]() {
                     if (!status.ok() || state->is_cancelled()) {
                         if (!status.ok()) {
-                            LOG(WARNING) << "Query " << print_id(query_id) << " agg node "
-                                         << Base::_parent->node_id()
-                                         << " revoke_memory error: " << status;
+                            LOG(WARNING) << fmt::format(
+                                    "Query:{}, agg sink:{}, task:{}, revoke_memory error:{}",
+                                    print_id(query_id), Base::_parent->node_id(), state->task_id(),
+                                    status);
                         }
                         _shared_state->close();
                     } else {
                         LOG(INFO) << fmt::format(
-                                "Query: {}, task {}, agg sink {} revoke_memory finish, eos: {}, "
-                                "revocable memory: {}",
-                                print_id(state->query_id()), state->task_id(), _parent->node_id(),
+                                "Query:{}, agg sink:{}, task:{}, revoke_memory finish, eos:{}, "
+                                "revocable memory:{}",
+                                print_id(state->query_id()), _parent->node_id(), state->task_id(),
                                 _eos,
                                 PrettyPrinter::print_bytes(_parent->revocable_mem_size(state)));
                     }

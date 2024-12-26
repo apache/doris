@@ -250,8 +250,9 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         Defer defer {[&]() {
             if (!status.ok() || state->is_cancelled()) {
                 if (!status.ok()) {
-                    LOG(WARNING) << "Query " << print_id(query_id) << " agg node "
-                                 << _parent->node_id() << " recover agg data error: " << status;
+                    LOG(WARNING) << fmt::format(
+                            "Query:{}, agg probe:{}, task:{}, recover agg data error:{}",
+                            print_id(query_id), _parent->node_id(), state->task_id(), status);
                 }
                 _shared_state->close();
             }
@@ -305,15 +306,16 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
             }
         }
 
-        VLOG_DEBUG << "Query: " << print_id(query_id) << " agg node " << _parent->node_id()
-                   << ", task id: " << state->task_id() << " recover partitioned finished, "
-                   << _shared_state->spill_partitions.size() << " partitions left, "
-                   << accumulated_blocks_size
-                   << " bytes read, spill dep: " << (void*)(_spill_dependency.get());
+        VLOG_DEBUG << fmt::format(
+                "Query:{}, agg probe:{}, task:{}, recover partitioned finished, partitions "
+                "left:{}, bytes read:{}, spill dep:{}",
+                print_id(query_id), _parent->node_id(), state->task_id(),
+                _shared_state->spill_partitions.size(), accumulated_blocks_size,
+                (void*)(_spill_dependency.get()));
         return status;
     };
 
-    auto exception_catch_func = [spill_func, query_id]() {
+    auto exception_catch_func = [this, state, spill_func, query_id]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
             auto st = Status::InternalError(
                     "fault_inject partitioned_agg_source "
@@ -323,8 +325,9 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         });
 
         auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
-        LOG_IF(INFO, !status.ok()) << "Query : " << print_id(query_id)
-                                   << " recover exception : " << status.to_string();
+        LOG_IF(INFO, !status.ok()) << fmt::format(
+                "Query:{}, agg probe:{}, task:{}, recover exception:{}", print_id(query_id),
+                _parent->node_id(), state->task_id(), status.to_string());
         return status;
     };
 
@@ -334,10 +337,11 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
     });
     _spill_dependency->block();
 
-    VLOG_DEBUG << "Query: " << print_id(query_id) << " agg node " << _parent->node_id()
-               << ", task id: " << state->task_id() << " begin to recover, "
-               << _shared_state->spill_partitions.size()
-               << " partitions left, _spill_dependency: " << (void*)(_spill_dependency.get());
+    VLOG_DEBUG << fmt::format(
+            "Query:{}, agg probe:{}, task:{}, begin to recover, partitions left:{}, "
+            "_spill_dependency:{}",
+            print_id(query_id), _parent->node_id(), state->task_id(),
+            _shared_state->spill_partitions.size(), (void*)(_spill_dependency.get()));
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
             std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
                                                    _shared_state->shared_from_this(),

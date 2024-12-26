@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <cstddef>
 
 #include "common/cast_set.h"
 #include "common/exception.h"

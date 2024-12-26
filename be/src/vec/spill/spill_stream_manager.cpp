@@ -112,12 +112,6 @@ void SpillStreamManager::_init_metrics() {
     _spill_read_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
             _spill_read_bytes_metric.get()));
 
-    _spill_running_task_count_metric = std::make_unique<doris::MetricPrototype>(
-            doris::MetricType::COUNTER, doris::MetricUnit::NOUNIT, "spill_running_task_count");
-    _spill_running_task_count_counter =
-            (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-                    _spill_running_task_count_metric.get()));
-
     INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_max_threads);
     INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_active_threads);
     INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_pool_max_queue_size);

@@ -18,7 +18,6 @@
 
 #pragma once
 #include <atomic>
-#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -170,11 +169,9 @@ private:
 
     std::unique_ptr<doris::MetricPrototype> _spill_write_bytes_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_read_bytes_metric {nullptr};
-    std::unique_ptr<doris::MetricPrototype> _spill_running_task_count_metric {nullptr};
 
     IntAtomicCounter* _spill_write_bytes_counter {nullptr};
     IntAtomicCounter* _spill_read_bytes_counter {nullptr};
-    IntAtomicCounter* _spill_running_task_count_counter {nullptr};
 };
 } // namespace vectorized
 } // namespace doris
