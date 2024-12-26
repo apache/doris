@@ -49,6 +49,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -682,5 +683,17 @@ public class ShowExecutorTest {
         Assert.assertEquals("Cardinality", resultSet.getMetaData().getColumn(5).getName());
         Assert.assertEquals("Global", resultSet.getMetaData().getColumn(6).getName());
         Assert.assertEquals("Enable", resultSet.getMetaData().getColumn(7).getName());
+    }
+
+    @Test
+    public void testIsShowTablesCaseSensitive() {
+        ShowSqlBlockRuleStmt stmt = new ShowSqlBlockRuleStmt("test_case_sensitive");
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        GlobalVariable.lowerCaseTableNames = 0;
+        Assert.assertEquals(CaseSensibility.TABLE.getCaseSensibility(), executor.isShowTablesCaseSensitive());
+        GlobalVariable.lowerCaseTableNames = 1;
+        Assert.assertEquals(false, executor.isShowTablesCaseSensitive());
+        GlobalVariable.lowerCaseTableNames = 2;
+        Assert.assertEquals(false, executor.isShowTablesCaseSensitive());
     }
 }
