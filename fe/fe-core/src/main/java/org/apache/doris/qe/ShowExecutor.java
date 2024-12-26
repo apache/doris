@@ -861,8 +861,7 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(),
-                    CaseSensibility.TABLE.getCaseSensibility());
+            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(), isShowTablesCaseSensitive());
         }
         for (TableIf tbl : db.getTables()) {
             if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
@@ -901,6 +900,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
     }
 
+    public boolean isShowTablesCaseSensitive() {
+        if (GlobalVariable.lowerCaseTableNames == 0) {
+            return CaseSensibility.TABLE.getCaseSensibility();
+        }
+        return false;
+    }
+
     // Show table status statement.
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
@@ -911,8 +917,7 @@ public class ShowExecutor {
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(), isShowTablesCaseSensitive());
             }
             for (TableIf table : db.getTables()) {
                 if (matcher != null && !matcher.match(table.getName())) {
