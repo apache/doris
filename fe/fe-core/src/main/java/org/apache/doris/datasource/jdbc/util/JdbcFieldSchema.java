@@ -104,6 +104,7 @@ public class JdbcFieldSchema {
         this.dataTypeName = Optional.ofNullable(metaData.getColumnTypeName(columnIndex));
         this.columnSize = Optional.of(metaData.getPrecision(columnIndex));
         this.decimalDigits = Optional.of(metaData.getScale(columnIndex));
+        this.arrayDimensions = Optional.of(0);
     }
 
     public int requiredColumnSize() {
