@@ -15,9 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
+suite("test_index_compound_directory_fault_injection", "nonConcurrent") {
     // define a sql table
     def testTable_dup = "httplogs_dup_compound"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
+
+    def check_config = { String key, String value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def configList = parseJson(out.trim())
+            assert configList instanceof List
+            for (Object ele in (List) configList) {
+                assert ele instanceof List<String>
+                if (((List<String>) ele)[0] == key) {
+                    assertEquals(value, ((List<String>) ele)[2])
+                }
+            }
+        }
+    }
 
     def create_httplogs_dup_table = {testTablex ->
         // multi-line sql
@@ -85,74 +111,111 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
         }
     }
 
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable_dup}"
-        create_httplogs_dup_table.call(testTable_dup)
+    def run_test = {String is_enable ->
+        boolean invertedIndexRAMDirEnable = false
+        boolean has_update_be_config = false
+        try {
+            String backend_id;
+            backend_id = backendId_to_backendIP.keySet()[0]
+            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
 
-        try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
-            load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
+            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def configList = parseJson(out.trim())
+            assert configList instanceof List
+
+            for (Object ele in (List) configList) {
+                assert ele instanceof List<String>
+                if (((List<String>) ele)[0] == "inverted_index_ram_dir_enable") {
+                    invertedIndexRAMDirEnable = Boolean.parseBoolean(((List<String>) ele)[2])
+                    logger.info("inverted_index_ram_dir_enable: ${((List<String>) ele)[2]}")
+                }
+            }
+            set_be_config.call("inverted_index_ram_dir_enable", is_enable)
+            has_update_be_config = true
+            // check updated config
+            check_config.call("inverted_index_ram_dir_enable", is_enable);
+
+            sql "DROP TABLE IF EXISTS ${testTable_dup}"
+            create_httplogs_dup_table.call(testTable_dup)
+
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+                load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+            }
+            def res = sql "select COUNT() from ${testTable_dup} where request match 'images'"
+            assertEquals(863, res[0][0])
+            sql "TRUNCATE TABLE ${testTable_dup}"
+
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
+                load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
+            }
+            res = sql "select COUNT() from ${testTable_dup} where request match 'images'"
+            assertEquals(0, res[0][0])
+            sql "TRUNCATE TABLE ${testTable_dup}"
+
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
+                load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
+            }
+            res = sql "select COUNT() from ${testTable_dup} where request match 'images'"
+            assertEquals(0, res[0][0])
+            sql "TRUNCATE TABLE ${testTable_dup}"
+
+            try {
+                def test_index_compound_directory = "test_index_compound_directory1"
+                sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
+                create_httplogs_dup_table.call(test_index_compound_directory)
+                GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+                load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
+                res = sql "select COUNT() from ${test_index_compound_directory} where request match 'gif'"
+                try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+            } catch(Exception ex) {
+                assertTrue(ex.toString().contains("failed to initialize storage reader"))
+                logger.info("_mock_append_data_error_in_fsindexoutput_flushBuffer,  result: " + ex)
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+            }
+
+            try {
+                def test_index_compound_directory = "test_index_compound_directory2"
+                sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
+                create_httplogs_dup_table.call(test_index_compound_directory)
+                GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+                load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
+                res = sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
+                assertEquals(0, res[0][0])
+                try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+            }
+
+            try {
+                def test_index_compound_directory = "test_index_compound_directory3"
+                sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
+                create_httplogs_dup_table.call(test_index_compound_directory)
+                GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
+                load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
+                res = sql "select COUNT() from ${test_index_compound_directory} where request match 'png'"
+                assertEquals(0, res[0][0])
+                try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
+            }
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_destructor")
+            if (has_update_be_config) {
+                set_be_config.call("inverted_index_ram_dir_enable", invertedIndexRAMDirEnable.toString())
+            }
         }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
-        try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
-            load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_close")
-        }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
-        try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error")
-            load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error")
-        }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
-        try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
-            load_httplogs_data.call(testTable_dup, 'test_index_compound_directory', 'true', 'json', 'documents-1000.json')
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error")
-        }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
-        try {
-            def test_index_compound_directory = "test_index_compound_directory1"
-            sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
-            create_httplogs_dup_table.call(test_index_compound_directory)
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
-            load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
-            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'gif'"
-            try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
-        } catch(Exception ex) {
-            logger.info("_mock_append_data_error_in_fsindexoutput_flushBuffer,  result: " + ex)
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
-        }
-        try {
-            def test_index_compound_directory = "test_index_compound_directory2"
-            sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
-            create_httplogs_dup_table.call(test_index_compound_directory)
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
-            load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
-            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
-            try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
-        }
-        try {
-            def test_index_compound_directory = "test_index_compound_directory3"
-            sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
-            create_httplogs_dup_table.call(test_index_compound_directory)
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
-            load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
-            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'png'"
-            try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_init")
-        }
-    } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    run_test.call("false")
+    run_test.call("true")
 }
