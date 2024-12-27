@@ -17,19 +17,16 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.ConfigurationUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import lombok.Getter;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.options.Options;
 
 import java.util.Map;
 
 public class AliyunDLFProperties extends MetastoreProperties {
-    private static final String DLF_RESOURCE_CONFIG = "dlf.resouce_config";
 
     @ConnectorProperty(names = {"dlf.access_key", "dlf.catalog.accessKeyId"},
             description = "The access key of the Aliyun DLF.")
@@ -101,17 +98,8 @@ public class AliyunDLFProperties extends MetastoreProperties {
     }
 
     @Override
-    protected Map<String, String> loadConfigFromFile(Map<String, String> props) {
-        String resourceConfig = props.getOrDefault(DLF_RESOURCE_CONFIG, "");
-        if (Strings.isNullOrEmpty(resourceConfig)) {
-            return Maps.newHashMap();
-        }
-        Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(resourceConfig);
-        Map<String, String> confMap = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : conf) {
-            confMap.put(entry.getKey(), entry.getValue());
-        }
-        return confMap;
+    protected String getResouceConfigPropName() {
+        return "dlf.resouce_config";
     }
 
     @Getter

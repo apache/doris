@@ -22,6 +22,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
 import org.apache.doris.datasource.property.metastore.HMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.HDFSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties.Type;
@@ -46,11 +47,11 @@ public class PaimonCatalogProperties {
 
     private void init(String warehouse, MetastoreProperties metaProps, StorageProperties storeProps)
             throws UserException {
-        initCatalogProperties(metaProps, storeProps);
+        initMetastoreProperties(metaProps);
         initFileIOProperties(warehouse, storeProps);
     }
 
-    private void initCatalogProperties(MetastoreProperties metaProps, StorageProperties storeProps)
+    private void initMetastoreProperties(MetastoreProperties metaProps)
             throws UserException {
         switch (metaProps.getType()) {
             case HMS:
@@ -77,6 +78,7 @@ public class PaimonCatalogProperties {
         String finalWarehouse = warehouse;
         // init file io properties
         URI uri = Paths.get(warehouse).toUri();
+        // need to set file io properties based on the warehouse scheme.
         String scheme = Strings.nullToEmpty(uri.getScheme());
         switch (scheme) {
             case "":
@@ -94,7 +96,8 @@ public class PaimonCatalogProperties {
             case "tos":
             case "bos":
             case "gcs":
-                // Use S3FileIO for all S3-like storage
+                // Use S3FileIO for all S3-like storage,
+                // replace the scheme with s3.
                 finalWarehouse = "s3://" + uri.getAuthority() + uri.getPath();
                 initS3FileIOProps(storeProps);
                 break;
@@ -113,7 +116,13 @@ public class PaimonCatalogProperties {
         s3Props.toPaimonOSSFileIOProperties(options);
     }
 
-    private void initHadoopFileIOProps(StorageProperties storeProps) {
+    private void initHadoopFileIOProps(StorageProperties storeProps) throws UserException {
+        if (storeProps.getType() != Type.HDFS) {
+            throw new UserException("The warehouse is on HDFS-like storage, but the storage property is not for HDFS: "
+                    + storeProps.getType());
+        }
+        HDFSProperties hdfsProps = (HDFSProperties) storeProps;
+
     }
 
     private void initS3FileIOProps(StorageProperties storeProps) throws UserException {

@@ -26,7 +26,6 @@ import org.apache.paimon.options.Options;
 import java.util.Map;
 
 public class HMSProperties extends MetastoreProperties {
-
     @ConnectorProperty(names = {"hive.metastore.uri"},
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
@@ -53,6 +52,11 @@ public class HMSProperties extends MetastoreProperties {
 
     public HMSProperties(Map<String, String> origProps) {
         super(Type.HMS, origProps);
+    }
+
+    @Override
+    protected String getResouceConfigPropName() {
+        return "hive.resource_config";
     }
 
     @Override

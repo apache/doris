@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.ConfigurationUtils;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -28,7 +31,7 @@ public class CatalogProperties {
 
     protected void normalizedAndCheckProps(Map<String, String> origProps) {
         // 1. prepare phase
-        Map<String, String> resultProps = loadConfigFromFile(origProps);
+        Map<String, String> resultProps = loadConfigFromFile(getResouceConfigPropName());
         // 2. overwrite result properties with original properties
         resultProps.putAll(origProps);
         // 3. set fields from resultProps
@@ -55,8 +58,21 @@ public class CatalogProperties {
     // Some properties may be loaded from file
     // Subclass can override this method to load properties from file.
     // The return value is the properties loaded from file, not include original properties
-    protected Map<String, String> loadConfigFromFile(Map<String, String> props) {
-        return Maps.newHashMap();
+    private Map<String, String> loadConfigFromFile(String resourceConfig) {
+        if (Strings.isNullOrEmpty(resourceConfig)) {
+            return Maps.newHashMap();
+        }
+        Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(resourceConfig);
+        Map<String, String> confMap = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : conf) {
+            confMap.put(entry.getKey(), entry.getValue());
+        }
+        return confMap;
+    }
+
+    // Subclass can override this method to return the property name of resource config.
+    protected String getResouceConfigPropName() {
+        return "";
     }
 
     // This method will check if all required properties are set.
