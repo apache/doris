@@ -87,23 +87,31 @@ public class MTMVCache {
         return structInfo;
     }
 
-    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost) {
+    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost, boolean needLock) {
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
+        if (needLock) {
+            mvSqlStatementContext.setNeedLockTables(false);
+        }
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-
-        // Can not convert to table sink, because use the same column from different table when self join
-        // the out slot is wrong
-        if (needCost) {
-            // Only in mv rewrite, we need plan with eliminated cost which is used for mv chosen
-            planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        } else {
-            // No need cost for performance
-            planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        boolean originalRewriteFlag = connectContext.getSessionVariable().enableMaterializedViewRewrite;
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = false;
+        try {
+            // Can not convert to table sink, because use the same column from different table when self join
+            // the out slot is wrong
+            if (needCost) {
+                // Only in mv rewrite, we need plan with eliminated cost which is used for mv chosen
+                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+            } else {
+                // No need cost for performance
+                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+            }
+        } finally {
+            connectContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
         }
         Plan originPlan = planner.getCascadesContext().getRewritePlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
@@ -128,6 +136,6 @@ public class MTMVCache {
                 new BitSet());
         return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(), needCost
                 ? planner.getCascadesContext().getMemo().getRoot().getStatistics() : null,
-                structInfoOptional.orElseGet(() -> null));
+                structInfoOptional.orElse(null));
     }
 }

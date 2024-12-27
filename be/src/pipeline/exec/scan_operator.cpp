@@ -520,8 +520,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const auto* const_column =
-                    check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr)) {
+        if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
+                    const_col_wrapper->column_ptr.get())) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
@@ -530,7 +530,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             }
         } else if (const auto* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
-                                   const_col_wrapper->column_ptr)) {
+                                   const_col_wrapper->column_ptr.get())) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
@@ -690,7 +690,7 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
-                        const_col_wrapper->column_ptr)) {
+                        const_col_wrapper->column_ptr.get())) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
             } else {
@@ -1190,9 +1190,11 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
             DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (tnode.limit > 0 &&
-                tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
-                _should_run_serial = true;
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+                if (tnode.limit > 0 &&
+                    tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
+                    _should_run_serial = true;
+                }
             }
         }
     }

@@ -261,9 +261,6 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
 
     for (auto& weak_tablet : weak_tablets) {
         if (auto tablet = weak_tablet.lock()) {
-            if (tablet->tablet_state() != TABLET_RUNNING) {
-                continue;
-            }
             int64_t last_sync_time = tablet->last_sync_time_s;
             if (last_sync_time <= last_sync_time_bound) {
                 sync_time_tablet_set.emplace(last_sync_time, weak_tablet);

@@ -40,6 +40,7 @@
 #include "util/ref_count_closure.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class PTransmitDataParams;
 class TUniqueId;
 
@@ -318,4 +319,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

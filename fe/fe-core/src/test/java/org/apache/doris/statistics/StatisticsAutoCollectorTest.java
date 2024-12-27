@@ -24,8 +24,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 
 import mockit.Mock;
@@ -117,7 +119,8 @@ public class StatisticsAutoCollectorTest {
         OlapTable table1 = new OlapTable(200, "testTable", schema, null, null, null);
         Assertions.assertTrue(collector.supportAutoAnalyze(table1));
 
-        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbcdb", null);
+        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(null, 1L, "jdbcdb", "jdbcdb");
+        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", null, jdbcExternalDatabase);
         Assertions.assertFalse(collector.supportAutoAnalyze(externalTable));
 
         new MockUp<HMSExternalTable>() {
@@ -126,7 +129,8 @@ public class StatisticsAutoCollectorTest {
                 return DLAType.ICEBERG;
             }
         };
-        ExternalTable icebergExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
+        HMSExternalDatabase hmsExternalDatabase = new HMSExternalDatabase(null, 1L, "hmsDb", "hmsDb");
+        ExternalTable icebergExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null, hmsExternalDatabase);
         Assertions.assertFalse(collector.supportAutoAnalyze(icebergExternalTable));
 
         new MockUp<HMSExternalTable>() {
@@ -135,7 +139,7 @@ public class StatisticsAutoCollectorTest {
                 return DLAType.HIVE;
             }
         };
-        ExternalTable hiveExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
+        ExternalTable hiveExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null, hmsExternalDatabase);
         Assertions.assertTrue(collector.supportAutoAnalyze(hiveExternalTable));
     }
 

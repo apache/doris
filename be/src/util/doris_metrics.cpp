@@ -311,17 +311,17 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, broker_file_open_reading);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, local_file_open_writing);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, s3_file_open_writing);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
 
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, query_ctx_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_ctx_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_queued);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_running);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_submit_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_ctx_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_ctx_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_queued);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_running);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_submit_failed);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
