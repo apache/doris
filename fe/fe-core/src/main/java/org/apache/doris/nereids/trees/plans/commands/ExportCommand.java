@@ -202,6 +202,9 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                 case ODBC:
                 case JDBC:
                 case OLAP:
+                    if (table.isTemporary()) {
+                        throw new AnalysisException("Do not support exporting temporary partitions");
+                    }
                     break;
                 case VIEW: // We support export view, so we do not need to check partition here.
                     if (this.partitionsNames.size() > 0) {
@@ -255,8 +258,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
         if (table.isTemporary()) {
-            throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
-                + table.getType() + " type, do not support export.");
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] is temporary table, do not support export.");
         }
 
         exportJob.setDbId(db.getId());

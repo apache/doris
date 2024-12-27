@@ -705,8 +705,8 @@ public class Util {
         return tableName.indexOf("_#TEMP#_") != -1 ? tableName.split("_#TEMP#_")[1] : tableName;
     }
 
-    public static long getTempTableSessionId(String tableName) {
-        return tableName.indexOf("_#TEMP#_") != -1 ? new Long(tableName.split("_#TEMP#_")[0]) : -1;
+    public static String getTempTableSessionId(String tableName) {
+        return tableName.indexOf("_#TEMP#_") != -1 ? tableName.split("_#TEMP#_")[0] : "";
     }
 
     public static boolean isTempTable(String tableName) {
@@ -714,6 +714,6 @@ public class Util {
     }
 
     public static boolean isTempTableInCurrentSession(String tableName) {
-        return ConnectContext.get().getSessionId() == getTempTableSessionId(tableName);
+        return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
     }
 }

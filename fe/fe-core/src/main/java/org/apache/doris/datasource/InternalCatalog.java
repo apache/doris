@@ -2442,7 +2442,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
         createTableBinlogConfig.mergeFromProperties(stmt.getProperties());
-        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable()) {
+        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable() && !stmt.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
         if (stmt.isTemp() && createTableBinlogConfig.isEnable()) {

@@ -388,7 +388,7 @@ struct TMasterOpRequest {
     1001: optional bool noAuth;
 
     // temporary table
-    1002: optional i64 sessionId
+    1002: optional string sessionId
 }
 
 struct TColumnDefinition {
@@ -752,7 +752,7 @@ struct TFrontendReportAliveSessionRequest {
 struct TFrontendReportAliveSessionResult {
    1: required Status.TStatusCode status
    2: required string msg
-   3: required list<i64> sessionIdList
+   3: required list<string> sessionIdList
 }
 
 struct TDiskInfo {

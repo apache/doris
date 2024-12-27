@@ -94,6 +94,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -244,7 +245,7 @@ public class ConnectContext {
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
     // unique session id in the doris cluster
-    private long sessionId;
+    private String sessionId;
 
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
@@ -379,7 +380,7 @@ public class ConnectContext {
             sessionVariable.initFuzzyModeVariables();
         }
 
-        sessionId = Util.sha256long(Env.getCurrentEnv().getNodeName() + System.currentTimeMillis());
+        sessionId = UUID.randomUUID().toString();
         Env.getCurrentEnv().registerSessionInfo(sessionId);
     }
 
@@ -391,7 +392,7 @@ public class ConnectContext {
         this(connection, false);
     }
 
-    public ConnectContext(StreamConnection connection, boolean isProxy, long sessionId) {
+    public ConnectContext(StreamConnection connection, boolean isProxy, String sessionId) {
         this(connection, isProxy);
         // used for binding new created temporary table with its original session
         this.sessionId = sessionId;
@@ -799,7 +800,7 @@ public class ConnectContext {
         return getCatalog(defaultCatalog);
     }
 
-    public long getSessionId() {
+    public String getSessionId() {
         return sessionId;
     }
 
