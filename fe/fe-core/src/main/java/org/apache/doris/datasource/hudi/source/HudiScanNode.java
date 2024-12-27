@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -456,7 +457,7 @@ public class HudiScanNode extends HiveScanNode {
                 prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
                         -> getPrunedPartitions(hudiClient));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to get pruned partitions", e);
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
 
             partitionInit = true;

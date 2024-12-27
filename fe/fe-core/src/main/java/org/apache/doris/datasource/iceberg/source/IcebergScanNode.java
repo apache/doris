@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CombinedScanTask;
 import org.apache.iceberg.DeleteFile;
@@ -185,7 +186,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return source.getCatalog().getPreExecutionAuthenticator().execute(() -> doGetSplits(numBackends));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get splits from iceberg table", e);
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
 
     }

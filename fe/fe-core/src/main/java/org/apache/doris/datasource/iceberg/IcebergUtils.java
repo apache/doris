@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
@@ -597,7 +598,7 @@ public class IcebergUtils {
                 return tmpSchema;
             });
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
 
     }

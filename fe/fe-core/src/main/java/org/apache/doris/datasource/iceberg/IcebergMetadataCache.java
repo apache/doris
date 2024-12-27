@@ -32,6 +32,7 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.SerializableTable;
 import org.apache.iceberg.Snapshot;
@@ -128,7 +129,7 @@ public class IcebergMetadataCache {
             return ((ExternalCatalog) key.catalog).getPreExecutionAuthenticator().execute(()
                     -> ops.loadTable(key.dbName, key.tableName));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load table " + key.dbName + "." + key.tableName, e);
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
 
     }

@@ -34,6 +34,7 @@ import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -266,7 +267,7 @@ public class HudiUtils {
                 partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() ->
                         processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to get partition values for snapshot", e);
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
         } else {
             HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
@@ -278,7 +279,7 @@ public class HudiUtils {
                 partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
                         -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to get partition values for snapshot", e);
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
         return partitionValues;
