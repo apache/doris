@@ -18,12 +18,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
@@ -41,6 +43,8 @@ public class GroupByClauseTest {
 
     @Before
     public void setUp() throws AnalysisException {
+        FeConstants.runningUnitTest = true;
+
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
         analyzer = new Analyzer(analyzerBase.getEnv(), analyzerBase.getContext());
         try {

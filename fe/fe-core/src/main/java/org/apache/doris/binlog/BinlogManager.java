@@ -161,7 +161,7 @@ public class BinlogManager {
                 if (tableIds.size() > 1) {
                     anyEnable = anyEnable || tableBinlogEnable;
                 } else {
-                    anyEnable = anyEnable && tableBinlogEnable;
+                    anyEnable = tableBinlogEnable;
                 }
                 if (anyEnable) {
                     break;

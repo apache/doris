@@ -40,6 +40,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -381,7 +382,9 @@ public class ConnectContext {
         }
 
         sessionId = UUID.randomUUID().toString();
-        Env.getCurrentEnv().registerSessionInfo(sessionId);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().registerSessionInfo(sessionId);
+        }
     }
 
     public ConnectContext() {
