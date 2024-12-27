@@ -182,8 +182,8 @@ public class JdbcExternalTable extends ExternalTable {
     public long fetchRowCount() {
         Map<String, String> params = new HashMap<>();
         params.put("ctlName", catalog.getName());
-        params.put("dbName", dbName);
-        params.put("tblName", name);
+        params.put("dbName", this.db.getRemoteName());
+        params.put("tblName", this.remoteName);
         switch (((JdbcExternalCatalog) catalog).getDatabaseTypeName()) {
             case JdbcResource.MYSQL:
                 try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
