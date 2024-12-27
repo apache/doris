@@ -43,11 +43,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_io_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_io_thread_pool_active_threads, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_io_thread_pool_pool_max_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_io_thread_pool_max_threads, MetricUnit::NOUNIT);
-
 SpillStreamManager::~SpillStreamManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
@@ -111,25 +106,6 @@ void SpillStreamManager::_init_metrics() {
             doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_read_bytes");
     _spill_read_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
             _spill_read_bytes_metric.get()));
-
-    INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_max_threads);
-    INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_active_threads);
-    INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_pool_max_queue_size);
-    INT_UGAUGE_METRIC_REGISTER(_entity, spill_io_thread_pool_queue_size);
-
-    _entity->register_hook("spill_io_thread_pool_max_threads", [&]() {
-        spill_io_thread_pool_max_threads->set_value(config::spill_io_thread_pool_thread_num);
-    });
-    _entity->register_hook("spill_io_thread_pool_active_threads", [&]() {
-        spill_io_thread_pool_active_threads->set_value(_spill_io_thread_pool->num_active_threads());
-    });
-    _entity->register_hook("spill_io_thread_pool_pool_max_queue_size", [&]() {
-        spill_io_thread_pool_pool_max_queue_size->set_value(
-                config::spill_io_thread_pool_queue_size);
-    });
-    _entity->register_hook("spill_io_thread_pool_queue_size", [&]() {
-        spill_io_thread_pool_queue_size->set_value(_spill_io_thread_pool->get_queue_size());
-    });
 }
 
 // clean up stale spilled files

@@ -91,7 +91,7 @@ Status SpillReader::open() {
     DCHECK(bytes_read == block_count_ * sizeof(size_t));
     total_read_bytes += bytes_read;
     COUNTER_UPDATE(_read_file_size, total_read_bytes);
-    ExecEnv::GetInstance()->spill_stream_mgr()->updat_spill_read_bytes(total_read_bytes);
+    ExecEnv::GetInstance()->spill_stream_mgr()->update_spill_read_bytes(total_read_bytes);
     if (_query_statistics) {
         _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
     }
@@ -138,7 +138,7 @@ Status SpillReader::read(Block* block, bool* eos) {
 
     if (bytes_read > 0) {
         COUNTER_UPDATE(_read_file_size, bytes_read);
-        ExecEnv::GetInstance()->spill_stream_mgr()->updat_spill_read_bytes(bytes_read);
+        ExecEnv::GetInstance()->spill_stream_mgr()->update_spill_read_bytes(bytes_read);
         if (_query_statistics) {
             _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
         }

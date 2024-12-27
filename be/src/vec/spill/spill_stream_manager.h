@@ -142,9 +142,9 @@ public:
 
     ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 
-    void updat_spill_write_bytes(int64_t bytes) { _spill_write_bytes_counter->increment(bytes); }
+    void update_spill_write_bytes(int64_t bytes) { _spill_write_bytes_counter->increment(bytes); }
 
-    void updat_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
+    void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
 private:
     void _init_metrics();
@@ -161,11 +161,6 @@ private:
     std::atomic_uint64_t id_ = 0;
 
     std::shared_ptr<MetricEntity> _entity {nullptr};
-
-    UIntGauge* spill_io_thread_pool_max_threads {nullptr};
-    UIntGauge* spill_io_thread_pool_active_threads {nullptr};
-    UIntGauge* spill_io_thread_pool_pool_max_queue_size {nullptr};
-    UIntGauge* spill_io_thread_pool_queue_size {nullptr};
 
     std::unique_ptr<doris::MetricPrototype> _spill_write_bytes_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_read_bytes_metric {nullptr};
