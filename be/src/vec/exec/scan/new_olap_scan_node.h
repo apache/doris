@@ -142,6 +142,7 @@ private:
     RuntimeProfile::Counter* _output_col_timer = nullptr;
     std::map<int, PredicateFilterInfo> _filter_info;
 
+    RuntimeProfile::Counter* _tablet_read_timer = nullptr;
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
@@ -198,6 +199,12 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
+
+    RuntimeProfile::Counter* _rowset_reader_get_segment_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_create_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_init_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
+    RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
