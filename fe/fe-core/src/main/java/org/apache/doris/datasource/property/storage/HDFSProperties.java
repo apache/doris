@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 
@@ -59,12 +60,9 @@ public class HDFSProperties extends StorageProperties {
     }
 
     @Override
-    protected String getResouceConfigPropName() {
+    protected String getResourceConfigPropName() {
         return "hdfs.resource_config";
     }
-
-    s
-    @Override
 
     protected void checkRequiredProperties() {
         super.checkRequiredProperties();
@@ -74,6 +72,16 @@ public class HDFSProperties extends StorageProperties {
                 throw new IllegalArgumentException("HDFS authentication type is kerberos, "
                         + "but principal or keytab is not set.");
             }
+        }
+    }
+
+    public void toHadoopConfiguration(Configuration conf) {
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        allProps.forEach(conf::set);
+        conf.set("hdfs.authentication.type", hdfsAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
+            conf.set("hdfs.authentication.kerberos.principal", hdfsKerberosPrincipal);
+            conf.set("hdfs.authentication.kerberos.keytab", hdfsKerberosKeytab);
         }
     }
 }

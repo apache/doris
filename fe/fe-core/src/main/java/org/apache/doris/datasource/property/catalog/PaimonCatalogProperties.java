@@ -122,7 +122,7 @@ public class PaimonCatalogProperties {
                     + storeProps.getType());
         }
         HDFSProperties hdfsProps = (HDFSProperties) storeProps;
-
+        hdfsProps.toHadoopConfiguration(hadoopConf);
     }
 
     private void initS3FileIOProps(StorageProperties storeProps) throws UserException {

@@ -41,7 +41,7 @@ public class MetastoreProperties extends CatalogProperties {
     protected MetastoreProperties.Type type;
 
     public MetastoreProperties(Type type, Map<String, String> origProps) {
+        super(origProps);
         this.type = type;
-        normalizedAndCheckProps(origProps);
     }
 }

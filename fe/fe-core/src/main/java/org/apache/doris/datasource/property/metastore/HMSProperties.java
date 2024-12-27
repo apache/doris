@@ -20,11 +20,13 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.options.Options;
 
 import java.util.Map;
 
+@Slf4j
 public class HMSProperties extends MetastoreProperties {
     @ConnectorProperty(names = {"hive.metastore.uri"},
             description = "The uri of the hive metastore.")
@@ -55,7 +57,7 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     @Override
-    protected String getResouceConfigPropName() {
+    protected String getResourceConfigPropName() {
         return "hive.resource_config";
     }
 
@@ -74,6 +76,8 @@ public class HMSProperties extends MetastoreProperties {
 
     public void toPaimonOptionsAndConf(Options options, Configuration conf) {
         options.set("uri", hiveMetastoreUri);
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        allProps.forEach(conf::set);
         conf.set("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
             conf.set("hive.metastore.service.principal", hiveMetastoreServicePrincipal);

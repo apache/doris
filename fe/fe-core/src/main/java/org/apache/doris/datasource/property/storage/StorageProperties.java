@@ -35,7 +35,7 @@ public class StorageProperties extends CatalogProperties {
     protected Type type;
 
     public StorageProperties(Type type, Map<String, String> origProps) {
+        super(origProps);
         this.type = type;
-        normalizedAndCheckProps(origProps);
     }
 }

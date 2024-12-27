@@ -55,7 +55,7 @@ public class AliyunDLFProperties extends MetastoreProperties {
 
     private static final String DLF_PREFIX = "dlf.";
 
-    private Map<String, String> otherDlfProps = Maps.newHashMap();
+    private final Map<String, String> otherDlfProps = Maps.newHashMap();
 
     public AliyunDLFProperties(Map<String, String> origProps) {
         super(Type.DLF, origProps);
@@ -98,7 +98,7 @@ public class AliyunDLFProperties extends MetastoreProperties {
     }
 
     @Override
-    protected String getResouceConfigPropName() {
+    protected String getResourceConfigPropName() {
         return "dlf.resouce_config";
     }
 

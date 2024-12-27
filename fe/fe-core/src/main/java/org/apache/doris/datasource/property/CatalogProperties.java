@@ -28,12 +28,18 @@ import java.util.List;
 import java.util.Map;
 
 public class CatalogProperties {
+    protected Map<String, String> origProps;
 
-    protected void normalizedAndCheckProps(Map<String, String> origProps) {
+    protected CatalogProperties(Map<String, String> origProps) {
+        this.origProps = origProps;
+        normalizedAndCheckProps();
+    }
+
+    protected void normalizedAndCheckProps() {
         // 1. prepare phase
-        Map<String, String> resultProps = loadConfigFromFile(getResouceConfigPropName());
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         // 2. overwrite result properties with original properties
-        resultProps.putAll(origProps);
+        allProps.putAll(origProps);
         // 3. set fields from resultProps
         List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
@@ -41,9 +47,9 @@ public class CatalogProperties {
             ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
             String[] names = anno.names();
             for (String name : names) {
-                if (origProps.containsKey(name)) {
+                if (allProps.containsKey(name)) {
                     try {
-                        field.set(this, origProps.get(name));
+                        field.set(this, allProps.get(name));
                     } catch (IllegalAccessException e) {
                         throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
                     }
@@ -58,7 +64,7 @@ public class CatalogProperties {
     // Some properties may be loaded from file
     // Subclass can override this method to load properties from file.
     // The return value is the properties loaded from file, not include original properties
-    private Map<String, String> loadConfigFromFile(String resourceConfig) {
+    protected Map<String, String> loadConfigFromFile(String resourceConfig) {
         if (Strings.isNullOrEmpty(resourceConfig)) {
             return Maps.newHashMap();
         }
@@ -71,7 +77,7 @@ public class CatalogProperties {
     }
 
     // Subclass can override this method to return the property name of resource config.
-    protected String getResouceConfigPropName() {
+    protected String getResourceConfigPropName() {
         return "";
     }
 
