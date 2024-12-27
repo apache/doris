@@ -160,7 +160,12 @@ void test_bloom_filter_index_reader_writer_template(
         }
         // test nullptr
         EXPECT_TRUE(bf->test_bytes(nullptr, 1));
-
+        if (is_slice_type) {
+            Slice* value = (Slice*)(not_exist_value);
+            EXPECT_FALSE(bf->test_bytes(value->data, value->size));
+        } else {
+            EXPECT_FALSE(bf->test_bytes((char*)not_exist_value, sizeof(CppType)));
+        }
         delete reader;
     }
 }

@@ -153,6 +153,16 @@ public:
         return hash_code;
     }
 
+    static Result<uint64_t> hash(const char* buf, uint32_t size, HashStrategyPB strategy) {
+        if (strategy == HASH_MURMUR3_X64_64) {
+            uint64_t hash_code;
+            murmur_hash3_x64_64(buf, size, DEFAULT_SEED, &hash_code);
+            return hash_code;
+        } else {
+            return Status::InvalidArgument("invalid strategy:{}", strategy);
+        }
+    }
+
     virtual void add_bytes(const char* buf, uint32_t size) {
         if (buf == nullptr) {
             *_has_null = true;
