@@ -25,9 +25,9 @@ public interface CouldPushed {
 
     /**
      * For example, regarding filter push down, if the filter is pushed down below the join and is successful,
-     * then the previous filter no longer needs to be retained, in which case needRemain is set to true.
+     * then the previous filter no longer needs to be retained, in which case needRemain is set to false.
      * If the filter is pushed down into the scan and the filter still needs to be retained,
-     * then needRemain is set to false
+     * then needRemain is set to true
      */
     boolean needRemain();
 
