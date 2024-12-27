@@ -61,7 +61,7 @@ public:
     ColumnPtr getColumn(const std::string& attribute_name, const DataTypePtr& attribute_type,
                         const ColumnPtr& key_column, const DataTypePtr& key_type) const override {
         MutableColumnPtr res_column = attribute_type->create_column();
-        const auto& attribute = _column_data[attribute_index(attribute_name)];
+        const auto& attribute = _attribute_data[attribute_index(attribute_name)];
 
         if (WhichDataType {key_type}.is_ipv6()) {
             const auto* ipv6_column = assert_cast<const ColumnIPv6*>(key_column.get());
@@ -140,32 +140,7 @@ public:
         std::sort(ip_records.begin(), ip_records.end(),
                   [&](const IPRecord& a, const IPRecord& b) { return a.prefix() > b.prefix(); });
 
-        // load att column
-        _column_data.resize(attributes_column.size());
-        for (size_t i = 0; i < attributes_column.size(); i++) {
-            const DataTypePtr att_type = _attributes[i].type;
-            ColumnPtr column = attributes_column[i];
-            bool valid = IDictionary::cast_type(att_type.get(), [&](const auto& type) {
-                using AttributeRealDataType = std::decay_t<decltype(type)>;
-                using AttributeRealColumnType = AttributeRealDataType::ColumnType;
-                const auto* res_real_column =
-                        typeid_cast<const AttributeRealColumnType*>(column.get());
-                if (!res_real_column) {
-                    return false;
-                }
-                auto& att = _column_data[i];
-                ColumnWithType<AttributeRealDataType> column_with_type;
-                column_with_type.column = AttributeRealColumnType::create(*res_real_column);
-                att = column_with_type;
-                return true;
-            });
-            if (!valid) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "IPAddressDictionary({}) att type is : {} , but input column is : {}",
-                        dict_name(), att_type->get_name(), column->get_name());
-            }
-        }
+        load_attributes(attributes_column);
     }
 
     using RowIdxConstIter = std::vector<IPRecord>::const_iterator;
@@ -184,7 +159,6 @@ public:
     RowIdxConstIter ip_not_found() const { return ip_records.end(); }
 
     std::vector<IPRecord> ip_records;
-    std::vector<ColumnData> _column_data;
 };
 
 inline DictionaryPtr create_mock_ip_trie_dict_from_column(const std::string& name,

@@ -18,8 +18,6 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
-#include <shared_mutex>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -30,7 +28,6 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
@@ -38,8 +35,8 @@
 
 namespace doris::vectorized {
 struct DictionaryAttribute {
-    const std::string name;
-    const DataTypePtr type;
+    const std::string name; // attribute name
+    const DataTypePtr type; // should be a non-nullable type
 };
 
 class IDictionary {
@@ -58,6 +55,7 @@ public:
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
+        // The data types supported by cast_type must be consistent with the AttributeData below.
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeIPv4, DataTypeIPv6, DataTypeString, DataTypeDateV2,
@@ -72,7 +70,16 @@ protected:
         using DataType = Type;
         DataType::ColumnType::Ptr column;
     };
-    using ColumnData =
+
+    // `AttributeData` is a variant type. Use it with `std::visit` in the following way:
+    // std::visit(
+    //     [&](auto&& arg) {
+    //         using HashTableType = std::decay_t<decltype(arg)>;
+    //         using AttributeRealDataType = typename HashTableType::DataType;
+    //         using AttributeRealColumnType = typename AttributeRealDataType::ColumnType;
+    //     },
+    //     AttributeData);
+    using AttributeData =
             std::variant<ColumnWithType<DataTypeUInt8>, ColumnWithType<DataTypeInt8>,
                          ColumnWithType<DataTypeInt16>, ColumnWithType<DataTypeInt32>,
                          ColumnWithType<DataTypeInt64>, ColumnWithType<DataTypeInt128>,
@@ -90,8 +97,16 @@ protected:
                          ColumnWithType<DataTypeDecimal<Decimal128V3>>,
                          ColumnWithType<DataTypeDecimal<Decimal256>>>;
 
+    // load_attributes will remove nullable attributes.
+    // Any nullable-related data needs to be handled by the subclass dictionary.
+    void load_attributes(std::vector<ColumnPtr>& attributes_column);
+
+    // _attribute_data is used to store the data of attribute columns.
+    // Nullable columns are not stored here.
+    std::vector<AttributeData> _attribute_data;
     const std::string _dict_name;
     std::vector<DictionaryAttribute> _attributes;
+    // A mapping from attribute names to their corresponding indices.
     std::unordered_map<std::string, size_t> _name_to_attributes_index;
 };
 

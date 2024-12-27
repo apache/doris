@@ -18,12 +18,9 @@
 #pragma once
 
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -54,7 +51,7 @@ public:
 private:
     using RowIdxConstIter = std::vector<size_t>::const_iterator;
 
-    RowIdxConstIter ip_not_found() const { return row_idx.end(); }
+    RowIdxConstIter ip_not_found() const { return origin_row_idx_column.end(); }
 
     RowIdxConstIter lookupIP(IPv6 target) const;
 
@@ -62,13 +59,11 @@ private:
 
     std::vector<IPv6> ip_column;
 
-    std::vector<UInt8> mask_column;
+    std::vector<UInt8> prefix_column;
+
+    std::vector<size_t> origin_row_idx_column;
 
     std::vector<size_t> parent_subnet;
-
-    std::vector<size_t> row_idx;
-
-    std::vector<ColumnData> _column_data;
 };
 
 inline DictionaryPtr create_ip_trie_dict_from_column(const std::string& name,
