@@ -150,6 +150,9 @@ bvar::Status<uint64_t> doris_cloud_version_metrics("doris_cloud_version", [] {
     std::stringstream ss;
     ss << DORIS_CLOUD_BUILD_VERSION_MAJOR << 0 << DORIS_CLOUD_BUILD_VERSION_MINOR << 0
        << DORIS_CLOUD_BUILD_VERSION_PATCH;
+    if (DORIS_CLOUD_BUILD_VERSION_HOTFIX > 0) {
+        ss << 0 << DORIS_CLOUD_BUILD_VERSION_HOTFIX;
+    }
     return std::strtoul(ss.str().c_str(), nullptr, 10);
 }());
 

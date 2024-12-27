@@ -346,8 +346,8 @@ suite("test_stream_load_2pc", "p0") {
         log.info("http_stream execute 2pc: ${command}")
 
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
+        def code = process.waitFor()
+        def out = process.text
         log.info("http_stream 2pc result: ${out}".toString())
         def json2pc = parseJson(out)
         return json2pc
@@ -361,8 +361,8 @@ suite("test_stream_load_2pc", "p0") {
         log.info("http_stream execute 2pc: ${command}")
 
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
+        def code = process.waitFor()
+        def out = process.text
         log.info("http_stream 2pc result: ${out}".toString())
         def json2pc = parseJson(out)
         return json2pc
@@ -522,7 +522,7 @@ suite("test_stream_load_2pc", "p0") {
 
             def count = 0
             while (true) {
-                res = sql "select count(*) from ${tbl}"
+                def res = sql "select count(*) from ${tbl}"
                 if (res[0][0] > 0) {
                     break
                 }

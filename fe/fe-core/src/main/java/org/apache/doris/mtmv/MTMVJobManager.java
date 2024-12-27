@@ -104,17 +104,18 @@ public class MTMVJobManager implements MTMVHookService {
 
     private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
         jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
+        MTMVRefreshInfo refreshMTMVInfo = mtmv.getRefreshInfo();
         TimerDefinition timerDefinition = new TimerDefinition();
         timerDefinition
-                .setInterval(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getInterval());
+                .setInterval(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getInterval());
         timerDefinition
-                .setIntervalUnit(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
+                .setIntervalUnit(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
         if (!StringUtils
-                .isEmpty(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
+                .isEmpty(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
-                    mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
+                    refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
         }
-        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        if (refreshMTMVInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
             jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);

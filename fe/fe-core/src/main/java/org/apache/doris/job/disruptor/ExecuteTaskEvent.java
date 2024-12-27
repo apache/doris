@@ -34,4 +34,9 @@ public class ExecuteTaskEvent<T extends AbstractTask> {
         return ExecuteTaskEvent::new;
     }
 
+    public void clear() {
+        this.task = null;
+        this.jobConfig = null;
+    }
+
 }

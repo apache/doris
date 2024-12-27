@@ -223,7 +223,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    protected void executeCancelLogic() {
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
         if (isFinished.get() || isCanceled.get()) {
             return;
         }
@@ -244,7 +244,7 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
-        trow.addToColumnValue(new TCell().setStringVal(jobInfo.getState().name()));
+        trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(getErrorMsg()));
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));

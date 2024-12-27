@@ -23,6 +23,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -44,6 +45,8 @@ public abstract class StorageVault {
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
 
+    public static final String VAULT_NAME = "VAULT_NAME";
+
     public enum StorageVaultType {
         UNKNOWN,
         S3,
@@ -59,7 +62,6 @@ public abstract class StorageVault {
         }
     }
 
-    protected static final String VAULT_NAME = "VAULT_NAME";
     protected String name;
     protected StorageVaultType type;
     protected String id;
@@ -144,6 +146,9 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
+                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
+                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
+                }
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();

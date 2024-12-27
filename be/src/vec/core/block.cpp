@@ -644,10 +644,10 @@ Block Block::clone_with_columns(const Columns& columns) const {
     size_t num_columns = data.size();
 
     if (num_columns != columns.size()) {
-        LOG(FATAL) << fmt::format(
+        throw Exception(Status::FatalError(
                 "Cannot clone block with columns because block has {} columns, but {} columns "
                 "given.",
-                num_columns, columns.size());
+                num_columns, columns.size()));
     }
 
     for (size_t i = 0; i < num_columns; ++i) {

@@ -62,7 +62,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     public StatisticsAutoCollector() {
         super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
         this.analysisTaskExecutor = new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
-                StatisticConstants.TASK_QUEUE_CAP);
+                StatisticConstants.TASK_QUEUE_CAP, "Auto Analysis Job Executor");
     }
 
     @Override
@@ -144,9 +144,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
         columns = columns.stream().filter(
                 c -> StatisticsUtil.needAnalyzeColumn(table, c) || StatisticsUtil.isLongTimeColumn(table, c))
             .collect(Collectors.toSet());
-        if (columns.isEmpty()) {
-            return;
-        }
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
         if (analyzeJob == null) {
             return;
