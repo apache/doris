@@ -36,6 +36,7 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.batch.BlobBatch;
 import com.azure.storage.blob.batch.BlobBatchClient;
 import com.azure.storage.blob.batch.BlobBatchClientBuilder;
+import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
@@ -52,6 +53,7 @@ import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -196,6 +198,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.info("delete file " + remotePath + " success");
             return Status.OK;
         } catch (BlobStorageException e) {
+            if (e.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+                return Status.OK;
+            }
             return new Status(
                     Status.ErrCode.COMMON_ERROR,
                     "get file from azure error: " + e.getServiceMessage());
@@ -316,7 +321,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
         long startTime = System.nanoTime();
@@ -334,31 +338,27 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             String listPrefix = getLongestPrefix(globPath);
             LOG.info("azure glob list prefix is {}", listPrefix);
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
-            String newContinuationToken = null;
-            do {
-                roundCnt++;
-                PagedResponse<BlobItem> pagedResponse = getPagedBlobItems(client, options, newContinuationToken);
 
-                for (BlobItem blobItem : pagedResponse.getElements()) {
-                    elementCnt++;
-                    java.nio.file.Path blobPath = Paths.get(blobItem.getName());
+            PagedIterable<BlobItem> pagedBlobs = client.listBlobsByHierarchy("/", options, Duration.ofMinutes(10));
+            PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
-                    if (!matcher.matches(blobPath)) {
-                        continue;
-                    }
-                    matchCnt++;
-                    RemoteFile remoteFile = new RemoteFile(
-                            fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                    uri.getBucket()),
-                            !blobItem.isPrefix(),
-                            blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
-                            blobItem.getProperties().getContentLength(),
-                            blobItem.getProperties().getLastModified().getSecond());
-                    result.add(remoteFile);
+            for (BlobItem blobItem : pagedResponse.getElements()) {
+                elementCnt++;
+                java.nio.file.Path blobPath = Paths.get(blobItem.getName());
+
+                if (!matcher.matches(blobPath)) {
+                    continue;
                 }
-                newContinuationToken = pagedResponse.getContinuationToken();
-            } while (newContinuationToken != null);
-
+                matchCnt++;
+                RemoteFile remoteFile = new RemoteFile(
+                        fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
+                                uri.getBucket()),
+                        !blobItem.isPrefix(),
+                        blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
+                        1L * 1024 * 1024,
+                        blobItem.isPrefix() ? 0 : blobItem.getProperties().getLastModified().getSecond());
+                result.add(remoteFile);
+            }
         } catch (BlobStorageException e) {
             LOG.warn("glob file " + remotePath + " failed because azure error: " + e.getMessage());
             st = new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
@@ -369,9 +369,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, roundCnt, matchCnt,
-                    duration / 1000);
+            LOG.info("process {} elements under prefix {}, match {} elements, take {} micro second",
+                    remotePath, elementCnt, matchCnt, duration / 1000);
         }
         return st;
     }

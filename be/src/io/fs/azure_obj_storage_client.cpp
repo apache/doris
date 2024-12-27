@@ -298,6 +298,7 @@ ObjectStorageResponse AzureObjStorageClient::list_objects(const ObjectStoragePat
                                                           std::vector<FileInfo>* files) {
     auto get_file_file = [&](ListBlobsPagedResponse& resp) {
         std::ranges::transform(resp.Blobs, std::back_inserter(*files), [](auto&& blob_item) {
+            VLOG_DEBUG << "list get file " << blob_item.Name << " size " << blob_item.BlobSize;
             return FileInfo {
                     .file_name = blob_item.Name, .file_size = blob_item.BlobSize, .is_file = true};
         });
@@ -311,7 +312,7 @@ ObjectStorageResponse AzureObjStorageClient::list_objects(const ObjectStoragePat
                     return _client->ListBlobs(list_opts);
                 });
                 get_file_file(resp);
-                while (!resp.NextPageToken->empty()) {
+                while (resp.NextPageToken.HasValue()) {
                     list_opts.ContinuationToken = resp.NextPageToken;
                     resp = s3_get_rate_limit([&]() {
                         SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
