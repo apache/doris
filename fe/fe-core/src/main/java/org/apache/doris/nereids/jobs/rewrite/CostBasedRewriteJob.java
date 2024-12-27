@@ -45,7 +45,6 @@ import java.util.Optional;
  * This job do
  */
 public class CostBasedRewriteJob implements RewriteJob {
-
     private static final Logger LOG = LogManager.getLogger(CostBasedRewriteJob.class);
 
     private final List<RewriteJob> rewriteJobs;
@@ -72,7 +71,6 @@ public class CostBasedRewriteJob implements RewriteJob {
             // this means rewrite do not do anything
             return;
         }
-
         // compare two candidates
         Optional<Pair<Cost, GroupExpression>> skipCboRuleCost = getCost(currentCtx, skipCboRuleCtx, jobContext);
         Optional<Pair<Cost, GroupExpression>> appliedCboRuleCost = getCost(currentCtx, applyCboRuleCtx, jobContext);
@@ -89,6 +87,19 @@ public class CostBasedRewriteJob implements RewriteJob {
                 currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
             }
             return;
+        }
+        if (((RootPlanTreeRewriteJob) rewriteJobs.get(0)).getRules().get(0).getRuleType()
+                == RuleType.INFER_SET_OPERATOR_DISTINCT) {
+            LOG.info("@#@#@# INFER_SET_OPERATOR_DISTINCT apply \n"
+                    + applyCboRuleCtx.getRewritePlan().treeString()
+                    + "memo\n"
+                    + applyCboRuleCtx.getMemo().toString()
+            );
+            LOG.info("@#@#@# INFER_SET_OPERATOR_DISTINCT skip \n"
+                    + skipCboRuleCtx.getRewritePlan().treeString()
+                    + "memo\n"
+                    + skipCboRuleCtx.getMemo().toString()
+            );
         }
         // If the candidate applied cbo rule is better, replace the original plan with it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
