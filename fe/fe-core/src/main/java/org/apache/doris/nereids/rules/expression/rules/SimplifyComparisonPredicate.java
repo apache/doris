@@ -195,11 +195,10 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                             return BooleanLiteral.FALSE;
                         } else if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
                             // '9999-12-31' + 1 will overflow
-                            Expression tomorrow = ((DateV2Literal) right).plusDays(1);
-                            if (tomorrow.isNullLiteral()) {
+                            if (DateLiteral.isDateOutOfRange(((DateV2Literal) right).toJavaDateType().plusDays(1))) {
                                 return cp;
                             }
-                            right = tomorrow;
+                            right = ((DateV2Literal) right).plusDays(1);
                         }
                     }
                     if (cast.child().getDataType() instanceof DateV2Type) {
