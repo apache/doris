@@ -22,7 +22,7 @@ require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
 require 'logstash/util/formater'
-require 'logstash/util/retry_timer_task'
+require 'logstash/util/delay_event'
 require "uri"
 require "securerandom"
 require "json"
@@ -44,7 +44,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    config :db, :validate => :string, :required => true
    # the table which data is loaded to
    config :table, :validate => :string, :required => true
-   # label prefix of a stream load requst.
+   # label prefix of a stream load request.
    config :label_prefix, :validate => :string, :default => "logstash"
    # user name
    config :user, :validate => :string, :required => true
@@ -73,6 +73,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    config :log_progress_interval, :validate => :number, :default => 10
 
+   config :retry_queue_size, :validate => :number, :default => 128
 
    def print_plugin_info()
       @plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
@@ -132,15 +133,10 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
       end
 
-      # Run named Timer as daemon thread
-      @timer = java.util.Timer.new("Doris Output #{self.params['id']}", true)
-      # The queue in Timer is unbounded and uncontrollable, so use a new queue to control the amount
-      @count_block_queue = java.util.concurrent.ArrayBlockingQueue.new(128)
-
-      @retry_queue = Queue.new
+      @retry_queue = java.util.concurrent.DelayQueue.new
       retry_thread = Thread.new do
-         while popped = @retry_queue.pop
-            documents, http_headers, event_num, req_count = popped
+         while popped = @retry_queue.take
+            documents, http_headers, event_num, req_count = popped.event
             handle_request(documents, http_headers, event_num, req_count)
          end
       end
@@ -148,8 +144,14 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       print_plugin_info()
    end # def register
 
-   def close
-      @timer.cancel
+   private
+   def add_event_to_retry_queue(delay_event, block)
+      if block
+         while @retry_queue.size >= @retry_queue_size
+            sleep(1)
+         end
+      end
+      @retry_queue.add(delay_event)
    end
 
    def multi_receive(events)
@@ -187,25 +189,29 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       begin
          response_json = JSON.parse(response.body)
       rescue => _
-         @logger.warn("doris stream load response: #{response} is not a valid JSON")
+         @logger.warn("doris stream load response is not a valid JSON:\n#{response}")
       end
 
       status = response_json["Status"]
 
       if status == 'Label Already Exists'
-         @logger.warn("Label already exists: #{response_json['Label']}, skip #{event_num} records.")
+         @logger.warn("Label already exists: #{response_json['Label']}, skip #{event_num} records:\n#{response}")
          return
       end
 
       if status == "Success" || status == "Publish Timeout"
          @total_bytes.addAndGet(documents.size)
          @total_rows.addAndGet(event_num)
+         if @log_request or @logger.debug?
+            @logger.info("doris stream load response:\n#{response}")
+         end
          return
       end
 
       @logger.warn("FAILED doris stream load response:\n#{response}")
       # if there are data quality issues, we do not retry
-      if (status == 'Fail' && response_json['Message'].start_with?("[DATA_QUALITY_ERROR]")) || (@max_retries >= 0 && req_count > @max_retries)
+      if (status == 'Fail' && response_json['Message'].start_with?("[DATA_QUALITY_ERROR]")) || (@max_retries >= 0 && req_count-1 > @max_retries)
+      # if @max_retries >= 0 && req_count-1 > @max_retries
          @logger.warn("DROP this batch after failed #{req_count} times.")
          if @save_on_failure
             @logger.warn("Try save to disk.Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
@@ -217,10 +223,9 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       # add to retry_queue
       sleep_for = sleep_for_attempt(req_count)
       req_count += 1
-      @logger.warn("Will do retry #{req_count} after #{sleep_for} secs.")
-      timer_task = RetryTimerTask.new(@retry_queue, @count_block_queue, [documents, http_headers, event_num, req_count])
-      @count_block_queue.put(0)
-      @timer.schedule(timer_task, sleep_for*1000)
+      @logger.warn("Will do the #{req_count-1}th retry after #{sleep_for} secs.")
+      delay_event = DelayEvent.new(sleep_for, [documents, http_headers, event_num, req_count])
+      add_event_to_retry_queue(delay_event, req_count <= 1)
    end
 
    private
@@ -247,11 +252,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          log_failure("doris stream load request error: #{e}")
       end
 
-      if @log_request or @logger.debug?
-         @logger.info("doris stream load response:\n#{response}")
-      end
-
-      return response
+      response
    end # def make_request
 
    # Format the HTTP body

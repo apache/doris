@@ -17,17 +17,28 @@
 
 require 'java'
 
-class RetryTimerTask < java.util.TimerTask
-   def initialize(retry_queue, count_block_queue, event)
-      @retry_queue = retry_queue
-      @count_block_queue = count_block_queue
-      # event style: [documents, http_headers, event_num, req_count]
-      @event = event
-      super()
+class DelayEvent
+   include java.util.concurrent.Delayed
+
+   def initialize(delay, event)
+      @start_time = Time.now.to_i + delay
+      @event = event # event style: [documents, http_headers, event_num, req_count]
    end
 
-   def run
-      @retry_queue << @event
-      @count_block_queue.poll
+   def get_delay(unit)
+      delay = @start_time - Time.now.to_i
+      unit.convert(delay, java.util.concurrent.TimeUnit::SECONDS)
+   end
+
+   def compare_to(other)
+      d = self.get_delay(java.util.concurrent.TimeUnit::SECONDS) - other.get_delay(java.util.concurrent.TimeUnit::SECONDS)
+      if d == 0
+         0
+      end
+      d < 0 ? -1 : 1
+   end
+
+   def event
+      @event
    end
 end
