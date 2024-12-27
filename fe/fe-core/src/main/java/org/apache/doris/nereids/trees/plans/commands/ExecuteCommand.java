@@ -69,14 +69,15 @@ public class ExecuteCommand extends Command {
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getLogicalPlan(), executor.getContext()
                 .getStatementContext());
         executor.setParsedStmt(planAdapter);
-        // If it's not a short circuit query or schema version is different(indicates schema changed),
-        // need to do reanalyze and plan
+        // If it's not a short circuit query or schema version is different(indicates schema changed) or
+        // has nondeterministic functions in statement, then need to do reanalyze and plan
         boolean isShortCircuit = executor.getContext().getStatementContext().isShortCircuitQuery();
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
         boolean schemaVersionMismatch = hasShortCircuitContext
                     && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
                     != preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion;
-        boolean needAnalyze = !isShortCircuit || schemaVersionMismatch || !hasShortCircuitContext;
+        boolean needAnalyze = !isShortCircuit || schemaVersionMismatch || !hasShortCircuitContext
+                        || executor.getContext().getStatementContext().hasNondeterministic();
         if (needAnalyze) {
             // execute real statement
             preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
