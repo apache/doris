@@ -88,19 +88,6 @@ public class CostBasedRewriteJob implements RewriteJob {
             }
             return;
         }
-        if (((RootPlanTreeRewriteJob) rewriteJobs.get(0)).getRules().get(0).getRuleType()
-                == RuleType.INFER_SET_OPERATOR_DISTINCT) {
-            LOG.info("@#@#@# INFER_SET_OPERATOR_DISTINCT apply \n"
-                    + applyCboRuleCtx.getRewritePlan().treeString()
-                    + "memo\n"
-                    + applyCboRuleCtx.getMemo().toString()
-            );
-            LOG.info("@#@#@# INFER_SET_OPERATOR_DISTINCT skip \n"
-                    + skipCboRuleCtx.getRewritePlan().treeString()
-                    + "memo\n"
-                    + skipCboRuleCtx.getMemo().toString()
-            );
-        }
         // If the candidate applied cbo rule is better, replace the original plan with it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
             currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
@@ -182,7 +169,16 @@ public class CostBasedRewriteJob implements RewriteJob {
         Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
         // Do optimize
         new Optimizer(rootCtxCopy).execute();
-        return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
+        Optional<Pair<Cost, GroupExpression>> result = rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
                 rootCtxCopy.getCurrentJobContext().getRequiredProperties());
+        if (((RootPlanTreeRewriteJob) rewriteJobs.get(0)).getRules().get(0).getRuleType()
+                == RuleType.INFER_SET_OPERATOR_DISTINCT) {
+            LOG.info("@#@#@# INFER_SET_OPERATOR_DISTINCT \n"
+                    + cboCtx.getRewritePlan().treeString()
+                    + "memo\n"
+                    + rootCtxCopy.getMemo().toString()
+            );
+        }
+        return result;
     }
 }
