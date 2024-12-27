@@ -72,6 +72,7 @@ private:
     std::string directory;
     std::string file_name;
     CL_NS(store)::IndexInput* stream = nullptr;
+    // The life cycle of entries should be consistent with that of the DorisCompoundReader.
     EntriesType* entries = nullptr;
     std::mutex _this_lock;
     bool _closed = false;
