@@ -570,10 +570,6 @@ public class IcebergUtils {
                 : metadataCache.getIcebergTable(catalog, dbName, tblName);
     }
 
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
-        return getSchema(catalog, dbName, name, UNKNOWN_SNAPSHOT_ID);
-    }
-
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
