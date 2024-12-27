@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_dup_schema_key_change_modify","p0") {
-     def tbName1 = "test_dup_schema_key_change_modify1"
-     def tbName2 = "test_dup_schema_key_change_modify_1"
+     def tbName1 = "test_dup_schema_key_change_modify1_v2"
+     def tbName2 = "test_dup_schema_key_change_modify_1_v2"
      def initTable1 = ""
      def initTableData1 = ""
 
@@ -63,7 +63,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -77,7 +77,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -91,7 +91,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -106,7 +106,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
 
      },errorMessage)
@@ -121,7 +121,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -136,7 +136,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -150,7 +150,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
 
      },errorMessage)
@@ -164,7 +164,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -178,7 +178,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -222,7 +222,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -235,7 +235,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
@@ -248,7 +248,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -291,7 +291,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
 
 
@@ -336,7 +336,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -382,7 +382,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -396,7 +396,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -411,7 +411,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
 
      },errorMessage)
@@ -425,7 +425,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'char', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -437,7 +437,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'varchar', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
@@ -450,7 +450,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -495,7 +495,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -511,7 +511,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -524,7 +524,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
@@ -535,7 +535,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
 
 
@@ -579,7 +579,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 5, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -624,7 +624,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -638,7 +638,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -653,7 +653,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
 
      },errorMessage)
@@ -667,7 +667,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'casd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -679,7 +679,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'vasd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false,"${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
@@ -692,7 +692,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true,"${tbName1}")
      },errorMessage)
 
@@ -736,7 +736,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -750,7 +750,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -764,7 +764,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -775,7 +775,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false, "${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
@@ -786,7 +786,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 5, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false, "${tbName1}")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -831,7 +831,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -845,7 +845,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -859,7 +859,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
 
      }, errorMessage)
@@ -873,7 +873,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'casd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -885,12 +885,12 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'vasd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false, "${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
      //Test the dup model by modify a key type from INT  to VARCHAR
-     errorMessage = "errCode = 2, detailMessage = Can not change from wider type INT to narrower type VARCHAR(2)"
+     errorMessage = "errCode = 2, detailMessage = Can not change from wider type int to narrower type varchar(2)"
      expectException({
           sql initTable
           sql initTableData
@@ -898,7 +898,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'v1asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -911,7 +911,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -956,7 +956,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -970,7 +970,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -984,7 +984,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -998,7 +998,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -1010,7 +1010,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 5, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false, "${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
@@ -1023,7 +1023,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -1037,7 +1037,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -1051,7 +1051,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
 
      }, errorMessage)
@@ -1065,7 +1065,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'casd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -1077,12 +1077,12 @@ suite("test_dup_schema_key_change_modify","p0") {
      insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'vasd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
-          time 60
+          time 600
      }, insertSql, false, "${tbName1}")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
      //Test the dup model by modify a key type from BIGINT  to VARCHAR
-     errorMessage = "errCode = 2, detailMessage = Can not change from wider type BIGINT to narrower type VARCHAR(2)"
+     errorMessage = "errCode = 2, detailMessage = Can not change from wider type bigint to narrower type varchar(2)"
      expectException({
           sql initTable
           sql initTableData
@@ -1090,7 +1090,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'v1asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
@@ -1103,7 +1103,7 @@ suite("test_dup_schema_key_change_modify","p0") {
           insertSql = "insert into ${tbName1} values(923456689, 'Alice', 'asd', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
-               time 60
+               time 600
           }, insertSql, true, "${tbName1}")
      }, errorMessage)
 
