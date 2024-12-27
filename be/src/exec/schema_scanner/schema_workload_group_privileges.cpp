@@ -26,6 +26,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupPrivilegesScanner::_s_tbls_columns = {
         {"GRANTEE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"WORKLOAD_GROUP_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -83,7 +85,7 @@ Status SchemaWorkloadGroupPrivilegesScanner::_get_workload_group_privs_block_fro
     }
 
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>(
                     "workload group privileges schema is not match for FE and BE");
@@ -116,7 +118,7 @@ Status SchemaWorkloadGroupPrivilegesScanner::get_next_block_internal(vectorized:
 
     if (_workload_groups_privs_block == nullptr) {
         RETURN_IF_ERROR(_get_workload_group_privs_block_from_fe());
-        _total_rows = _workload_groups_privs_block->rows();
+        _total_rows = (int)_workload_groups_privs_block->rows();
     }
 
     if (_row_idx == _total_rows) {

@@ -305,6 +305,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileAttributes.setHeaderType(this.headerType);
             fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
             fileAttributes.setSkipLines(skipLines);
+            fileAttributes.setEnableTextValidateUtf8(
+                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
             fileAttributes.setJsonRoot(jsonRoot);
             fileAttributes.setJsonpaths(jsonPaths);

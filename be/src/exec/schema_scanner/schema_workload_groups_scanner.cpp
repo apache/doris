@@ -26,6 +26,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_columns = {
         {"ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"NAME", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -98,7 +100,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     _workload_groups_block->reserve(_block_rows_limit);
 
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>(
                     "workload groups schema is not match for FE and BE");
@@ -127,7 +129,7 @@ Status SchemaWorkloadGroupsScanner::get_next_block_internal(vectorized::Block* b
 
     if (_workload_groups_block == nullptr) {
         RETURN_IF_ERROR(_get_workload_groups_block_from_fe());
-        _total_rows = _workload_groups_block->rows();
+        _total_rows = (int)_workload_groups_block->rows();
     }
 
     if (_row_idx == _total_rows) {

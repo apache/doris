@@ -41,7 +41,11 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
         auto* __restrict hashes = _hash_vals.data();
         { RETURN_IF_ERROR(_get_partition_column_result(block, result)); }
         for (int j = 0; j < result_size; ++j) {
-            _do_hash(unpack_if_const(block->get_by_position(result[j]).column).first, hashes, j);
+            const auto& [col, is_const] = unpack_if_const(block->get_by_position(result[j]).column);
+            if (is_const) {
+                continue;
+            }
+            _do_hash(col, hashes, j);
         }
 
         for (size_t i = 0; i < rows; i++) {

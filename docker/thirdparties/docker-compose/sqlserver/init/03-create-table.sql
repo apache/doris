@@ -138,3 +138,8 @@ CREATE TABLE dbo.test_timestamp (
 id_col int PRIMARY KEY NOT NULL,
 timestamp_col timestamp NULL
 );
+
+CREATE TABLE dbo.TEST_LOWER (
+    id int PRIMARY KEY NOT NULL,
+    name varchar(10) NOT NULL
+);

@@ -223,7 +223,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    protected void executeCancelLogic() {
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
         if (isFinished.get() || isCanceled.get()) {
             return;
         }

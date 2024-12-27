@@ -18,6 +18,7 @@
 #include "recycler/util.h"
 
 #include <chrono>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -28,6 +29,7 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
+#include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "recycler/recycler.h"
 #include "recycler/sync_executor.h"
@@ -234,4 +236,92 @@ TEST(UtilTest, normal) {
         ASSERT_EQ(3, res.size());
         std::for_each(res.begin(), res.end(), [&s](auto&& n) { ASSERT_EQ(s, n); });
     }
+}
+
+TEST(UtilTest, test_add_after_when_all) {
+    auto f = []() {
+        auto pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+        pool->start();
+        SyncExecutor<int> sync_executor(pool, "test add after when all: inside",
+                                        [](int k) { return k != 0; });
+        auto f1 = []() { return 0; };
+        sync_executor.add(f1);
+        bool finished = true;
+        std::vector<int> res = sync_executor.when_all(&finished);
+        sync_executor.add(f1);
+        res = sync_executor.when_all(&finished);
+        EXPECT_EQ(1, res.size());
+        EXPECT_EQ(finished, true);
+        std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
+        return 0;
+    };
+
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    SyncExecutor<int> s3_sync_executor(s3_producer_pool, "test add after when all: outside",
+                                       [](int k) { return k != 0; });
+    s3_sync_executor.add(f);
+    bool finished = true;
+    std::vector<int> res = s3_sync_executor.when_all(&finished);
+    EXPECT_EQ(1, res.size());
+    EXPECT_EQ(finished, true);
+    std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
+}
+
+TEST(UtilTest, exception) {
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    {
+        SyncExecutor<int> sync_executor(s3_producer_pool, "exception test",
+                                        [](int k) { return k != 0; });
+        auto f = []() {
+            throw(std::runtime_error("test exception"));
+            return 1;
+        };
+        sync_executor.add(f);
+        bool finished = true;
+        std::vector<int> res = sync_executor.when_all(&finished);
+        EXPECT_EQ(0, res.size());
+        EXPECT_EQ(finished, false);
+        std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(1, n); });
+    }
+}
+
+TEST(UtilTest, test_sync_executor) {
+    auto f = []() {
+        sleep(1);
+        auto pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+        pool->start();
+        SyncExecutor<int> sync_executor(pool, "test sync executor: inside",
+                                        [](int k) { return k != 0; });
+        auto f1 = []() { return 0; };
+        sync_executor.add(f1);
+        bool finished = true;
+        std::vector<int> res = sync_executor.when_all(&finished);
+        sync_executor.add(f1);
+        res = sync_executor.when_all(&finished);
+        EXPECT_EQ(1, res.size());
+        EXPECT_EQ(finished, true);
+        std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
+        return 0;
+    };
+    std::mutex go_mutex;
+
+    auto* sp = doris::SyncPoint::get_instance();
+    sp->set_call_back("SyncExecutor::when_all.set_wait_time", [&](auto&& args) {
+        std::unique_lock<std::mutex> _lock(go_mutex);
+        auto max_wait_time = *doris::try_any_cast<size_t*>(args[0]);
+        max_wait_time = 100;
+    });
+
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    SyncExecutor<int> s3_sync_executor(s3_producer_pool, "test sync executor: outside",
+                                       [](int k) { return k != 0; });
+    s3_sync_executor.add(f);
+    bool finished = true;
+    std::vector<int> res = s3_sync_executor.when_all(&finished);
+    EXPECT_EQ(1, res.size());
+    EXPECT_EQ(finished, true);
+    std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
 }

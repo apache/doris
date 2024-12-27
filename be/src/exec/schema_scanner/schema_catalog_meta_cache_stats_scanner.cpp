@@ -27,6 +27,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tbls_columns = {
         {"CATALOG_NAME", TYPE_STRING, sizeof(StringRef), true},
         {"CACHE_NAME", TYPE_STRING, sizeof(StringRef), true},
@@ -86,7 +88,7 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
     _block->reserve(_block_rows_limit);
 
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>(
                     "catalog meta cache stats schema is not match for FE and BE");
@@ -115,7 +117,7 @@ Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(vectorized::B
 
     if (_block == nullptr) {
         RETURN_IF_ERROR(_get_meta_cache_from_fe());
-        _total_rows = _block->rows();
+        _total_rows = (int)_block->rows();
     }
 
     if (_row_idx == _total_rows) {

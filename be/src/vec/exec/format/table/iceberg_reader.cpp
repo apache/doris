@@ -17,7 +17,6 @@
 
 #include "iceberg_reader.h"
 
-#include <ctype.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/parquet_types.h>
@@ -25,17 +24,15 @@
 #include <parallel_hashmap/phmap.h>
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <string.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstring>
 #include <functional>
 #include <memory>
-#include <mutex>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
@@ -54,6 +51,7 @@
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/schema_desc.h"
+#include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace cctz {
@@ -580,10 +578,9 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
 
     const tparquet::FileMetaData* meta_data = parquet_delete_reader.get_meta_data();
     bool dictionary_coded = true;
-    for (int j = 0; j < meta_data->row_groups.size(); ++j) {
-        auto& column_chunk = meta_data->row_groups[j].columns[ICEBERG_FILE_PATH_INDEX];
-        if (!(column_chunk.__isset.meta_data &&
-              column_chunk.meta_data.__isset.dictionary_page_offset)) {
+    for (const auto& row_group : meta_data->row_groups) {
+        const auto& column_chunk = row_group.columns[ICEBERG_FILE_PATH_INDEX];
+        if (!(column_chunk.__isset.meta_data && has_dict_page(column_chunk.meta_data))) {
             dictionary_coded = false;
             break;
         }

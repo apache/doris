@@ -33,6 +33,7 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
+import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -614,6 +615,8 @@ public class Column implements GsonPostProcessable {
         tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
             tColumn.setAggregationType(this.aggregationType.toThrift());
+        } else {
+            tColumn.setAggregationType(TAggregationType.NONE);
         }
 
         tColumn.setIsKey(this.isKey);

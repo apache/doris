@@ -286,8 +286,8 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
-        RETURN_IF_ERROR(
-                _tablet->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
+        RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
+                                                                     _delete_bitmap));
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation

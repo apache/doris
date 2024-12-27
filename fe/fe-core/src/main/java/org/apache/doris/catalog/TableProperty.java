@@ -793,10 +793,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
     }
 
-    public void setStorageVaultName(String storageVaultName) {
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
-    }
-
     public String getPropertiesString() throws IOException {
         ObjectMapper objectMapper = new ObjectMapper();
         try {

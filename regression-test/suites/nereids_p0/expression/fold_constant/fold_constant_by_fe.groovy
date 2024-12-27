@@ -25,10 +25,8 @@ suite("test_fold_constant_by_fe") {
     assertFalse(Objects.equals(results[0][0], results[0][1]))
 
     def test_date = [
-            "2021-04-12", "1969-12-31", "1356-12-12", "0001-01-01", "9998-12-31",
-            "2021-04-12", "1969-12-31", "1356-12-12", "0001-01-01", "9998-12-31",
-            "2021-04-12 12:54:53", "1969-12-31 23:59:59", "1356-12-12 12:56:12", "0001-01-01 00:00:01", "9998-12-31 00:00:59",
-            "2021-04-12 12:54:53", "1969-12-31 23:59:59", "1356-12-12 12:56:12", "0001-01-01 00:00:01", "9998-12-31 00:00:59"
+            "2021-04-12", "1969-12-31", "1356-12-12",
+            "2021-04-12 12:54:53", "1969-12-31 23:59:59", "1356-12-12 12:56:12"
     ]
 
     def test_int = [1, 10, 25, 50, 1024]
@@ -154,6 +152,56 @@ suite("test_fold_constant_by_fe") {
         res = sql "explain select unix_timestamp('${date}')"
         res = res.split('VUNION')[1]
         assertFalse(res.contains("unix"))
+    }
+
+    // fe fold constant would failed and return original expression
+    explain {
+        sql "select years_add('9999-12-31 23:59:59', 1)"
+        contains "years_add"
+    }
+    explain {
+        sql "select months_add('9999-12-31 23:59:59', 1)"
+        contains "months_add"
+    }
+    explain {
+        sql "select date_add('9999-12-31 23:59:59', 1)"
+        contains "days_add"
+    }
+    explain {
+        sql "select hours_add('9999-12-31 23:59:59', 1)"
+        contains "hours_add"
+    }
+    explain {
+        sql "select minutes_add('9999-12-31 23:59:59', 1)"
+        contains "minutes_add"
+    }
+    explain {
+        sql "select seconds_add('9999-12-31 23:59:59', 1)"
+        contains "seconds_add"
+    }
+    explain {
+        sql "select years_sub('0000-01-01 00:00:00', 1)"
+        contains "years_sub"
+    }
+    explain {
+        sql "select months_sub('0000-01-01 00:00:00', 1)"
+        contains "months_sub"
+    }
+    explain {
+        sql "select date_sub('0000-01-01 00:00:00', 1)"
+        contains "days_sub"
+    }
+    explain {
+        sql "select hours_sub('0000-01-01 00:00:00', 1)"
+        contains "hours_sub"
+    }
+    explain {
+        sql "select minutes_sub('0000-01-01 00:00:00', 1)"
+        contains "minutes_sub"
+    }
+    explain {
+        sql "select seconds_sub('0000-01-01 00:00:00', 1)"
+        contains "seconds_sub"
     }
 
     // test null like string cause of fe need to fold constant like that to enable not null derive

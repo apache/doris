@@ -47,6 +47,15 @@ public class ReplaceTableClause extends AlterTableClause {
         this.isForce = isForce;
     }
 
+    // for nereids
+    public ReplaceTableClause(String tblName, Map<String, String> properties, boolean isForce, boolean swapTable) {
+        super(AlterOpType.REPLACE_TABLE);
+        this.tblName = tblName;
+        this.properties = properties;
+        this.isForce = isForce;
+        this.swapTable = swapTable;
+    }
+
     public String getTblName() {
         return tblName;
     }

@@ -384,7 +384,7 @@ public class DateLiteral extends Literal {
         return false;
     }
 
-    protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
+    public static boolean isDateOutOfRange(LocalDateTime dateTime) {
         return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }
 
@@ -530,9 +530,10 @@ public class DateLiteral extends Literal {
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateType.INSTANCE)
-                : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range: " + dateTime.toString());
+        }
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 
     /**

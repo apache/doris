@@ -140,7 +140,14 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
     std::vector<void*> datas(tables_num);
 
     // catalog
-    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas)); }
+    {
+        std::string catalog_name = _db_result.catalogs[_db_index - 1];
+        StringRef str = StringRef(catalog_name.c_str(), catalog_name.size());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
+    }
     // schema
     {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);

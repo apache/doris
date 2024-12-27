@@ -62,7 +62,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     public StatisticsAutoCollector() {
         super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
         this.analysisTaskExecutor = new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
-                StatisticConstants.TASK_QUEUE_CAP);
+                StatisticConstants.TASK_QUEUE_CAP, "Auto Analysis Job Executor");
     }
 
     @Override

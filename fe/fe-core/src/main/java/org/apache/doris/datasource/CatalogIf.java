@@ -220,4 +220,14 @@ public interface CatalogIf<T extends DatabaseIf> {
     default Optional<TableValuedFunctionRef> getMetaTableFunctionRef(String dbName, String sourceNameWithMetaName) {
         return Optional.empty();
     }
+
+    // Convert from remote database name to local database name, overridden by subclass if necessary
+    default String fromRemoteDatabaseName(String remoteDatabaseName) {
+        return remoteDatabaseName;
+    }
+
+    // Convert from remote table name to local table name, overridden by subclass if necessary
+    default String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+        return remoteTableName;
+    }
 }

@@ -98,7 +98,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
 
-        HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db");
+        HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db", "hms_db");
         Deencapsulation.setField(db, "initialized", true);
 
         Deencapsulation.setField(tbl, "objectCreated", true);

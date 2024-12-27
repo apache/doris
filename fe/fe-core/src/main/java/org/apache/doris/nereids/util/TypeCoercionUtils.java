@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -783,6 +784,21 @@ public class TypeCoercionUtils {
 
     private static Expression castChildren(Expression parent, Expression left, Expression right, DataType commonType) {
         return parent.withChildren(castIfNotSameType(left, commonType), castIfNotSameType(right, commonType));
+    }
+
+    /**
+     * process BitNot type coercion, cast child to bigint.
+     */
+    public static Expression processBitNot(BitNot bitNot) {
+        Expression child = bitNot.child();
+        if (!(child.getDataType().isIntegralType() || child.getDataType().isBooleanType())) {
+            child = new Cast(child, BigIntType.INSTANCE);
+        }
+        if (child != bitNot.child()) {
+            return bitNot.withChildren(child);
+        } else {
+            return bitNot;
+        }
     }
 
     /**

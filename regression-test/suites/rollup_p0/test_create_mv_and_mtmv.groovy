@@ -21,6 +21,8 @@ suite("test_create_mv_and_mtmt") {
     def tableName = "test_create_mv_and_mtmt_advertiser_view_record"
     def mvName = "test_create_mv_and_mtmt_advertiser_uv"
     def mtmvName = "test_create_mv_and_mtmt_advertiser_uv_mtmv"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP MATERIALIZED VIEW IF EXISTS ${mtmvName} """
     sql """
             CREATE TABLE  ${tableName}(
               time date not null,
@@ -106,6 +108,6 @@ AND RefreshMode = '${refreshMode}';"""
     qt_insert_into_partial_new_partition """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """ DROP MATERIALIZED VIEW ${mtmvName} """
+    sql """ DROP MATERIALIZED VIEW IF EXISTS ${mtmvName} """
 
 }

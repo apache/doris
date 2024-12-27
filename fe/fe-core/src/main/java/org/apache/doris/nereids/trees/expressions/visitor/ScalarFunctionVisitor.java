@@ -344,6 +344,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
@@ -1761,6 +1763,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitQuarter(Quarter quarter, C context) {
         return visitScalarFunction(quarter, context);
+    }
+
+    default R visitQuartersAdd(QuartersAdd quartersAdd, C context) {
+        return visitScalarFunction(quartersAdd, context);
+    }
+
+    default R visitQuartersSub(QuartersSub quartersSub, C context) {
+        return visitScalarFunction(quartersSub, context);
     }
 
     default R visitRadians(Radians radians, C context) {

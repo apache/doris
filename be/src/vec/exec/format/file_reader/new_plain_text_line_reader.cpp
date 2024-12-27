@@ -173,8 +173,9 @@ void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, si
 
 void EncloseCsvLineReaderContext::_on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
+    size_t curr_len = len - _idx;
     const uint8_t* delim_pos =
-            find_col_sep_func(curr_start, _column_sep_len, _column_sep.c_str(), _column_sep_len);
+            find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 
     if (delim_pos != nullptr) [[likely]] {
         on_col_sep_found(start, delim_pos);

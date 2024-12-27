@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_show_sync_job_command", "query,sync_job") {
+    boolean enabled = false;
+    if (!enabled) {
+        //sync job is deprecated
+        return;
+    }
     try {
         sql """CREATE DATABASE IF NOT EXISTS test_db_sync_job;"""
         

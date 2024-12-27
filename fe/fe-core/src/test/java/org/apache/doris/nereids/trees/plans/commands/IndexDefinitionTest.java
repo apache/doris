@@ -31,12 +31,12 @@ import org.junit.jupiter.api.Test;
 public class IndexDefinitionTest {
     @Test
     void testVariantIndexFormatV1() throws AnalysisException {
-        IndexDefinition def = new IndexDefinition("variant_index", Lists.newArrayList("col1"), "INVERTED",
+        IndexDefinition def = new IndexDefinition("variant_index", false, Lists.newArrayList("col1"), "INVERTED",
                                         null, "comment");
         try {
             boolean isIndexFormatV1 = true;
             def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true,
-                                    null, "comment"), KeysType.UNIQUE_KEYS, true, isIndexFormatV1);
+                                    null, "comment"), KeysType.UNIQUE_KEYS, true, null, isIndexFormatV1);
             Assertions.fail("No exception throws.");
         } catch (AnalysisException e) {
             Assertions.assertTrue(e instanceof AnalysisException);

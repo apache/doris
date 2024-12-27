@@ -1183,6 +1183,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                          << ", rowset_id=" << rowset_id
                          << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", num_segments=" << rowset_meta.num_segments()
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
         }
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1812,6 +1813,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     // 3. store all pending delete bitmap for this txn
     PendingDeleteBitmapPB delete_bitmap_keys;
+    delete_bitmap_keys.set_lock_id(request->lock_id());
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
                                        request->versions(i), request->segment_ids(i)};

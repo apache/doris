@@ -18,10 +18,12 @@
 #pragma once
 
 #include <bthread/countdown_event.h>
+#include <cpp/sync_point.h>
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
+#include <chrono>
 #include <future>
 #include <string>
 
@@ -48,10 +50,12 @@ public:
         return *this;
     }
     std::vector<T> when_all(bool* finished) {
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) { _reset(); });
         timespec current_time;
         auto current_time_second = time(nullptr);
         current_time.tv_sec = current_time_second + 300;
         current_time.tv_nsec = 0;
+        // Wait for all tasks to complete
         while (0 != _count.timed_wait(current_time)) {
             current_time.tv_sec += 300;
             LOG(WARNING) << _name_tag << " has already taken 5 min, cost: "
@@ -65,11 +69,26 @@ public:
                 *finished = false;
                 return res;
             }
-            res.emplace_back((*task).get());
+            size_t max_wait_ms = 10000;
+            TEST_SYNC_POINT_CALLBACK("SyncExecutor::when_all.set_wait_time", &max_wait_ms);
+            // _count.timed_wait has already ensured that all tasks are completed.
+            // The 10 seconds here is just waiting for the task results to be returned,
+            // so 10 seconds is more than enough.
+            auto status = task->wait_for(max_wait_ms);
+            if (status == std::future_status::ready) {
+                res.emplace_back(task->get());
+            } else {
+                *finished = false;
+                LOG(WARNING) << _name_tag << " task timed out after 10 seconds";
+                return res;
+            }
         }
         return res;
     }
-    void reset() {
+
+private:
+    void _reset() {
+        _count.reset(0);
         _res.clear();
         _stop_token = false;
     }
@@ -97,6 +116,9 @@ private:
                 stop_token = true;
             }
             _pro.set_value(std::move(t));
+        }
+        std::future_status wait_for(size_t milliseconds) {
+            return _fut.wait_for(std::chrono::milliseconds(milliseconds));
         }
         bool valid() { return _valid; }
         T get() { return _fut.get(); }

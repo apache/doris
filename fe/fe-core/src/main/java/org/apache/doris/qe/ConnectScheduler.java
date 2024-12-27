@@ -93,6 +93,9 @@ public class ConnectScheduler {
     // Register one connection with its connection id.
     public boolean registerConnection(ConnectContext ctx) {
         if (numberConnection.incrementAndGet() > maxConnections) {
+            LOG.info("Number connection {} has reach upper limit {}. Connection map : [{}], "
+                    + "connByUser: [{}], flightToken2ConnectionId: [{}]",
+                    numberConnection.get(), maxConnections, connectionMap, connByUser, flightToken2ConnectionId);
             numberConnection.decrementAndGet();
             return false;
         }
@@ -100,6 +103,10 @@ public class ConnectScheduler {
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
         AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
         if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+            LOG.info("User {}'s connection {} has reached upper limit {}. numberConnection {}, "
+                    + "Connection map : [{}], connByUser: [{}], flightToken2ConnectionId: [{}]",
+                    ctx.getQualifiedUser(), conns.get(), ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser()),
+                    numberConnection.get(), connectionMap, connByUser, flightToken2ConnectionId);
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
@@ -183,6 +190,7 @@ public class ConnectScheduler {
             if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv()
                     .getAccessManager()
                     .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
+                LOG.info("connection filtered by auth, {}", ctx);
                 continue;
             }
             list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs));

@@ -118,6 +118,7 @@ import java.util.Set;
  * Step3: LoadLoadingChecker will check loading status periodically and commit transaction when push tasks are finished.
  * Step4: PublishVersionDaemon will send publish version tasks to be and finish transaction.
  */
+@Deprecated
 public class SparkLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(SparkLoadJob.class);
 

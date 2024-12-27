@@ -45,6 +45,8 @@ public abstract class StorageVault {
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
 
+    public static final String VAULT_NAME = "VAULT_NAME";
+
     public enum StorageVaultType {
         UNKNOWN,
         S3,
@@ -60,7 +62,6 @@ public abstract class StorageVault {
         }
     }
 
-    protected static final String VAULT_NAME = "VAULT_NAME";
     protected String name;
     protected StorageVaultType type;
     protected String id;

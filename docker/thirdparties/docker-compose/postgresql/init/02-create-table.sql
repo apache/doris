@@ -351,3 +351,8 @@ CREATE TABLE catalog_pg_test.test_all_support_types_array_2d (
     float8_value float8[][] NULL
 );
 
+create table doris_test.TEST_LOWER (
+    k1 bit,
+    k2 char(100)
+);
+

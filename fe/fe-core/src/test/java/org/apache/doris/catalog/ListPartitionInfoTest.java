@@ -248,4 +248,61 @@ public class ListPartitionInfoTest {
         String expected = "AUTO PARTITION BY LIST (`k1`, `k2`)";
         Assert.assertTrue("got: " + sql + ", should have: " + expected, sql.contains(expected));
     }
+
+    @Test
+    public void testListPartitionNullMax() throws AnalysisException, DdlException {
+        PartitionItem partitionItem = null;
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
+        partitionColumns.add(k1);
+        partitionColumns.add(k2);
+        partitionInfo = new ListPartitionInfo(partitionColumns);
+
+        List<List<PartitionValue>> inValues = new ArrayList<>();
+        inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+        SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, "p1",
+                PartitionKeyDesc.createIn(inValues), null);
+        singlePartitionDesc.analyze(2, null);
+        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+        Assert.assertEquals("((NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+
+        inValues = new ArrayList<>();
+        inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
+        singlePartitionDesc = new SinglePartitionDesc(false, "p2",
+        PartitionKeyDesc.createIn(inValues), null);
+        singlePartitionDesc.analyze(2, null);
+        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+        Assert.assertEquals("((NULL, NULL))", ((ListPartitionItem) partitionItem).toSql());
+
+        inValues = new ArrayList<>();
+        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
+        singlePartitionDesc = new SinglePartitionDesc(false, "p3",
+        PartitionKeyDesc.createIn(inValues), null);
+        singlePartitionDesc.analyze(2, null);
+        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+        Assert.assertEquals("((MAXVALUE, NULL))", ((ListPartitionItem) partitionItem).toSql());
+
+        inValues = new ArrayList<>();
+        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, PartitionValue.MAX_VALUE));
+        singlePartitionDesc = new SinglePartitionDesc(false, "p4",
+        PartitionKeyDesc.createIn(inValues), null);
+        singlePartitionDesc.analyze(2, null);
+        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+        Assert.assertEquals("((MAXVALUE, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+
+        inValues = new ArrayList<>();
+        inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
+        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
+        inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+        singlePartitionDesc = new SinglePartitionDesc(false, "p5",
+        PartitionKeyDesc.createIn(inValues), null);
+        singlePartitionDesc.analyze(2, null);
+        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+        Assert.assertEquals("((NULL, NULL),(MAXVALUE, NULL),(NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+    }
 }

@@ -59,6 +59,7 @@ public abstract class PartitionDefinition {
     public PartitionDefinition(boolean ifNotExists, String partName) {
         this.ifNotExists = ifNotExists;
         this.partitionName = partName;
+        this.properties = Maps.newHashMap();
     }
 
     public PartitionDefinition withProperties(Map<String, String> properties) {

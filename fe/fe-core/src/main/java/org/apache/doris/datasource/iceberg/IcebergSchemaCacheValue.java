@@ -25,26 +25,13 @@ import java.util.List;
 public class IcebergSchemaCacheValue extends SchemaCacheValue {
 
     private final List<Column> partitionColumns;
-    private final IcebergPartitionInfo partitionInfo;
-    private final long snapshotId;
 
-    public IcebergSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
-                                  long snapshotId, IcebergPartitionInfo partitionInfo) {
+    public IcebergSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
         super(schema);
         this.partitionColumns = partitionColumns;
-        this.snapshotId = snapshotId;
-        this.partitionInfo = partitionInfo;
     }
 
     public List<Column> getPartitionColumns() {
         return partitionColumns;
-    }
-
-    public IcebergPartitionInfo getPartitionInfo() {
-        return partitionInfo;
-    }
-
-    public long getSnapshotId() {
-        return snapshotId;
     }
 }

@@ -22,7 +22,7 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         return
     }
     def tableName = "test_full_compaction_with_ordered_data"
- 
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     String backend_id;
@@ -39,8 +39,8 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
             `v` int ,
         ) engine=olap
         DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) 
-        BUCKETS 3 
+        DISTRIBUTED BY HASH(k)
+        BUCKETS 3
         properties(
             "replication_num" = "1",
             "disable_auto_compaction" = "true")
@@ -70,38 +70,9 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         assert (rowsetCount == 5 * replicaNum * 3)
 
         // trigger full compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            times = 1
-
-            do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-        }
-
-        // wait for full compaction done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
+        trigger_and_wait_compaction(tableName, "full")
 
         // after full compaction, there is only 1 rowset.
-        
         rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
@@ -155,38 +126,9 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         assert (rowsetCount == 12 * replicaNum * 3)
 
         // trigger full compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            times = 1
-
-            do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-        }
-
-        // wait for full compaction done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-
+        trigger_and_wait_compaction(tableName, "full")
         // after full compaction, there is only 1 rowset.
-        
+
         rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId

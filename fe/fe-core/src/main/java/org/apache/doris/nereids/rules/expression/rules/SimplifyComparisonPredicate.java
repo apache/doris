@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
@@ -171,8 +172,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             if (cast.child().getDataType() instanceof DateTimeType
                     || cast.child().getDataType() instanceof DateTimeV2Type) {
                 if (right instanceof DateTimeV2Literal) {
-                    return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
-                            cp, cast.child(), (DateTimeV2Literal) right);
+                    try {
+                        return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
+                                cp, cast.child(), (DateTimeV2Literal) right);
+                    } catch (AnalysisException e) {
+                        // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                        return cp;
+                    }
                 }
             }
 
@@ -188,6 +194,10 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                         } else if (cp instanceof NullSafeEqual) {
                             return BooleanLiteral.FALSE;
                         } else if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
+                            // '9999-12-31' + 1 will overflow
+                            if (DateLiteral.isDateOutOfRange(((DateV2Literal) right).toJavaDateType().plusDays(1))) {
+                                return cp;
+                            }
                             right = ((DateV2Literal) right).plusDays(1);
                         }
                     }

@@ -78,38 +78,10 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                     assert tabletJson.rowsets instanceof List
                     rowsetCount +=((List<String>) tabletJson.rowsets).size()
                 }
-                assert (rowsetCount == 6 * bucketSize * partitionSize) 
+                assert (rowsetCount == 6 * bucketSize * partitionSize)
 
                 // trigger full compactions for all tablets in ${tableName}
-                for (def tablet in tablets) {
-                    String tablet_id = tablet.TabletId
-                    backend_id = tablet.BackendId
-                    times = 1
-
-                    do{
-                        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                        ++times
-                    } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-                    def compactJson = parseJson(out.trim())
-                    assertEquals("success", compactJson.status.toLowerCase())
-                }
-
-                // wait for full compaction done
-                for (def tablet in tablets) {
-                    boolean running = true
-                    do {
-                        String tablet_id = tablet.TabletId
-                        backend_id = tablet.BackendId
-                        (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                        logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                        assertEquals(code, 0)
-                        def compactionStatus = parseJson(out.trim())
-                        assertEquals("success", compactionStatus.status.toLowerCase())
-                        running = compactionStatus.run_status
-                    } while (running)
-                }
+                trigger_and_wait_compaction(tableName, "full")
 
                 sleep(60000)
                 // after full compaction, there are 2 rowsets.
