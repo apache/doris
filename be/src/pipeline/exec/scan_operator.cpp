@@ -1228,15 +1228,12 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // The set of enable_adaptive_pipeline_task_serial_read_on_limit
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
-            int32_t adaptive_pipeline_task_serial_read_on_limit =
-                    ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT;
-            if (query_options.__isset.adaptive_pipeline_task_serial_read_on_limit) {
-                adaptive_pipeline_task_serial_read_on_limit =
-                        query_options.adaptive_pipeline_task_serial_read_on_limit;
-            }
-
-            if (tnode.limit > 0 && tnode.limit <= adaptive_pipeline_task_serial_read_on_limit) {
-                _should_run_serial = true;
+            DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+                if (tnode.limit > 0 &&
+                    tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
+                    _should_run_serial = true;
+                }
             }
         }
     }
