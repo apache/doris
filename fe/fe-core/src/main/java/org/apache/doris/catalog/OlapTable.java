@@ -70,12 +70,15 @@ import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTable;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -106,6 +109,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -3020,7 +3024,28 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         TFetchOption fetchOption = new TFetchOption();
         fetchOption.setFetchRowStore(this.storeRowColumn());
         fetchOption.setUseTwoPhaseFetch(true);
-        fetchOption.setNodesInfo(SystemInfoService.createAliveNodesInfo());
+
+        // get backend by tag
+        Set<Tag> tagSet = new HashSet<>();
+        boolean allowResourcetagDowngrade = false;
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            tagSet = context.getResourceTags();
+            allowResourcetagDowngrade = context.isAllowResourceTagDowngrade();
+        }
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .needQueryAvailable()
+                .setRequireAliveBe()
+                .addTags(tagSet)
+                .setAllowResourceTagDowngrade(allowResourcetagDowngrade)
+                .build();
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        for (Backend backend : Env.getCurrentSystemInfo().getBackendsByPolicy(policy)) {
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        }
+
+        fetchOption.setNodesInfo(nodesInfo);
+
         if (!this.storeRowColumn()) {
             List<TColumn> columnsDesc = Lists.newArrayList();
             getColumnDesc(selectedIndexId, columnsDesc, null, null);
