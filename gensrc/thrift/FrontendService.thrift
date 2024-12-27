@@ -1613,6 +1613,7 @@ struct TGetMetaTableMeta {
     2: optional string name
     3: optional bool in_trash
     4: optional list<TGetMetaPartitionMeta> partitions
+    5: optional string type
 }
 
 struct TGetMetaDBMeta {

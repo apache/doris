@@ -42,7 +42,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -64,7 +63,6 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
-import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -806,9 +804,18 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Schema getHudiTableSchema(HMSExternalTable table) {
-        HoodieTableMetaClient metaClient = getHudiClient(table);
+        HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
         Schema hudiSchema;
+
+        // Here, the timestamp should be reloaded again.
+        // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
+        // which is saved in the `metaClient`.
+        // But the `metaClient` is obtained from cache, so the file obtained may be an old file.
+        // This file may be deleted by hudi clean task, and an error will be reported.
+        // So, we should reload timeline so that we can read the latest commit files.
+        metaClient.reloadActiveTimeline();
+
         try {
             hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
         } catch (Exception e) {
@@ -834,20 +841,8 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
-        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-        Configuration conf = getConfiguration(table);
-        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
-        return ugiDoAs(conf, () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration)
-                .setBasePath(hudiBasePath).build());
-    }
-
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
+        return table.getCatalog().getConfiguration();
     }
 
     public static Optional<String> getSerdeProperty(Table table, String key) {

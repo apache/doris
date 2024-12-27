@@ -75,6 +75,24 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
         checkNereidsExecute("refresh database ${catalog_name}.${new_mysql_db} ;")
         qt_subsequent_refresh_database """show tables;"""
 
+        qt_show_create_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+        // add a column in external table
+        sql """CALL EXECUTE_STMT("${catalog_name}", "alter table ${new_mysql_db}.${new_mysql_table2} add new_column int;");"""
+        qt_preceding_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+        //refresh table ctl.db.tb1
+        checkNereidsExecute("refresh table ${catalog_name}.${new_mysql_db}.${new_mysql_table2} ;")
+        qt_subsequent_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+        sql """CALL EXECUTE_STMT("${catalog_name}", "alter table ${new_mysql_db}.${new_mysql_table2} add new_column_1 int;");"""
+        qt_preceding_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+        // refresh table db.tbl
+        checkNereidsExecute("refresh table ${new_mysql_db}.${new_mysql_table2} ;")
+        qt_subsequent_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+        sql """CALL EXECUTE_STMT("${catalog_name}", "alter table ${new_mysql_db}.${new_mysql_table2} add new_column_2 int;");"""
+        qt_preceding_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+        //refresh table tbl1
+        checkNereidsExecute("refresh table ${new_mysql_table2};")
+        qt_subsequent_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
+
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db} ;");"""
         qt_preceding_drop_external_database """show databases;"""
 

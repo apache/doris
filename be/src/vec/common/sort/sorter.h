@@ -177,21 +177,15 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block_->rows() > buffered_block_size_ ||
-               _state->unsorted_block_->bytes() > buffered_block_bytes_;
+        return _state->unsorted_block_->allocated_bytes() >= buffered_block_bytes_;
     }
 
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 
-    static constexpr size_t INITIAL_BUFFERED_BLOCK_SIZE = 1024 * 1024;
-    static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+    static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 * 1024 * 1024;
 
-    static constexpr size_t SPILL_BUFFERED_BLOCK_SIZE = 4 * 1024 * 1024;
-    static constexpr size_t SPILL_BUFFERED_BLOCK_BYTES = 256 << 20;
-
-    size_t buffered_block_size_ = INITIAL_BUFFERED_BLOCK_SIZE;
     size_t buffered_block_bytes_ = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 

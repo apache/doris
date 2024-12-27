@@ -147,15 +147,13 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            // set fast_execute when expr evaluated by inverted index correctly
-            _can_fast_execute = true;
             context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, res);
         }
         return Status::OK();
     }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
-        if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        if (fast_execute(context, block, result_column_id)) {
             return Status::OK();
         }
         if (get_num_children() == 1 || _has_const_child()) {
@@ -274,8 +272,10 @@ public:
             auto col_res = ColumnUInt8::create(size);
             auto col_nulls = ColumnUInt8::create(size);
 
-            auto* __restrict res_datas = assert_cast<ColumnUInt8*>(col_res)->get_data().data();
-            auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
+            auto* __restrict res_datas =
+                    assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
+            auto* __restrict res_nulls =
+                    assert_cast<ColumnUInt8*>(col_nulls.get())->get_data().data();
             ColumnPtr temp_null_map = nullptr;
             // maybe both children are nullable / or one of children is nullable
             auto* __restrict lhs_null_map_tmp = create_null_map_column(temp_null_map, lhs_null_map);

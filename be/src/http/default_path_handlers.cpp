@@ -146,7 +146,7 @@ void memory_info_handler(std::stringstream* output) {
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
-    malloc_stats_print(write_cb, &tmp, "a");
+    jemalloc_stats_print(write_cb, &tmp, "a");
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp;
 #else

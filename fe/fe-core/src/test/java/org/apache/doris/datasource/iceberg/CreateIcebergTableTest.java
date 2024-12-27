@@ -84,7 +84,7 @@ public class CreateIcebergTableTest {
         } else {
             icebergCatalog.setInitialized(true);
         }
-        IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName);
+        IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName, dbName);
         icebergCatalog.addDatabaseForTest(db);
 
         // context

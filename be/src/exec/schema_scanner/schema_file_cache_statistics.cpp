@@ -25,6 +25,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheStatisticsScanner::_s_tbls_columns = {
         //   name,       type,          size
@@ -68,7 +69,7 @@ Status SchemaFileCacheStatisticsScanner::get_next_block_internal(vectorized::Blo
         _stats_block->reserve(_block_rows_limit);
 
         ExecEnv::GetInstance()->file_cache_factory()->get_cache_stats_block(_stats_block.get());
-        _total_rows = _stats_block->rows();
+        _total_rows = (int)_stats_block->rows();
     }
 
     if (_row_idx == _total_rows) {

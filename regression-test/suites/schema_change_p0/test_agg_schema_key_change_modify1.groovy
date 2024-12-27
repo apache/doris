@@ -268,7 +268,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
      //TODO Test the agg model by modify a  key type from LARGEINT  to STRING
      //Test the agg model by modify a key type from LARGEINT  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -842,7 +842,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
      //Test the agg model by modify a key type from DECIMAL  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[rice]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[rice]"
      expectException({
           sql initTable
           sql initTableData
@@ -974,7 +974,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATE to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1002,7 +1002,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATE to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -1148,7 +1148,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATETIME to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1176,7 +1176,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATETIME to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -1322,7 +1322,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from CHAR to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1350,7 +1350,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from CHAR to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]"
      expectException({
           sql initTable
           sql initTableData
@@ -1495,7 +1495,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from VARCHAR to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1523,7 +1523,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from VARCHAR to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]"
      expectException({
           sql initTable
           sql initTableData
@@ -1672,7 +1672,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATE to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1700,7 +1700,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATE to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -1758,7 +1758,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATE to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1786,7 +1786,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATE to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -1934,7 +1934,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATEV2 to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1962,7 +1962,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATEV2 to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -2020,7 +2020,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATEV2 to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2048,7 +2048,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATEV2 to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -2194,7 +2194,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATETIMEV2 to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2222,7 +2222,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATETIMEV2 to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -2366,7 +2366,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
 
      //TODO Test the agg model by modify a key type from DATETIME to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2394,7 +2394,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      },errorMessage)
 
      //TODO Test the agg model by modify a key type from DATETIME to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData

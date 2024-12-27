@@ -214,6 +214,7 @@ public:
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::shared_mutex& get_meta_store_lock() { return _meta_store_lock; }
 
     std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -531,7 +532,7 @@ private:
     void check_table_size_correctness();
     std::string get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t seg_id);
     int64_t get_segment_file_size(const RowsetMetaSharedPtr& rs_meta);
-    int64_t get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta);
+    int64_t get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -588,7 +589,7 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
 
-    // use a seperate thread to check all tablets paths existance
+    // use a separate thread to check all tablets paths existence
     std::atomic<bool> _is_tablet_path_exists;
 
     int64_t _last_missed_version;
