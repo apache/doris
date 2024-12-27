@@ -41,7 +41,7 @@ public class TemporaryTableMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        Map<Long, Long> sessionReportTimeMap = Env.getCurrentEnv().getSessionReportTimeMap();
+        Map<String, Long> sessionReportTimeMap = Env.getCurrentEnv().getSessionReportTimeMap();
         long currentTs = System.currentTimeMillis();
         Collection<DatabaseIf<? extends TableIf>> internalDBs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         for (DatabaseIf<? extends TableIf> db : internalDBs) {
@@ -50,7 +50,7 @@ public class TemporaryTableMgr extends MasterDaemon {
                     continue;
                 }
 
-                long sessionId = Util.getTempTableSessionId(table.getName());
+                String sessionId = Util.getTempTableSessionId(table.getName());
                 boolean needDelete = false;
                 if (!sessionReportTimeMap.containsKey(sessionId)) {
                     LOG.info("Cannot find session id for table " + table.getName());

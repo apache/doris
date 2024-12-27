@@ -84,6 +84,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.util.CronExpression;
@@ -426,11 +427,23 @@ public class AnalysisManager implements Writable {
             row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
             if (databaseIf.isPresent()) {
                 Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
+                        : "Table may get deleted");
             } else {
                 row.add("DB not exists anymore");
             }
-            row.add(analysisInfo.colName);
+            String colNames = analysisInfo.colName;
+            StringBuffer sb = new StringBuffer();
+            if (colNames != null) {
+                for (String columnName : colNames.split(",")) {
+                    String[] kv = columnName.split(":");
+                    sb.append(Util.getTempTableDisplayName(kv[0]))
+                        .append(":").append(kv[1]).append(",");
+                }
+            }
+            String newColNames = sb.toString();
+            newColNames = StringUtils.isEmpty(newColNames) ? "" : newColNames.substring(0, newColNames.length() - 1);
+            row.add(newColNames);
             resultRows.add(row);
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);

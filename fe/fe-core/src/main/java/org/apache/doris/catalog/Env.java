@@ -467,7 +467,7 @@ public class Env {
     private FESessionMgr feSessionMgr;
     private TemporaryTableMgr temporaryTableMgr;
     // alive session of current fe
-    private Set<Long> aliveSessionSet;
+    private Set<String> aliveSessionSet;
     private TabletInvertedIndex tabletInvertedIndex;
     private ColocateTableIndex colocateTableIndex;
 
@@ -588,7 +588,7 @@ public class Env {
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
     // all sessions' last heartbeat time of all fe
-    private static volatile Map<Long, Long> sessionReportTimeMap = new HashMap<>();
+    private static volatile Map<String, Long> sessionReportTimeMap = new HashMap<>();
 
     private TokenManager tokenManager;
 
@@ -845,7 +845,7 @@ public class Env {
         this.tokenManager = new TokenManager();
     }
 
-    public static Map<Long, Long> getSessionReportTimeMap() {
+    public static Map<String, Long> getSessionReportTimeMap() {
         return sessionReportTimeMap;
     }
 
@@ -863,18 +863,18 @@ public class Env {
         }
     }
 
-    private void refreshSession(long sessionId) {
+    private void refreshSession(String sessionId) {
         sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
     }
 
-    public void checkAndRefreshSession(long sessionId) {
+    public void checkAndRefreshSession(String sessionId) {
         if (sessionReportTimeMap.containsKey(sessionId)) {
             sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
         }
     }
 
     public void refreshAllAliveSession() {
-        for (long sessionId : sessionReportTimeMap.keySet()) {
+        for (String sessionId : sessionReportTimeMap.keySet()) {
             refreshSession(sessionId);
         }
     }
@@ -6980,15 +6980,15 @@ public class Env {
         System.exit(0);
     }
 
-    public void registerSessionInfo(long sessionId) {
+    public void registerSessionInfo(String sessionId) {
         this.aliveSessionSet.add(sessionId);
     }
 
-    public void unregisterSessionInfo(long sessionId) {
+    public void unregisterSessionInfo(String sessionId) {
         this.aliveSessionSet.remove(sessionId);
     }
 
-    public List<Long> getAllAliveSessionIds() {
+    public List<String> getAllAliveSessionIds() {
         return new ArrayList<>(aliveSessionSet);
     }
 }

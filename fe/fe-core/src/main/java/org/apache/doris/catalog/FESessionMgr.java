@@ -91,8 +91,8 @@ public class FESessionMgr extends MasterDaemon {
             HostInfo selfNode = env.getSelfNode();
             if (fe.getHost().equals(selfNode.getHost())) {
                 if (env.isReady()) {
-                    List<Long> sessionIds = env.getAllAliveSessionIds();
-                    for (Long sessionId : sessionIds) {
+                    List<String> sessionIds = env.getAllAliveSessionIds();
+                    for (String sessionId : sessionIds) {
                         Env.getCurrentEnv().checkAndRefreshSession(sessionId);
                     }
                 } else {
@@ -113,8 +113,8 @@ public class FESessionMgr extends MasterDaemon {
                 TFrontendReportAliveSessionResult result = client.getAliveSessions(request);
                 ok = true;
                 if (result.getStatus() == TStatusCode.OK) {
-                    List<Long> sessionIds = result.getSessionIdList();
-                    for (Long sessionId : sessionIds) {
+                    List<String> sessionIds = result.getSessionIdList();
+                    for (String sessionId : sessionIds) {
                         Env.getCurrentEnv().checkAndRefreshSession(sessionId);
                     }
                 } else {

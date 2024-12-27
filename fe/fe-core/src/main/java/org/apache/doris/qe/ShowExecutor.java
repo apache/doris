@@ -3113,7 +3113,19 @@ public class ShowExecutor {
                 } else {
                     row.add("DB may get deleted");
                 }
-                row.add(analysisInfo.colName);
+                StringBuffer sb = new StringBuffer();
+                String colNames = analysisInfo.colName;
+                if (colNames != null) {
+                    for (String columnName : colNames.split(",")) {
+                        String[] kv = columnName.split(":");
+                        sb.append(Util.getTempTableDisplayName(kv[0]))
+                            .append(":").append(kv[1]).append(",");
+                    }
+                }
+                String newColNames = sb.toString();
+                newColNames = StringUtils.isEmpty(newColNames) ? ""
+                        : newColNames.substring(0, newColNames.length() - 1);
+                row.add(newColNames);
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);

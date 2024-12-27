@@ -276,10 +276,10 @@ public class DeleteHandler implements Writable {
 
                 List<Comparable> info = Lists.newArrayList();
                 if (Util.isTempTable(tableName)) {
-                    info.add(Util.getTempTableDisplayName(tableName));
                     if (!Util.isTempTableInCurrentSession(tableName)) {
                         continue;
                     }
+                    info.add(Util.getTempTableDisplayName(tableName));
                 } else {
                     info.add(deleteInfo.getTableName());
                 }
