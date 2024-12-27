@@ -80,7 +80,7 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
         cursors.emplace_back(
                 MergeSortCursorImpl::create_shared(std::move(block), sort_description));
     }
-    priority_queue_ = SortingQueueBatch<MergeSortCursor>(cursors);
+    queue_ = MergeSorterQueue(cursors);
 
     sorted_blocks_.clear();
     return Status::OK();
@@ -104,8 +104,8 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
     // process single element queue on merge_sort_read()
-    while (priority_queue_.is_valid() && merged_rows < batch_size) {
-        auto [current, current_rows] = priority_queue_.current();
+    while (queue_.is_valid() && merged_rows < batch_size) {
+        auto [current, current_rows] = queue_.current();
         current_rows = std::min(current_rows, batch_size - merged_rows);
 
         size_t step = std::min(offset_, current_rows);
@@ -121,9 +121,9 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
         }
 
         if (!current->impl->is_last(current_rows + step)) {
-            priority_queue_.next(current_rows + step);
+            queue_.next(current_rows + step);
         } else {
-            priority_queue_.remove_top();
+            queue_.remove_top();
         }
     }
 
@@ -216,9 +216,14 @@ Status FullSorter::append_block(Block* block) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
-            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
+            if (is_column_const(*arrival_data[i].column)) {
+                data[i].column->assume_mutable()->insert_many_from(
+                        assert_cast<const ColumnConst*>(arrival_data[i].column.get())
+                                ->get_data_column(),
+                        0, sz);
+            } else {
+                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+            }
         }
         block->clear_column_data();
     }

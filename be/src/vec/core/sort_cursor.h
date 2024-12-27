@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_description.h"
@@ -123,6 +125,7 @@ struct MergeSortCursorImpl {
     ENABLE_FACTORY_CREATOR(MergeSortCursorImpl);
     std::shared_ptr<Block> block;
     ColumnRawPtrs sort_columns;
+    Columns columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
     size_t pos = 0;
@@ -131,22 +134,24 @@ struct MergeSortCursorImpl {
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
 
-    MergeSortCursorImpl(std::shared_ptr<Block> block_, const SortDescription& desc_)
-            : block(block_), desc(desc_), sort_columns_size(desc.size()) {
+    MergeSortCursorImpl(std::shared_ptr<Block> block_, SortDescription desc_)
+            : block(std::move(block_)), desc(std::move(desc_)), sort_columns_size(desc.size()) {
         reset();
     }
 
-    MergeSortCursorImpl(const SortDescription& desc_)
-            : block(Block::create_shared()), desc(desc_), sort_columns_size(desc.size()) {}
+    MergeSortCursorImpl(SortDescription desc_)
+            : block(Block::create_shared()),
+              desc(std::move(desc_)),
+              sort_columns_size(desc.size()) {}
+
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
     void reset() {
         sort_columns.clear();
 
-        auto columns = block->get_columns_and_convert();
-        for (size_t j = 0, size = desc.size(); j < size; ++j) {
-            auto& column_desc = desc[j];
+        columns = block->get_columns_and_convert();
+        for (auto& column_desc : desc) {
             size_t column_number = !column_desc.column_name.empty()
                                            ? block->get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
@@ -361,7 +366,7 @@ public:
     Cursor& current()
         requires(strategy == SortingQueueStrategy::Default)
     {
-        return queue.front();
+        return &queue.front();
     }
 
     std::pair<Cursor*, size_t> current()
@@ -546,7 +551,8 @@ private:
         }
     }
 };
-
+template <typename Cursor>
+using SortingQueue = SortingQueueImpl<Cursor, SortingQueueStrategy::Default>;
 template <typename Cursor>
 using SortingQueueBatch = SortingQueueImpl<Cursor, SortingQueueStrategy::Batch>;
 } // namespace doris::vectorized

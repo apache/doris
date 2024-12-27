@@ -69,13 +69,13 @@ Status PartitionSorter::append_block(Block* input_block) {
 
 Status PartitionSorter::prepare_for_read() {
     auto& blocks = _state->get_sorted_block();
-    auto& priority_queue = _state->get_priority_queue();
+    auto& queue = _state->get_queue();
     std::vector<MergeSortCursor> cursors;
     for (auto& block : blocks) {
         cursors.emplace_back(
                 MergeSortCursorImpl::create_shared(std::move(block), _sort_description));
     }
-    priority_queue = SortingQueueBatch<MergeSortCursor>(cursors);
+    queue = MergeSorterQueue(cursors);
     blocks.clear();
     return Status::OK();
 }
@@ -101,7 +101,7 @@ Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int batch_size) {
-    auto& priority_queue = _state->get_priority_queue();
+    auto& queue = _state->get_queue();
     size_t num_columns = _state->unsorted_block_->columns();
 
     MutableBlock m_block =
@@ -110,8 +110,8 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
     size_t current_output_rows = 0;
 
     bool get_enough_data = false;
-    while (priority_queue.is_valid()) {
-        auto [current, current_rows] = priority_queue.current();
+    while (queue.is_valid()) {
+        auto [current, current_rows] = queue.current();
         if (_top_n_algorithm == TopNAlgorithm::ROW_NUMBER) {
             // row_number no need to check distinct, just output partition_inner_limit row
             size_t needed_rows = _partition_inner_limit - _output_total_rows - current_output_rows;
@@ -129,9 +129,9 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                 get_enough_data = true;
             }
             if (!current->impl->is_last(step)) {
-                priority_queue.next(step);
+                queue.next(step);
             } else {
-                priority_queue.remove_top();
+                queue.remove_top();
             }
         } else {
             for (size_t offset = 0; offset < current_rows; offset++) {
@@ -164,9 +164,9 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                                                    current->impl->pos);
                 }
                 if (!current->impl->is_last(1)) {
-                    priority_queue.next(1);
+                    queue.next(1);
                 } else {
-                    priority_queue.remove_top();
+                    queue.remove_top();
                 }
             }
         }
