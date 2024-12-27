@@ -868,8 +868,11 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
+    // for mow table with cluster keys, the overlap is used for cluster keys,
+    // the key_bounds is primary keys
     if (!segments_encoded_key_bounds.empty() &&
-        !is_segment_overlapping(segments_encoded_key_bounds)) {
+        !is_segment_overlapping(segments_encoded_key_bounds) &&
+        _context.tablet_schema->cluster_key_uids().empty()) {
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 
