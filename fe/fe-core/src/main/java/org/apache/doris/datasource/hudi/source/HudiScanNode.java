@@ -34,7 +34,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
@@ -51,6 +50,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
@@ -375,9 +375,12 @@ public class HudiScanNode extends HiveScanNode {
             return getIncrementalSplits();
         }
         if (!partitionInit) {
-            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                    () -> getPrunedPartitions(hudiClient));
+            try {
+                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> getPrunedPartitions(hudiClient));
+            } catch (Exception e) {
+                throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
             partitionInit = true;
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
@@ -437,9 +440,12 @@ public class HudiScanNode extends HiveScanNode {
         }
         if (!partitionInit) {
             // Non partition table will get one dummy partition
-            prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                    () -> getPrunedPartitions(hudiClient));
+            try {
+                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> getPrunedPartitions(hudiClient));
+            } catch (Exception e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
             partitionInit = true;
         }
         int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
