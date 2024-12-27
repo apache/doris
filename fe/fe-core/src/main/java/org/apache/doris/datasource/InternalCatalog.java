@@ -1585,193 +1585,192 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.readLock();
         try {
-            olapTable.checkNormalStateForAlter();
-            // check partition type
-            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            // check partition name
-            if (olapTable.checkPartitionNameExist(partitionName)) {
-                if (singlePartitionDesc.isSetIfNotExists()) {
-                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
-                    if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
-                        return null;
+            olapTable.lockPartition(partitionName);
+            try {
+                olapTable.checkNormalStateForAlter();
+                // check partition type
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                // check partition name
+                if (olapTable.checkPartitionNameExist(partitionName)) {
+                    if (singlePartitionDesc.isSetIfNotExists()) {
+                        LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
+                        if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
+                            return null;
+                        }
+                    } else {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                     }
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
-            }
 
-            Map<String, String> properties = singlePartitionDesc.getProperties();
+                Map<String, String> properties = singlePartitionDesc.getProperties();
 
-            /*
-             * sql: alter table test_tbl add  partition  xxx values less than ('xxx') properties('mutable' = 'false');
-             *
-             * sql_parser.cup definition:
-             * AddPartitionClause:
-             *      KW_ADD ... single_partition_desc:desc opt_distribution:distribution opt_properties:properties)
-             * SinglePartitionDesc:
-             *      single_partition_desc ::= KW_PARTITION ... ident:partName KW_VALUES KW_LESS KW_THAN
-             *                       partition_key_desc:desc opt_key_value_map:properties)
-             *
-             * If there is no opt_distribution definition, the properties in SQL is ambiguous to JCUP. It can bind
-             * properties to AddPartitionClause(`opt_properties`) or SinglePartitionDesc(`opt_key_value_map`).
-             * And JCUP choose to bind to AddPartitionClause, so we should add properties of AddPartitionClause to
-             * SinglePartitionDesc's properties here.
-             */
-            if (null != addPartitionClause.getProperties()) {
-                properties.putAll(addPartitionClause.getProperties());
-            }
+                /*
+                 * sql: alter table test_tbl add  partition  xxx values less than ('xxx') properties('mutable' = 'false');
+                 *
+                 * sql_parser.cup definition:
+                 * AddPartitionClause:
+                 *      KW_ADD ... single_partition_desc:desc opt_distribution:distribution opt_properties:properties)
+                 * SinglePartitionDesc:
+                 *      single_partition_desc ::= KW_PARTITION ... ident:partName KW_VALUES KW_LESS KW_THAN
+                 *                       partition_key_desc:desc opt_key_value_map:properties)
+                 *
+                 * If there is no opt_distribution definition, the properties in SQL is ambiguous to JCUP. It can bind
+                 * properties to AddPartitionClause(`opt_properties`) or SinglePartitionDesc(`opt_key_value_map`).
+                 * And JCUP choose to bind to AddPartitionClause, so we should add properties of AddPartitionClause to
+                 * SinglePartitionDesc's properties here.
+                 */
+                if (null != addPartitionClause.getProperties()) {
+                    properties.putAll(addPartitionClause.getProperties());
+                }
 
-            // partition properties should inherit table properties
-            ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && !properties.containsKey(
+                // partition properties should inherit table properties
+                ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && !properties.containsKey(
                     PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
+                    properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
                         olapTable.disableAutoCompaction().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
                         olapTable.enableSingleReplicaCompaction().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
                         Long.toString(olapTable.rowStorePageSize()));
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
                         Long.toString(olapTable.storagePageSize()));
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
                         olapTable.skipWriteIndexOnLoad().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, olapTable.getCompactionPolicy());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
-                                                olapTable.getTimeSeriesCompactionGoalSizeMbytes().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
-                                                olapTable.getTimeSeriesCompactionFileCountThreshold().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
-                                                olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
-                                                olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
-                                                olapTable.getTimeSeriesCompactionLevelThreshold().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
-            }
-
-            singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
-            partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
-
-            // get distributionInfo
-            List<Column> baseSchema = olapTable.getBaseSchema();
-            DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
-            if (distributionDesc != null) {
-                distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
-                // for now. we only support modify distribution's bucket num
-                if (distributionInfo.getType() != defaultDistributionInfo.getType()) {
-                    throw new DdlException("Cannot assign different distribution type. default is: "
-                            + defaultDistributionInfo.getType());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, olapTable.getCompactionPolicy());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                        olapTable.getTimeSeriesCompactionGoalSizeMbytes().toString());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                        olapTable.getTimeSeriesCompactionFileCountThreshold().toString());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                        olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                        olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold().toString());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                        olapTable.getTimeSeriesCompactionLevelThreshold().toString());
+                }
+                if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
                 }
 
-                if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    if (hashDistributionInfo.getBucketNum() <= 0) {
-                        throw new DdlException("Cannot assign hash distribution buckets less than 1");
+                singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
+                partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
+
+                // get distributionInfo
+                List<Column> baseSchema = olapTable.getBaseSchema();
+                DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+                if (distributionDesc != null) {
+                    distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+                    // for now. we only support modify distribution's bucket num
+                    if (distributionInfo.getType() != defaultDistributionInfo.getType()) {
+                        throw new DdlException("Cannot assign different distribution type. default is: "
+                            + defaultDistributionInfo.getType());
                     }
-                    if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
-                        throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+
+                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                        if (hashDistributionInfo.getBucketNum() <= 0) {
+                            throw new DdlException("Cannot assign hash distribution buckets less than 1");
+                        }
+                        if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
+                            throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
                                 + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
+                        }
+                    } else if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
+                        RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
+                        if (randomDistributionInfo.getBucketNum() <= 0) {
+                            throw new DdlException("Cannot assign random distribution buckets less than 1");
+                        }
                     }
-                } else if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
-                    RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
-                    if (randomDistributionInfo.getBucketNum() <= 0) {
-                        throw new DdlException("Cannot assign random distribution buckets less than 1");
-                    }
+                } else {
+                    // make sure partition-dristribution-info is deep copied from default-distribution-info
+                    distributionInfo = defaultDistributionInfo.toDistributionDesc().toDistributionInfo(baseSchema);
                 }
-            } else {
-                // make sure partition-dristribution-info is deep copied from default-distribution-info
-                distributionInfo = defaultDistributionInfo.toDistributionDesc().toDistributionInfo(baseSchema);
+
+                // check colocation
+                if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+                    String fullGroupName = GroupId.getFullGroupName(db.getId(), olapTable.getColocateGroup());
+                    ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
+                    Preconditions.checkNotNull(groupSchema);
+                    groupSchema.checkDistribution(distributionInfo);
+                    groupSchema.checkReplicaAllocation(singlePartitionDesc.getReplicaAlloc());
+                }
+
+                indexIdToMeta = olapTable.getCopiedIndexIdToMeta();
+                bfColumns = olapTable.getCopiedBfColumns();
+
+                // get BinlogConfig
+                binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
             }
 
-            // check colocation
-            if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                String fullGroupName = GroupId.getFullGroupName(db.getId(), olapTable.getColocateGroup());
-                ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
-                Preconditions.checkNotNull(groupSchema);
-                groupSchema.checkDistribution(distributionInfo);
-                groupSchema.checkReplicaAllocation(singlePartitionDesc.getReplicaAlloc());
-            }
+            Preconditions.checkNotNull(distributionInfo);
+            Preconditions.checkNotNull(olapTable);
+            Preconditions.checkNotNull(indexIdToMeta);
 
-            indexIdToMeta = olapTable.getCopiedIndexIdToMeta();
-            bfColumns = olapTable.getCopiedBfColumns();
-
-            // get BinlogConfig
-            binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        } finally {
-            olapTable.readUnlock();
-        }
-
-        Preconditions.checkNotNull(distributionInfo);
-        Preconditions.checkNotNull(olapTable);
-        Preconditions.checkNotNull(indexIdToMeta);
-
-        // create partition outside db lock
-        DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
-        Preconditions.checkNotNull(dataProperty);
-        // check replica quota if this operation done
-        long bufferSize = checkAndGetBufferSize(indexIdToMeta.size(), distributionInfo.getBucketNum(),
+            // create partition outside db lock
+            DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
+            Preconditions.checkNotNull(dataProperty);
+            // check replica quota if this operation done
+            long bufferSize = checkAndGetBufferSize(indexIdToMeta.size(), distributionInfo.getBucketNum(),
                 singlePartitionDesc.getReplicaAlloc().getTotalReplicaNum(), db, tableName);
-        IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
-        Set<Long> tabletIdSet = new HashSet<>();
-        String storagePolicy = olapTable.getStoragePolicy();
-        if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
-            storagePolicy = dataProperty.getStoragePolicy();
-        }
-        Runnable failedCleanCallback = () -> {
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
+            Set<Long> tabletIdSet = new HashSet<>();
+            String storagePolicy = olapTable.getStoragePolicy();
+            if (!Strings.isNullOrEmpty(dataProperty.getStoragePolicy())) {
+                storagePolicy = dataProperty.getStoragePolicy();
             }
-        };
-        try {
-            long partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
+            Runnable failedCleanCallback = () -> {
+                for (Long tabletId : tabletIdSet) {
+                    Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+                }
+            };
+            try {
+                long partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
                     ? generatedPartitionId : idGeneratorBuffer.getNextId();
-            List<Long> partitionIds = Lists.newArrayList(partitionId);
-            List<Long> indexIds = new ArrayList<>(indexIdToMeta.keySet());
-            if (!isCreateTable) {
-                beforeCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable);
-            }
-            Partition partition = createPartitionWithIndices(db.getId(), olapTable,
+                List<Long> partitionIds = Lists.newArrayList(partitionId);
+                List<Long> indexIds = new ArrayList<>(indexIdToMeta.keySet());
+                if (!isCreateTable) {
+                    beforeCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable);
+                }
+                Partition partition = createPartitionWithIndices(db.getId(), olapTable,
                     partitionId, partitionName, indexIdToMeta,
                     distributionInfo, dataProperty, singlePartitionDesc.getReplicaAlloc(),
                     singlePartitionDesc.getVersionInfo(), bfColumns, tabletIdSet,
@@ -1780,115 +1779,117 @@ public class InternalCatalog implements CatalogIf<Database> {
                     storagePolicy, idGeneratorBuffer,
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
-            // check again
-            olapTable = db.getOlapTableOrDdlException(tableName);
-            olapTable.writeLockOrDdlException();
-            try {
-                olapTable.checkNormalStateForAlter();
-                // check partition name
-                if (olapTable.checkPartitionNameExist(partitionName)) {
-                    LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
-                    if (singlePartitionDesc.isSetIfNotExists()) {
-                        failedCleanCallback.run();
-                        return null;
-                    } else {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
-                    }
-                }
-
-                // check if meta changed
-                // rollup index may be added or dropped during add partition operation.
-                // schema may be changed during add partition operation.
-                boolean metaChanged = false;
-                if (olapTable.getIndexNameToId().size() != indexIdToMeta.size()) {
-                    metaChanged = true;
-                } else {
-                    // compare schemaHash
-                    for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
-                        long indexId = entry.getKey();
-                        if (!indexIdToMeta.containsKey(indexId)) {
-                            metaChanged = true;
-                            break;
-                        }
-                        if (indexIdToMeta.get(indexId).getSchemaHash() != entry.getValue().getSchemaHash()) {
-                            metaChanged = true;
-                            break;
-                        }
-
-                        List<Column> oldSchema = indexIdToMeta.get(indexId).getSchema();
-                        List<Column> newSchema = entry.getValue().getSchema();
-                        if (oldSchema.size() != newSchema.size()) {
-                            LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
-                            metaChanged = true;
-                            break;
+                // check again
+                olapTable.writeLockOrDdlException();
+                try {
+                    olapTable.checkNormalStateForAlter();
+                    // check partition name
+                    if (olapTable.checkPartitionNameExist(partitionName)) {
+                        LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
+                        if (singlePartitionDesc.isSetIfNotExists()) {
+                            failedCleanCallback.run();
+                            return null;
                         } else {
-                            List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
-                            List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
-                            oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
-                            newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
-                            for (int i = 0; i < oldSchemaCopy.size(); ++i) {
-                                if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
-                                    LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                            ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
+                        }
+                    }
+
+                    // check if meta changed
+                    // rollup index may be added or dropped during add partition operation.
+                    // schema may be changed during add partition operation.
+                    boolean metaChanged = false;
+                    if (olapTable.getIndexNameToId().size() != indexIdToMeta.size()) {
+                        metaChanged = true;
+                    } else {
+                        // compare schemaHash
+                        for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
+                            long indexId = entry.getKey();
+                            if (!indexIdToMeta.containsKey(indexId)) {
+                                metaChanged = true;
+                                break;
+                            }
+                            if (indexIdToMeta.get(indexId).getSchemaHash() != entry.getValue().getSchemaHash()) {
+                                metaChanged = true;
+                                break;
+                            }
+
+                            List<Column> oldSchema = indexIdToMeta.get(indexId).getSchema();
+                            List<Column> newSchema = entry.getValue().getSchema();
+                            if (oldSchema.size() != newSchema.size()) {
+                                LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
+                                metaChanged = true;
+                                break;
+                            } else {
+                                List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                                List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                                oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                                newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                                for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                                    if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                                        LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
                                             newSchemaCopy.get(i));
-                                    metaChanged = true;
-                                    break;
+                                        metaChanged = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                if (metaChanged) {
-                    throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
-                }
+                    if (metaChanged) {
+                        throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
+                    }
 
-                // check partition type
-                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                    // check partition type
+                    PartitionInfo partitionInfo = olapTable.getPartitionInfo();
 
-                // update partition info
-                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
+                    // update partition info
+                    partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
 
-                if (isTempPartition) {
-                    olapTable.addTempPartition(partition);
-                } else {
-                    olapTable.addPartition(partition);
-                }
+                    if (isTempPartition) {
+                        olapTable.addTempPartition(partition);
+                    } else {
+                        olapTable.addPartition(partition);
+                    }
 
-                // log
-                PartitionPersistInfo info = null;
-                if (partitionInfo.getType() == PartitionType.RANGE) {
-                    info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
-                        partitionInfo.getItem(partitionId).getItems(), ListPartitionItem.DUMMY_ITEM, dataProperty,
-                        partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                        isTempPartition, partitionInfo.getIsMutable(partitionId));
-                } else if (partitionInfo.getType() == PartitionType.LIST) {
-                    info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
-                        RangePartitionItem.DUMMY_RANGE, partitionInfo.getItem(partitionId), dataProperty,
-                        partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                        isTempPartition, partitionInfo.getIsMutable(partitionId));
-                } else {
-                    info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
-                        RangePartitionItem.DUMMY_RANGE, ListPartitionItem.DUMMY_ITEM, dataProperty,
-                        partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                        isTempPartition, partitionInfo.getIsMutable(partitionId));
-                }
+                    // log
+                    PartitionPersistInfo info = null;
+                    if (partitionInfo.getType() == PartitionType.RANGE) {
+                        info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                            partitionInfo.getItem(partitionId).getItems(), ListPartitionItem.DUMMY_ITEM, dataProperty,
+                            partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
+                    } else if (partitionInfo.getType() == PartitionType.LIST) {
+                        info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                            RangePartitionItem.DUMMY_RANGE, partitionInfo.getItem(partitionId), dataProperty,
+                            partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
+                    } else {
+                        info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                            RangePartitionItem.DUMMY_RANGE, ListPartitionItem.DUMMY_ITEM, dataProperty,
+                            partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
+                    }
 
-                if (!isCreateTable) {
-                    afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable);
+                    if (!isCreateTable) {
+                        afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable);
+                    }
+                    if (writeEditLog) {
+                        Env.getCurrentEnv().getEditLog().logAddPartition(info);
+                        LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
+                    } else {
+                        LOG.info("postpone creating partition[{}], temp: {}", partitionId, isTempPartition);
+                    }
+                    return info;
+                } finally {
+                    olapTable.writeUnlock();
                 }
-                if (writeEditLog) {
-                    Env.getCurrentEnv().getEditLog().logAddPartition(info);
-                    LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
-                } else {
-                    LOG.info("postpone creating partition[{}], temp: {}", partitionId, isTempPartition);
-                }
-                return info;
-            } finally {
-                olapTable.writeUnlock();
+            } catch (DdlException e) {
+                failedCleanCallback.run();
+                throw e;
             }
-        } catch (DdlException e) {
-            failedCleanCallback.run();
-            throw e;
+        } finally {
+            olapTable.unlockPartition(partitionName);
         }
     }
 
