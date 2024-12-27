@@ -17,22 +17,31 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import org.apache.doris.datasource.property.CatalogProperties;
 
-public class MetastoreProperties {
+import lombok.Getter;
+
+import java.util.Map;
+
+/**
+ *
+ */
+public class MetastoreProperties extends CatalogProperties {
     public enum Type {
         HMS,
         GLUE,
         DLF,
         ICEBERG_REST,
-        DataProc,
+        DATAPROC,
+        FILE_SYSTEM,
         UNKNOWN
     }
 
-    protected MetastoreProperties.Type type = MetastoreProperties.Type.UNKNOWN;
+    @Getter
+    protected MetastoreProperties.Type type;
 
-    public MetastoreProperties(Type type) {
+    public MetastoreProperties(Type type, Map<String, String> origProps) {
         this.type = type;
+        normalizedAndCheckProps(origProps);
     }
 }

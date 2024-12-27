@@ -19,6 +19,10 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import org.apache.paimon.options.Options;
+
+import java.util.Map;
+
 public class S3Properties extends StorageProperties {
 
     @ConnectorProperty(names = {"s3.endpoint",
@@ -68,4 +72,20 @@ public class S3Properties extends StorageProperties {
     @ConnectorProperty(names = {"s3.external_id"},
             description = "The external id of S3.")
     protected String s3ExternalId = "";
+
+    public S3Properties(Map<String, String> origProps) {
+        super(Type.S3, origProps);
+    }
+
+    public void toPaimonOSSFileIOProperties(Options options) {
+        options.set("fs.oss.endpoint", s3Endpoint);
+        options.set("fs.oss.accessKeyId", s3AccessKey);
+        options.set("fs.oss.accessKeySecret", s3SecretKey);
+    }
+
+    public void toPaimonS3FileIOProperties(Options options) {
+        options.set("s3.endpoint", s3Endpoint);
+        options.set("s3.access-key", s3AccessKey);
+        options.set("s3.secret-key", s3SecretKey);
+    }
 }

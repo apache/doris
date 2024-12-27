@@ -17,34 +17,131 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.ConfigurationUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import lombok.Getter;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.paimon.options.Options;
+
+import java.util.Map;
+
 public class AliyunDLFProperties extends MetastoreProperties {
-    @ConnectorProperty(names = {"dlf.endpoint"},
-            description = "The endpoint of the Aliyun DLF.")
-    private String dlfEndpoint = "";
+    private static final String DLF_RESOURCE_CONFIG = "dlf.resouce_config";
+
+    @ConnectorProperty(names = {"dlf.access_key", "dlf.catalog.accessKeyId"},
+            description = "The access key of the Aliyun DLF.")
+    private String dlfAccessKey = "";
+
+    @ConnectorProperty(names = {"dlf.secret_key", "dlf.catalog.accessKeySecret"},
+            description = "The secret key of the Aliyun DLF.")
+    private String dlfSecretKey = "";
 
     @ConnectorProperty(names = {"dlf.region"},
             description = "The region of the Aliyun DLF.")
     private String dlfRegion = "";
 
-    @ConnectorProperty(names = {"dlf.uid"},
+    @ConnectorProperty(names = {"dlf.endpoint", "dlf.catalog.endpoint"},
+            required = false,
+            description = "The region of the Aliyun DLF.")
+    private String dlfEndpoint = "";
+
+    @ConnectorProperty(names = {"dlf.uid", "dlf.catalog.uid"},
             description = "The uid of the Aliyun DLF.")
     private String dlfUid = "";
 
-    @ConnectorProperty(names = {"dlf.access_key"},
-            description = "The access key of the Aliyun DLF.")
-    private String dlfAccessKey = "";
+    @ConnectorProperty(names = {"dlf.access.public", "dlf.catalog.accessPublic"},
+            description = "Enable public access to Aliyun DLF.")
+    private String dlfAccessPublic = "false";
 
-    @ConnectorProperty(names = {"dlf.secret_key"},
-            description = "The secret key of the Aliyun DLF.")
-    private String dlfSecretKey = "";
+    private static final String DLF_PREFIX = "dlf.";
 
-    @ConnectorProperty(names = {"dlf.catalog_id"},
-            description = "The catalog id of the Aliyun DLF.")
-    private String dlfCatalogId = "";
+    private Map<String, String> otherDlfProps = Maps.newHashMap();
 
-    public AliyunDLFProperties() {
-        super(Type.DLF);
+    public AliyunDLFProperties(Map<String, String> origProps) {
+        super(Type.DLF, origProps);
+        // Other properties that start with "dlf." will be saved in otherDlfProps,
+        // and passed to the DLF client.
+        for (Map.Entry<String, String> entry : origProps.entrySet()) {
+            if (entry.getKey().startsWith(DLF_PREFIX)) {
+                otherDlfProps.put(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    public void toPaimonOptions(Options options) {
+        // See DataLakeConfig.java for property keys
+        options.set("dlf.catalog.region", dlfRegion);
+        options.set("dlf.catalog.endpoint", getEndpointOrFromRegion(dlfEndpoint, dlfRegion, dlfAccessPublic));
+        options.set("dlf.catalog.proxyMode", "DLF_ONLY");
+        options.set("dlf.catalog.accessKeyId", dlfAccessKey);
+        options.set("dlf.catalog.accessKeySecret", dlfSecretKey);
+        options.set("dlf.catalog.accessPublic", dlfAccessPublic);
+        options.set("dlf.catalog.uid", dlfUid);
+        options.set("dlf.catalog.createDefaultDBIfNotExist", "false");
+
+        for (Map.Entry<String, String> entry : otherDlfProps.entrySet()) {
+            options.set(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private String getEndpointOrFromRegion(String endpoint, String region, String dlfAccessPublic) {
+        if (!Strings.isNullOrEmpty(endpoint)) {
+            return endpoint;
+        } else {
+            // https://www.alibabacloud.com/help/en/dlf/dlf-1-0/regions-and-endpoints
+            if ("true".equalsIgnoreCase(dlfAccessPublic)) {
+                return "dlf." + region + ".aliyuncs.com";
+            } else {
+                return "dlf-vpc." + region + ".aliyuncs.com";
+            }
+        }
+    }
+
+    @Override
+    protected Map<String, String> loadConfigFromFile(Map<String, String> props) {
+        String resourceConfig = props.getOrDefault(DLF_RESOURCE_CONFIG, "");
+        if (Strings.isNullOrEmpty(resourceConfig)) {
+            return Maps.newHashMap();
+        }
+        Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(resourceConfig);
+        Map<String, String> confMap = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : conf) {
+            confMap.put(entry.getKey(), entry.getValue());
+        }
+        return confMap;
+    }
+
+    @Getter
+    public static class OSSConfiguration {
+        private Map<String, String> conf = Maps.newHashMap();
+
+        public OSSConfiguration(AliyunDLFProperties props) {
+            conf.put("oss.region", getOssRegionFromDlfRegion(props.dlfRegion));
+            conf.put("oss.endpoint", getOssEndpointFromDlfRegion(props.dlfRegion, props.dlfAccessPublic));
+            conf.put("oss.access_key", props.dlfAccessKey);
+            conf.put("oss.secret_key", props.dlfSecretKey);
+        }
+
+        private String getOssRegionFromDlfRegion(String dlfRegion) {
+            return "oss-" + dlfRegion;
+        }
+
+        private String getOssEndpointFromDlfRegion(String dlfRegion, String dlfAccessPublic) {
+            if ("true".equalsIgnoreCase(dlfAccessPublic)) {
+                return "oss-" + dlfRegion + ".aliyuncs.com";
+            } else {
+                return "oss-" + dlfRegion + "-internal.aliyuncs.com";
+            }
+        }
+
+        private String getEndpointOrFromRegion(String endpoint, String region) {
+            if (!Strings.isNullOrEmpty(endpoint)) {
+                return endpoint;
+            }
+            return "dlf-vpc." + region + ".aliyuncs.com";
+        }
     }
 }

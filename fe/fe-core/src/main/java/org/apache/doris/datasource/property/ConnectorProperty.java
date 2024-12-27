@@ -21,5 +21,7 @@ package org.apache.doris.datasource.property;
 public @interface ConnectorProperty {
     String[] names() default {};
     String description() default "";
+
+    boolean required() default true;
     boolean supported() default true;
 }

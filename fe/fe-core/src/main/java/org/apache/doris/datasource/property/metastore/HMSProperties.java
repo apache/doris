@@ -19,6 +19,12 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.paimon.options.Options;
+
+import java.util.Map;
+
 public class HMSProperties extends MetastoreProperties {
 
     @ConnectorProperty(names = {"hive.metastore.uri"},
@@ -26,22 +32,49 @@ public class HMSProperties extends MetastoreProperties {
     private String hiveMetastoreUri = "";
 
     @ConnectorProperty(names = {"hive.metastore.authentication.type"},
+            required = false,
             description = "The authentication type of the hive metastore.")
     private String hiveMetastoreAuthenticationType = "none";
 
     @ConnectorProperty(names = {"hive.metastore.service.principal"},
+            required = false,
             description = "The service principal of the hive metastore.")
     private String hiveMetastoreServicePrincipal = "";
 
     @ConnectorProperty(names = {"hive.metastore.client.principal"},
+            required = false,
             description = "The client principal of the hive metastore.")
     private String hiveMetastoreClientPrincipal = "";
 
     @ConnectorProperty(names = {"hive.metastore.client.keytab"},
+            required = false,
             description = "The client keytab of the hive metastore.")
     private String hiveMetastoreClientKeytab = "";
 
-    public HMSProperties() {
-        super(Type.HMS);
+    public HMSProperties(Map<String, String> origProps) {
+        super(Type.HMS, origProps);
+    }
+
+    @Override
+    protected void checkRequiredProperties() {
+        super.checkRequiredProperties();
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            if (Strings.isNullOrEmpty(hiveMetastoreServicePrincipal)
+                    || Strings.isNullOrEmpty(hiveMetastoreClientPrincipal)
+                    || Strings.isNullOrEmpty(hiveMetastoreClientKeytab)) {
+                throw new IllegalArgumentException("Hive metastore authentication type is kerberos, "
+                        + "but service principal, client principal or client keytab is not set.");
+            }
+        }
+    }
+
+    public void toPaimonOptionsAndConf(Options options, Configuration conf) {
+        options.set("uri", hiveMetastoreUri);
+        conf.set("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            conf.set("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            conf.set("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            conf.set("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+        }
     }
 }

@@ -19,12 +19,19 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import java.util.Map;
+
 public class DataProcProperties extends MetastoreProperties {
     @ConnectorProperty(names = {"hive.metastore.uri"},
             description = "The uri of the hive metastore in DataProc")
     private String hiveMetastoreUri = "";
 
-    public DataProcProperties() {
-        super(Type.DataProc);
+    public DataProcProperties(Map<String, String> origProps) {
+        super(Type.DATAPROC, origProps);
+    }
+
+    @Override
+    protected void checkRequiredProperties() {
+
     }
 }

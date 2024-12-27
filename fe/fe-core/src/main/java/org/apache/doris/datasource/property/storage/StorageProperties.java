@@ -17,7 +17,13 @@
 
 package org.apache.doris.datasource.property.storage;
 
-public class StorageProperties {
+import org.apache.doris.datasource.property.CatalogProperties;
+
+import lombok.Getter;
+
+import java.util.Map;
+
+public class StorageProperties extends CatalogProperties {
 
     public enum Type {
         HDFS,
@@ -25,5 +31,11 @@ public class StorageProperties {
         UNKNOWN
     }
 
-    protected Type type = Type.UNKNOWN;
+    @Getter
+    protected Type type;
+
+    public StorageProperties(Type type, Map<String, String> origProps) {
+        this.type = type;
+        normalizedAndCheckProps(origProps);
+    }
 }

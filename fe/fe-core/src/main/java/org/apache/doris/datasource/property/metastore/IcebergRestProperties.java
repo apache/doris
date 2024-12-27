@@ -19,6 +19,8 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import java.util.Map;
+
 public class IcebergRestProperties extends MetastoreProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.uri"},
@@ -33,7 +35,11 @@ public class IcebergRestProperties extends MetastoreProperties {
             description = "The prefix of the iceberg rest catalog service.")
     private String icebergRestPrefix = "";
 
-    public IcebergRestProperties() {
-        super(Type.ICEBERG_REST);
+    public IcebergRestProperties(Map<String, String> origProps) {
+        super(Type.ICEBERG_REST, origProps);
+    }
+
+    @Override
+    protected void checkRequiredProperties() {
     }
 }

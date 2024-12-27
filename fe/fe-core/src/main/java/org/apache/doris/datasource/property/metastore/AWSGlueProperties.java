@@ -18,10 +18,11 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.PropertyUtils;
 
-import java.lang.reflect.Field;
-import java.util.List;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import lombok.Getter;
+
 import java.util.Map;
 
 public class AWSGlueProperties extends MetastoreProperties {
@@ -55,35 +56,61 @@ public class AWSGlueProperties extends MetastoreProperties {
             supported = false)
     private String glueExternalId = "";
 
-    // ===== following is converted properties ======
-    public static final String CLIENT_CREDENTIALS_PROVIDER = "client.credentials-provider";
-    public static final String CLIENT_CREDENTIALS_PROVIDER_AK = "client.credentials-provider.glue.access_key";
-    public static final String CLIENT_CREDENTIALS_PROVIDER_SK = "client.credentials-provider.glue.secret_key";
-
     public AWSGlueProperties(Map<String, String> origProps) {
-        super(Type.GLUE);
-        normalizedProps(origProps);
+        super(Type.GLUE, origProps);
     }
 
-    private void normalizedProps(Map<String, String> origProps) {
-        // 1. set fields from original properties
-        List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
-        for (Field field : supportedProps) {
-            field.setAccessible(true);
-            ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
-            String[] names = anno.names();
-            for (String name : names) {
-                if (origProps.containsKey(name)) {
-                    try {
-                        field.set(this, origProps.get(name));
-                    } catch (IllegalAccessException e) {
-                        throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
-                    }
-                    break;
-                }
-            }
+    @Override
+    protected void checkRequiredProperties() {
+        if (Strings.isNullOrEmpty(glueAccessKey)
+                || Strings.isNullOrEmpty(glueSecretKey)
+                || Strings.isNullOrEmpty(glueEndpoint)) {
+            throw new IllegalArgumentException("AWS Glue properties(glue.access_key, glue.secret_key, glue.endpoint) "
+                    + "are not set correctly.");
         }
-        // 2. check properties
+    }
 
+    public GlueCatalogCredentials getGlueCatalogCredentials() {
+        return new GlueCatalogCredentials(glueEndpoint, glueAccessKey, glueSecretKey);
+    }
+
+    public AWSCatalogMetastoreClientCredentials getAWSCatalogMetastoreClientCredentials() {
+        return new AWSCatalogMetastoreClientCredentials(glueEndpoint, glueAccessKey, glueSecretKey);
+    }
+
+    @Getter
+    public static class GlueCatalogCredentials {
+        private Map<String, String> credentials = Maps.newHashMap();
+
+        // Used for GlueCatalog in IcebergGlueExternalCatalog
+        // See AwsClientProperties.java for property keys
+        public GlueCatalogCredentials(String endpoint, String ak, String sk) {
+            credentials.put("client.credentials-provider",
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
+            credentials.put("client.credentials-provider.glue.access_key", ak);
+            credentials.put("client.credentials-provider.glue.secret_key", sk);
+            credentials.put("client.region", getRegionFromGlueEndpoint(endpoint));
+        }
+
+        private String getRegionFromGlueEndpoint(String endpoint) {
+            // https://glue.ap-northeast-1.amazonaws.com
+            // -> ap-northeast-1
+            return endpoint.split("\\.")[1];
+        }
+    }
+
+    @Getter
+    public static class AWSCatalogMetastoreClientCredentials {
+        private Map<String, String> credentials = Maps.newHashMap();
+
+        // Used for AWSCatalogMetastoreClient
+        // See AWSGlueClientFactory in AWSCatalogMetastoreClient.java
+        public AWSCatalogMetastoreClientCredentials(String endpoint, String ak, String sk) {
+            credentials.put("aws.catalog.credentials.provider.factory.class",
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
+            credentials.put("aws.glue.access-key", ak);
+            credentials.put("aws.glue.secret-key", sk);
+            credentials.put("aws.glue.endpoint", endpoint);
+        }
     }
 }
