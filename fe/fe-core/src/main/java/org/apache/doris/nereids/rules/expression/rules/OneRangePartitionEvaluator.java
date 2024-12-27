@@ -866,10 +866,7 @@ public class OneRangePartitionEvaluator<K>
         if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
             return false;
         }
-        if (lowerValue != null && !(lowerValue instanceof Literal)
-                || upperValue != null && !(upperValue instanceof Literal)) {
-            return false;
-        }
-        return true;
+        return (lowerValue == null || lowerValue instanceof Literal)
+                && (upperValue == null || upperValue instanceof Literal);
     }
 }

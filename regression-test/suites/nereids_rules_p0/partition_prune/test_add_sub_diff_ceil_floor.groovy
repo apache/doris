@@ -342,6 +342,32 @@ suite("test_add_sub_diff_ceil_floor") {
         contains("partitions=1/6 (p6)")
     }
 
+    explain {
+        sql """select * from max_t where weeks_add(dt, 1) >'2018-01-01' """
+        contains("")
+    }
+    explain {
+        sql """select * from max_t where weeks_sub(dt, 10) >'2018-01-01' """
+        contains("")
+    }
+    explain {
+        sql """select * from max_t where weeks_diff(dt, '2018-01-01') >10"""
+        contains("")
+    }
+    explain {
+        sql """select * from max_t where weeks_diff('2018-01-01', dt) <10"""
+        contains("")
+    }
+    // yearweek
+    explain {
+        sql """select * from max_t where yearweek(dt) <201902"""
+        contains("")
+    }
+    // yearweek
+    explain {
+        sql """select * from max_t where yearweek(dt) <20190206"""
+        contains("")
+    }
     // from_days and unix_timestamp
     explain {
         sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
@@ -403,5 +429,4 @@ suite("test_add_sub_diff_ceil_floor") {
         sql """select * from unix_time_t where unix_timestamp(dt) <=0"""
         contains("partitions=3/4 (p1,p3,p4)")
     }
-
 }

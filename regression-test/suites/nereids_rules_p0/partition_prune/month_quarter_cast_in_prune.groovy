@@ -28,7 +28,8 @@ suite("month_quarter_cast_in_prune") {
             partition p7 values less than ('2022-02-26 12:00:00'),
             partition p8 values less than ('2022-02-26 12:10:30'),
             partition p9 values less than ('2022-02-26 12:10:59'),
-            partition p10 values less than (MAXVALUE)
+            partition p10 values less than ('2022-02-26 12:10:59.342'),
+            partition p11 values less than (MAXVALUE)
     )
     distributed by hash(a)
     properties("replication_num"="1");"""
@@ -60,6 +61,10 @@ suite("month_quarter_cast_in_prune") {
         sql "select * from test_month where second(dt)<20"
         contains("partitions=9/10 (p1,p2,p3,p4,p5,p6,p7,p8,p10)")
     };
+    explain {
+        sql "select * from test_month where micro_second(dt)>500"
+        contains("partitions=9/10 (p1,p2,p3,p4,p5,p6,p7,p8,p10)")
+    }
     explain {
         sql "select * from test_month where dayofyear(dt)>150"
         contains("partitions=4/10 (p1,p4,p5,p10)")
@@ -142,6 +147,15 @@ suite("month_quarter_cast_in_prune") {
     }
     explain {
         sql """select * from monotonic_function_t where from_microsecond(a) > '2002-09-09 12:33:19' """
+        contains("partitions=2/4 (p1,p4)")
+    }
+    explain {
+        sql """select * from monotonic_function_t where from_unixtime(a, "yyMMdd") > '2002-09-09 12:33:19' """
+        contains("partitions=2/4 (p1,p4)")
+    }
+    // makedate
+    explain {
+        sql """select * from monotonic_function_t where make_date(1000,a) < '2002-09-09 12:33:19' """
         contains("partitions=2/4 (p1,p4)")
     }
 }
