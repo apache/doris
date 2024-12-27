@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -154,8 +155,10 @@ private:
             }
             try {
                 job();
+            } catch (const std::exception& e) {
+                std::cerr << "exception happened when execute job. err: " << e.what() << std::endl;
             } catch (...) {
-                // do nothing
+                std::cerr << "exception happened when execute job." << std::endl;
             }
         }
     }

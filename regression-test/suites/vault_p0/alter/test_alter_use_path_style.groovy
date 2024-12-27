@@ -44,12 +44,31 @@ suite("test_alter_use_path_style", "nonConcurrent") {
     """
 
     sql """
+        CREATE TABLE IF NOT EXISTS alter_use_path_style_tbl
+        (
+        `k1` INT NULL,
+        `v1` INT NULL
+        )
+        UNIQUE KEY (k1)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1",
+        "disable_auto_compaction" = "true",
+        "storage_vault_name" = "${suiteName}"
+        );
+    """
+
+    sql """ insert into alter_use_path_style_tbl values(2, 2); """
+
+    sql """
         ALTER STORAGE VAULT ${suiteName}
         PROPERTIES (
             "type"="S3",
             "use_path_style" = "true"
         );
     """
+
+    sql """ insert into alter_use_path_style_tbl values(2, 2); """
 
     def vaultInfos = sql """ SHOW STORAGE VAULT; """
     boolean exist = false
@@ -72,6 +91,8 @@ suite("test_alter_use_path_style", "nonConcurrent") {
             "use_path_style" = "false"
         );
     """
+
+    sql """ insert into alter_use_path_style_tbl values(2, 2); """
 
     vaultInfos = sql """ SHOW STORAGE VAULT; """
     exist = false
@@ -105,4 +126,7 @@ suite("test_alter_use_path_style", "nonConcurrent") {
             );
         """
     }, "Invalid use_path_style value")
+
+    def count = sql """ select count() from alter_use_path_style_tbl; """
+    assertTrue(res[0][0] == 3)
 }

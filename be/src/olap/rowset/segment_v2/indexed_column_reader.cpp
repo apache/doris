@@ -66,7 +66,6 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
                                  OlapReaderStatistics* index_load_stats) {
     _use_page_cache = use_page_cache;
     _kept_in_memory = kept_in_memory;
-    _index_load_stats = index_load_stats;
 
     _type_info = get_scalar_type_info((FieldType)_meta.data_type());
     if (_type_info == nullptr) {
@@ -82,7 +81,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
         } else {
             RETURN_IF_ERROR(load_index_page(_meta.ordinal_index_meta().root_page(),
                                             &_ordinal_index_page_handle,
-                                            _ordinal_index_reader.get()));
+                                            _ordinal_index_reader.get(), index_load_stats));
             _has_index_page = true;
         }
     }
@@ -93,7 +92,8 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
             RETURN_IF_ERROR(load_index_page(_meta.value_index_meta().root_page(),
-                                            &_value_index_page_handle, _value_index_reader.get()));
+                                            &_value_index_page_handle, _value_index_reader.get(),
+                                            index_load_stats));
             _has_index_page = true;
         }
     }
@@ -104,13 +104,14 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
 }
 
 Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle* handle,
-                                            IndexPageReader* reader) {
+                                            IndexPageReader* reader,
+                                            OlapReaderStatistics* index_load_stats) {
     Slice body;
     PageFooterPB footer;
     BlockCompressionCodec* local_compress_codec;
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &local_compress_codec));
     RETURN_IF_ERROR(read_page(PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
-                              local_compress_codec, false, _index_load_stats));
+                              local_compress_codec, false, index_load_stats));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
     _mem_size += body.get_size();
     return Status::OK();

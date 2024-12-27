@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewEsScanner;
@@ -86,4 +87,5 @@ private:
     std::vector<std::string> _column_names;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

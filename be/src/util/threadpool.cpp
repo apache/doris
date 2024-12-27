@@ -27,6 +27,7 @@
 #include <thread>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/map-util.h"
 #include "gutil/port.h"
@@ -194,7 +195,7 @@ void ThreadPoolToken::transition(State new_state) {
         CHECK(false); // QUIESCED is a terminal state
         break;
     default:
-        LOG(FATAL) << "Unknown token state: " << _state;
+        throw Exception(Status::FatalError("Unknown token state: {}", _state));
     }
 #endif
 
@@ -616,10 +617,10 @@ Status ThreadPool::create_thread() {
 void ThreadPool::check_not_pool_thread_unlocked() {
     Thread* current = Thread::current_thread();
     if (ContainsKey(_threads, current)) {
-        LOG(FATAL) << strings::Substitute(
-                "Thread belonging to thread pool '$0' with "
-                "name '$1' called pool function that would result in deadlock",
-                _name, current->name());
+        throw Exception(
+                Status::FatalError("Thread belonging to thread pool {} with "
+                                   "name {} called pool function that would result in deadlock",
+                                   _name, current->name()));
     }
 }
 

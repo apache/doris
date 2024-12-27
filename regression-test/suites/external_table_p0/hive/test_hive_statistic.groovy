@@ -259,7 +259,7 @@ suite("test_hive_statistic", "p0,external,hive,external_docker,external_docker_h
         def ctlId
         def dbId
         def tblId
-        result = sql """show catalogs"""
+        def result = sql """show catalogs"""
 
         for (int i = 0; i < result.size(); i++) {
             if (result[i][1] == catalog_name) {

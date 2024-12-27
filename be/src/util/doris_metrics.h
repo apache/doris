@@ -236,17 +236,17 @@ public:
     UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
 
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+    IntCounter* num_io_bytes_read_total = nullptr;
+    IntCounter* num_io_bytes_read_from_cache = nullptr;
+    IntCounter* num_io_bytes_read_from_remote = nullptr;
 
-    IntAtomicCounter* query_ctx_cnt = nullptr;
-    IntAtomicCounter* scanner_ctx_cnt = nullptr;
-    IntAtomicCounter* scanner_cnt = nullptr;
-    IntAtomicCounter* scanner_task_cnt = nullptr;
-    IntAtomicCounter* scanner_task_queued = nullptr;
-    IntAtomicCounter* scanner_task_submit_failed = nullptr;
-    IntAtomicCounter* scanner_task_running = nullptr;
+    IntCounter* query_ctx_cnt = nullptr;
+    IntCounter* scanner_ctx_cnt = nullptr;
+    IntCounter* scanner_cnt = nullptr;
+    IntCounter* scanner_task_cnt = nullptr;
+    IntCounter* scanner_task_queued = nullptr;
+    IntCounter* scanner_task_submit_failed = nullptr;
+    IntCounter* scanner_task_running = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
