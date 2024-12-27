@@ -178,8 +178,10 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     }
 
     if (build_block.rows() <= 1) {
-        LOG(WARNING) << "has no data to revoke, node: " << _parent->node_id()
-                     << ", task: " << state->task_id();
+        LOG(WARNING) << fmt::format(
+                "Query:{}, hash join sink:{}, task:{},"
+                " has no data to revoke",
+                print_id(state->query_id()), _parent->node_id(), state->task_id());
         if (spill_context) {
             spill_context->on_task_finished();
         }
@@ -270,9 +272,9 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
                           });
             status = _finish_spilling();
             VLOG_DEBUG << fmt::format(
-                    "Query: {}, task {}, hash join sink {} _revoke_unpartitioned_block "
+                    "Query:{}, hash join sink:{}, task:{}, _revoke_unpartitioned_block, "
                     "set_ready_to_read",
-                    print_id(state->query_id()), state->task_id(), _parent->node_id());
+                    print_id(state->query_id()), _parent->node_id(), state->task_id());
             _dependency->set_ready_to_read();
         }
 
@@ -303,9 +305,9 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
 Status PartitionedHashJoinSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     SCOPED_TIMER(_spill_total_timer);
-    VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", task " << state->task_id()
-               << " hash join sink " << _parent->node_id() << " revoke_memory"
-               << ", eos: " << _child_eos;
+    VLOG_DEBUG << fmt::format("Query:{}, hash join sink:{}, task:{}, revoke_memory, eos:{}",
+                              print_id(state->query_id()), _parent->node_id(), state->task_id(),
+                              _child_eos);
     CHECK_EQ(_spill_dependency->is_blocked_by(nullptr), nullptr);
 
     if (!_shared_state->need_to_spill) {
@@ -322,9 +324,9 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
     auto spill_fin_cb = [this, state, query_id, spill_context]() {
         Status status;
         if (_child_eos) {
-            LOG(INFO) << "Query:" << print_id(this->state()->query_id()) << ", task "
-                      << state->task_id() << " hash join sink " << _parent->node_id()
-                      << " finish spilling, set_ready_to_read";
+            LOG(INFO) << fmt::format(
+                    "Query:{}, hash join sink:{}, task:{}, finish spilling, set_ready_to_read",
+                    print_id(this->state()->query_id()), _parent->node_id(), state->task_id());
             std::for_each(_shared_state->partitioned_build_blocks.begin(),
                           _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
                               if (block) {
@@ -565,10 +567,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         revocable_size = revocable_mem_size(state);
         query_mem_limit = state->get_query_ctx()->get_mem_limit();
         LOG(INFO) << fmt::format(
-                "Query: {}, task {}, hash join sink {} eos, need spill: {}, query mem limit: {}, "
-                "revocable "
-                "memory: {}",
-                print_id(state->query_id()), state->task_id(), node_id(), need_to_spill,
+                "Query:{}, hash join sink:{}, task:{}, eos, need spill:{}, query mem limit:{}, "
+                "revocable memory:{}",
+                print_id(state->query_id()), node_id(), state->task_id(), need_to_spill,
                 PrettyPrinter::print_bytes(query_mem_limit),
                 PrettyPrinter::print_bytes(revocable_size));
     }
@@ -590,9 +591,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
 
                 if (is_revocable_mem_high_watermark(state, revocable_size, query_mem_limit)) {
                     LOG(INFO) << fmt::format(
-                            "Query: {}, task {}, hash join sink {} eos, revoke_memory "
+                            "Query:{}, hash join sink:{}, task:{} eos, revoke_memory "
                             "because revocable memory is high",
-                            print_id(state->query_id()), state->task_id(), node_id());
+                            print_id(state->query_id()), node_id(), state->task_id());
                     return revoke_memory(state, nullptr);
                 }
 
@@ -601,10 +602,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                         local_state._shared_state->inner_runtime_state.get(), in_block, eos));
 
                 LOG(INFO) << fmt::format(
-                        "Query: {}, task {}, hash join sink {} eos, set_ready_to_read, nonspill "
-                        "memory "
-                        "usage: {}",
-                        print_id(state->query_id()), state->task_id(), node_id(),
+                        "Query:{}, hash join sink:{}, task:{}, eos, set_ready_to_read, nonspill "
+                        "memory usage:{}",
+                        print_id(state->query_id()), node_id(), state->task_id(),
                         _inner_sink_operator->get_memory_usage_debug_str(
                                 local_state._shared_state->inner_runtime_state.get()));
             }
@@ -642,9 +642,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         if (eos) {
             if (is_revocable_mem_high_watermark(state, revocable_size, query_mem_limit)) {
                 LOG(INFO) << fmt::format(
-                        "Query: {}, task {}, hash join sink {} eos, revoke_memory "
+                        "Query:{}, hash join sink:{}, task:{}, eos, revoke_memory "
                         "because revocable memory is high",
-                        print_id(state->query_id()), state->task_id(), node_id());
+                        print_id(state->query_id()), node_id(), state->task_id());
                 return revoke_memory(state, nullptr);
             }
         }
@@ -653,9 +653,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         local_state.update_memory_usage();
         if (eos) {
             LOG(INFO) << fmt::format(
-                    "Query: {}, task {}, hash join sink {} eos, set_ready_to_read, nonspill memory "
-                    "usage: {}",
-                    print_id(state->query_id()), state->task_id(), node_id(),
+                    "Query:{}, hash join sink:{}, task:{}, eos, set_ready_to_read, nonspill memory "
+                    "usage:{}",
+                    print_id(state->query_id()), node_id(), state->task_id(),
                     _inner_sink_operator->get_memory_usage_debug_str(
                             local_state._shared_state->inner_runtime_state.get()));
             local_state._dependency->set_ready_to_read();

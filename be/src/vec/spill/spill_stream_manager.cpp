@@ -43,6 +43,9 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+SpillStreamManager::~SpillStreamManager() {
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+}
 SpillStreamManager::SpillStreamManager(
         std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
                 spill_store_map)
@@ -84,7 +87,25 @@ Status SpillStreamManager::init() {
             "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
             &_spill_gc_thread));
     LOG(INFO) << "spill gc thread started";
+
+    _init_metrics();
+
     return Status::OK();
+}
+
+void SpillStreamManager::_init_metrics() {
+    _entity = DorisMetrics::instance()->metric_registry()->register_entity("spill",
+                                                                           {{"name", "spill"}});
+
+    _spill_write_bytes_metric = std::make_unique<doris::MetricPrototype>(
+            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_write_bytes");
+    _spill_write_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
+            _spill_write_bytes_metric.get()));
+
+    _spill_read_bytes_metric = std::make_unique<doris::MetricPrototype>(
+            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_read_bytes");
+    _spill_read_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
+            _spill_read_bytes_metric.get()));
 }
 
 // clean up stale spilled files

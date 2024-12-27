@@ -195,9 +195,9 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
         profile()->add_info_string("Spilled", "true");
     }
 
-    VLOG_DEBUG << "Query " << print_id(state->query_id()) << " sort node "
-               << Base::_parent->node_id() << " revoke_memory"
-               << ", eos: " << _eos;
+    VLOG_DEBUG << fmt::format("Query:{}, sort sink:{}, task:{}, revoke_memory, eos:{}",
+                              print_id(state->query_id()), _parent->node_id(), state->task_id(),
+                              _eos);
 
     auto status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             state, _spilling_stream, print_id(state->query_id()), "sort", _parent->node_id(),
@@ -219,13 +219,14 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
         Defer defer {[&]() {
             if (!status.ok() || state->is_cancelled()) {
                 if (!status.ok()) {
-                    LOG(WARNING) << "Query " << print_id(query_id) << " sort node "
-                                 << _parent->node_id() << " revoke memory error: " << status;
+                    LOG(WARNING) << fmt::format(
+                            "Query:{}, sort sink:{}, task:{}, revoke memory error:{}",
+                            print_id(query_id), _parent->node_id(), state->task_id(), status);
                 }
                 _shared_state->close();
             } else {
-                VLOG_DEBUG << "Query " << print_id(query_id) << " sort node " << _parent->node_id()
-                           << " revoke memory finish";
+                VLOG_DEBUG << fmt::format("Query:{}, sort sink:{}, task:{}, revoke memory finish",
+                                          print_id(query_id), _parent->node_id(), state->task_id());
             }
 
             if (!status.ok()) {

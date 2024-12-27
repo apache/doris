@@ -70,8 +70,8 @@ int SpillSortLocalState::_calc_spill_blocks_to_merge(RuntimeState* state) const 
 }
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {
     auto& parent = Base::_parent->template cast<Parent>();
-    VLOG_DEBUG << "Query " << print_id(state->query_id()) << " sort node " << _parent->node_id()
-               << " merge spill data";
+    VLOG_DEBUG << fmt::format("Query:{}, sort source:{}, task:{}, merge spill data",
+                              print_id(state->query_id()), _parent->node_id(), state->task_id());
     _spill_dependency->Dependency::block();
 
     auto query_id = state->query_id();
@@ -82,8 +82,9 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         Defer defer {[&]() {
             if (!status.ok() || state->is_cancelled()) {
                 if (!status.ok()) {
-                    LOG(WARNING) << "Query " << print_id(query_id) << " sort node "
-                                 << _parent->node_id() << " merge spill data error: " << status;
+                    LOG(WARNING) << fmt::format(
+                            "Query:{}, sort source:{}, task:{}, merge spill data error:{}",
+                            print_id(query_id), _parent->node_id(), state->task_id(), status);
                 }
                 _shared_state->close();
                 for (auto& stream : _current_merging_streams) {
@@ -91,18 +92,20 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 }
                 _current_merging_streams.clear();
             } else {
-                VLOG_DEBUG << "Query " << print_id(query_id) << " sort node " << _parent->node_id()
-                           << " merge spill data finish";
+                VLOG_DEBUG << fmt::format(
+                        "Query:{}, sort source:{}, task:{}, merge spill data finish",
+                        print_id(query_id), _parent->node_id(), state->task_id());
             }
         }};
         vectorized::Block merge_sorted_block;
         vectorized::SpillStreamSPtr tmp_stream;
         while (!state->is_cancelled()) {
             int max_stream_count = _calc_spill_blocks_to_merge(state);
-            VLOG_DEBUG << "Query " << print_id(query_id) << " sort node " << _parent->node_id()
-                       << " merge spill streams, streams count: "
-                       << _shared_state->sorted_streams.size()
-                       << ", curren merge max stream count: " << max_stream_count;
+            VLOG_DEBUG << fmt::format(
+                    "Query:{}, sort source:{}, task:{}, merge spill streams, streams count:{}, "
+                    "curren merge max stream count:{}",
+                    print_id(query_id), _parent->node_id(), state->task_id(),
+                    _shared_state->sorted_streams.size(), max_stream_count);
             {
                 SCOPED_TIMER(Base::_spill_recover_time);
                 status = _create_intermediate_merger(

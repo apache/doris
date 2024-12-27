@@ -29,6 +29,7 @@
 #include "runtime/exec_env.h"
 #include "util/slice.h"
 #include "vec/core/block.h"
+#include "vec/spill/spill_stream_manager.h"
 namespace doris {
 #include "common/compile_check_begin.h"
 namespace io {
@@ -52,11 +53,12 @@ Status SpillReader::open() {
 
     Slice result((char*)&block_count_, sizeof(size_t));
 
+    size_t total_read_bytes = 0;
     // read block count
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, &bytes_read));
     DCHECK(bytes_read == 8); // max_sub_block_size, block count
-    COUNTER_UPDATE(_read_file_size, bytes_read);
+    total_read_bytes += bytes_read;
     if (_query_statistics) {
         _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
     }
@@ -66,7 +68,7 @@ Status SpillReader::open() {
     result.data = (char*)&max_sub_block_size_;
     RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, &bytes_read));
     DCHECK(bytes_read == 8); // max_sub_block_size, block count
-    COUNTER_UPDATE(_read_file_size, bytes_read);
+    total_read_bytes += bytes_read;
     if (_query_statistics) {
         _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
     }
@@ -87,7 +89,9 @@ Status SpillReader::open() {
 
     RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, &bytes_read));
     DCHECK(bytes_read == block_count_ * sizeof(size_t));
-    COUNTER_UPDATE(_read_file_size, bytes_read);
+    total_read_bytes += bytes_read;
+    COUNTER_UPDATE(_read_file_size, total_read_bytes);
+    ExecEnv::GetInstance()->spill_stream_mgr()->update_spill_read_bytes(total_read_bytes);
     if (_query_statistics) {
         _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
     }
@@ -134,6 +138,7 @@ Status SpillReader::read(Block* block, bool* eos) {
 
     if (bytes_read > 0) {
         COUNTER_UPDATE(_read_file_size, bytes_read);
+        ExecEnv::GetInstance()->spill_stream_mgr()->update_spill_read_bytes(bytes_read);
         if (_query_statistics) {
             _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
         }

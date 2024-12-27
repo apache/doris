@@ -230,9 +230,11 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
         }
 
         COUNTER_SET(_probe_blocks_bytes, int64_t(not_revoked_size));
-        VLOG_DEBUG << "Query: " << print_id(query_id)
-                   << " hash probe revoke done, node: " << p.node_id()
-                   << ", task: " << state->task_id();
+
+        VLOG_DEBUG << fmt::format(
+                "Query:{}, hash join probe:{}, task:{},"
+                " spill_probe_blocks done",
+                print_id(query_id), p.node_id(), state->task_id());
         return Status::OK();
     };
 
@@ -275,9 +277,10 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
 Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(RuntimeState* state,
                                                                           uint32_t partition_index,
                                                                           bool& has_data) {
-    VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
-               << ", task id: " << state->task_id() << ", partition: " << partition_index
-               << " recover_build_blocks_from_disk";
+    VLOG_DEBUG << fmt::format(
+            "Query:{}, hash join probe:{}, task:{},"
+            " partition:{}, recover_build_blocks_from_disk",
+            print_id(state->query_id()), _parent->node_id(), state->task_id(), partition_index);
     auto& spilled_stream = _shared_state->spilled_streams[partition_index];
     has_data = false;
     if (!spilled_stream) {
@@ -291,9 +294,10 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
         SCOPED_TIMER(_recovery_build_timer);
 
         bool eos = false;
-        VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
-                   << ", task id: " << state->task_id() << ", partition: " << partition_index
-                   << ", recoverying build data";
+        VLOG_DEBUG << fmt::format(
+                "Query:{}, hash join probe:{}, task:{},"
+                " partition:{}, recoverying build data",
+                print_id(state->query_id()), _parent->node_id(), state->task_id(), partition_index);
         Status status;
         while (!eos) {
             vectorized::Block block;
@@ -315,7 +319,11 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
             }
 
             if (UNLIKELY(state->is_cancelled())) {
-                LOG(INFO) << "recovery build block when canceled.";
+                LOG(INFO) << fmt::format(
+                        "Query:{}, hash join probe:{}, task:{},"
+                        " partition:{}, recovery build data canceled",
+                        print_id(state->query_id()), _parent->node_id(), state->task_id(),
+                        partition_index);
                 break;
             }
 
@@ -338,9 +346,11 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
         if (eos) {
             ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
             _shared_state->spilled_streams[partition_index].reset();
-            VLOG_DEBUG << "Query: " << print_id(state->query_id())
-                       << ", node: " << _parent->node_id() << ", task id: " << state->task_id()
-                       << ", partition: " << partition_index;
+            VLOG_DEBUG << fmt::format(
+                    "Query:{}, hash join probe:{}, task:{},"
+                    " partition:{}, recovery build data eos",
+                    print_id(state->query_id()), _parent->node_id(), state->task_id(),
+                    partition_index);
         }
         return status;
     };
@@ -365,16 +375,6 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     has_data = true;
     _spill_dependency->block();
-    {
-        auto* pipeline_task = state->get_task();
-        if (pipeline_task) {
-            auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
-            VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << p.node_id()
-                       << ", task id: " << state->task_id() << ", partition: " << partition_index
-                       << ", dependency: " << _dependency
-                       << ", task debug_string: " << pipeline_task->debug_string();
-        }
-    }
 
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recovery_build_blocks_submit_func",
                     {
@@ -386,9 +386,6 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
     auto spill_runnable = std::make_shared<SpillRecoverRunnable>(
             state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
             exception_catch_func);
-    VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
-               << ", task id: " << state->task_id() << ", partition: " << partition_index
-               << " recover_build_blocks_from_disk submit func";
     return spill_io_pool->submit(std::move(spill_runnable));
 }
 
@@ -429,7 +426,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
 
     auto query_id = state->query_id();
 
-    auto read_func = [this, query_id, &spilled_stream, &blocks] {
+    auto read_func = [this, query_id, partition_index, &spilled_stream, &blocks] {
         SCOPED_TIMER(_recovery_probe_timer);
 
         vectorized::Block block;
@@ -457,8 +454,10 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
             }
         }
         if (eos) {
-            VLOG_DEBUG << "Query: " << print_id(query_id)
-                       << ", recovery probe data done: " << spilled_stream->get_spill_dir();
+            VLOG_DEBUG << fmt::format(
+                    "Query:{}, hash join probe:{}, task:{},"
+                    " partition:{}, recovery probe data done",
+                    print_id(query_id), _parent->node_id(), _state->task_id(), partition_index);
             ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
             spilled_stream.reset();
         }
@@ -675,13 +674,13 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
 
     RETURN_IF_ERROR(_inner_sink_operator->sink(local_state._shared_state->inner_runtime_state.get(),
                                                &block, true));
-    VLOG_DEBUG << "Query: " << print_id(state->query_id())
-               << ", internal build operator finished, node id: " << node_id()
-               << ", task id: " << state->task_id()
-               << ", partition: " << local_state._partition_cursor << "rows: " << block.rows()
-               << ", usage: "
-               << _inner_sink_operator->get_memory_usage(
-                          local_state._shared_state->inner_runtime_state.get());
+    VLOG_DEBUG << fmt::format(
+            "Query:{}, hash join probe:{}, task:{},"
+            " internal build operator finished, partition:{}, rows:{}, memory usage:{}",
+            print_id(state->query_id()), node_id(), state->task_id(), local_state._partition_cursor,
+            block.rows(),
+            _inner_sink_operator->get_memory_usage(
+                    local_state._shared_state->inner_runtime_state.get()));
 
     COUNTER_SET(local_state._hash_table_memory_usage,
                 sink_local_state->profile()->get_counter("MemoryUsageHashTable")->value());
@@ -734,9 +733,10 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
             if (!has_data) {
                 vectorized::Block block;
                 RETURN_IF_ERROR(_inner_probe_operator->push(runtime_state, &block, true));
-                VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << node_id()
-                           << ", task: " << state->task_id() << "partition: " << partition_index
-                           << " has no data to recovery";
+                VLOG_DEBUG << fmt::format(
+                        "Query:{}, hash join probe:{}, task:{},"
+                        " partition:{}, has no data to recovery",
+                        print_id(state->query_id()), node_id(), state->task_id(), partition_index);
                 break;
             } else {
                 return Status::OK();
@@ -755,9 +755,11 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
 
     *eos = false;
     if (in_mem_eos) {
-        VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << node_id()
-                   << ", task: " << state->task_id()
-                   << ", partition: " << local_state._partition_cursor;
+        VLOG_DEBUG << fmt::format(
+                "Query:{}, hash join probe:{}, task:{},"
+                " partition:{}, probe done",
+                print_id(state->query_id()), node_id(), state->task_id(),
+                local_state._partition_cursor);
         local_state._partition_cursor++;
         if (local_state._partition_cursor == _partition_count) {
             *eos = true;
@@ -848,8 +850,8 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
 
 Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
-               << ", task: " << state->task_id();
+    VLOG_DEBUG << fmt::format("Query:{}, hash join probe:{}, task:{}, revoke_memory",
+                              print_id(state->query_id()), node_id(), state->task_id());
 
     RETURN_IF_ERROR(local_state.spill_probe_blocks(state));
     return Status::OK();
@@ -894,10 +896,10 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
 #ifndef NDEBUG
     Defer eos_check_defer([&] {
         if (*eos) {
-            LOG(INFO) << "Query: " << print_id(state->query_id())
-                      << ", hash probe node: " << node_id() << ", task: " << state->task_id()
-                      << ", eos with child eos: " << local_state._child_eos
-                      << ", need spill: " << need_to_spill;
+            LOG(INFO) << fmt::format(
+                    "Query:{}, hash join probe:{}, task:{}, child eos:{}, need spill:{}",
+                    print_id(state->query_id()), node_id(), state->task_id(),
+                    local_state._child_eos, need_to_spill);
         }
     });
 #endif
