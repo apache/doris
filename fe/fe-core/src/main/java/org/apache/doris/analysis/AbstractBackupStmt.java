@@ -45,6 +45,7 @@ public class AbstractBackupStmt extends DdlStmt {
     protected String repoName;
     protected AbstractBackupTableRefClause abstractBackupTableRefClause;
     protected Map<String, String> properties;
+
     protected long timeoutMs;
     public boolean backupGlobal = false;
 
@@ -127,7 +128,7 @@ public class AbstractBackupStmt extends DdlStmt {
     }
 
     public boolean isBackupGlobal() {
-        return  backupGlobal;
+        return backupGlobal;
     }
 
     public String getLabel() {

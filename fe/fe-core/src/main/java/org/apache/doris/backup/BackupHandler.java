@@ -543,12 +543,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
             jobInfo = infos.get(0);
         }
 
-        if (!jobInfo.backupOlapTableObjects.isEmpty() && stmt.isBackupGlobal()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "Failed to restore from snapshot '" + stmt.getLabel()
-                    + "' because: This snapshot is not a global backup.");
-        }
-
         checkAndFilterRestoreObjsExistInSnapshot(jobInfo, stmt.getAbstractBackupTableRefClause());
 
         // Create a restore job
@@ -571,17 +565,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
             restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                     stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(), stmt.reserveColocate(),
-                    stmt.reserveDynamicPartitionEnable(), stmt.reservePrivilege(), stmt.reserveCatalog(),
-                    stmt.reserveWorkloadGroup(), stmt.isBeingSynced(), stmt.isCleanTables(),
+                    stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
                     stmt.isCleanPartitions(), stmt.isAtomicRestore(),
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
-                stmt.reserveDynamicPartitionEnable(), stmt.reservePrivilege(), stmt.reserveCatalog(),
-                stmt.reserveWorkloadGroup(), stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(),
-                stmt.isAtomicRestore(), env, repository.getId());
+                stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
+                stmt.isCleanPartitions(), stmt.isAtomicRestore(), env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);

@@ -330,7 +330,7 @@ unsupportedOtherStatement
     | BACKUP GLOBAL? SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
-    | RESTORE GLOBAL? SNAPSHOT label=multipartIdentifier FROM repo=identifier
+    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
@@ -377,7 +377,7 @@ unsupportedShowStatement
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW GLOBAL? BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
-    | SHOW GLOBAL? BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
+    | SHOW BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
@@ -513,7 +513,7 @@ unsupportedCancelStatement
     | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     | CANCEL GLOBAL? BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
-    | CANCEL GLOBAL? RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
+    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
     ;
 
 supportedAdminStatement

@@ -4558,10 +4558,6 @@ show_param ::=
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
     :}
-    | KW_GLOBAL KW_RESTORE opt_wild_where
-    {:
-        RESULT = new ShowRestoreStmt(parser.where);
-    :}
     | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
     {:
         RESULT = new ShowRestoreStmt(db, parser.where, true);
@@ -5085,10 +5081,6 @@ cancel_param ::=
     {:
         RESULT = new CancelBackupStmt(db, true);
     :}
-    | KW_GLOBAL KW_RESTORE
-    {:
-        RESULT = new CancelBackupStmt(true);
-    :}
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
         RESULT = new CancelCloudWarmUpStmt(parser.where);
@@ -5578,12 +5570,6 @@ restore_stmt ::=
     opt_properties:properties
     {:
         RESULT = new RestoreStmt(label, repoName, tblRefClause, properties);
-    :}
-    | KW_RESTORE KW_GLOBAL KW_SNAPSHOT job_label:label
-    KW_FROM ident:repoName
-    opt_properties:properties
-    {:
-        RESULT = new RestoreStmt(label, repoName, properties);
     :}
     ;
 

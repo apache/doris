@@ -493,7 +493,7 @@ public class Auth implements Writable {
         }
     }
 
-    public void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
+    private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
             boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, String userId, boolean isReplay)
             throws DdlException {
         writeLock();
@@ -653,41 +653,6 @@ public class Auth implements Writable {
                     true /* err on non exist */, false /* not replay */);
         } else {
             grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
-        }
-    }
-
-    // grant
-    public void grant(Role role, Set<UserIdentity> userIdentities) throws DdlException {
-        // table priv
-        for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(), role.getColPrivMap(),
-                    true /* err on non exist */, false /* not replay */);
-        }
-        // resource priv
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
-            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(),
-                    true /* err on non exist */, false /* not replay */);
-        }
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getClusterPatternToPrivs().entrySet()) {
-            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(),
-                    true /* err on non exist */, false /* not replay */);
-        }
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getStagePatternToPrivs().entrySet()) {
-            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(),
-                    true /* err on non exist */, false /* not replay */);
-        }
-        // workload group
-        for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.getWorkloadGroupPatternToPrivs().entrySet()) {
-            grantInternal(null, role.getRoleName(), entry.getKey(), entry.getValue(),
-                    true /* err on non exist */, false /* not replay */);
-        }
-        //grant role
-        if (userIdentities != null && userIdentities.size() > 0) {
-            List<String> roles = Lists.newArrayList();
-            roles.add(role.getRoleName());
-            for (UserIdentity userIdentity : userIdentities) {
-                grantInternal(userIdentity, roles, false);
-            }
         }
     }
 
@@ -1359,7 +1324,7 @@ public class Auth implements Writable {
     }
 
     public void getAuthInfoCopied(List<User> users, List<Role> roles, List<UserProperty> userProperties,
-                                  Map<String, Set<UserIdentity>> roleToUsers, Map<String, UserProperty> propertyMap,
+                                  Map<String, Set<UserIdentity>> roleToUsers,
                                   Map<UserIdentity, PasswordPolicy> policyMap) {
         readLock();
         try {
@@ -1406,16 +1371,6 @@ public class Auth implements Writable {
                     newUserIdentities.add(identity);
                 }
                 roleToUsers.put(roleName, newUserIdentities);
-            }
-
-            // get propertyMap
-            for (Map.Entry<String, UserProperty> entry : propertyMgr.getPropertyMap().entrySet()) {
-                String userName = entry.getKey();
-                if (userName.equals(Auth.ROOT_USER) || userName.equals(Auth.ADMIN_USER)) {
-                    continue;
-                }
-                UserProperty userProperty = entry.getValue();
-                propertyMap.put(userName, userProperty.clone());
             }
 
             // get policyMap

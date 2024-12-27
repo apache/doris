@@ -58,7 +58,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class PasswordPolicy implements Writable {
     private static final Logger LOG = LogManager.getLogger(PasswordPolicy.class);
 
-    @SerializedName(value = "lock")
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private static final String EXPIRATION_SECONDS = "password_policy.expiration_seconds";
@@ -76,15 +75,12 @@ public class PasswordPolicy implements Writable {
     private HistoryPolicy historyPolicy = new HistoryPolicy();
     @SerializedName(value = "failedLoginPolicy")
     private FailedLoginPolicy failedLoginPolicy = new FailedLoginPolicy();
-    @SerializedName(value = "qualifiedUser")
-    private UserIdentity userIdent;
 
-    public PasswordPolicy(UserIdentity userIdent) {
-        this.userIdent = userIdent;
+    public PasswordPolicy() {
     }
 
-    public static PasswordPolicy createDefault(UserIdentity userIdent) {
-        return new PasswordPolicy(userIdent);
+    public static PasswordPolicy createDefault() {
+        return new PasswordPolicy();
     }
 
     public void checkAccountLockedAndPasswordExpiration(UserIdentity curUser) throws AuthenticationException {

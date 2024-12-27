@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import groovy.json.JsonSlurper
+
 suite("test_backup_restore_priv", "backup_restore") {
     String suiteName = "test_backup_restore_priv"
     String repoName = "${suiteName}_repo"
@@ -83,47 +85,19 @@ suite("test_backup_restore_priv", "backup_restore") {
     res = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(res.size(), insert_num)
 
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
+    multi_sql """
+        drop user if exists user1;
+        drop user if exists user2;
+        drop user if exists user3;
 
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-
-    sql "CREATE USER 'user1' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
-    sql "CREATE USER 'user2' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
-    sql "CREATE USER 'user3' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
-
-    sql "create role role_select;"
-    sql "GRANT Select_priv ON *.* TO ROLE 'role_select';"
-
-    sql "create role role_load;"
-    sql "GRANT Load_priv ON *.* TO ROLE 'role_load';"
-
-    sql "grant 'role_select', 'role_load' to 'user1'@'%';"
-    sql "grant 'role_select' to 'user2'@'%';"
-    sql "grant 'role_load' to 'user3'@'%';"
-    sql "grant Create_priv on *.* to user3"
-    sql "GRANT Select_priv(id1) ON ${dbName}.${tableName1} TO user3;"
-    sql "GRANT Select_priv(test) ON ${dbName}.${tableName2} TO role 'role_select';"
-
-
-    sql "CREATE ROW POLICY test_row_policy_1 ON ${dbName}.${tableName} AS RESTRICTIVE TO user1 USING (id = 1);"
-
-    sql """
-        CREATE SQL_BLOCK_RULE test_block_rule
-        PROPERTIES(
-        "sql"="select \\* from order_analysis",
-        "global"="false",
-        "enable"="true"
-        );
-     """
+        drop role if exists role_select;
+        drop role if exists role_load;
+        drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};
+        drop sql_block_rule if exists test_block_rule;
+        drop catalog if exists mysql;
+        drop workload group if exists wg1;
+        drop workload group if exists wg2;
+    """
 
     String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
@@ -133,25 +107,14 @@ suite("test_backup_restore_priv", "backup_restore") {
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     //String driver_url = "mysql-connector-j-8.0.31.jar"
 
-    sql """
-        CREATE CATALOG mysql PROPERTIES (
-        "type"="jdbc",
-        "user" = "${jdbcUser}",
-        "password"="${jdbcPassword}",
-        "jdbc_url" = "${jdbcUrl}",
-        "driver_url" = "${driver_url}",
-        "driver_class" = "com.mysql.cj.jdbc.Driver"
-        );
-    """
 
-    sql """ create workload group wg1 properties('tag'='cn1', "memory_limit"="45%"); """
-    sql """ create workload group wg2 properties ("max_concurrency"="5","max_queue_size" = "50"); """
-
-    def commonAuth = { result, UserIdentity, Password, Roles, CatalogPrivs ->
+    def commonAuth = { result, UserIdentity, Password, Roles, CatalogPrivs, DatabasePrivs, TablePrivs ->
         assertEquals(UserIdentity as String, result.UserIdentity[0] as String)
         assertEquals(Password as String, result.Password[0] as String)
         assertEquals(Roles as String, result.Roles[0] as String)
         assertEquals(CatalogPrivs as String, result.CatalogPrivs[0] as String)
+        assertEquals(DatabasePrivs as String, result.DatabasePrivs[0] as String)
+        assertEquals(TablePrivs as String, result.TablePrivs[0] as String)
     }
 
     def showRoles = { name ->
@@ -197,17 +160,17 @@ suite("test_backup_restore_priv", "backup_restore") {
     def checkPrivileges = () -> {
         def result = sql_return_maparray """show grants for user1"""
         log.info(result as String)
-        commonAuth result, "'user1'@'%'", "Yes", "role_select,role_load", "internal: Select_priv,Load_priv"
+        commonAuth result, "'user1'@'%'", "Yes", "role_select,role_load", "internal: Select_priv,Load_priv", "internal.information_schema: Select_priv; internal.mysql: Select_priv", null
         assertEquals("internal.${dbName}.${tableName2}: Select_priv[test]" as String, result.ColPrivs[0] as String)
 
         result = sql_return_maparray """show grants for user2"""
         log.info(result as String)
-        commonAuth result, "'user2'@'%'", "Yes", "role_select", "internal: Select_priv"
+        commonAuth result, "'user2'@'%'", "Yes", "role_select", "internal: Select_priv","internal.information_schema: Select_priv; internal.mysql: Select_priv", null
         assertEquals("internal.${dbName}.${tableName2}: Select_priv[test]" as String, result.ColPrivs[0] as String)
 
         result = sql_return_maparray """show grants for user3"""
         log.info(result as String)
-        commonAuth result, "'user3'@'%'", "Yes", "role_load", "internal: Load_priv,Create_priv"
+        commonAuth result, "'user3'@'%'", "Yes", "role_load", "internal: Select_priv,Load_priv,Create_priv","internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.${dbName}: Create_priv","internal.${dbName}.${tableName1}: Load_priv"
         assertEquals("internal.${dbName}.${tableName1}: Select_priv[id1]" as String, result.ColPrivs[0] as String)
 
         result = showRoles.call("role_select")
@@ -215,7 +178,7 @@ suite("test_backup_restore_priv", "backup_restore") {
         //assertNull(result.CloudClusterPrivs)
         assertEquals(result.Users, "'user1'@'%', 'user2'@'%'")
         assertEquals(result.CatalogPrivs, "internal.*.*: Select_priv")
-    
+
         result = showRoles.call("role_load")
         log.info(result as String)
         assertEquals(result.Users, "'user1'@'%', 'user3'@'%'")
@@ -229,7 +192,7 @@ suite("test_backup_restore_priv", "backup_restore") {
         // check row policy valid
         connect(user="user1", password="12345", url=url) {
             try {
-                res = sql "SELECT * FROM ${dbName}.${tableName}"
+                res = sql "select * from ${dbName}.${tableName}"
                 assertEquals(res.size(), 1)
             } catch (Exception e) {
                 log.info(e.getMessage())
@@ -241,41 +204,11 @@ suite("test_backup_restore_priv", "backup_restore") {
         assertEquals(result.Name, "test_block_rule")
     }
 
-    def checkNonPrivileges = () -> {
-        //except 'password_policy.password_creation_time'
-        result = sql_return_maparray "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-        assertEquals(result.size(), 0)
-
-        result = showRoles.call("role_select")
-        log.info(result as String)
-        assertNull(result)
-
-        result = showRoles.call("role_load")
-        log.info(result as String)
-        assertNull(result)
-
-        result = showRowPolicy.call("test_row_policy_1")
-        log.info(result as String)
-        assertNull(result)
-
-        result = showSqlBlockRule.call("test_block_rule")
-        log.info(result as String)
-        assertNull(result)
-    }
-
-
-
     def checkCatalogs = () -> {
         result = showCatalogs.call("mysql")
         log.info(result as String)
         assertEquals(result.CatalogName, "mysql")
         assertEquals(result.Type, "jdbc")
-    }
-
-    def checkSqlBlockRules = () -> {
-        result = showSqlBlockRule.call("test_block_rule")
-        log.info(result as String)
-        assertEquals(result.Name, "test_block_rule")
     }
 
     def checkWorkloadGroups = () -> {
@@ -287,27 +220,63 @@ suite("test_backup_restore_priv", "backup_restore") {
         assertNotNull(result)
     }
 
-    def checkNonCatalogs = () -> {
-        result = showCatalogs.call("mysql")
-        log.info(result as String)
-        assertNull(result)
-    }
+    multi_sql """
+        CREATE USER 'user1' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;
+        CREATE USER 'user2' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;
+        CREATE USER 'user3' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;
 
-    def checkNonWorkloadGroups = () -> {
-        result = showWorkloadGroups.call("wg1")
-        log.info(result as String)
-        assertNull(result)
-        result = showWorkloadGroups.call("wg2")
-        log.info(result as String)
-        assertNull(result)
-    }
+        create role role_select;
+        GRANT Select_priv ON *.* TO ROLE 'role_select';
 
-    checkPrivileges();
-    qt_order_before_restore "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkCatalogs();
-    checkWorkloadGroups();
+        create role role_load;
+        GRANT Load_priv ON *.* TO ROLE 'role_load';
+
+        grant 'role_select', 'role_load' to 'user1'@'%';
+        grant 'role_select' to 'user2'@'%';
+        grant 'role_load' to 'user3'@'%';
+        grant Create_priv on *.* to user3;
+        GRANT Select_priv(id1) ON ${dbName}.${tableName1} TO user3;
+        GRANT Select_priv(test) ON ${dbName}.${tableName2} TO role 'role_select';
+        CREATE ROW POLICY test_row_policy_1 ON ${dbName}.${tableName} AS RESTRICTIVE TO user1 USING (id = 1);
+
+        GRANT Select_priv, Load_priv ON *.* TO ROLE 'role_1';
+        GRANT USAGE_PRIV ON WORKLOAD GROUP 'wg1' to role 'role_1';
+        GRANT USAGE_PRIV ON RESOURCE * TO 'user2'@'%';
+        GRANT USAGE_PRIV ON STAGE * TO 'user2'@'%';
+        GRANT USAGE_PRIV ON STORAGE VAULT * TO 'user2'@'%';
+        GRANT USAGE_PRIV ON COMPUTE GROUP * TO 'user3'@'%';
+
+        grant node_priv on *.*.* to 'user2'@'%';
+        grant select_priv on internal.*.* to 'user3'@'%';
+        grant create_priv on internal.${dbName}.* to 'user3'@'%';
+        grant load_priv on internal.${dbName}.${tableName1} to 'user3'@'%';
 
 
+        CREATE SQL_BLOCK_RULE test_block_rule
+            PROPERTIES(
+            "sql"="select \\\\* from ${dbName}.${tableName}",
+            "global"="true",
+            "enable"="true"
+            );
+
+        CREATE CATALOG mysql PROPERTIES (
+            "type"="jdbc",
+            "user" = "${jdbcUser}",
+            "password"="${jdbcPassword}",
+            "jdbc_url" = "${jdbcUrl}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            );
+        create workload group wg1 properties('tag'='cn1', "memory_limit"="45%");
+        create workload group wg2 properties ("max_concurrency"="5","max_queue_size" = "50");
+
+        set property for user2 'default_workload_group' = 'wg2';
+    """
+
+    checkPrivileges()
+    checkCatalogs()
+    checkWorkloadGroups()
+    
     sql """
         BACKUP GLOBAL SNAPSHOT ${snapshotName}
         TO `${repoName}`
@@ -320,374 +289,55 @@ suite("test_backup_restore_priv", "backup_restore") {
 
     syncer.waitSnapshotFinish("__internal_schema")
 
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    checkNonPrivileges();
-    checkNonCatalogs();
-    checkNonWorkloadGroups();
-
-    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
-    assertTrue(snapshot != null)
-
-    logger.info(""" ======================================  1 "reserve_privilege"="true", "reserve_catalog"="true","reserve_workload_group"="true" ==================================== """)
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_privilege"="true",
-            "reserve_catalog"="true",
-            "reserve_workload_group"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
- 
-    checkPrivileges();
-    qt_order_after_restore1 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkCatalogs();
-    checkWorkloadGroups();
-
-    logger.info(" ====================================== 2 without reserve ==================================== ")
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
- 
-    checkPrivileges();
-    qt_order_after_restore2 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkCatalogs();
-    checkWorkloadGroups();
-
-
-    logger.info(""" ======================================  3 "reserve_privilege"="true" ==================================== """)
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_privilege"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
- 
-    checkPrivileges();
-    qt_order_after_restore3 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkNonCatalogs();
-    checkNonWorkloadGroups();
-
-
-    logger.info(""" ======================================  4 "reserve_catalog"="true" ==================================== """)
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_catalog"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
- 
-    checkNonPrivileges();
-    qt_order_after_restore4 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkCatalogs();
-    checkNonWorkloadGroups();
-
-
-    logger.info(""" ======================================  5 "reserve_workload_group"="true" ==================================== """)
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_workload_group"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
- 
-    checkNonPrivileges();
-    qt_order_after_restore5 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkNonCatalogs();
-    checkWorkloadGroups();
-
-
-    logger.info(""" ======================================  6 "reserve_privilege"="true","reserve_workload_group"="true" ==================================== """)
-
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_privilege"="true",
-            "reserve_workload_group"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
- 
-    checkPrivileges();
-    qt_order_after_restore6 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-    checkNonCatalogs();
-    checkWorkloadGroups();
-
-    logger.info(""" ======================================  7 restore fail check cancel: wg2 exist ==================================== """)
-
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-
-    sql "create role role_select;"
-    sql "GRANT Select_priv, Load_priv ON *.* TO ROLE 'role_select';"
-    sql "create user user1;"
-    sql "grant select_priv on *.* to user1;"
-    sql "GRANT Select_priv(id1) ON ${dbName}.${tableName1} TO user1;"
-    sql """ create workload group wg2 properties ("max_concurrency"="5","max_queue_size" = "50"); """
-
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_privilege"="true",
-            "reserve_workload_group"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    // restore failed
-    records = sql_return_maparray "SHOW global restore"
-    row = records[records.size() - 1]
-    assertTrue(row.Status.contains("workload group wg2 already exist"))
-
-    test {
-        sql "SELECT * FROM ${dbName}.${tableName}"
-        exception "does not exist in database"
-    }
-
-    qt_order_after_restore7 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-
-    result = sql_return_maparray """show grants for user1"""
-    log.info(result as String)
-    commonAuth result, "'user1'@'%'", "No", "", "internal: Select_priv"
-
-    result = showRoles.call("role_select")
-    log.info(result as String)
-    assertEquals(result.Users, "")
-    assertEquals(result.CatalogPrivs, "internal.*.*: Select_priv,Load_priv")
-
-    logger.info(""" ======================================  8 restore fail check cancel : ${dbName}.${tableName1} not exist ==================================== """)
-
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
-
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
-    sql "DROP TABLE IF EXISTS ${dbName}.${tableName1}"
-
-
-    sql """
-           CREATE TABLE if NOT EXISTS ${dbName}.${tableName}
-           (
-               `test` INT,
-               `id` INT
-           )
-           ENGINE=OLAP
-           UNIQUE KEY(`test`, `id`)
-           DISTRIBUTED BY HASH(id) BUCKETS 1
-           PROPERTIES (
-               "replication_allocation" = "tag.location.default: 1"
-        )
-    """
-    sql "create role role_select;"
-    sql "GRANT Select_priv, Load_priv ON *.* TO ROLE 'role_select';"
-    sql "create user user1;"
-    sql "grant select_priv on *.* to user1;"
-    sql "GRANT Select_priv(id1) ON ${dbName}.${tableName} TO user1;"
-    sql """ create workload group wg2 properties ("max_concurrency"="5","max_queue_size" = "50"); """
-
-
-    sql """
-        RESTORE GLOBAL SNAPSHOT ${snapshotName}
-        FROM `${repoName}`
-        PROPERTIES
-        (
-            "backup_timestamp" = "${snapshot}",
-            "reserve_replica" = "true",
-            "reserve_privilege"="true"
-        )
-    """
-
-    syncer.waitAllRestoreFinish("__internal_schema")
-
-    // restore failed
-    records = sql_return_maparray "SHOW global restore"
-    row = records[records.size() - 1]
-    assertTrue(row.Status.contains("table:${tableName1} does not exist"))
-
-    qt_order_after_restore8 "select * except(`password_policy.password_creation_time`) from mysql.user where User in ('user1', 'user2', 'user3') order by host, user;"
-
-    result = sql_return_maparray """show grants for user1"""
-    log.info(result as String)
-    commonAuth result, "'user1'@'%'", "No", "", "internal: Select_priv"
-    assertEquals("internal.${dbName}.${tableName}: Select_priv[id1]" as String, result.ColPrivs[0] as String)
-
-    result = showRoles.call("role_select")
-    log.info(result as String)
-    assertEquals(result.Users, "")
-    assertEquals(result.CatalogPrivs, "internal.*.*: Select_priv,Load_priv")
+    def snapshotTime = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    assertTrue(snapshotTime != null)
 
     //cleanup
-    sql "drop user if exists user1;"
-    sql "drop user if exists user2;"
-    sql "drop user if exists user3;"
+    multi_sql """
+        drop user if exists user1;
+        drop user if exists user2;
+        drop user if exists user3;
 
-    sql "drop role if exists role_select;"
-    sql "drop role if exists role_load;"
-    sql "drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};"
-    sql "drop sql_block_rule if exists test_block_rule;"
-    sql "drop catalog if exists mysql;"
-    sql "drop workload group if exists wg1;"
-    sql "drop workload group if exists wg2;"
+        drop role if exists role_select;
+        drop role if exists role_load;
+        drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};
+        drop sql_block_rule if exists test_block_rule;
+        drop catalog if exists mysql;
+        drop workload group if exists wg1;
+        drop workload group if exists wg2;
+    """
+
+    def result = sql_return_maparray "show snapshot on ${repoName} where Snapshot='${snapshotName}' and Timestamp='${snapshotTime}'"
+    assertTrue(result.size() == 1)
+    log.info(result as String)
+    def details = result.Details[0]
+
+    def jsonSlurper = new JsonSlurper()
+    def data = jsonSlurper.parseText(details)
+    def sqls = data.sqls
+
+    log.info("=============================restore from sqls: ${sqls} ============================")
+
+    sql "${sqls}"
+
+    checkPrivileges()
+    checkCatalogs()
+    checkWorkloadGroups()
+
+    //cleanup
+    multi_sql """
+        drop user if exists user1;
+        drop user if exists user2;
+        drop user if exists user3;
+
+        drop role if exists role_select;
+        drop role if exists role_load;
+        drop row policy if exists test_row_policy_1 on ${dbName}.${tableName};
+        drop sql_block_rule if exists test_block_rule;
+        drop catalog if exists mysql;
+        drop workload group if exists wg1;
+        drop workload group if exists wg2;
+    """
 
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"

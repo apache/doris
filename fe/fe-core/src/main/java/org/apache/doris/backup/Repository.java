@@ -104,6 +104,7 @@ public class Repository implements Writable, GsonPostProcessable {
     public static final String PREFIX_IDX = "__idx_";
     public static final String PREFIX_COMMON = "__";
     public static final String PREFIX_JOB_INFO = "__info_";
+    public static final String PREFIX_GLOBAL_INFO = "__global_info_";
     public static final String SUFFIX_TMP_FILE = "part";
     public static final String FILE_REPO_INFO = "__repo_info";
     public static final String FILE_META_INFO = "__meta";
@@ -155,6 +156,17 @@ public class Repository implements Writable, GsonPostProcessable {
         } else {
             return PREFIX_JOB_INFO
                     + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
+        }
+    }
+
+    // join global info file name with timestamp
+    // eg: __global_info_2018-01-01-08-00-00
+    private static String globalInfoFileNameWithTimestamp(long createTime) {
+        if (createTime == -1) {
+            return PREFIX_GLOBAL_INFO;
+        } else {
+            return PREFIX_GLOBAL_INFO
+                + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 
@@ -357,6 +369,13 @@ public class Repository implements Writable, GsonPostProcessable {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 jobInfoFileNameWithTimestamp(createTime));
+    }
+
+    // eg: location/__palo_repository_repo_name/__my_sp1/__global_info_2018-01-01-08-00-00
+    public String assembleGlobalInfoFilePath(String label, long createTime) {
+        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+            globalInfoFileNameWithTimestamp(createTime));
     }
 
     // eg:

@@ -49,7 +49,7 @@ public class PasswordPolicyManager implements Writable {
             // When upgrading from old Doris version(before v1.2), there may be not entry in this manager.
             // create and return a default one.
             // The following logic is just to handle some concurrent issue.
-            PasswordPolicy policy = PasswordPolicy.createDefault(userIdent);
+            PasswordPolicy policy = PasswordPolicy.createDefault();
             passwordPolicy = policyMap.putIfAbsent(userIdent, policy);
             if (passwordPolicy == null) {
                 passwordPolicy = policy;

@@ -347,6 +347,8 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
         public List<BackupCatalogInfo> catalogList = Lists.newArrayList();
         @SerializedName("workload_group_list")
         public List<BackupWorkloadGroupInfo> workloadGroupList = Lists.newArrayList();
+        @SerializedName("sqls")
+        public String sqls = null;
 
         public static BriefBackupJobInfo fromBackupJobInfo(BackupJobInfo backupJobInfo) {
             BriefBackupJobInfo briefBackupJobInfo = new BriefBackupJobInfo();
@@ -398,6 +400,8 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
                     backupWorkloadGroupInfo.name = workloadGroup.getName();
                     briefBackupJobInfo.workloadGroupList.add(backupWorkloadGroupInfo);
                 }
+                // sqls
+                briefBackupJobInfo.sqls = backupGlobalInfo.getSqls();
             }
 
             return briefBackupJobInfo;
