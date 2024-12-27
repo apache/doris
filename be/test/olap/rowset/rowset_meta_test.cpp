@@ -115,7 +115,7 @@ TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
 }
 
 TEST_F(RowsetMetaTest, TestRowsetIdInit) {
-    RowsetId id{};
+    RowsetId id {};
     config::force_regenerate_rowsetid_on_start_error = true;
     std::string_view rowset_id_str = "test";
     id.init(rowset_id_str);
