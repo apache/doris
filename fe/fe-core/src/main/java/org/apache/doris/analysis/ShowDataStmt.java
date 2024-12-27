@@ -232,8 +232,7 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             // admin users can see all temporary tables no matter they are created by which session
             if (!isAdmin) {
                 // non admin user can only see temporary tables in current session
-                if (table.isTemporary() && Util.getTempTableSessionId(table.getName())
-                        != ConnectContext.get().getSessionId()) {
+                if (table.isTemporary() && !Util.isTempTableInCurrentSession(table.getName())) {
                     continue;
                 }
             }
