@@ -1581,7 +1581,7 @@ public class Config extends ConfigBase {
      * two clusters must be the same.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean restore_reset_index_id = true;
+    public static boolean restore_reset_index_id = false;
 
     /**
      * Control the max num of tablets per backup job involved.
