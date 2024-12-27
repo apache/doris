@@ -668,7 +668,7 @@ private:
     bool _single_field = true;
     // Since _index_writer's write.lock is created by _dir.lockFactory,
     // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
-    std::shared_ptr<DorisFSDirectory> _dir = nullptr;
+    DorisFSDirectory* _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
