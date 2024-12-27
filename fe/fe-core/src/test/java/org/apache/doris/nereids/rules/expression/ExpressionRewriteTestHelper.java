@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -131,6 +132,8 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
                 return BooleanType.INSTANCE;
             case 'C':
                 return DateV2Type.INSTANCE;
+            case 'A':
+                return DateTimeV2Type.SYSTEM_DEFAULT;
             case 'M':
                 return DecimalV3Type.SYSTEM_DEFAULT;
             default:
