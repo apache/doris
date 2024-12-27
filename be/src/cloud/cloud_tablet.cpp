@@ -717,6 +717,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update() &&
         rowset_writer->num_rows() > 0) {
+        DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.update_tmp_rowset.error", {
+            return Status::InternalError<false>("injected update_tmp_rowset error.");
+        });
         const auto& rowset_meta = rowset->rowset_meta();
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
     }
@@ -869,9 +872,6 @@ Status CloudTablet::sync_meta() {
             // TODO(Lchangliang): recycle_resources_by_self();
         }
         return st;
-    }
-    if (tablet_meta->tablet_state() != TABLET_RUNNING) { // impossible
-        return Status::InternalError("invalid tablet state. tablet_id={}", tablet_id());
     }
 
     auto new_ttl_seconds = tablet_meta->ttl_seconds();

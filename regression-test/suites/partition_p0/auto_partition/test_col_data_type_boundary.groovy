@@ -71,7 +71,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -104,7 +104,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -137,7 +137,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -170,7 +170,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -244,7 +244,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -272,7 +272,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -301,7 +301,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -330,7 +330,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -358,7 +358,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 
@@ -386,7 +386,7 @@ suite("test_col_data_type_boundary") {
         if (isClusterKeyEnabled()) {
             assertTrue(e.getMessage().contains("Can not modify "))
         } else {
-            assertTrue(e.getMessage().contains("Can not modify partition column"))
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
         }
     }
 

@@ -435,6 +435,8 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setNullFormat(HiveProperties.getNullFormat(table));
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
+            fileAttributes.setEnableTextValidateUtf8(
+                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set set properties of OpenCSVSerde
@@ -451,6 +453,8 @@ public class HiveScanNode extends FileQueryScanNode {
             if (textParams.isSetEnclose()) {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
+            fileAttributes.setEnableTextValidateUtf8(
+                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hive.hcatalog.data.JsonSerDe")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             textParams.setColumnSeparator("\t");

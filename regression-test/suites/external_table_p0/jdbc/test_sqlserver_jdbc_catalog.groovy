@@ -81,6 +81,7 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
         order_qt_desc_timestamp """desc dbo.test_timestamp; """
         order_qt_query_timestamp """select count(timestamp_col) from dbo.test_timestamp; """
 
+        order_qt_all_types_tvf """ select * from query('catalog' = '${catalog_name}', 'query' = 'select * from all_type;') order by 1"""
 
         sql """ drop catalog if exists ${catalog_name} """
 
