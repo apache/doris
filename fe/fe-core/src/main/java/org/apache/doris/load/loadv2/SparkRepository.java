@@ -54,6 +54,7 @@ import java.util.Optional;
  *   * __archive_3_2_0/
  *     * ...
  */
+@Deprecated
 public class SparkRepository {
     private static final Logger LOG = LogManager.getLogger(SparkRepository.class);
 
