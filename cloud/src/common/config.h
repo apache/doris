@@ -226,9 +226,6 @@ CONF_mInt64(max_num_aborted_txn, "100");
 
 CONF_Bool(enable_check_instance_id, "true");
 
-// FE type force change from FE_MASTER to FE_FOLLOWER
-CONF_Bool(force_change_to_multi_follower_mode, "true");
-
 // Check if ip eq 127.0.0.1, ms/recycler exit
-CONF_Bool(disable_loopback_address_for_ms, "true");
+CONF_Bool(enable_check_loopback_address_for_ms, "true");
 } // namespace doris::cloud::config

@@ -60,12 +60,12 @@ suite('test_ms_api', 'p0, docker') {
         }
     }
     
-    // curl "175.43.101.1:5000/MetaService/http/v1/injection_point?token=greedisgood9999&op=set&name=resource_manager::set_safe_drop_time&behavior=set&value=60000"
+    // curl "175.43.101.1:5000/MetaService/http/v1/injection_point?token=greedisgood9999&op=set&name=resource_manager::set_safe_drop_time&behavior=change_args&value=[-1]"
     def inject_to_ms_api = { msHttpPort, key, value, check_func ->
         httpTest {
             op "get"
             endpoint msHttpPort
-            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=set&value=${value}"
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=change_args&value=${value}"
             check check_func
         }
     }
@@ -1049,12 +1049,6 @@ suite('test_ms_api', 'p0, docker') {
             ]
     }
     
-    clusterOptions[0].msConfigs += [
-        'force_change_to_multi_follower_mode=false',
-    ]
-    clusterOptions[1].msConfigs += [
-        'force_change_to_multi_follower_mode=true',
-    ]
 
     for (def i = 0; i < clusterOptions.size(); i++) {
         // 1. Test that a node cannot be repeatedly added to multiple clusters
@@ -1192,7 +1186,7 @@ suite('test_ms_api', 'p0, docker') {
             def feNode5 = [cloud_unique_id: "${cloudUniqueId}", ip : "${ip5}", edit_log_port: "${edit_log_port}", node_type:"FE_OBSERVER"]
             def feNode6 = [cloud_unique_id: "${cloudUniqueId}", ip : "${ip6}", edit_log_port: "${edit_log_port}", node_type:"FE_FOLLOWER"]
             def addNodesClusterFailed = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNode4, feNode5, feNode6]]
-            def dropAllFeNodesFailed = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNodeMap1, feNodeMap2, feNodeMap3, feNode4, feNode5, feNode6]]
+            def dropAllFeNodesFailed = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNodeMap1, feNodeMap2, feNodeMap3, feNode5, feNode6]]
             def addNodesClusterSucc = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNode5, feNode6]]
             def addNodesFailedBody = [instance_id: "${instance_id}", cluster: addNodesClusterFailed]
             def dropAllFeNodesClusterBody = [instance_id: "${instance_id}", cluster: dropAllFeNodesFailed]
@@ -1205,33 +1199,24 @@ suite('test_ms_api', 'p0, docker') {
             add_node_api.call(msHttpPort, addSomeFENodesFailed) {
                 respCode, body ->
                     json = parseJson(body)
-                    if (i == 0) {
-                        // failed, due to two master node
-                        // if force_change_to_multi_follower_mode == false, check type not changed, FE_MASTER
-                        log.info("add some fe failed nodes http cli result: ${body} ${respCode} ${json}".toString())
-                        assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
-                        assertTrue(json.msg.contains("instance invalid, cant modify, plz check"))
-                    } else if (i == 1) {
-                        // if force_change_to_multi_follower_mode == true, check type changed, FE_FOLLOWER 
-                        // in add node api params, fe4 node type has been changed from FE_MASTER to FE_FOLLOWER
-                        assertTrue(json.code.equalsIgnoreCase("OK"))
-                    }
+                    // failed, due to two master node
+                    // if force_change_to_multi_follower_mode == false, check type not changed, FE_MASTER
+                    log.info("add some fe failed nodes http cli result: ${body} ${respCode} ${json}".toString())
+                    assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
+                    assertTrue(json.msg.contains("instance invalid, cant modify, plz check"))
             }
 
-            if (i == 0) {
-                // i == 1, line 1209 has succ added
-                add_node_api.call(msHttpPort, addSomeFENodesSucc) {
-                    respCode, body ->
-                        json = parseJson(body)
-                        log.info("add some fe nodes http cli result: ${body} ${respCode} ${json}".toString())
-                        assertTrue(json.code.equalsIgnoreCase("OK"))
-                }
+            add_node_api.call(msHttpPort, addSomeFENodesSucc) {
+                respCode, body ->
+                    json = parseJson(body)
+                    log.info("add some fe nodes http cli result: ${body} ${respCode} ${json}".toString())
+                    assertTrue(json.code.equalsIgnoreCase("OK"))
             }
 
             // inject point, to change MetaServiceImpl_get_cluster_set_config
-            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", -1) {
-            respCode, body ->
-                log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
+            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", URLEncoder.encode('[-1]', "UTF-8")) {
+                respCode, body ->
+                    log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
             }
 
             enable_ms_inject_api.call(msHttpPort) {
@@ -1239,14 +1224,12 @@ suite('test_ms_api', 'p0, docker') {
                 log.info("enable inject resp: ${body} ${respCode}".toString()) 
             }
 
-            if (i == 1) {
-                drop_node_api.call(msHttpPort, dropAllFeNodesFailedJson) {
-                    respCode, body ->
-                        json = parseJson(body)
-                        log.info("drop all fe nodes failed http cli result: ${body} ${respCode} ${json}".toString())
-                        assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
-                        assertTrue(json.msg.contains("instance invalid, cant modify, plz check")) 
-                }
+            drop_node_api.call(msHttpPort, dropAllFeNodesFailedJson) {
+                respCode, body ->
+                    json = parseJson(body)
+                    log.info("drop all fe nodes failed http cli result: ${body} ${respCode} ${json}".toString())
+                    assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
+                    assertTrue(json.msg.contains("instance invalid, cant modify, plz check")) 
             }
 
             get_instance_api.call(msHttpPort, instance_id) {
@@ -1270,17 +1253,8 @@ suite('test_ms_api', 'p0, docker') {
                     log.info("find it node fe6: ${followerFeNode}")
                     assertNotNull(checkFENode)
                     assertNotNull(followerFeNode)
-                    if (i == 0) {
-                        // if force_change_to_multi_follower_mode == false, check type not changed, FE_MASTER
-                        assertEquals("FE_MASTER", checkFENode.node_type)
-                        assertEquals("FE_FOLLOWER", followerFeNode.node_type)
-                    } else if (i == 1) {
-                        // if force_change_to_multi_follower_mode == true, check type changed, FE_FOLLOWER
-                        // check FE_MASTER type has been force changed to FE_FOLLOWER
-                        // registe FE_MASTER
-                        assertEquals("FE_FOLLOWER", checkFENode.node_type)
-                        assertEquals("FE_FOLLOWER", followerFeNode.node_type)
-                    }
+                    assertEquals("FE_MASTER", checkFENode.node_type)
+                    assertEquals("FE_FOLLOWER", followerFeNode.node_type)
             }
         }
     }
@@ -1297,9 +1271,6 @@ suite('test_ms_api', 'p0, docker') {
     optionsForUpgrade.setFeNum(1)
     optionsForUpgrade.setBeNum(1)
     optionsForUpgrade.cloudMode = true
-    optionsForUpgrade.msConfigs += [
-        'force_change_to_multi_follower_mode=false',
-    ]
 
     docker(optionsForUpgrade) {
         def ms = cluster.getAllMetaservices().get(0)
@@ -1371,11 +1342,6 @@ suite('test_ms_api', 'p0, docker') {
                 assertEquals("FE_MASTER", checkMasterNode.node_type)
         }
 
-        // inject point, to change MetaServiceImpl_get_cluster_set_config
-        inject_to_ms_api.call(msHttpPort, "MetaServiceImpl_get_cluster_set_config", 1) {
-           respCode, body ->
-               log.info("inject MetaServiceImpl_get_cluster_set_config resp: ${body} ${respCode}".toString()) 
-        }
 
         enable_ms_inject_api.call(msHttpPort) {
             respCode, body ->
@@ -1396,7 +1362,7 @@ suite('test_ms_api', 'p0, docker') {
                     it.ip == ip1
                 }
                 assertNotNull(checkFollowerNode) 
-                assertEquals("FE_FOLLOWER", checkFollowerNode.node_type)
+                assertEquals("FE_MASTER", checkFollowerNode.node_type)
         }
 
         // check instance
@@ -1415,7 +1381,7 @@ suite('test_ms_api', 'p0, docker') {
                     it.ip == ip1
                 }
                 assertNotNull(checkFollowerNode) 
-                assertEquals("FE_FOLLOWER", checkFollowerNode.node_type)
+                assertEquals("FE_MASTER", checkFollowerNode.node_type)
         } 
 
         // 4. Test use HTTP API add fe, drop fe node in protection time failed, excced protection time succ
@@ -1463,14 +1429,14 @@ suite('test_ms_api', 'p0, docker') {
         }
 
         // inject point, to change MetaServiceImpl_get_cluster_set_config
-        inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", -1) {
-           respCode, body ->
-               log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
+        inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", URLEncoder.encode('[-1]', "UTF-8")) {
+            respCode, body ->
+                log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
         }
 
         enable_ms_inject_api.call(msHttpPort) {
             respCode, body ->
-               log.info("enable inject resp: ${body} ${respCode}".toString()) 
+                log.info("enable inject resp: ${body} ${respCode}".toString()) 
         }
 
         // after inject, drop fe node, drop fe cluster all succ
@@ -1562,19 +1528,17 @@ suite('test_ms_api', 'p0, docker') {
     optionsForMs.setBeNum(1)
     optionsForMs.setMsNum(2)
     optionsForMs.cloudMode = true
-    optionsForMs.msConfigs += [
-        'disable_loopback_address_for_ms=false',
-    ]
+
     docker(optionsForMs) {
         log.info("in test ms docker env")
         def mss = cluster.getAllMetaservices()
         cluster.addRWPermToAllFiles()
         def ms2 = cluster.getMetaservices().get(1)
+        assertNotNull(ms2)
         // change ms2 conf, and restart it
         def confFile = ms2.getConfFilePath()
         log.info("ms2 conf file: {}", confFile)
         def writer = new PrintWriter(new FileWriter(confFile, true))  // true 表示 append 模式
-        writer.println("disable_loopback_address_for_ms=true")
         writer.println("priority_networks=127.0.0.1/32")
         writer.flush()
         writer.close()

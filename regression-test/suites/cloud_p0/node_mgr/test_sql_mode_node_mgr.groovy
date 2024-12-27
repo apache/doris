@@ -63,7 +63,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
         httpTest {
             op "get"
             endpoint msHttpPort
-            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=set&value=${value}"
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=change_args&value=${value}"
             check check_func
         }
     }
@@ -92,7 +92,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             def ms = cluster.getAllMetaservices().get(0)
             def msHttpPort = ms.host + ":" + ms.httpPort
             // inject point, to change MetaServiceImpl_get_cluster_set_config
-            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", -1) {
+            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", URLEncoder.encode('[-1]', "UTF-8")) {
             respCode, body ->
                 log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
             }

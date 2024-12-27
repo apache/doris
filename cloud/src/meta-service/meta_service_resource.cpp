@@ -2012,14 +2012,6 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         for (auto& n : request->cluster().nodes()) {
             NodeInfo node;
             node.instance_id = request->instance_id();
-            // add fe node, force change type FE_MASTER to FE_FOLLOWER
-            if (config::force_change_to_multi_follower_mode && n.has_node_type() &&
-                n.node_type() == NodeInfoPB::FE_MASTER) {
-                auto& mutable_node = const_cast<std::decay_t<decltype(n)>&>(n);
-                mutable_node.set_node_type(NodeInfoPB::FE_FOLLOWER);
-                LOG(INFO) << "add fe master node, force change it to follwer type, n="
-                          << mutable_node.DebugString();
-            }
             node.node_info = n;
             node.cluster_id = request->cluster().cluster_id();
             node.cluster_name = request->cluster().cluster_name();
@@ -2412,28 +2404,6 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             if ((c.has_cluster_name() && c.cluster_name() == cluster_name) ||
                 (c.has_cluster_id() && c.cluster_id() == cluster_id) ||
                 mysql_users.count(mysql_user_name)) {
-                // stock master-observers auto change to multi-followers
-                int64_t config_need_change =
-                        config::force_change_to_multi_follower_mode == true ? 1 : 0;
-                TEST_SYNC_POINT_CALLBACK("MetaServiceImpl_get_cluster_set_config",
-                                         &config_need_change);
-                if (config_need_change && c.type() == ClusterPB::SQL) {
-                    for (auto& node : c.nodes()) {
-                        if (node.node_type() == NodeInfoPB::FE_MASTER) {
-                            auto& mutable_node = const_cast<std::decay_t<decltype(node)>&>(node);
-                            auto now_time = std::chrono::system_clock::now();
-                            uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
-                                                    now_time.time_since_epoch())
-                                                    .count();
-                            mutable_node.set_mtime(time);
-                            mutable_node.set_node_type(NodeInfoPB::FE_FOLLOWER);
-                            is_instance_changed = true;
-                            LOG(INFO) << "enable force change master-observers mode to "
-                                         "multi-followers, so change FE type to FE_FOLLOWER, node="
-                                      << mutable_node.DebugString();
-                        }
-                    }
-                }
                 // just one cluster
                 response->add_cluster()->CopyFrom(c);
                 LOG_EVERY_N(INFO, 100) << "found a cluster, instance_id=" << instance.instance_id()

@@ -163,7 +163,7 @@ std::string get_local_ip(const std::string& priority_networks) {
     std::string localhost_str = butil::my_ip_cstr();
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&localhost_str](int*) {
         // Check if ip eq 127.0.0.1, ms/recycler exit
-        if (config::disable_loopback_address_for_ms && "127.0.0.1" == localhost_str) {
+        if (config::enable_check_loopback_address_for_ms && "127.0.0.1" == localhost_str) {
             LOG(WARNING) << "enable check prohibit use loopback addr, but localhost="
                          << localhost_str
                          << ", so exit(-1), please use priority network CIDR to set non-loopback "

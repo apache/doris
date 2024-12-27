@@ -399,14 +399,6 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
         auto& node = const_cast<std::decay_t<decltype(n)>&>(n);
         node.set_ctime(time);
         node.set_mtime(time);
-        // add cluster, force modify FE_MASTER to FE_FOLLOWER,
-        // Incremental logic modification, stock compatibility
-        if (config::force_change_to_multi_follower_mode && req_cluster.has_type() &&
-            ClusterPB::SQL == req_cluster.type() && node.has_node_type() &&
-            NodeInfoPB::FE_MASTER == node.node_type()) {
-            LOG(INFO) << "change to multi follower mode, force modify FE_MASTER to FE_FOLLOWER";
-            node.set_node_type(NodeInfoPB::FE_FOLLOWER);
-        }
         // Check duplicated nodes, one node cannot deploy on multiple clusters
         // diff instance_cluster's nodes and req_cluster's nodes
         for (auto& n : req_cluster.nodes()) {
