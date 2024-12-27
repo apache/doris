@@ -196,6 +196,14 @@ supportedCreateStatement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
+    | CREATE STORAGE POLICY (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createStoragePolicy
+    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                          #buildIndex
+    | CREATE INDEX (IF NOT EXISTS)? name=identifier
+        ON tableName=multipartIdentifier identifierList
+        (USING (BITMAP | NGRAM_BF | INVERTED))?
+        properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                        #createSqlBlockRule
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
@@ -239,7 +247,7 @@ supportedDropStatement
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     | DROP REPOSITORY name=identifier                                           #dropRepository
-
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     ;
 
 supportedShowStatement
@@ -700,7 +708,6 @@ unsupportedDropStatement
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
     | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
-    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
@@ -766,10 +773,6 @@ unsupportedCreateStatement
         (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
         passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE INDEX (IF NOT EXISTS)? name=identifier
-        ON tableName=multipartIdentifier identifierList
-        (USING (BITMAP | NGRAM_BF | INVERTED))?
-        properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
@@ -778,10 +781,6 @@ unsupportedCreateStatement
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
         (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
         properties=propertyClause?                                              #createWorkloadPolicy
-    | CREATE STORAGE POLICY (IF NOT EXISTS)?
-        name=identifier properties=propertyClause?                              #createStoragePolicy
-    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
-        partitionSpec?                                                          #buildIndex
     | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
     ;
 
