@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
@@ -493,10 +494,16 @@ public class LoadManager implements Writable {
      * Only for those jobs which have etl state, like SparkLoadJob.
      **/
     public void processEtlStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
+        idToLoadJob.values().stream()
+                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.INGESTION)
+                        && job.state == JobState.ETL))
                 .forEach(job -> {
                     try {
-                        ((SparkLoadJob) job).updateEtlStatus();
+                        if (job instanceof SparkLoadJob) {
+                            ((SparkLoadJob) job).updateEtlStatus();
+                        } else if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).updateEtlStatus();
+                        }
                     } catch (DataQualityException e) {
                         LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
@@ -514,10 +521,16 @@ public class LoadManager implements Writable {
      * Only for those jobs which load by PushTask.
      **/
     public void processLoadingStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
+        idToLoadJob.values().stream()
+                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.INGESTION)
+                        && job.state == JobState.LOADING))
                 .forEach(job -> {
                     try {
-                        ((SparkLoadJob) job).updateLoadingStatus();
+                        if (job instanceof SparkLoadJob) {
+                            ((SparkLoadJob) job).updateLoadingStatus();
+                        } else if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).updateLoadingStatus();
+                        }
                     } catch (UserException e) {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
@@ -568,8 +581,8 @@ public class LoadManager implements Writable {
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
      * @param statesValue   used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     *         The result is unordered.
+     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     * The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
                                                       Set<String> statesValue) throws AnalysisException {
@@ -987,4 +1000,29 @@ public class LoadManager implements Writable {
         loadJobScheduler.submitJob(loadJob);
         return loadJob.getId();
     }
+
+    public long createIngestionLoadJob(String dbName, String label, List<String> tableNames,
+                                       Map<String, String> properties,
+                                       UserIdentity userInfo)
+            throws DdlException, LoadException {
+        Database db = checkDb(dbName);
+        long dbId = db.getId();
+        LoadJob loadJob;
+        writeLock();
+        try {
+            checkLabelUsed(dbId, label);
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException("There are more than " + Config.desired_max_waiting_jobs
+                        + " unfinished load jobs, please retry later. You can use `SHOW LOAD` to view submitted jobs");
+            }
+            loadJob = new IngestionLoadJob(dbId, label, tableNames, userInfo);
+            loadJob.setJobProperties(properties);
+            createLoadJob(loadJob);
+        } finally {
+            writeUnlock();
+        }
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+        return loadJob.getId();
+    }
+
 }
