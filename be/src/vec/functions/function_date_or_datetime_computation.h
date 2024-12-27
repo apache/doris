@@ -75,7 +75,8 @@ ReturnNativeType date_time_add(const InputNativeType& t, Int32 delta, bool& is_n
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = binary_cast<InputNativeType, DateValueType>(t);
     TimeInterval interval(unit, delta, false);
-    if constexpr (std::is_same_v<ArgType, ReturnType>) {
+    if constexpr (std::is_same_v<VecDateTimeValue, DateValueType> ||
+                  std::is_same_v<ArgType, ReturnType>) {
         is_null = !(ts_value.template date_add_interval<unit>(interval));
         // here DateValueType = ResultDateValueType
         return binary_cast<DateValueType, ReturnNativeType>(ts_value);
