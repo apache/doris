@@ -3309,4 +3309,6 @@ public class Config extends ConfigBase {
     public static String block_sql_ast_names = "";
 
     public static long ms_rpc_reconn_interval_ms = 20000;
+
+    public static long meta_service_rpc_retry_cnt = 10;
 }
