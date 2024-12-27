@@ -59,8 +59,8 @@ public class MTMVRelationManager implements MTMVHookService {
     // create mv2 as select * from mv1;
     // `tableMTMVs` will have 3 pair: table1 ==> mv1,mv1==>mv2, table1 ==> mv2
     // `tableMTMVsOneLevel` will have 2 pair: table1 ==> mv1,mv1==>mv2
-    private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
-    private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevel = Maps.newConcurrentMap();
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevel = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
@@ -96,6 +96,23 @@ public class MTMVRelationManager implements MTMVHookService {
             }
         }
         return res;
+    }
+
+    /**
+     * get all mtmv related to tableInfos.
+     */
+    public Set<MTMV> getAllMTMVs(List<BaseTableInfo> tableInfos) {
+        Set<MTMV> mtmvs = Sets.newLinkedHashSet();
+        Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
+        for (BaseTableInfo tableInfo : mvInfos) {
+            try {
+                mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
+            } catch (AnalysisException e) {
+                // not throw exception to client, just ignore it
+                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
+            }
+        }
+        return mtmvs;
     }
 
     @VisibleForTesting

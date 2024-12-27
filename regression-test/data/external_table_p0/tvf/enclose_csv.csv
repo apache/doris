@@ -1,0 +1,6 @@
+id, field1, field2
+"1", "hello", "same, field"
+"2", "doris", "same, field2"
+"3", "nereids", "same, field3"
+"4", "pipeline", "same, field4"
+"5", "storage", "same, field5"

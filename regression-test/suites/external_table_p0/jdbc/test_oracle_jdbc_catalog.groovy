@@ -159,6 +159,8 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         // test select all types
         order_qt_select_all_types """select * from ${test_all_types}; """
 
+        order_qt_select_all_types_tvf """select * from query('catalog' = '${catalog_name}', 'query' ='select * from ${test_all_types}') order by 1; """
+
         // test test ctas
         sql """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}

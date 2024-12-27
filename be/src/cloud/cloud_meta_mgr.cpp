@@ -143,6 +143,10 @@ public:
     }
 
 private:
+    static bool is_meta_service_endpoint_list() {
+        return config::meta_service_endpoint.find(',') != std::string::npos;
+    }
+
     static Status get_pooled_client(std::shared_ptr<MetaService_Stub>* stub) {
         static std::once_flag proxies_flag;
         static size_t num_proxies = 1;
@@ -153,9 +157,6 @@ private:
                 proxies_flag, +[]() {
                     if (config::meta_service_connection_pooled) {
                         num_proxies = config::meta_service_connection_pool_size;
-                    }
-                    if (config::meta_service_endpoint.find(',') != std::string::npos) {
-                        is_meta_service_endpoint_list = true;
                     }
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
                 });
@@ -175,7 +176,7 @@ private:
 
         const char* load_balancer_name = nullptr;
         std::string endpoint;
-        if (is_meta_service_endpoint_list) {
+        if (is_meta_service_endpoint_list()) {
             endpoint = fmt::format("list://{}", config::meta_service_endpoint);
             load_balancer_name = "random";
         } else {
@@ -215,7 +216,7 @@ private:
     bool is_idle_timeout(long now) {
         auto idle_timeout_ms = config::meta_service_idle_connection_timeout_ms;
         // idle timeout only works without list endpoint.
-        return !is_meta_service_endpoint_list && idle_timeout_ms > 0 &&
+        return !is_meta_service_endpoint_list() && idle_timeout_ms > 0 &&
                _last_access_at_ms.load(std::memory_order_relaxed) + idle_timeout_ms < now;
     }
 
@@ -243,7 +244,7 @@ private:
 
         long deadline = now;
         // connection age only works without list endpoint.
-        if (!is_meta_service_endpoint_list &&
+        if (!is_meta_service_endpoint_list() &&
             config::meta_service_connection_age_base_seconds > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
@@ -262,15 +263,11 @@ private:
         return Status::OK();
     }
 
-    static std::atomic_bool is_meta_service_endpoint_list;
-
     std::shared_mutex _mutex;
     std::atomic<long> _last_access_at_ms {0};
     long _deadline_ms {0};
     std::shared_ptr<MetaService_Stub> _stub;
 };
-
-std::atomic_bool MetaServiceProxy::is_meta_service_endpoint_list = false;
 
 template <typename T, typename... Ts>
 struct is_any : std::disjunction<std::is_same<T, Ts>...> {};

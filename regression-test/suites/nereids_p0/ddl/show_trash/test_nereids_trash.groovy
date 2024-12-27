@@ -20,6 +20,10 @@ suite("show_trash_nereids") {
     checkNereidsExecute("""show trash;""")
     checkNereidsExecute("""show trash on "127.0.0.1:9050";""")
 
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
     checkNereidsExecute("""ADMIN CLEAN TRASH;""")
     checkNereidsExecute("""ADMIN CLEAN TRASH ON ("127.0.0.1:9050");""")
     checkNereidsExecute("""ADMIN CLEAN TRASH ON ("192.168.0.1:9050", "192.168.0.2:9050", "192.168.0.3:9050");""")

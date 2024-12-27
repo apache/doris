@@ -506,7 +506,8 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column =
+                check_and_get_column<vectorized::ColumnConst>(src_column_ptr.get())) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -530,7 +531,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             dst_values.resize_fill(rows, value);
         }
     } else if (const auto* src_nullable_column =
-                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
+                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr.get())) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();
         dst_values.reserve(rows);

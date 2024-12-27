@@ -31,6 +31,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 class TDataSink;
 
@@ -204,7 +205,6 @@ public:
     // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
     // (Note: This does not reduce the total number of RPCs.)
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
-    /// TODO: Modify this to let FE handle the judgment instead of BE.
     std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(InstanceLoId sender_ins_id);
     vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
@@ -259,8 +259,12 @@ private:
     size_t _data_processed = 0;
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
+    // If dest_is_merge is true, it indicates that the corresponding receiver is a VMERGING-EXCHANGE.
+    // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
+    const bool _dest_is_merge;
     const std::vector<TUniqueId>& _fragment_instance_ids;
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

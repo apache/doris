@@ -79,7 +79,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
         return dst_logical_column;
     }
 
-    if (_cached_src_physical_column == nullptr) {
+    if (!_cached_src_physical_column) {
         switch (src_physical_type) {
         case tparquet::Type::type::BOOLEAN:
             _cached_src_physical_type = std::make_shared<DataTypeUInt8>();

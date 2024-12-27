@@ -116,7 +116,7 @@ suite("test_base_insert_job") {
 
     def taskStatus = sql """select status from tasks("type"="insert") where JobName ='${jobName}'"""
     for (int i = 0; i < taskStatus.size(); i++) {
-        assert taskStatus.get(i).get(0) =="CANCELLED" || taskStatus.get(i).get(0) =="FINISHED"
+        assert taskStatus.get(i).get(0) =="CANCELED" || taskStatus.get(i).get(0) =="SUCCESS"
     }
     sql """
        CREATE JOB ${jobMixedName}  ON SCHEDULE every 1 second  DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
@@ -168,7 +168,7 @@ suite("test_base_insert_job") {
     // table should have one record after job finished
     assert datas.size() == 1
     // one time job only has one task. when job finished, task status should be FINISHED
-    assert datas.get(0).get(0) == "FINISHED"
+    assert datas.get(0).get(0) == "SUCCESS"
     // check table data
     def dataCount1 = sql """select count(1) from ${tableName} where user_id=1001"""
     assert dataCount1.get(0).get(0) == 1
@@ -190,6 +190,11 @@ suite("test_base_insert_job") {
         // check job status and succeed task count is 1
         pressJob.size() == 1 && '1' == onceJob.get(0).get(0)
     })
+    assertThrows(Exception) {
+        sql """
+        RESUME JOB where jobName='press'
+    """
+    }
 
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
@@ -299,12 +304,10 @@ suite("test_base_insert_job") {
         assert e.getMessage().contains("Invalid interval time unit: years")
     }
     // assert interval time unit is -1
-    try {
+    assertThrows(Exception) {
         sql """
             CREATE JOB test_error_starts  ON SCHEDULE every -1 second    comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
-    } catch (Exception e) {
-        assert e.getMessage().contains("expecting INTEGER_VALUE")
     }
 
     // test keyword as job name

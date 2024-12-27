@@ -42,7 +42,7 @@ public abstract class CryptoFunction extends ScalarFunction
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         List<String> args = Lists.newArrayList();
         for (int i = 0; i < arity(); i++) {
             if (i == 1) {

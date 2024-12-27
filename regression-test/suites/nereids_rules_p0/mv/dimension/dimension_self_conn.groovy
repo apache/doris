@@ -305,7 +305,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
 
     // agg
     // agg + without group by + with agg function
-    agg_mv_stmt = """
+    def agg_mv_stmt = """
         select t2.o_orderkey, 
         sum(t1.O_TOTALPRICE) as sum_total,
         max(t1.o_totalprice) as max_total, 
