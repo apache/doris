@@ -108,6 +108,22 @@ suite("test_analyze_mv") {
         assertTrue(found)
     }
 
+    def stats_dropped = { table ->
+        def result1 = sql """show column cached stats $table"""
+        def result2 = sql """show column stats $table"""
+        boolean dropped = false
+        for (int i = 0; i < 120; i++) {
+            if (0 == result1.size() && 0 == result2.size()) {
+                dropped = true;
+                break;
+            }
+            Thread.sleep(1000)
+            result1 = sql """show column cached stats $table"""
+            result2 = sql """show column stats $table"""
+        }
+        assertTrue(dropped)
+    }
+
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
@@ -674,6 +690,7 @@ suite("test_analyze_mv") {
     // * Test row count report and report for nereids
     sql """truncate table mvTestDup"""
     result_row = sql """show index stats mvTestDup mv3"""
+    stats_dropped("mvTestDup")
     assertEquals(1, result_row.size())
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mv3", result_row[0][1])

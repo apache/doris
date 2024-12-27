@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -68,11 +69,13 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -137,6 +140,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
@@ -310,6 +314,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(callCommand, context);
     }
 
+    default R visitShowWarningErrorCountCommand(ShowWarningErrorCountCommand showWarnErrorCountCommand, C context) {
+        return visitCommand(showWarnErrorCountCommand, context);
+    }
+
     default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
         return visitCommand(showSyncJobCommand, context);
     }
@@ -336,6 +344,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateProcedureCommand(ShowCreateProcedureCommand showCreateProcedureCommand, C context) {
         return visitCommand(showCreateProcedureCommand, context);
+    }
+
+    default R visitHelpCommand(HelpCommand helpCommand, C context) {
+        return visitCommand(helpCommand, context);
     }
 
     default R visitCreateViewCommand(CreateViewCommand createViewCommand, C context) {
@@ -407,6 +419,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(setDefaultStorageVaultCommand, context);
     }
 
+    default R visitDropStoragePolicyCommand(DropStoragePolicyCommand dropStoragePolicyCommand, C context) {
+        return visitCommand(dropStoragePolicyCommand, context);
+    }
+
     default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
         return visitCommand(refreshCatalogCommand, context);
     }
@@ -417,6 +433,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
         return visitCommand(showLastInsertCommand, context);
+    }
+
+    default R visitAlterTableCommand(AlterTableCommand alterTableCommand, C context) {
+        return visitCommand(alterTableCommand, context);
     }
 
     default R visitShowGrantsCommand(ShowGrantsCommand showGrantsCommand, C context) {

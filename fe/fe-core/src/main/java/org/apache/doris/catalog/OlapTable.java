@@ -265,22 +265,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String.valueOf(isBeingSynced));
     }
 
-    public void setStorageVaultName(String storageVaultName) throws DdlException {
-        if (storageVaultName == null || storageVaultName.isEmpty()) {
-            return;
-        }
-        getOrCreatTableProperty().setStorageVaultName(storageVaultName);
-    }
-
     public String getStorageVaultName() {
-        return getOrCreatTableProperty().getStorageVaultName();
+        if (Strings.isNullOrEmpty(getStorageVaultId())) {
+            return "";
+        }
+        return Env.getCurrentEnv().getStorageVaultMgr().getVaultNameById(getStorageVaultId());
     }
 
-    public void setStorageVaultId(String setStorageVaultId) throws DdlException {
-        if (setStorageVaultId == null || setStorageVaultId.isEmpty()) {
-            throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+    public void setStorageVaultId(String storageVaultId) throws DdlException {
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new DdlException("Invalid storage vault id, please set an available storage vault");
         }
-        getOrCreatTableProperty().setStorageVaultId(setStorageVaultId);
+        getOrCreatTableProperty().setStorageVaultId(storageVaultId);
     }
 
     public String getStorageVaultId() {
@@ -1382,12 +1378,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     // get only temp partitions
-    public Collection<Partition> getAllTempPartitions() {
+    public List<Partition> getAllTempPartitions() {
         return tempPartitions.getAllPartitions();
     }
 
     // get all partitions including temp partitions
-    public Collection<Partition> getAllPartitions() {
+    public List<Partition> getAllPartitions() {
         List<Partition> partitions = Lists.newArrayList(idToPartition.values());
         partitions.addAll(tempPartitions.getAllPartitions());
         return partitions;

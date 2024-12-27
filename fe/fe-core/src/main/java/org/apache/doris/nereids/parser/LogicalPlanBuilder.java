@@ -20,6 +20,7 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.PassVar;
@@ -49,7 +50,12 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.AddColumnClauseContext;
+import org.apache.doris.nereids.DorisParser.AddColumnsClauseContext;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
+import org.apache.doris.nereids.DorisParser.AddIndexClauseContext;
+import org.apache.doris.nereids.DorisParser.AddPartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.AddRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.AdminCancelRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
 import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
@@ -66,19 +72,22 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
+import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
+import org.apache.doris.nereids.DorisParser.AlterTableAddRollupContext;
+import org.apache.doris.nereids.DorisParser.AlterTableClauseContext;
+import org.apache.doris.nereids.DorisParser.AlterTableContext;
+import org.apache.doris.nereids.DorisParser.AlterTableDropRollupContext;
 import org.apache.doris.nereids.DorisParser.AlterViewContext;
 import org.apache.doris.nereids.DorisParser.AlterWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
-import org.apache.doris.nereids.DorisParser.ArrayRangeContext;
 import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BaseTableRefContext;
-import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
@@ -114,27 +123,29 @@ import org.apache.doris.nereids.DorisParser.CreateViewContext;
 import org.apache.doris.nereids.DorisParser.CreateWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
-import org.apache.doris.nereids.DorisParser.DateCeilContext;
-import org.apache.doris.nereids.DorisParser.DateFloorContext;
-import org.apache.doris.nereids.DorisParser.Date_addContext;
-import org.apache.doris.nereids.DorisParser.Date_subContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
+import org.apache.doris.nereids.DorisParser.DropColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
+import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
+import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
 import org.apache.doris.nereids.DorisParser.DropRoleContext;
+import org.apache.doris.nereids.DorisParser.DropRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.DropSqlBlockRuleContext;
+import org.apache.doris.nereids.DorisParser.DropStoragePolicyContext;
 import org.apache.doris.nereids.DorisParser.DropUserContext;
 import org.apache.doris.nereids.DorisParser.DropWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.DropWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
+import org.apache.doris.nereids.DorisParser.EnableFeatureClauseContext;
 import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
@@ -145,6 +156,7 @@ import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
+import org.apache.doris.nereids.DorisParser.HelpContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierContext;
@@ -175,6 +187,12 @@ import org.apache.doris.nereids.DorisParser.LoadPropertyContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
+import org.apache.doris.nereids.DorisParser.ModifyColumnClauseContext;
+import org.apache.doris.nereids.DorisParser.ModifyColumnCommentClauseContext;
+import org.apache.doris.nereids.DorisParser.ModifyDistributionClauseContext;
+import org.apache.doris.nereids.DorisParser.ModifyEngineClauseContext;
+import org.apache.doris.nereids.DorisParser.ModifyPartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.ModifyTableCommentClauseContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.MvPartitionContext;
@@ -216,7 +234,14 @@ import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.RelationHintContext;
+import org.apache.doris.nereids.DorisParser.RenameClauseContext;
+import org.apache.doris.nereids.DorisParser.RenameColumnClauseContext;
+import org.apache.doris.nereids.DorisParser.RenamePartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.RenameRollupClauseContext;
+import org.apache.doris.nereids.DorisParser.ReorderColumnsClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceContext;
+import org.apache.doris.nereids.DorisParser.ReplacePartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.ReplaceTableClauseContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
@@ -293,6 +318,7 @@ import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
+import org.apache.doris.nereids.DorisParser.ShowWarningErrorCountContext;
 import org.apache.doris.nereids.DorisParser.ShowWarningErrorsContext;
 import org.apache.doris.nereids.DorisParser.ShowWhitelistContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
@@ -317,8 +343,6 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
-import org.apache.doris.nereids.DorisParser.TimestampaddContext;
-import org.apache.doris.nereids.DorisParser.TimestampdiffContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedContext;
@@ -408,61 +432,18 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDayUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeHourUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMinuteUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMonthUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeSecondUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeWeekUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYearUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -508,6 +489,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -547,12 +529,14 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -617,6 +601,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
@@ -624,16 +609,23 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
@@ -643,7 +635,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
+import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
@@ -652,12 +650,26 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SetCharsetAndCollateVarOp;
@@ -2287,22 +2299,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitBitOperation(BitOperationContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            Expression left = getExpression(ctx.left);
-            Expression right = getExpression(ctx.right);
-            if (ctx.operator.getType() == DorisParser.BITAND) {
-                return new BitAnd(left, right);
-            } else if (ctx.operator.getType() == DorisParser.BITOR) {
-                return new BitOr(left, right);
-            } else if (ctx.operator.getType() == DorisParser.BITXOR) {
-                return new BitXor(left, right);
-            }
-            throw new ParseException(" not supported", ctx);
-        });
-    }
-
-    @Override
     public Expression visitArithmeticBinary(ArithmeticBinaryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression left = getExpression(ctx.left);
@@ -2356,204 +2352,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             });
         });
-    }
-
-    @Override
-    public Expression visitTimestampdiff(TimestampdiffContext ctx) {
-        Expression start = (Expression) visit(ctx.startTimestamp);
-        Expression end = (Expression) visit(ctx.endTimestamp);
-        String unit = ctx.unit.getText();
-        if ("YEAR".equalsIgnoreCase(unit)) {
-            return new YearsDiff(end, start);
-        } else if ("MONTH".equalsIgnoreCase(unit)) {
-            return new MonthsDiff(end, start);
-        } else if ("WEEK".equalsIgnoreCase(unit)) {
-            return new WeeksDiff(end, start);
-        } else if ("DAY".equalsIgnoreCase(unit)) {
-            return new DaysDiff(end, start);
-        } else if ("HOUR".equalsIgnoreCase(unit)) {
-            return new HoursDiff(end, start);
-        } else if ("MINUTE".equalsIgnoreCase(unit)) {
-            return new MinutesDiff(end, start);
-        } else if ("SECOND".equalsIgnoreCase(unit)) {
-            return new SecondsDiff(end, start);
-        }
-        throw new ParseException("Unsupported time stamp diff time unit: " + unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-
-    }
-
-    @Override
-    public Expression visitTimestampadd(TimestampaddContext ctx) {
-        Expression start = (Expression) visit(ctx.startTimestamp);
-        Expression end = (Expression) visit(ctx.endTimestamp);
-        String unit = ctx.unit.getText();
-        if ("YEAR".equalsIgnoreCase(unit)) {
-            return new YearsAdd(end, start);
-        } else if ("MONTH".equalsIgnoreCase(unit)) {
-            return new MonthsAdd(end, start);
-        } else if ("WEEK".equalsIgnoreCase(unit)) {
-            return new WeeksAdd(end, start);
-        } else if ("DAY".equalsIgnoreCase(unit)) {
-            return new DaysAdd(end, start);
-        } else if ("HOUR".equalsIgnoreCase(unit)) {
-            return new HoursAdd(end, start);
-        } else if ("MINUTE".equalsIgnoreCase(unit)) {
-            return new MinutesAdd(end, start);
-        } else if ("SECOND".equalsIgnoreCase(unit)) {
-            return new SecondsAdd(end, start);
-        }
-        throw new ParseException("Unsupported time stamp add time unit: " + unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-
-    }
-
-    @Override
-    public Expression visitDate_add(Date_addContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            //use "DAY" as unit by default
-            return new DaysAdd(timeStamp, amount);
-        }
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearsAdd(timeStamp, amount);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthsAdd(timeStamp, amount);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeeksAdd(timeStamp, amount);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DaysAdd(timeStamp, amount);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HoursAdd(timeStamp, amount);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinutesAdd(timeStamp, amount);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondsAdd(timeStamp, amount);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitArrayRange(ArrayRangeContext ctx) {
-        Expression start = (Expression) visit(ctx.start);
-        Expression end = (Expression) visit(ctx.end);
-        Expression step = (Expression) visit(ctx.unitsAmount);
-
-        String unit = ctx.unit == null ? null : ctx.unit.getText();
-        if (unit != null && !unit.isEmpty()) {
-            if ("Year".equalsIgnoreCase(unit)) {
-                return new ArrayRangeYearUnit(start, end, step);
-            } else if ("Month".equalsIgnoreCase(unit)) {
-                return new ArrayRangeMonthUnit(start, end, step);
-            } else if ("Week".equalsIgnoreCase(unit)) {
-                return new ArrayRangeWeekUnit(start, end, step);
-            } else if ("Day".equalsIgnoreCase(unit)) {
-                return new ArrayRangeDayUnit(start, end, step);
-            } else if ("Hour".equalsIgnoreCase(unit)) {
-                return new ArrayRangeHourUnit(start, end, step);
-            } else if ("Minute".equalsIgnoreCase(unit)) {
-                return new ArrayRangeMinuteUnit(start, end, step);
-            } else if ("Second".equalsIgnoreCase(unit)) {
-                return new ArrayRangeSecondUnit(start, end, step);
-            }
-            throw new ParseException("Unsupported time unit: " + ctx.unit
-                    + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-        } else if (ctx.unitsAmount != null) {
-            return new ArrayRange(start, end, step);
-        } else if (ctx.end != null) {
-            return new ArrayRange(start, end);
-        } else {
-            return new ArrayRange(start);
-        }
-    }
-
-    @Override
-    public Expression visitDate_sub(Date_subContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            //use "DAY" as unit by default
-            return new DaysSub(timeStamp, amount);
-        }
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearsSub(timeStamp, amount);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthsSub(timeStamp, amount);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeeksSub(timeStamp, amount);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DaysSub(timeStamp, amount);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HoursSub(timeStamp, amount);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinutesSub(timeStamp, amount);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondsSub(timeStamp, amount);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitDateFloor(DateFloorContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            // use "SECOND" as unit by default
-            return new SecondFloor(timeStamp, amount);
-        }
-        Expression e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearFloor(timeStamp, amount, e);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthFloor(timeStamp, amount, e);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeekFloor(timeStamp, amount, e);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DayFloor(timeStamp, amount, e);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HourFloor(timeStamp, amount, e);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinuteFloor(timeStamp, amount, e);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondFloor(timeStamp, amount, e);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitDateCeil(DateCeilContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            // use "Second" as unit by default
-            return new SecondCeil(timeStamp, amount);
-        }
-        DateTimeV2Literal e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearCeil(timeStamp, amount, e);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthCeil(timeStamp, amount, e);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeekCeil(timeStamp, amount, e);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DayCeil(timeStamp, amount, e);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HourCeil(timeStamp, amount, e);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinuteCeil(timeStamp, amount, e);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondCeil(timeStamp, amount, e);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
     }
 
     @Override
@@ -3389,6 +3187,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public IndexDefinition visitIndexDef(IndexDefContext ctx) {
         String indexName = ctx.indexName.getText();
+        boolean ifNotExists = ctx.ifNotExists != null;
         List<String> indexCols = visitIdentifierList(ctx.cols);
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
         String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
@@ -3400,7 +3199,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 && "BITMAP".equalsIgnoreCase(indexType)) {
             indexType = "INVERTED";
         }
-        return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
+        return new IndexDefinition(indexName, ifNotExists, indexCols, indexType, properties, comment);
     }
 
     @Override
@@ -4547,6 +4346,316 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowPartitionIdCommand(partitionId);
     }
 
+    // @Override
+    // public Object visitAlterTable(AlterTableContext ctx) {
+    //     return UnsupportedCommand.INSTANCE;
+    // }
+
+    @Override
+    public AlterTableCommand visitAlterTable(AlterTableContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        List<AlterTableOp> alterTableOps = new ArrayList<>();
+        for (Object child : ctx.children) {
+            if (child instanceof AlterTableClauseContext) {
+                alterTableOps.add(typedVisit((AlterTableClauseContext) child));
+            }
+        }
+        return new AlterTableCommand(tableNameInfo, alterTableOps);
+    }
+
+    @Override
+    public AlterTableCommand visitAlterTableAddRollup(AlterTableAddRollupContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        List<AlterTableOp> alterTableOps = new ArrayList<>();
+        for (Object child : ctx.children) {
+            if (child instanceof AddRollupClauseContext) {
+                alterTableOps.add(typedVisit((AddRollupClauseContext) child));
+            }
+        }
+        return new AlterTableCommand(tableNameInfo, alterTableOps);
+    }
+
+    @Override
+    public AlterTableCommand visitAlterTableDropRollup(AlterTableDropRollupContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        List<AlterTableOp> alterTableOps = new ArrayList<>();
+        for (Object child : ctx.children) {
+            if (child instanceof DropRollupClauseContext) {
+                alterTableOps.add(typedVisit((DropRollupClauseContext) child));
+            }
+        }
+        return new AlterTableCommand(tableNameInfo, alterTableOps);
+    }
+
+    @Override
+    public AlterTableCommand visitAlterTableProperties(DorisParser.AlterTablePropertiesContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        List<AlterTableOp> alterTableOps = new ArrayList<>();
+        Map<String, String> properties = ctx.propertyItemList() != null
+                ? Maps.newHashMap(visitPropertyItemList(ctx.propertyItemList()))
+                : Maps.newHashMap();
+        alterTableOps.add(new ModifyTablePropertiesOp(properties));
+        return new AlterTableCommand(tableNameInfo, alterTableOps);
+    }
+
+    @Override
+    public AlterTableOp visitAddColumnClause(AddColumnClauseContext ctx) {
+        ColumnDefinition columnDefinition = visitColumnDef(ctx.columnDef());
+        ColumnPosition columnPosition = null;
+        if (ctx.columnPosition() != null) {
+            if (ctx.columnPosition().FIRST() != null) {
+                columnPosition = ColumnPosition.FIRST;
+            } else {
+                columnPosition = new ColumnPosition(ctx.columnPosition().position.getText());
+            }
+        }
+        String rollupName = ctx.toRollup() != null ? ctx.toRollup().rollup.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new AddColumnOp(columnDefinition, columnPosition, rollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitAddColumnsClause(AddColumnsClauseContext ctx) {
+        List<ColumnDefinition> columnDefinitions = visitColumnDefs(ctx.columnDefs());
+        String rollupName = ctx.toRollup() != null ? ctx.toRollup().rollup.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new AddColumnsOp(columnDefinitions, rollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitDropColumnClause(DropColumnClauseContext ctx) {
+        String columnName = ctx.name.getText();
+        String rollupName = ctx.fromRollup() != null ? ctx.fromRollup().rollup.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new DropColumnOp(columnName, rollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitModifyColumnClause(ModifyColumnClauseContext ctx) {
+        ColumnDefinition columnDefinition = visitColumnDef(ctx.columnDef());
+        ColumnPosition columnPosition = null;
+        if (ctx.columnPosition() != null) {
+            if (ctx.columnPosition().FIRST() != null) {
+                columnPosition = ColumnPosition.FIRST;
+            } else {
+                columnPosition = new ColumnPosition(ctx.columnPosition().position.getText());
+            }
+        }
+        String rollupName = ctx.fromRollup() != null ? ctx.fromRollup().rollup.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new ModifyColumnOp(columnDefinition, columnPosition, rollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitReorderColumnsClause(ReorderColumnsClauseContext ctx) {
+        List<String> columnsByPos = visitIdentifierList(ctx.identifierList());
+        String rollupName = ctx.fromRollup() != null ? ctx.fromRollup().rollup.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new ReorderColumnsOp(columnsByPos, rollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitAddPartitionClause(AddPartitionClauseContext ctx) {
+        boolean isTempPartition = ctx.TEMPORARY() != null;
+        PartitionDefinition partitionDefinition = visitPartitionDef(ctx.partitionDef());
+        DistributionDescriptor desc = null;
+        int bucketNum = FeConstants.default_bucket_num;
+        if (ctx.INTEGER_VALUE() != null) {
+            bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        }
+        if (ctx.HASH() != null) {
+            desc = new DistributionDescriptor(true, ctx.autoBucket != null, bucketNum,
+                    visitIdentifierList(ctx.hashKeys));
+        } else if (ctx.RANDOM() != null) {
+            desc = new DistributionDescriptor(false, ctx.autoBucket != null, bucketNum, null);
+        }
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new AddPartitionOp(partitionDefinition, desc, properties, isTempPartition);
+    }
+
+    @Override
+    public AlterTableOp visitDropPartitionClause(DropPartitionClauseContext ctx) {
+        boolean isTempPartition = ctx.TEMPORARY() != null;
+        boolean ifExists = ctx.IF() != null;
+        boolean forceDrop = ctx.FORCE() != null;
+        String partitionName = ctx.partitionName.getText();
+        return ctx.indexName != null
+                ? new DropPartitionFromIndexOp(ifExists, partitionName, isTempPartition, forceDrop,
+                        ctx.indexName.getText())
+                : new DropPartitionOp(ifExists, partitionName, isTempPartition, forceDrop);
+    }
+
+    @Override
+    public AlterTableOp visitModifyPartitionClause(ModifyPartitionClauseContext ctx) {
+        boolean isTempPartition = ctx.TEMPORARY() != null;
+        Map<String, String> properties = visitPropertyItemList(ctx.partitionProperties);
+        if (ctx.ASTERISK() != null) {
+            return ModifyPartitionOp.createStarClause(properties, isTempPartition);
+        } else {
+            List<String> partitions;
+            if (ctx.partitionNames != null) {
+                partitions = visitIdentifierList(ctx.partitionNames);
+            } else {
+                partitions = new ArrayList<>();
+                partitions.add(ctx.partitionName.getText());
+            }
+            return new ModifyPartitionOp(partitions, properties, isTempPartition);
+        }
+    }
+
+    @Override
+    public AlterTableOp visitReplacePartitionClause(ReplacePartitionClauseContext ctx) {
+        boolean forceReplace = ctx.FORCE() != null;
+        PartitionNamesInfo partitionNames = null;
+        PartitionNamesInfo tempPartitionNames = null;
+        if (ctx.partitions != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitions);
+            partitionNames = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        if (ctx.tempPartitions != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.tempPartitions);
+            tempPartitionNames = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+
+        Map<String, String> properties = ctx.properties != null ? new HashMap<>(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new ReplacePartitionOp(partitionNames, tempPartitionNames, forceReplace, properties);
+    }
+
+    @Override
+    public AlterTableOp visitReplaceTableClause(ReplaceTableClauseContext ctx) {
+        String tableName = ctx.name.getText();
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new ReplaceTableOp(tableName, properties, ctx.FORCE() != null);
+    }
+
+    @Override
+    public AlterTableOp visitRenameClause(RenameClauseContext ctx) {
+        return new RenameTableOp(ctx.newName.getText());
+    }
+
+    @Override
+    public AlterTableOp visitRenameRollupClause(RenameRollupClauseContext ctx) {
+        return new RenameRollupOp(ctx.name.getText(), ctx.newName.getText());
+    }
+
+    @Override
+    public AlterTableOp visitRenamePartitionClause(RenamePartitionClauseContext ctx) {
+        return new RenamePartitionOp(ctx.name.getText(), ctx.newName.getText());
+    }
+
+    @Override
+    public AlterTableOp visitRenameColumnClause(RenameColumnClauseContext ctx) {
+        return new RenameColumnOp(ctx.name.getText(), ctx.newName.getText());
+    }
+
+    @Override
+    public AlterTableOp visitAddIndexClause(AddIndexClauseContext ctx) {
+        IndexDefinition indexDefinition = visitIndexDef(ctx.indexDef());
+        return new CreateIndexOp(null, indexDefinition, true);
+    }
+
+    @Override
+    public AlterTableOp visitDropIndexClause(DropIndexClauseContext ctx) {
+        return new DropIndexOp(ctx.name.getText(), ctx.EXISTS() != null, null, true);
+    }
+
+    @Override
+    public AlterTableOp visitEnableFeatureClause(EnableFeatureClauseContext ctx) {
+        String featureName = stripQuotes(ctx.STRING_LITERAL().getText());
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new EnableFeatureOp(featureName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitModifyDistributionClause(ModifyDistributionClauseContext ctx) {
+        int bucketNum = FeConstants.default_bucket_num;
+        if (ctx.INTEGER_VALUE() != null) {
+            bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        }
+        DistributionDescriptor desc;
+        if (ctx.HASH() != null) {
+            desc = new DistributionDescriptor(true, ctx.AUTO() != null, bucketNum,
+                    visitIdentifierList(ctx.hashKeys));
+        } else if (ctx.RANDOM() != null) {
+            desc = new DistributionDescriptor(false, ctx.AUTO() != null, bucketNum, null);
+        } else {
+            throw new ParseException("distribution can't be empty", ctx);
+        }
+        return new ModifyDistributionOp(desc);
+    }
+
+    @Override
+    public AlterTableOp visitModifyTableCommentClause(ModifyTableCommentClauseContext ctx) {
+        return new ModifyTableCommentOp(stripQuotes(ctx.STRING_LITERAL().getText()));
+    }
+
+    @Override
+    public AlterTableOp visitModifyColumnCommentClause(ModifyColumnCommentClauseContext ctx) {
+        String columnName = ctx.name.getText();
+        String comment = stripQuotes(ctx.STRING_LITERAL().getText());
+        return new ModifyColumnCommentOp(columnName, comment);
+    }
+
+    @Override
+    public AlterTableOp visitModifyEngineClause(ModifyEngineClauseContext ctx) {
+        String engineName = ctx.name.getText();
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new ModifyEngineOp(engineName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitAlterMultiPartitionClause(AlterMultiPartitionClauseContext ctx) {
+        boolean isTempPartition = ctx.TEMPORARY() != null;
+        List<Expression> from = visitPartitionValueList(ctx.from);
+        List<Expression> to = visitPartitionValueList(ctx.to);
+        int num = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        String unitString = ctx.unit != null ? ctx.unit.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new AlterMultiPartitionOp(from, to, num, unitString, properties, isTempPartition);
+    }
+
+    @Override
+    public AlterTableOp visitAddRollupClause(DorisParser.AddRollupClauseContext ctx) {
+        String rollupName = ctx.rollupName.getText();
+        List<String> columnNames = visitIdentifierList(ctx.columns);
+        List<String> dupKeys = ctx.dupKeys != null ? visitIdentifierList(ctx.dupKeys) : null;
+        String baseRollupName = ctx.fromRollup() != null ? ctx.fromRollup().rollup.getText() : null;
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new AddRollupOp(rollupName, columnNames, dupKeys, baseRollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitDropRollupClause(DorisParser.DropRollupClauseContext ctx) {
+        String rollupName = ctx.rollupName.getText();
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new DropRollupOp(rollupName, properties);
+    }
+
     @Override
     public LogicalPlan visitShowVariables(ShowVariablesContext ctx) {
         SetType type = SetType.DEFAULT;
@@ -5021,6 +5130,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitDropStoragePolicy(DropStoragePolicyContext ctx) {
+        String policyName = ctx.name.getText();
+        boolean ifExists = ctx.EXISTS() != null;
+        return new DropStoragePolicyCommand(policyName, ifExists);
+    }
+
+    @Override
     public LogicalPlan visitDropEncryptkey(DropEncryptkeyContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         return new DropEncryptkeyCommand(new EncryptKeyName(nameParts), ctx.EXISTS() != null);
@@ -5097,6 +5213,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitHelp(HelpContext ctx) {
+        String mark = ctx.mark.getText();
+        return new HelpCommand(mark);
+    }
+
+    @Override
     public LogicalPlan visitSync(SyncContext ctx) {
         return new SyncCommand();
     }
@@ -5150,6 +5272,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
                 : Maps.newHashMap();
         return new AdminCheckTabletsCommand(tabletIdLists, properties);
+    }
+
+    @Override
+    public LogicalPlan visitShowWarningErrorCount(ShowWarningErrorCountContext ctx) {
+        boolean isWarning = ctx.WARNINGS() != null;
+        return new ShowWarningErrorCountCommand(isWarning);
     }
 
     @Override
