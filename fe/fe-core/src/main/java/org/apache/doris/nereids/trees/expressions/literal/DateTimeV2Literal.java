@@ -250,7 +250,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         }
         if (newMicroSecond > MAX_MICROSECOND) {
             newMicroSecond %= newMicroSecond;
-            DateTimeV2Literal result = (DateTimeV2Literal) this.plusSeconds(1);
+            Expression plus1Second = this.plusSeconds(1);
+            if (plus1Second.isNullLiteral()) {
+                throw new AnalysisException("round ceil datetime literal (" + toString() + ", "
+                        + newScale + ") is out of range");
+            }
+            DateTimeV2Literal result = (DateTimeV2Literal) plus1Second;
             newSecond = result.second;
             newMinute = result.minute;
             newHour = result.hour;
