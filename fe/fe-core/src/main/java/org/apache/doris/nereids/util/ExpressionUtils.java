@@ -420,7 +420,7 @@ public class ExpressionUtils {
     /**
      * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
-    public static Map<Slot, Expression> generateReplaceMap(List<NamedExpression> namedExpressions) {
+    public static Map<Slot, Expression> generateReplaceMap(List<? extends NamedExpression> namedExpressions) {
         Map<Slot, Expression> replaceMap = Maps.newLinkedHashMapWithExpectedSize(namedExpressions.size());
         for (NamedExpression namedExpression : namedExpressions) {
             if (namedExpression instanceof Alias) {
@@ -484,7 +484,7 @@ public class ExpressionUtils {
     /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      */
-    public static List<NamedExpression> replaceNamedExpressions(List<NamedExpression> namedExpressions,
+    public static List<NamedExpression> replaceNamedExpressions(List<? extends NamedExpression> namedExpressions,
             Map<? extends Expression, ? extends Expression> replaceMap) {
         Builder<NamedExpression> replaceExprs = ImmutableList.builderWithExpectedSize(namedExpressions.size());
         for (NamedExpression namedExpression : namedExpressions) {

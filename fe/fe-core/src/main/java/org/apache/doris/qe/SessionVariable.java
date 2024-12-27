@@ -2231,7 +2231,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSortSpill = false;
 
     @VariableMgr.VarAttr(
-            name = "ENABLE_COMPRESS_MATERIALIZE",
+            name = "enable_compress_materialize",
             description = {"控制是否启用compress materialize。",
                     "enable compress-materialize. "},
             needForward = true, fuzzy = false,

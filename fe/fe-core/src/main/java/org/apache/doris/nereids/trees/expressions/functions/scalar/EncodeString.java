@@ -17,8 +17,17 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+
 /**
  * Encode_as_XXXInt
  */
-public interface EncodeStrToInteger {
+public abstract class EncodeString extends ScalarFunction implements UnaryExpression {
+    /**
+     * constructor with 1 argument.
+     */
+    public EncodeString(String name, Expression arg0) {
+        super(name, arg0);
+    }
 }
