@@ -88,43 +88,43 @@ ReturnNativeType date_time_add(const InputNativeType& t, Int32 delta, bool& is_n
     }
 }
 
-#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                   \
-    template <typename ArgType>                                                                     \
-    struct CLASS {                                                                                  \
-        /*for V2 type, if unit <= hour, increase to DatetimeV2, for V1 same as V2 version*/         \
-        using ReturnType = std::conditional_t<                                                      \
-                date_cast::IsV1<ArgType>(),                                                         \
-                std::conditional_t<                                                                 \
-                        std::is_same_v<ArgType, DataTypeDate>,                                      \
-                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                      \
-                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||            \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND ||            \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND,  \
-                                           DataTypeDateTime, DataTypeDate>,                         \
-                        DataTypeDateTime>,                                                          \
-                std::conditional_t<                                                                 \
-                        std::is_same_v<ArgType, DataTypeDateV2>,                                    \
-                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                      \
-                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||            \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND ||            \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND,  \
-                                           DataTypeDateTimeV2, DataTypeDateV2>,                     \
-                        DataTypeDateTimeV2>>;                                                       \
-        static bool has_return_type_in_signature() {                                                \
-            return true;                                                                            \
-        }                                                                                           \
-        using ReturnNativeType = ReturnType::FieldType;                                             \
-        using InputNativeType = ArgType::FieldType;                                                 \
-        static constexpr auto name = #NAME;                                                         \
-        static constexpr auto is_nullable = true;                                                   \
-        static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta,               \
-                                               bool& is_null) {                                     \
-            return date_time_add<TimeUnit::UNIT, ArgType, ReturnType>(t, delta, is_null);           \
-        }                                                                                           \
-                                                                                                    \
-        static DataTypes get_variadic_argument_types() {                                            \
-            return {std::make_shared<ArgType>(), std::make_shared<DataTypeInt32>()};                \
-        }                                                                                           \
+#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                  \
+    template <typename ArgType>                                                                    \
+    struct CLASS {                                                                                 \
+        /*for V2 type, if unit <= hour, increase to DatetimeV2, for V1 same as V2 version*/        \
+        using ReturnType = std::conditional_t<                                                     \
+                date_cast::IsV1<ArgType>(),                                                        \
+                std::conditional_t<                                                                \
+                        std::is_same_v<ArgType, DataTypeDate>,                                     \
+                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
+                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
+                                           DataTypeDateTime, DataTypeDate>,                        \
+                        DataTypeDateTime>,                                                         \
+                std::conditional_t<                                                                \
+                        std::is_same_v<ArgType, DataTypeDateV2>,                                   \
+                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
+                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
+                                           DataTypeDateTimeV2, DataTypeDateV2>,                    \
+                        DataTypeDateTimeV2>>;                                                      \
+        static bool has_return_type_in_signature() {                                               \
+            return true;                                                                           \
+        }                                                                                          \
+        using ReturnNativeType = ReturnType::FieldType;                                            \
+        using InputNativeType = ArgType::FieldType;                                                \
+        static constexpr auto name = #NAME;                                                        \
+        static constexpr auto is_nullable = true;                                                  \
+        static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta,              \
+                                               bool& is_null) {                                    \
+            return date_time_add<TimeUnit::UNIT, ArgType, ReturnType>(t, delta, is_null);          \
+        }                                                                                          \
+                                                                                                   \
+        static DataTypes get_variadic_argument_types() {                                           \
+            return {std::make_shared<ArgType>(), std::make_shared<DataTypeInt32>()};               \
+        }                                                                                          \
     }
 
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
