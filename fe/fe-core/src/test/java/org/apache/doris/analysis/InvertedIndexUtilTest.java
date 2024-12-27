@@ -17,7 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -31,11 +33,13 @@ public class InvertedIndexUtilTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "true");
 
-        InvertedIndexUtil.checkInvertedIndexProperties(properties);
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.V3;
+        InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
 
         properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "invalid_value");
         try {
-            InvertedIndexUtil.checkInvertedIndexProperties(properties);
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
             Assertions.fail("Expected AnalysisException was not thrown");
         } catch (AnalysisException e) {
             Assertions.assertEquals(
@@ -43,5 +47,147 @@ public class InvertedIndexUtilTest {
                             + "dict_compression must be true or false",
                     e.getMessage());
         }
+    }
+
+    @Test
+    public void testDictCompressionValidTrue() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "true");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V3;
+
+        InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+    }
+
+    @Test
+    public void testDictCompressionValidFalse() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "false");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V3;
+
+        InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+    }
+
+    @Test
+    public void testDictCompressionNonStringType() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "true");
+
+        PrimitiveType colType = PrimitiveType.INT;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V3;
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = dict_compression can only be set for StringType columns. type: INT",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testDictCompressionInvalidStorageFormat() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "true");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V2;
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = dict_compression can only be set when storage format is V3",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testDictCompressionInvalidValue() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "invalid_value");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V3;
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = Invalid inverted index 'dict_compression' value: invalid_value, "
+                        + "dict_compression must be true or false",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testDictCompressionCaseSensitivity() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "True");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V3;
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = Invalid inverted index 'dict_compression' value: True, "
+                        + "dict_compression must be true or false",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testDictCompressionNullValue() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V3;
+
+        InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+    }
+
+    @Test
+    public void testDictCompressionWhenStorageFormatIsNull() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "true");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = null;
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = dict_compression can only be set when storage format is V3",
+                thrown.getMessage()
+        );
+    }
+
+    @Test
+    public void testDictCompressionWithNonV3AndValidValue() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY, "false");
+
+        PrimitiveType colType = PrimitiveType.STRING;
+        TInvertedIndexFileStorageFormat storageFormat = TInvertedIndexFileStorageFormat.V2;
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, () -> {
+            InvertedIndexUtil.checkInvertedIndexProperties(properties, colType, storageFormat);
+        });
+
+        Assertions.assertEquals(
+                "errCode = 2, detailMessage = dict_compression can only be set when storage format is V3",
+                thrown.getMessage()
+        );
     }
 }

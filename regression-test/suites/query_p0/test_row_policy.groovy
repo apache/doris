@@ -37,7 +37,7 @@ suite("test_row_policy") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
 
-    connect(user=user, password='123456', url=url) {
+    connect(user, '123456', url) {
         sql "set enable_nereids_planner = true"
         sql "set enable_fallback_to_original_planner = false"
         sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"

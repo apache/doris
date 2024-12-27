@@ -114,7 +114,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -266,22 +265,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String.valueOf(isBeingSynced));
     }
 
-    public void setStorageVaultName(String storageVaultName) throws DdlException {
-        if (storageVaultName == null || storageVaultName.isEmpty()) {
-            return;
-        }
-        getOrCreatTableProperty().setStorageVaultName(storageVaultName);
-    }
-
     public String getStorageVaultName() {
-        return getOrCreatTableProperty().getStorageVaultName();
+        if (Strings.isNullOrEmpty(getStorageVaultId())) {
+            return "";
+        }
+        return Env.getCurrentEnv().getStorageVaultMgr().getVaultNameById(getStorageVaultId());
     }
 
-    public void setStorageVaultId(String setStorageVaultId) throws DdlException {
-        if (setStorageVaultId == null || setStorageVaultId.isEmpty()) {
-            throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+    public void setStorageVaultId(String storageVaultId) throws DdlException {
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new DdlException("Invalid storage vault id, please set an available storage vault");
         }
-        getOrCreatTableProperty().setStorageVaultId(setStorageVaultId);
+        getOrCreatTableProperty().setStorageVaultId(storageVaultId);
     }
 
     public String getStorageVaultId() {
@@ -885,7 +880,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (this.indexes != null) {
             List<Index> indexes = this.indexes.getIndexes();
             for (Index idx : indexes) {
-                idx.setIndexId(env.getNextId());
+                long newIdxId;
+                if (Config.restore_reset_index_id) {
+                    newIdxId = env.getNextId();
+                } else {
+                    // The index id from the upstream is used, if restore_reset_index_id is not set.
+                    //
+                    // This is because the index id is used as a part of inverted file name/header
+                    // in BE. During restore, the inverted file is copied from the upstream to the
+                    // downstream. If the index id is changed, it might cause the BE to fail to find
+                    // the inverted files.
+                    newIdxId = idx.getIndexId();
+                }
+                idx.setIndexId(newIdxId);
             }
             for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
                 entry.getValue().setIndexes(indexes);
@@ -965,17 +972,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Set<Column> columns = Sets.newHashSet();
         for (MaterializedIndex index : getVisibleIndex()) {
             columns.addAll(getSchemaByIndexId(index.getId(), full));
-        }
-        return columns;
-    }
-
-    public List<Column> getMvColumns(boolean full) {
-        List<Column> columns = Lists.newArrayList();
-        for (Long indexId : indexIdToMeta.keySet()) {
-            if (indexId == baseIndexId) {
-                continue;
-            }
-            columns.addAll(getSchemaByIndexId(indexId, full));
         }
         return columns;
     }
@@ -1382,12 +1378,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     // get only temp partitions
-    public Collection<Partition> getAllTempPartitions() {
+    public List<Partition> getAllTempPartitions() {
         return tempPartitions.getAllPartitions();
     }
 
     // get all partitions including temp partitions
-    public Collection<Partition> getAllPartitions() {
+    public List<Partition> getAllPartitions() {
         List<Partition> partitions = Lists.newArrayList(idToPartition.values());
         partitions.addAll(tempPartitions.getAllPartitions());
         return partitions;
@@ -2032,6 +2028,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     }
                 }
             }
+        }
+
+        if (isForBackup) {
+            // drop all tmp partitions in copied table
+            for (Partition partition : copied.tempPartitions.getAllPartitions()) {
+                copied.partitionInfo.dropPartition(partition.getId());
+            }
+            copied.tempPartitions = new TempPartitions();
         }
 
         if (reservedPartitions == null || reservedPartitions.isEmpty()) {
@@ -3316,31 +3320,24 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
-            throws AnalysisException {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getAndCopyPartitionItems();
     }
 
-    public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
-        if (!tryReadLock(1, TimeUnit.MINUTES)) {
-            throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
-        }
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
+        readLock();
         try {
-            return getAndCopyPartitionItemsWithoutLock();
+            Map<String, PartitionItem> res = Maps.newHashMap();
+            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+                Partition partition = idToPartition.get(entry.getKey());
+                if (partition != null) {
+                    res.put(partition.getName(), entry.getValue());
+                }
+            }
+            return res;
         } finally {
             readUnlock();
         }
-    }
-
-    public Map<String, PartitionItem> getAndCopyPartitionItemsWithoutLock() throws AnalysisException {
-        Map<String, PartitionItem> res = Maps.newHashMap();
-        for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
-            Partition partition = idToPartition.get(entry.getKey());
-            if (partition != null) {
-                res.put(partition.getName(), entry.getValue());
-            }
-        }
-        return res;
     }
 
     @Override

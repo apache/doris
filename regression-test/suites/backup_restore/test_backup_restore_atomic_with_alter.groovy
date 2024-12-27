@@ -178,7 +178,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     expectExceptionLike({
         sql """
             ALTER TABLE ${dbName}.${tableNamePrefix}_1
-            ADD COLUMN new_col INT DEFAULT "0" AFTER count
+            ADD COLUMN new_col INT DEFAULT "0" AFTER id
         """
     }, "Do not allow doing ALTER ops")
     expectExceptionLike({

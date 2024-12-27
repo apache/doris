@@ -51,8 +51,8 @@ public class MTMVRewriteUtil {
             return res;
         }
         // check mv is normal
-        if (mtmv.getStatus().getState() != MTMVState.NORMAL
-                || mtmv.getStatus().getRefreshState() == MTMVRefreshState.INIT) {
+        MTMVStatus mtmvStatus = mtmv.getStatus();
+        if (mtmvStatus.getState() != MTMVState.NORMAL || mtmvStatus.getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
         MTMVRefreshContext refreshContext = null;

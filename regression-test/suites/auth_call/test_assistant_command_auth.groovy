@@ -60,7 +60,7 @@ suite("test_assistant_command_auth","p0,auth_call") {
         );"""
 
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """use ${dbName}"""
             exception "denied"
@@ -81,13 +81,13 @@ suite("test_assistant_command_auth","p0,auth_call") {
     }
 
     sql """grant select_PRIV on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """DESC ${dbName}.${tableName} ALL;"""
     }
 
     sql """grant select_PRIV on ${catalogName}.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """REFRESH CATALOG ${catalogName};"""
     }
 

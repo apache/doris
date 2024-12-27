@@ -658,17 +658,19 @@ public class Auth implements Writable {
 
     public void replayGrant(PrivInfo privInfo) {
         try {
+            PrivBitSet privs = privInfo.getPrivs();
+            Role.compatibilityAuthIndexChange(privs);
             if (privInfo.getTblPattern() != null) {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
-                        privInfo.getTblPattern(), privInfo.getPrivs(), privInfo.getColPrivileges(),
+                        privInfo.getTblPattern(), privs, privInfo.getColPrivileges(),
                         true /* err on non exist */, true /* is replay */);
             } else if (privInfo.getResourcePattern() != null) {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
-                        privInfo.getResourcePattern(), privInfo.getPrivs(),
+                        privInfo.getResourcePattern(), privs,
                         true /* err on non exist */, true /* is replay */);
             } else if (privInfo.getWorkloadGroupPattern() != null) {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
-                        privInfo.getWorkloadGroupPattern(), privInfo.getPrivs(),
+                        privInfo.getWorkloadGroupPattern(), privs,
                         true /* err on non exist */, true /* is replay */);
             } else {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRoles(), true);
@@ -686,7 +688,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             if (!isReplay) {
-                checkTablePatternExist(tblPattern);
+                checkTablePatternExist(tblPattern, privs);
             }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
@@ -706,8 +708,12 @@ public class Auth implements Writable {
         }
     }
 
-    private void checkTablePatternExist(TablePattern tablePattern) throws DdlException {
+    private void checkTablePatternExist(TablePattern tablePattern, PrivBitSet privs) throws DdlException {
         Objects.requireNonNull(tablePattern, "tablePattern can not be null");
+        Objects.requireNonNull(privs, "privs can not be null");
+        if (privs.containsPrivs(Privilege.CREATE_PRIV)) {
+            return;
+        }
         PrivLevel privLevel = tablePattern.getPrivLevel();
         if (privLevel == PrivLevel.GLOBAL) {
             return;
@@ -839,14 +845,16 @@ public class Auth implements Writable {
 
     public void replayRevoke(PrivInfo info) {
         try {
+            PrivBitSet privs = info.getPrivs();
+            Role.compatibilityAuthIndexChange(privs);
             if (info.getTblPattern() != null) {
-                revokeInternal(info.getUserIdent(), info.getRole(), info.getTblPattern(), info.getPrivs(),
+                revokeInternal(info.getUserIdent(), info.getRole(), info.getTblPattern(), privs,
                         info.getColPrivileges(), true /* err on non exist */, true /* is replay */);
             } else if (info.getResourcePattern() != null) {
-                revokeInternal(info.getUserIdent(), info.getRole(), info.getResourcePattern(), info.getPrivs(),
+                revokeInternal(info.getUserIdent(), info.getRole(), info.getResourcePattern(), privs,
                         true /* err on non exist */, true /* is replay */);
             } else if (info.getWorkloadGroupPattern() != null) {
-                revokeInternal(info.getUserIdent(), info.getRole(), info.getWorkloadGroupPattern(), info.getPrivs(),
+                revokeInternal(info.getUserIdent(), info.getRole(), info.getWorkloadGroupPattern(), privs,
                         true /* err on non exist */, true /* is replay */);
             } else {
                 revokeInternal(info.getUserIdent(), info.getRoles(), true /* is replay */);
@@ -1225,6 +1233,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getResourceTags(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean isAllowResourceTagDowngrade(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.isAllowResourceTagDowngrade(qualifiedUser);
         } finally {
             readUnlock();
         }

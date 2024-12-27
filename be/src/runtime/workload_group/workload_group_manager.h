@@ -55,7 +55,7 @@ public:
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
+    WorkloadGroupPtr get_group(uint64_t wg_id);
 
     void do_sweep();
 
@@ -75,6 +75,8 @@ public:
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
         return _workload_groups[INTERNAL_WORKLOAD_GROUP_ID];
     }
+
+    void refresh_workload_group_metrics();
 
 private:
     std::shared_mutex _group_mutex;

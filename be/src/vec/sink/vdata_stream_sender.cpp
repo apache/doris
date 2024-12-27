@@ -97,8 +97,14 @@ Status Channel::open(RuntimeState* state) {
         auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
                 _fragment_instance_id, _dest_node_id, &_local_recvr);
         if (!st.ok()) {
-            // Recvr not found. Maybe downstream task is finished already.
-            LOG(INFO) << "Recvr is not found : " << st.to_string();
+            // If could not find local receiver, then it means the channel is EOF.
+            // Maybe downstream task is finished already.
+            //if (_receiver_status.ok()) {
+            //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+            //}
+            LOG(INFO) << "Query: " << print_id(state->query_id())
+                      << " recvr is not found, maybe downstream task is finished. error st is: "
+                      << st.to_string();
         }
     }
     _be_number = state->be_number();
@@ -193,8 +199,20 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
     if (is_receiver_eof()) {
         return _receiver_status;
     }
-
     auto receiver_status = _recvr_status();
+    // _local_recvr depdend on pipeline::ExchangeLocalState* _parent to do some memory counter settings
+    // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
+    // Lock the fragment context to ensure the runtime state and other objects are not deconstructed
+    TaskExecutionContextSPtr ctx_lock = nullptr;
+    if (receiver_status.ok() && _local_recvr != nullptr) {
+        ctx_lock = _local_recvr->task_exec_ctx();
+        // Do not return internal error, because when query finished, the downstream node
+        // may finish before upstream node. And the object maybe deconstructed. If return error
+        // then the upstream node may report error status to FE, the query is failed.
+        if (ctx_lock == nullptr) {
+            receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        }
+    }
     if (receiver_status.ok()) {
         COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
         COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
@@ -239,18 +257,18 @@ BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool 
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
 Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
-                                              bool* serialized, bool eos,
-                                              const std::vector<uint32_t>* rows) {
+                                              bool* serialized, bool eos, const uint32_t* data,
+                                              const uint32_t offset, const uint32_t size) {
     if (_mutable_block == nullptr) {
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     {
         SCOPED_TIMER(_parent->merge_block_timer());
-        if (rows) {
-            if (!rows->empty()) {
-                const auto* begin = rows->data();
-                RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
+        if (data) {
+            if (size > 0) {
+                RETURN_IF_ERROR(
+                        _mutable_block->add_rows(block, data + offset, data + offset + size));
             }
         } else if (!block->empty()) {
             RETURN_IF_ERROR(_mutable_block->merge(*block));

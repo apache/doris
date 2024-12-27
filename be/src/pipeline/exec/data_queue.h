@@ -29,6 +29,7 @@
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class Dependency;
 
@@ -108,4 +109,5 @@ private:
     SpinLock _source_lock;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

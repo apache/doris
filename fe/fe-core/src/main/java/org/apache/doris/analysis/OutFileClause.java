@@ -266,7 +266,7 @@ public class OutFileClause {
         if (brokerDesc != null && isLocalOutput) {
             throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
         } else if (brokerDesc == null && !isLocalOutput) {
-            throw new AnalysisException("Must specify BROKER properties or current local file path in OUTFILE clause");
+            throw new AnalysisException("Please specify BROKER properties or check your local file path.");
         }
         isAnalyzed = true;
 
@@ -289,6 +289,9 @@ public class OutFileClause {
     private String dorisTypeToOrcTypeMap(Type dorisType) throws AnalysisException {
         String orcType = "";
         switch (dorisType.getPrimitiveType()) {
+            case NULL_TYPE:
+                orcType = "tinyint";
+                break;
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:
@@ -413,6 +416,9 @@ public class OutFileClause {
             Pair<String, String> schema = this.orcSchemas.get(i);
             Type resultType = resultExprs.get(i).getType();
             switch (resultType.getPrimitiveType()) {
+                case NULL_TYPE:
+                    checkOrcType(schema.second, "tinyint", true, resultType.getPrimitiveType().toString());
+                    break;
                 case BOOLEAN:
                 case TINYINT:
                 case SMALLINT:

@@ -53,7 +53,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
         """
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
                 AS
@@ -67,7 +67,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
                 AS
@@ -84,7 +84,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
             WHERE id = 1 GROUP BY k1;"""
     sql """grant Create_priv on ${dbName}.${viewName} to ${user}"""
     sql """drop view ${dbName}.${viewName}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
             AS
             SELECT id as k1, SUM(id) FROM ${dbName}.${tableName}
@@ -93,7 +93,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
         def res = sql """SHOW VIEW from ${tableName} from ${dbName}"""
         assertTrue(res.size() == 1)
     }
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
                 AS
@@ -105,7 +105,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
 
     // ddl alter
     // user alter
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """alter VIEW ${dbName}.${viewName} (k1, v1)
                 AS
@@ -115,7 +115,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
         }
     }
     sql """grant ALTER_PRIV on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """alter VIEW ${dbName}.${viewName} (k1, v1)
                 AS
                 SELECT id as k1, SUM(id) FROM ${dbName}.${tableName}
@@ -123,26 +123,26 @@ suite("test_ddl_view_auth","p0,auth_call") {
     }
 
     // dml show
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """select * from ${dbName}.${viewName};"""
             exception "denied"
         }
     }
     sql """grant select_PRIV on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${viewName};"""
     }
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """drop table ${dbName}.${viewName};"""
             exception 'denied'
         }
     }
     sql """grant DROP_PRIV on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """drop view ${viewName};"""
         def ctl_res = sql """show tables;"""

@@ -29,6 +29,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -43,6 +44,7 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -79,15 +81,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    private TableBatchReadSession tableBatchReadSession;
     private Predicate filterPredicate;
-    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
-    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
+    List<String> requiredPartitionColumns = new ArrayList<>();
+    List<String> orderedRequiredDataColumns = new ArrayList<>();
 
     private int connectTimeout;
     private int readTimeout;
@@ -96,23 +101,29 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
+    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
+    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
+
+
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
-            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv) {
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
+            SessionVariable sv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
-                selectedPartitions, needCheckColumnPriv);
+                selectedPartitions, needCheckColumnPriv, sv);
     }
 
     // For old planner
-    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
+            SessionVariable sv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
-                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv);
+                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv, sv);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             StatisticalType statisticalType, SelectedPartitions selectedPartitions,
-            boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
         this.selectedPartitions = selectedPartitions;
     }
@@ -143,32 +154,16 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         rangeDesc.setSize(maxComputeSplit.getLength());
     }
 
-    // Return false if no need to read any partition data.
-    // Return true if need to read partition data.
-    boolean createTableBatchReadSession() throws UserException {
-        List<String> requiredPartitionColumns = new ArrayList<>();
-        List<String> orderedRequiredDataColumns = new ArrayList<>();
 
-        List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
-        //if requiredPartitionSpecs is empty, get all partition data.
-        if (!table.getPartitionColumns().isEmpty() && selectedPartitions != SelectedPartitions.NOT_PRUNED) {
-            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-            this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
-
-            if (selectedPartitions.selectedPartitions.isEmpty()) {
-                //no need read any partition data.
-                return false;
-            }
-            selectedPartitions.selectedPartitions.forEach(
-                    (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
-            );
-        }
-
+    private void createRequiredColumns() {
         Set<String> requiredSlots =
                 desc.getSlots().stream().map(e -> e.getColumn().getName()).collect(Collectors.toSet());
 
         Set<String> partitionColumns =
                 table.getPartitionColumns().stream().map(Column::getName).collect(Collectors.toSet());
+
+        requiredPartitionColumns.clear();
+        orderedRequiredDataColumns.clear();
 
         for (Column column : table.getColumns()) {
             String columnName =  column.getName();
@@ -181,32 +176,117 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 orderedRequiredDataColumns.add(columnName);
             }
         }
+    }
 
-
-
+    /**
+     * For no partition table: request requiredPartitionSpecs is empty
+     * For partition table: if requiredPartitionSpecs is empty, get all partition data.
+     */
+    TableBatchReadSession createTableBatchReadSession(List<PartitionSpec> requiredPartitionSpecs) throws IOException {
         MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
 
-        try {
-            TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
-            tableBatchReadSession =
-                    scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
-                            .withSettings(mcCatalog.getSettings())
-                            .withSplitOptions(mcCatalog.getSplitOption())
-                            .requiredPartitionColumns(requiredPartitionColumns)
-                            .requiredPartitions(requiredPartitionSpecs)
-                            .requiredDataColumns(orderedRequiredDataColumns)
-                            .withArrowOptions(
-                                    ArrowOptions.newBuilder()
-                                            .withDatetimeUnit(TimestampUnit.MILLI)
-                                            .withTimestampUnit(TimestampUnit.NANO)
-                                            .build()
-                            )
-                            .withFilterPredicate(filterPredicate)
-                            .buildBatchReadSession();
-        } catch (java.io.IOException e) {
-            throw new RuntimeException(e);
+        readTimeout = mcCatalog.getReadTimeout();
+        connectTimeout = mcCatalog.getConnectTimeout();
+        retryTimes = mcCatalog.getRetryTimes();
+
+        TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
+        return scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
+                        .withSettings(mcCatalog.getSettings())
+                        .withSplitOptions(mcCatalog.getSplitOption())
+                        .requiredPartitionColumns(requiredPartitionColumns)
+                        .requiredDataColumns(orderedRequiredDataColumns)
+                        .withFilterPredicate(filterPredicate)
+                        .requiredPartitions(requiredPartitionSpecs)
+                        .withArrowOptions(
+                                ArrowOptions.newBuilder()
+                                        .withDatetimeUnit(TimestampUnit.MILLI)
+                                        .withTimestampUnit(TimestampUnit.NANO)
+                                        .build()
+                        ).buildBatchReadSession();
+    }
+
+    @Override
+    public boolean isBatchMode() {
+        if (table.getPartitionColumns().isEmpty()) {
+            return false;
         }
-        return true;
+
+        com.aliyun.odps.Table odpsTable = table.getOdpsTable();
+        if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
+            return false;
+        }
+
+        int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
+        return numPartitions > 0
+                && selectedPartitions != SelectedPartitions.NOT_PRUNED
+                && selectedPartitions.selectedPartitions.size() >= numPartitions;
+    }
+
+    @Override
+    public int numApproximateSplits() {
+        return selectedPartitions.selectedPartitions.size();
+    }
+
+    @Override
+    public void startSplit(int numBackends) {
+        this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+        this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+
+        if (selectedPartitions.selectedPartitions.isEmpty()) {
+            //no need read any partition data.
+            return;
+        }
+
+        createRequiredColumns();
+        List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
+        selectedPartitions.selectedPartitions.forEach(
+                (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
+        );
+
+        int batchNumPartitions = sessionVariable.getNumPartitionsInBatchMode();
+
+        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        AtomicReference<UserException> batchException = new AtomicReference<>(null);
+        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+
+        CompletableFuture.runAsync(() -> {
+            for (int beginIndex = 0; beginIndex < requiredPartitionSpecs.size(); beginIndex += batchNumPartitions) {
+                int endIndex = Math.min(beginIndex + batchNumPartitions, requiredPartitionSpecs.size());
+                if (batchException.get() != null || splitAssignment.isStop()) {
+                    break;
+                }
+                List<PartitionSpec> requiredBatchPartitionSpecs = requiredPartitionSpecs.subList(beginIndex, endIndex);
+                int curBatchSize = endIndex - beginIndex;
+
+                try {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            TableBatchReadSession tableBatchReadSession =
+                                    createTableBatchReadSession(requiredBatchPartitionSpecs);
+                            List<Split> batchSplit = getSplitByTableSession(tableBatchReadSession);
+
+                            splitAssignment.addToQueue(batchSplit);
+                        } catch (IOException e) {
+                            batchException.set(new UserException(e.getMessage(), e));
+                        } finally {
+                            if (batchException.get() != null) {
+                                splitAssignment.setException(batchException.get());
+                            }
+
+                            if (numFinishedPartitions.addAndGet(curBatchSize) == requiredPartitionSpecs.size()) {
+                                splitAssignment.finishSchedule();
+                            }
+                        }
+                    }, scheduleExecutor);
+                } catch (Exception e) {
+                    batchException.set(new UserException(e.getMessage(), e));
+                }
+
+                if (batchException.get() != null) {
+                    splitAssignment.setException(batchException.get());
+                }
+            }
+        });
     }
 
     @Override
@@ -467,67 +547,83 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         return new HashMap<>();
     }
 
+    private List<Split> getSplitByTableSession(TableBatchReadSession tableBatchReadSession) throws IOException {
+        List<Split> result = new ArrayList<>();
+        String scanSessionSerialize =  serializeSession(tableBatchReadSession);
+        InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
+        long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
+
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+
+        if (mcCatalog.getSplitStrategy().equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+
+            for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
+                MaxComputeSplit maxComputeSplit =
+                        new MaxComputeSplit(BYTE_SIZE_PATH,
+                                ((IndexedInputSplit) split).getSplitIndex(), -1,
+                                mcCatalog.getSplitByteSize(),
+                                modificationTime, null,
+                                Collections.emptyList());
+
+
+                maxComputeSplit.scanSerialize = scanSessionSerialize;
+                maxComputeSplit.splitType = SplitType.BYTE_SIZE;
+                maxComputeSplit.sessionId = split.getSessionId();
+
+                result.add(maxComputeSplit);
+            }
+        } else {
+            long totalRowCount =  assigner.getTotalRowCount();
+
+            long recordsPerSplit = mcCatalog.getSplitRowCount();
+            for (long offset = 0; offset < totalRowCount; offset += recordsPerSplit) {
+                recordsPerSplit = Math.min(recordsPerSplit, totalRowCount - offset);
+                com.aliyun.odps.table.read.split.InputSplit split =
+                        assigner.getSplitByRowOffset(offset, recordsPerSplit);
+
+                MaxComputeSplit maxComputeSplit =
+                        new MaxComputeSplit(ROW_OFFSET_PATH,
+                                offset, recordsPerSplit, totalRowCount, modificationTime, null,
+                                Collections.emptyList());
+
+                maxComputeSplit.scanSerialize = scanSessionSerialize;
+                maxComputeSplit.splitType = SplitType.ROW_OFFSET;
+                maxComputeSplit.sessionId = split.getSessionId();
+
+                result.add(maxComputeSplit);
+            }
+        }
+        return result;
+    }
+
     @Override
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         List<Split> result = new ArrayList<>();
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }
 
-        if (!createTableBatchReadSession()) {
-            return result;
+        createRequiredColumns();
+
+        List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
+        //if requiredPartitionSpecs is empty, get all partition data.
+        if (!table.getPartitionColumns().isEmpty() && selectedPartitions != SelectedPartitions.NOT_PRUNED) {
+            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+            this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+
+            if (selectedPartitions.selectedPartitions.isEmpty()) {
+                //no need read any partition data.
+                return result;
+            }
+            selectedPartitions.selectedPartitions.forEach(
+                    (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
+            );
         }
 
         try {
-            String scanSessionSerialize =  serializeSession(tableBatchReadSession);
-            InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
-            long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
-
-            MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
-
-            readTimeout = mcCatalog.getReadTimeout();
-            connectTimeout = mcCatalog.getConnectTimeout();
-            retryTimes = mcCatalog.getRetryTimes();
-
-            if (mcCatalog.getSplitStrategy().equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
-
-                for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
-                    MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(BYTE_SIZE_PATH,
-                                    ((IndexedInputSplit) split).getSplitIndex(), -1,
-                                    mcCatalog.getSplitByteSize(),
-                                    modificationTime, null,
-                                    Collections.emptyList());
-
-
-                    maxComputeSplit.scanSerialize = scanSessionSerialize;
-                    maxComputeSplit.splitType = SplitType.BYTE_SIZE;
-                    maxComputeSplit.sessionId = split.getSessionId();
-
-                    result.add(maxComputeSplit);
-                }
-            } else {
-                long totalRowCount =  assigner.getTotalRowCount();
-
-                long recordsPerSplit = mcCatalog.getSplitRowCount();
-                for (long offset = 0; offset < totalRowCount; offset += recordsPerSplit) {
-                    recordsPerSplit = Math.min(recordsPerSplit, totalRowCount - offset);
-                    com.aliyun.odps.table.read.split.InputSplit split =
-                            assigner.getSplitByRowOffset(offset, recordsPerSplit);
-
-                    MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(ROW_OFFSET_PATH,
-                            offset, recordsPerSplit, totalRowCount, modificationTime, null,
-                            Collections.emptyList());
-
-                    maxComputeSplit.scanSerialize = scanSessionSerialize;
-                    maxComputeSplit.splitType = SplitType.ROW_OFFSET;
-                    maxComputeSplit.sessionId = split.getSessionId();
-
-                    result.add(maxComputeSplit);
-                }
-            }
+            TableBatchReadSession tableBatchReadSession = createTableBatchReadSession(requiredPartitionSpecs);
+            result = getSplitByTableSession(tableBatchReadSession);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

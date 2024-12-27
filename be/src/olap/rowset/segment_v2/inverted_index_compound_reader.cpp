@@ -96,12 +96,19 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     if (start + len > _length) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
-    base->setIoContext(_io_ctx);
+
+    if (_io_ctx) {
+        base->setIoContext(_io_ctx);
+    }
+
     base->setIndexFile(_is_index_file);
     base->seek(fileOffset + start);
     bool read_from_buffer = true;
     base->readBytes(b, len, read_from_buffer);
-    base->setIoContext(nullptr);
+
+    if (_io_ctx) {
+        base->setIoContext(nullptr);
+    }
 }
 
 CSIndexInput::~CSIndexInput() = default;
@@ -231,6 +238,9 @@ const char* DorisCompoundReader::getObjectName() const {
 }
 
 bool DorisCompoundReader::list(std::vector<std::string>* names) const {
+    if (_closed || _entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     for (EntriesType::const_iterator i = _entries->begin(); i != _entries->end(); i++) {
         names->push_back(i->first);
     }
@@ -238,6 +248,9 @@ bool DorisCompoundReader::list(std::vector<std::string>* names) const {
 }
 
 bool DorisCompoundReader::fileExists(const char* name) const {
+    if (_closed || _entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     return _entries->exists((char*)name);
 }
 
@@ -246,6 +259,9 @@ int64_t DorisCompoundReader::fileModified(const char* name) const {
 }
 
 int64_t DorisCompoundReader::fileLength(const char* name) const {
+    if (_closed || _entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     ReaderFileEntry* e = _entries->get((char*)name);
     if (e == nullptr) {
         char buf[CL_MAX_PATH + 30];
@@ -260,6 +276,10 @@ int64_t DorisCompoundReader::fileLength(const char* name) const {
 bool DorisCompoundReader::openInput(const char* name,
                                     std::unique_ptr<lucene::store::IndexInput>& ret,
                                     CLuceneError& error, int32_t bufferSize) {
+    if (_closed || _entries == nullptr) {
+        error.set(CL_ERR_IO, "DorisCompoundReader is already closed");
+        return false;
+    }
     lucene::store::IndexInput* tmp;
     bool success = openInput(name, tmp, error, bufferSize);
     if (success) {
@@ -303,6 +323,10 @@ void DorisCompoundReader::close() {
         _CLDELETE(_stream)
     }
     if (_entries != nullptr) {
+        // The life cycle of _entries should be consistent with that of the DorisCompoundReader.
+        // DO NOT DELETE _entries here, it will be deleted in the destructor
+        // When directory is closed, all _entries are cleared. But the directory may be called in other places.
+        // If we delete the _entries object here, it will cause core dump.
         _entries->clear();
     }
     if (_ram_dir) {

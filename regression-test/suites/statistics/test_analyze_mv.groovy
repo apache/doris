@@ -49,7 +49,7 @@ suite("test_analyze_mv") {
         def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + host + ":" + port
         logger.info("Master url is " + url)
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
             sql """use ${db}"""
             result = sql """show frontends;"""
             logger.info("show frontends result master: " + result)
@@ -106,6 +106,22 @@ suite("test_analyze_mv") {
             }
         }
         assertTrue(found)
+    }
+
+    def stats_dropped = { table ->
+        def result1 = sql """show column cached stats $table"""
+        def result2 = sql """show column stats $table"""
+        boolean dropped = false
+        for (int i = 0; i < 120; i++) {
+            if (0 == result1.size() && 0 == result2.size()) {
+                dropped = true;
+                break;
+            }
+            Thread.sleep(1000)
+            result1 = sql """show column cached stats $table"""
+            result2 = sql """show column stats $table"""
+        }
+        assertTrue(dropped)
     }
 
     sql """drop database if exists test_analyze_mv"""
@@ -674,6 +690,7 @@ suite("test_analyze_mv") {
     // * Test row count report and report for nereids
     sql """truncate table mvTestDup"""
     result_row = sql """show index stats mvTestDup mv3"""
+    stats_dropped("mvTestDup")
     assertEquals(1, result_row.size())
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mv3", result_row[0][1])
@@ -714,11 +731,11 @@ suite("test_analyze_mv") {
     empty_test = sql """show column stats mvTestDup"""
     for (int i = 0; i < 100; i++) {
         empty_test = sql """show column stats mvTestDup"""
-        if (empty_test.size() != 0) {
-            logger.info("async delete is not finished yet.")
-            Thread.sleep(1000)
+        if (empty_test.size() == 0) {
+            break
         }
-        break
+        logger.info("async delete stats is not finished yet.")
+        Thread.sleep(2000)
     }
     assertEquals(0, empty_test.size())
     // ** End of embedded test
