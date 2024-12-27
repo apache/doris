@@ -136,6 +136,7 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -1108,6 +1109,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         List<Table> mowTableList = tableList.stream()
                 .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                .sorted(Comparator.comparingLong(Table::getId))
                 .collect(Collectors.toList());
         increaseWaitingLockCount(mowTableList);
         if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
