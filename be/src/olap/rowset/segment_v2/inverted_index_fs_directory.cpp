@@ -845,10 +845,8 @@ bool DorisRAMFSDirectory::doDeleteFile(const char* name) {
         SCOPED_LOCK_MUTEX(this->THIS_LOCK);
         sizeInBytes -= itr->second->sizeInBytes;
         filesMap->removeitr(itr);
-        return true;
-    } else {
-        return false;
     }
+    return true;
 }
 
 bool DorisRAMFSDirectory::deleteDirectory() {
