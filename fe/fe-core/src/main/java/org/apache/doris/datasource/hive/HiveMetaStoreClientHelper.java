@@ -31,6 +31,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -40,6 +41,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -803,9 +805,18 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Schema getHudiTableSchema(HMSExternalTable table) {
-        HoodieTableMetaClient metaClient = getHudiClient(table);
+        HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
         Schema hudiSchema;
+
+        // Here, the timestamp should be reloaded again.
+        // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
+        // which is saved in the `metaClient`.
+        // But the `metaClient` is obtained from cache, so the file obtained may be an old file.
+        // This file may be deleted by hudi clean task, and an error will be reported.
+        // So, we should reload timeline so that we can read the latest commit files.
+        metaClient.reloadActiveTimeline();
+
         try {
             hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
         } catch (Exception e) {

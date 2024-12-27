@@ -34,6 +34,7 @@ import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
@@ -41,6 +42,7 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -245,14 +247,14 @@ public class HudiUtils {
     }
 
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
-                                                          HMSExternalTable hmsTable) {
+            HMSExternalTable hmsTable) {
         TablePartitionValues partitionValues = new TablePartitionValues();
         if (hmsTable.getPartitionColumns().isEmpty()) {
             //isn't partition table.
             return partitionValues;
         }
 
-        HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
+        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
         HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
                 .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
         boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
@@ -283,5 +285,13 @@ public class HudiUtils {
             }
         }
         return partitionValues;
+    }
+
+    public static HoodieTableMetaClient buildHudiTableMetaClient(String hudiBasePath, Configuration conf) {
+        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
+        return HiveMetaStoreClientHelper.ugiDoAs(
+            conf,
+            () -> HoodieTableMetaClient.builder()
+                .setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
     }
 }

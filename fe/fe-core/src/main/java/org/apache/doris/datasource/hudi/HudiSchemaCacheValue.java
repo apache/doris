@@ -15,18 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.datasource.hudi;
 
-#include <gen_cpp/PlanNodes_types.h>
+import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 
-#include <cstddef>
+import java.util.List;
 
-namespace doris {
-// check utf8 code using simd instructions
-// Return true - success,  false fail
-bool validate_utf8(const char* src, size_t len);
-// check utf8 use naive c++
-bool validate_utf8_naive(const char* data, size_t len);
+public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
 
-bool validate_utf8(const TFileScanRangeParams& params, const char* src, size_t len);
-} // namespace doris
+    private List<String> colTypes;
+
+    public HudiSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
+        super(schema, partitionColumns);
+    }
+
+    public List<String> getColTypes() {
+        return colTypes;
+    }
+
+    public void setColTypes(List<String> colTypes) {
+        this.colTypes = colTypes;
+    }
+}
