@@ -61,7 +61,6 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
-import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -833,19 +832,6 @@ public class HiveMetaStoreClientHelper {
         } catch (IOException e) {
             LOG.warn("HiveMetaStoreClientHelper ugiDoAs failed.", e);
             throw new RuntimeException(e);
-        }
-    }
-
-    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
-        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-        Configuration conf = getConfiguration(table);
-        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
-        try {
-            return table.getCatalog().getPreExecutionAuthenticator().execute(()
-                    -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration)
-                    .setBasePath(hudiBasePath).build());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to get hudi table meta client.", e);
         }
     }
 
