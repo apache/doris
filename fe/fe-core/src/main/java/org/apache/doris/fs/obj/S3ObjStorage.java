@@ -105,6 +105,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
         String endpoint = properties.get(S3Properties.ENDPOINT);
         String region = properties.get(S3Properties.REGION);
+        LOG.info("Endpoint: " + endpoint);
+        LOG.info("Region: " + region);
         this.properties.put(S3Properties.REGION, PropertyConverter.checkRegion(endpoint, region, S3Properties.REGION));
     }
 
