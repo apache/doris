@@ -212,6 +212,7 @@ supportedAlterStatement
         properties=propertyClause?                                                  #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL           #alterCatalogComment
+    | ALTER DATABASE name=identifier RENAME newName=identifier                      #alterDatabaseRename
     ;
 
 supportedDropStatement
@@ -587,7 +588,6 @@ unsupportedAlterStatement
     | ALTER SYSTEM alterSystemClause                                                #alterSystem
     | ALTER DATABASE name=identifier SET (DATA |REPLICA | TRANSACTION)
         QUOTA INTEGER_VALUE identifier?                                             #alterDatabaseSetQuota
-    | ALTER DATABASE name=identifier RENAME newName=identifier                      #alterDatabaseRename
     | ALTER DATABASE name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
     | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
