@@ -28,22 +28,25 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int node_id) {
+template <typename ContextTypePtr>
+void BaseController<ContextTypePtr>::set_builder_and_consumers(TUniqueId builder, int node_id) {
     // Only need to set builder and consumers with pipeline engine enabled.
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
 }
 
-SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id) {
+template <typename ContextTypePtr>
+ContextTypePtr BaseController<ContextTypePtr>::get_context(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     if (!_shared_contexts.contains(my_node_id)) {
-        _shared_contexts.insert({my_node_id, std::make_shared<SharedHashTableContext>()});
+        _shared_contexts.insert({my_node_id, std::make_shared<ContextType>()});
     }
     return _shared_contexts[my_node_id];
 }
 
-void SharedHashTableController::signal_finish(int my_node_id) {
+template <typename ContextTypePtr>
+void BaseController<ContextTypePtr>::signal_finish(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _shared_contexts.find(my_node_id);
     if (it != _shared_contexts.cend()) {
@@ -58,7 +61,8 @@ void SharedHashTableController::signal_finish(int my_node_id) {
     }
 }
 
-TUniqueId SharedHashTableController::get_builder_fragment_instance_id(int my_node_id) {
+template <typename ContextTypePtr>
+TUniqueId BaseController<ContextTypePtr>::get_builder_fragment_instance_id(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _builder_fragment_ids.find(my_node_id);
     if (it == _builder_fragment_ids.cend()) {
@@ -66,5 +70,8 @@ TUniqueId SharedHashTableController::get_builder_fragment_instance_id(int my_nod
     }
     return it->second;
 }
+
+template class BaseController<SharedHashTableContextPtr>;
+template class BaseController<SharedCollectedDataContextPtr>;
 
 } // namespace doris::vectorized

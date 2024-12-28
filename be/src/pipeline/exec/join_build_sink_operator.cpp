@@ -36,8 +36,6 @@ Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* stat
 
     _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "PublishRuntimeFilterTime");
-    _runtime_filter_compute_timer =
-            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "BuildRuntimeFilterTime");
     return Status::OK();
 }
 

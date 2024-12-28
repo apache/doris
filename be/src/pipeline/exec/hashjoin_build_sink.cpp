@@ -86,6 +86,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_side_merge_block_timer = ADD_TIMER(profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
+    _runtime_filter_compute_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
 
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));

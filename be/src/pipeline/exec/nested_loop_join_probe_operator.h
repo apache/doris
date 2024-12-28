@@ -74,7 +74,8 @@ private:
                 for (size_t i = 0; i < processed_blocks_num; i++) {
                     auto& build_side_flag =
                             assert_cast<vectorized::ColumnUInt8*>(
-                                    _shared_state->build_side_visited_flags[build_block_idx].get())
+                                    (*_shared_state->build_side_visited_flags)[build_block_idx]
+                                            .get())
                                     ->get_data();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
                     auto cur_sz = build_side_flag.size();
@@ -83,7 +84,7 @@ private:
                     for (size_t j = 0; j < cur_sz; j++) {
                         build_side_flag_data[j] |= filter[offset + j];
                     }
-                    build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks.size() - 1
+                    build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks->size() - 1
                                                            : build_block_idx - 1;
                 }
             }
@@ -125,7 +126,7 @@ private:
         // 1. Execute conjuncts and get a column with bool type to do filtering.
         // 2. Use bool column to update build-side visited flags.
         // 3. Use bool column to do filtering.
-        size_t build_block_idx = _current_build_pos == 0 ? _shared_state->build_blocks.size() - 1
+        size_t build_block_idx = _current_build_pos == 0 ? _shared_state->build_blocks->size() - 1
                                                          : _current_build_pos - 1;
         size_t processed_blocks_num = _build_offset_stack.size();
         if (LIKELY(!_join_conjuncts.empty() && block->rows() > 0)) {
@@ -155,13 +156,14 @@ private:
                 for (size_t i = 0; i < processed_blocks_num; i++) {
                     auto& build_side_flag =
                             assert_cast<vectorized::ColumnUInt8*>(
-                                    _shared_state->build_side_visited_flags[build_block_idx].get())
+                                    (*_shared_state->build_side_visited_flags)[build_block_idx]
+                                            .get())
                                     ->get_data();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
                     auto cur_sz = build_side_flag.size();
                     _build_offset_stack.pop();
                     memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
-                    build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks.size() - 1
+                    build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks->size() - 1
                                                            : build_block_idx - 1;
                 }
             }

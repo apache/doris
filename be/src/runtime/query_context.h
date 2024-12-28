@@ -123,6 +123,11 @@ public:
         return _shared_hash_table_controller;
     }
 
+    std::shared_ptr<vectorized::SharedCollectedDataController>
+    get_shared_collected_data_controller() {
+        return _shared_collected_data_controller;
+    }
+
     bool has_runtime_predicate(int source_node_id) {
         return _runtime_predicates.contains(source_node_id);
     }
@@ -284,7 +289,10 @@ private:
 
     void _init_query_mem_tracker();
 
+    // for hash join
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    // for nested loop join
+    std::shared_ptr<vectorized::SharedCollectedDataController> _shared_collected_data_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     WorkloadGroupPtr _workload_group = nullptr;

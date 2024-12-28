@@ -84,6 +84,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
+    _shared_collected_data_controller.reset(new vectorized::SharedCollectedDataController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker, true);
@@ -187,6 +188,7 @@ QueryContext::~QueryContext() {
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _shared_hash_table_controller.reset();
+    _shared_collected_data_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
