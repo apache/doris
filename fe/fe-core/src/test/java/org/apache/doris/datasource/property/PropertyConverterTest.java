@@ -179,7 +179,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'AWS_REGION' = 'us-east-1'\n"
                 + ");";
         CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
-        Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
+        Assertions.assertEquals(analyzedStmt.getProperties().size(), 5);
         Repository repository = getRepository(analyzedStmt, "s3_repo");
         Assertions.assertEquals(9, repository.getRemoteFileSystem().getProperties().size());
 
@@ -195,7 +195,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {
@@ -223,7 +223,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Env.getCurrentEnv().getBrokerMgr().addBrokers("bos_broker", brokers);
 
         Repository repositoryNew = getRepository(analyzedStmt, "bos_broker_repo");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
     }
 
     @Test
