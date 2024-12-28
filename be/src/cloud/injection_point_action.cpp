@@ -74,7 +74,8 @@ void register_suites() {
             std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
         });
         sp->set_call_back("HdfsFileWriter::append_hdfs_file_error", [](auto&& args) {
-            auto& [_, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to write hdfs file");
             should_ret = true;
         });
         sp->set_call_back("HdfsFileWriter::hdfsFlush", [](auto&& args) {
