@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import com.google.gson.annotations.SerializedName;
@@ -58,10 +59,12 @@ public class S3StorageVault extends StorageVault {
 
     private static final String TYPE = "type";
 
-    public static final HashSet<String> ALTER_CHECK_PROPERTIES = new HashSet<>(Arrays.asList(
+    public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
             TYPE,
             S3Properties.ACCESS_KEY,
-            S3Properties.SECRET_KEY
+            S3Properties.SECRET_KEY,
+            VAULT_NAME,
+            PropertyConverter.USE_PATH_STYLE
     ));
 
     @SerializedName(value = "properties")

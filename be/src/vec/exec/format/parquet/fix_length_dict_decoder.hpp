@@ -107,12 +107,13 @@ protected:
             return Status::Corruption("Wrong dictionary data for fixed length type");
         }
         _dict = std::move(dict);
+        if (_dict == nullptr) {
+            return Status::Corruption("Wrong dictionary data for byte array type, dict is null.");
+        }
         char* dict_item_address = reinterpret_cast<char*>(_dict.get());
         _dict_items.resize(num_values);
-        _dict_value_to_code.reserve(num_values);
         for (size_t i = 0; i < num_values; ++i) {
             _dict_items[i] = dict_item_address;
-            _dict_value_to_code[StringRef(_dict_items[i], _type_length)] = i;
             dict_item_address += _type_length;
         }
         return Status::OK();
@@ -128,17 +129,6 @@ protected:
         return Status::OK();
     }
 
-    Status get_dict_codes(const ColumnString* string_column,
-                          std::vector<int32_t>* dict_codes) override {
-        size_t size = string_column->size();
-        dict_codes->reserve(size);
-        for (int i = 0; i < size; ++i) {
-            StringRef dict_value = string_column->get_data_at(i);
-            dict_codes->emplace_back(_dict_value_to_code[dict_value]);
-        }
-        return Status::OK();
-    }
-
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
         std::vector<StringRef> dict_values(dict_column->size());
@@ -149,7 +139,6 @@ protected:
         res->insert_many_strings(&dict_values[0], dict_values.size());
         return res;
     }
-    std::unordered_map<StringRef, int32_t> _dict_value_to_code;
     // For dictionary encoding
     std::vector<char*> _dict_items;
 };

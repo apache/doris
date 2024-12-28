@@ -37,6 +37,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;
 } // namespace vectorized

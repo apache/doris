@@ -78,7 +78,7 @@ import java.util.stream.Collectors;
  * - 'sample.rows' = '1000'
  * - 'num.buckets' = 10
  */
-public class AnalyzeTblStmt extends AnalyzeStmt {
+public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
     // The properties passed in by the user through "with" or "properties('K', 'V')"
 
     private final TableName tableName;

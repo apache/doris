@@ -52,7 +52,9 @@ suite("test_unique_schema_key_change_modify","p0") {
              "               (567890123, 'Eve', 0, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 1, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
-
+     def insertSql = ""
+     def initTable2 = ""
+     def initTableData2 = ""
      //TODO Test the unique model by modify a key type from BOOLEAN to TINYINT
      def errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT"
      expectException({
@@ -127,7 +129,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from BOOLEAN to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -155,7 +157,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from BOOLEAN to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_teacher]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_teacher]"
      expectException({
           sql initTable
           sql initTableData
@@ -301,7 +303,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from TINYINT  to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -342,7 +344,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //Test the unique model by modify a key type from TINYINT  to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_student]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_student]"
      expectException({
           sql initTable
           sql initTableData
@@ -479,7 +481,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from SMALLINT  to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -520,7 +522,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //Test the unique model by modify a key type from SMALLINT  to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[car_number]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[car_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -704,7 +706,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      }, errorMessage)
 
      //Test the unique model by modify a key type from INT  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -895,7 +897,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      }, errorMessage)
 
      //Test the unique model by modify a key type from BIGINT  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -1125,7 +1127,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
      //TODO Test the unique model by modify a  key type from LARGEINT  to STRING
      //Test the unique model by modify a key type from LARGEINT  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -1703,7 +1705,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      sql """ DROP TABLE IF EXISTS ${tbName} """
 
      //Test the unique model by modify a key type from DECIMAL  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[rice]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[rice]"
      expectException({
           sql initTable
           sql initTableData
@@ -1836,7 +1838,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATE to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -1864,7 +1866,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATE to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -2011,7 +2013,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIME to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2039,7 +2041,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATETIME to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -2184,7 +2186,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from CHAR to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2212,7 +2214,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from CHAR to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]"
      expectException({
           sql initTable
           sql initTableData
@@ -2358,7 +2360,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from VARCHAR to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change VARCHAR to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2386,7 +2388,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from VARCHAR to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[username]"
      expectException({
           sql initTable
           sql initTableData
@@ -2532,7 +2534,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATEV2 to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2560,7 +2562,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATEV2 to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData
@@ -2705,7 +2707,7 @@ suite("test_unique_schema_key_change_modify","p0") {
 
 
      //TODO Test the unique model by modify a key type from DATETIMEV2 to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -2733,7 +2735,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the unique model by modify a key type from DATETIMEV2 to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[login_time]"
      expectException({
           sql initTable
           sql initTableData

@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <ctime>
 #include <map>
@@ -41,8 +43,14 @@ namespace doris {
 
 class BufferControlBlock;
 struct GetResultBatchCtx;
+struct GetArrowResultBatchCtx;
 class PUniqueId;
+class RuntimeState;
+class MemTrackerLimiter;
 class Thread;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 // manage all result buffer control block in one backend
 class ResultBufferMgr {
@@ -58,20 +66,21 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                         std::shared_ptr<BufferControlBlock>* sender, int exec_timeout,
-                         int batch_size);
+                         std::shared_ptr<BufferControlBlock>* sender, RuntimeState* state);
 
     // fetch data result to FE
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
-    // fetch data result to Arrow Flight Server
-    Status fetch_arrow_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
-
-    void register_arrow_schema(const TUniqueId& query_id,
-                               const std::shared_ptr<arrow::Schema>& arrow_schema);
-    std::shared_ptr<arrow::Schema> find_arrow_schema(const TUniqueId& query_id);
+    // fetch data result to Arrow Flight Client
+    Status fetch_arrow_data(const TUniqueId& finst_id, std::shared_ptr<vectorized::Block>* result,
+                            cctz::time_zone& timezone_obj);
+    // fetch data result to Other BE forwards to Client
+    void fetch_arrow_data(const PUniqueId& finst_id, GetArrowResultBatchCtx* ctx);
+    Status find_mem_tracker(const TUniqueId& finst_id,
+                            std::shared_ptr<MemTrackerLimiter>* mem_tracker);
+    Status find_arrow_schema(const TUniqueId& query_id, std::shared_ptr<arrow::Schema>* schema);
 
     // cancel
-    void cancel(const TUniqueId& fragment_id);
+    void cancel(const TUniqueId& query_id, const Status& reason);
 
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
@@ -79,7 +88,6 @@ public:
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
-    using ArrowSchemaMap = std::unordered_map<TUniqueId, std::shared_ptr<arrow::Schema>>;
 
     std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
@@ -91,10 +99,6 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
-    // lock for arrow schema map
-    std::shared_mutex _arrow_schema_map_lock;
-    // for arrow flight
-    ArrowSchemaMap _arrow_schema_map;
 
     // lock for timeout map
     std::mutex _timeout_lock;

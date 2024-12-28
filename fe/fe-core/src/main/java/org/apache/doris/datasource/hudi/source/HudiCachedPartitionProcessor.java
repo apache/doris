@@ -21,6 +21,7 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -28,6 +29,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -37,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -52,10 +55,10 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         this.catalogId = catalogId;
         this.executor = executor;
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
-                Config.max_hive_table_cache_num,
-                false,
+                Config.max_external_table_cache_num,
+                true,
                 null);
         this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), null, executor);
     }
@@ -166,5 +169,12 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
             LOG.warn("Failed to get hudi partitions", e);
             throw new CacheException("Failed to get hudi partitions: " + Util.getRootCauseMessage(e), e);
         }
+    }
+
+    public Map<String, Map<String, String>> getCacheStats() {
+        Map<String, Map<String, String>> res = Maps.newHashMap();
+        res.put("hudi_partition_cache", ExternalMetaCacheMgr.getCacheStats(partitionCache.stats(),
+                partitionCache.estimatedSize()));
+        return res;
     }
 }

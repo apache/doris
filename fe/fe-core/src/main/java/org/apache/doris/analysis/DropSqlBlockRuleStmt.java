@@ -30,7 +30,7 @@ import lombok.Getter;
 import java.util.List;
 
 @Getter
-public class DropSqlBlockRuleStmt extends DdlStmt {
+public class DropSqlBlockRuleStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean ifExists;
 

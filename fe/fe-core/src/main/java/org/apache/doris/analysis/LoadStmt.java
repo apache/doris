@@ -85,7 +85,7 @@ import java.util.Map.Entry;
 //      resource_desc:
 //          WITH RESOURCE name
 //          (key3=value3, ...)
-public class LoadStmt extends DdlStmt {
+public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LoadStmt.class);
 
     public static final String TIMEOUT_PROPERTY = "timeout";
@@ -98,8 +98,8 @@ public class LoadStmt extends DdlStmt {
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String PRIORITY = "priority";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
-    // temp property, just make regression test happy.
-    // should remove when Config.enable_new_load_scan_node is set to true by default.
+
+    // deprecated, keeping this property to make LoadStmt#checkProperties() happy
     public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";
 
     // for load data from Baidu Object Store(BOS)
@@ -527,7 +527,8 @@ public class LoadStmt extends DdlStmt {
         Map<String, String> properties = brokerDesc.getProperties();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
-                return entry.getValue();
+                // S3 Provider properties should be case insensitive.
+                return entry.getValue().toUpperCase();
             }
         }
         return S3Properties.S3_PROVIDER;
@@ -608,7 +609,14 @@ public class LoadStmt extends DdlStmt {
             connection.connect();
         } catch (Exception e) {
             LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
-            throw new UserException("Failed to access object storage", e);
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (connection != null) {
                 try {
@@ -674,8 +682,14 @@ public class LoadStmt extends DdlStmt {
             }
         } catch (Exception e) {
             LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
             throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to access object storage", e);
+                    "Failed to access object storage, message=" + msg, e);
         } finally {
             if (remote != null) {
                 remote.close();

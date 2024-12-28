@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -73,7 +74,6 @@ public class LoadLoadingTask extends LoadTask {
     private final int sendBatchParallelism;
     private final boolean loadZeroTolerance;
     private final boolean singleTabletLoadPerSink;
-    private final boolean useNewLoadScanNode;
 
     private final boolean enableMemTableOnSinkNode;
     private final int batchSize;
@@ -91,7 +91,7 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
+            Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -111,7 +111,6 @@ public class LoadLoadingTask extends LoadTask {
         this.loadZeroTolerance = loadZeroTolerance;
         this.jobProfile = jobProfile;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
-        this.useNewLoadScanNode = useNewLoadScanNode;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
         this.batchSize = batchSize;
     }
@@ -121,7 +120,7 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
                 strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
+                userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -156,14 +155,6 @@ public class LoadLoadingTask extends LoadTask {
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
 
-        /*
-         * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
-         * And the variable 'load_mem_limit' does not make any effect.
-         * However, in order to ensure the consistency of semantics when executing on the BE side,
-         * and to prevent subsequent modification from incorrectly setting the load_mem_limit,
-         * here we use exec_mem_limit to directly override the load_mem_limit property.
-         */
-        curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
         curCoordinator.setBatchSize(batchSize);
 
@@ -225,6 +216,8 @@ public class LoadLoadingTask extends LoadTask {
         UUID uuid = UUID.randomUUID();
         this.loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         planner.updateLoadId(this.loadId);
+        // reset progress on each retry, otherwise the finished/total num will be incorrect
+        Env.getCurrentProgressManager().registerProgressSimple(String.valueOf(callback.getCallbackId()));
     }
 
     void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {

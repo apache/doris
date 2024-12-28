@@ -84,7 +84,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         _file_format_transformer.reset(new VParquetTransformer(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
                 parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false, _iceberg_schema_json));
+                false, _iceberg_schema_json, &_schema));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
@@ -101,24 +101,26 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
+    Status result_status;
     if (_file_format_transformer != nullptr) {
-        Status st = _file_format_transformer->close();
-        if (!st.ok()) {
+        result_status = _file_format_transformer->close();
+        if (!result_status.ok()) {
             LOG(WARNING) << fmt::format("_file_format_transformer close failed, reason: {}",
-                                        st.to_string());
+                                        result_status.to_string());
         }
     }
-    if (!status.ok() && _fs != nullptr) {
+    bool status_ok = result_status.ok() && status.ok();
+    if (!status_ok && _fs != nullptr) {
         auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
-    if (status.ok()) {
+    if (status_ok) {
         _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
     }
-    return Status::OK();
+    return result_status;
 }
 
 Status VIcebergPartitionWriter::write(vectorized::Block& block) {

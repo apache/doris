@@ -190,6 +190,6 @@ suite("nereids_update_on_current_timestamp") {
                 k int,
                 `update_time` datetime(6) default current_timestamp(4) on update current_timestamp(3)) replace,
             ) AGGREGATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");"""
-        exception "Syntax error in line 3"
+        exception "mismatched input 'replace'"
     }
 }

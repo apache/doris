@@ -57,7 +57,6 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
             new Column("RefreshState", ScalarType.createStringType()),
             new Column("RefreshInfo", ScalarType.createStringType()),
             new Column("QuerySql", ScalarType.createStringType()),
-            new Column("EnvInfo", ScalarType.createStringType()),
             new Column("MvProperties", ScalarType.createStringType()),
             new Column("MvPartitionInfo", ScalarType.createStringType()),
             new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)));

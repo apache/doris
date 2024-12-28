@@ -40,7 +40,24 @@ suite("test_ip_implicit_cast") {
     sql "insert into ${tableName} values(2130706433, 2130706433, '2001:1b70:a1:610::b102:2')"
     sql "insert into ${tableName} values(4294967295, 4294967295, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"
 
-    qt_sql1 "select id, ip_v4 from ${tableName} order by id"
+    qt_sql1 "select id, ip_v4, ip_v6 from ${tableName} order by id"
 
     sql "DROP TABLE ${tableName}"
+
+    sql """ drop table if exists t5;"""
+    sql """ create table t5 (id int, a ipv4, b ipv6) properties ("replication_num"="1");"""
+    sql """ insert into t5 values (1, to_ipv4('172.20.48.119'), to_ipv6('::ffff:172.20.48.119'));"""
+    sql """ insert into t5 values (2, to_ipv4('172.20.48.111'), to_ipv6('::ffff:172.20.48.119'));"""
+    qt_sql2 """ select ipv4_to_ipv6(a) = b from t5 order by id;"""
+    qt_sql3 """ select a = b from t5 order by id;"""
+    qt_sql4 """ select a, cast(a as ipv6) from t5 order by id;"""
+
+    sql """ drop table if exists t5_not_null;"""
+    sql """ create table t5_not_null (id int, a ipv4 not null, b ipv6 not null) properties ("replication_num"="1");"""
+    sql """ insert into t5_not_null values (1, to_ipv4('172.20.48.119'), to_ipv6('::ffff:172.20.48.119'));"""
+    sql """ insert into t5_not_null values (2, to_ipv4('172.20.48.111'), to_ipv6('::ffff:172.20.48.119'));"""
+    qt_sql5 """ select ipv4_to_ipv6(a) = b from t5_not_null order by id;"""
+    qt_sql6 """ select a = b from t5_not_null order by id;"""
+    qt_sql7 """ select a, cast(a as ipv6) from t5_not_null order by id;"""
+
 }

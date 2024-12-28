@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.pattern.ProxyPattern;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -52,7 +51,7 @@ public class AppliedAwareRule extends Rule {
     }
 
     @Override
-    public List<Plan> transform(Plan plan, CascadesContext context) throws TransformException {
+    public List<Plan> transform(Plan plan, CascadesContext context) {
         return rule.transform(plan, context);
     }
 

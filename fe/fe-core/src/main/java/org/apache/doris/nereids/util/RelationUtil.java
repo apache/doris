@@ -19,16 +19,31 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * relation util
@@ -100,11 +115,51 @@ public class RelationUtil {
         try {
             DatabaseIf<TableIf> db = catalog.getDb(dbName).orElseThrow(() -> new AnalysisException(
                     "Database [" + dbName + "] does not exist."));
-            TableIf table = db.getTable(tableName).orElseThrow(() -> new AnalysisException(
-                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            Pair<String, String> sourceTblNameWithMetaTblName = catalog.getSourceTableNameWithMetaTableName(tableName);
+            String sourceTableName = sourceTblNameWithMetaTblName.first;
+            TableIf table = db.getTable(sourceTableName).orElseThrow(() -> new AnalysisException(
+                    "Table [" + sourceTableName + "] does not exist in database [" + dbName + "]."));
             return Pair.of(db, table);
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    /**
+     * get mv used column names of base table
+     */
+    public static Set<String> getMvUsedColumnNames(MaterializedIndexMeta meta) {
+        Set<String> columns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        if (meta.getDefineStmt() != null) {
+            // get the original create mv sql
+            String createMvSql = meta.getDefineStmt().originStmt;
+            Optional<String> querySql = new NereidsParser().parseForSyncMv(createMvSql);
+            if (querySql.isPresent()) {
+                LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql.get());
+                StatementContext statementContext = new StatementContext(ConnectContext.get(),
+                        new OriginStatement(querySql.get(), 0));
+                NereidsPlanner planner = new NereidsPlanner(statementContext);
+                if (statementContext.getConnectContext().getStatementContext() == null) {
+                    statementContext.getConnectContext().setStatementContext(statementContext);
+                }
+                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
+
+                logicalPlan
+                        .collect(plan -> plan instanceof LogicalProject
+                                && ((LogicalProject<?>) plan).child() instanceof LogicalCatalogRelation)
+                        .stream().forEach(plan -> {
+                            LogicalProject logicalProject = (LogicalProject) plan;
+                            columns.addAll(logicalProject.getInputSlots().stream().map(Slot::getName)
+                                    .collect(Collectors.toList()));
+                        });
+            } else {
+                throw new AnalysisException(String.format("can't parse %s ", createMvSql));
+            }
+        } else {
+            // no define stmt, means mv created by add rollup. assume schema change can handle such case
+            // columns.addAll(meta.getSchema(false).stream().map(Column::getName).collect(Collectors.toList()));
+        }
+        return columns;
     }
 }

@@ -29,6 +29,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/tablet_fwd.h"
 #include "util/spinlock.h"
 #include "vec/core/block.h"
@@ -46,6 +47,7 @@ class VerticalSegmentWriter;
 struct SegmentStatistics;
 class BetaRowsetWriter;
 class SegmentFileCollection;
+class InvertedIndexFileCollection;
 
 class FileWriterCreator {
 public:
@@ -53,9 +55,12 @@ public:
 
     virtual Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
                           FileType file_type = FileType::SEGMENT_FILE) = 0;
+
+    virtual Status create(uint32_t segment_id, InvertedIndexFileWriterPtr* file_writer) = 0;
 };
 
 template <class T>
+    requires std::is_base_of_v<RowsetWriter, T>
 class FileWriterCreatorT : public FileWriterCreator {
 public:
     explicit FileWriterCreatorT(T* t) : _t(t) {}
@@ -63,6 +68,10 @@ public:
     Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
                   FileType file_type = FileType::SEGMENT_FILE) override {
         return _t->create_file_writer(segment_id, file_writer, file_type);
+    }
+
+    Status create(uint32_t segment_id, InvertedIndexFileWriterPtr* file_writer) override {
+        return _t->create_inverted_index_file_writer(segment_id, file_writer);
     }
 
 private:
@@ -78,6 +87,7 @@ public:
 };
 
 template <class T>
+    requires std::is_base_of_v<RowsetWriter, T>
 class SegmentCollectorT : public SegmentCollector {
 public:
     explicit SegmentCollectorT(T* t) : _t(t) {}
@@ -93,7 +103,8 @@ private:
 
 class SegmentFlusher {
 public:
-    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files);
+    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                   InvertedIndexFileCollection& idx_files);
 
     ~SegmentFlusher();
 
@@ -139,7 +150,11 @@ public:
     bool need_buffering();
 
 private:
-    Status _parse_variant_columns(vectorized::Block& block);
+    // This method will catch exception when allocate memory failed
+    Status _parse_variant_columns(vectorized::Block& block) {
+        RETURN_IF_CATCH_EXCEPTION({ return _internal_parse_variant_columns(block); });
+    }
+    Status _internal_parse_variant_columns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
@@ -158,6 +173,7 @@ private:
 private:
     RowsetWriterContext& _context;
     SegmentFileCollection& _seg_files;
+    InvertedIndexFileCollection& _idx_files;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
@@ -169,7 +185,8 @@ private:
 
 class SegmentCreator {
 public:
-    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files);
+    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                   InvertedIndexFileCollection& idx_files);
 
     ~SegmentCreator() = default;
 

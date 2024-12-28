@@ -17,6 +17,7 @@
 
 #include "obj_retry_strategy.h"
 
+#include <aws/core/http/HttpResponse.h>
 #include <bvar/reducer.h>
 
 namespace doris {
@@ -29,12 +30,16 @@ S3CustomRetryStrategy::~S3CustomRetryStrategy() = default;
 
 bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
                                         long attemptedRetries) const {
-    if (attemptedRetries < m_maxRetries &&
-        error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+    if (attemptedRetries >= m_maxRetries) {
+        return false;
+    }
+
+    if (Aws::Http::IsRetryableHttpResponseCode(error.GetResponseCode()) || error.ShouldRetry()) {
         s3_too_many_request_retry_cnt << 1;
         return true;
     }
-    return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
+
+    return false;
 }
 #ifdef USE_AZURE
 AzureRetryRecordPolicy::AzureRetryRecordPolicy(int retry_cnt) : retry_cnt(retry_cnt) {}

@@ -28,6 +28,8 @@
 
 namespace doris::vectorized {
 
+constexpr auto DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
+
 class SimpleFunctionFactory;
 
 void register_function_size(SimpleFunctionFactory& factory);
@@ -58,6 +60,7 @@ void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_nullables(SimpleFunctionFactory& factory);
 void register_function_to_time_function(SimpleFunctionFactory& factory);
+void register_function_time_value_field(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
 void register_function_running_difference(SimpleFunctionFactory& factory);
@@ -106,6 +109,8 @@ void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
+void register_function_assert_true(SimpleFunctionFactory& factory);
+void register_function_bit_test(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -150,21 +155,20 @@ public:
         function_alias[alias] = name;
     }
 
-    /// @TEMPORARY: for be_exec_version=4
-    template <class Function>
-    void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_5_0"};
-        function_to_replace[Function::name] = Function::name + suffix;
-        register_function(Function::name + suffix, &createDefaultFunction<Function>);
-    }
-
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
-                                 const DataTypePtr& return_type,
+                                 const DataTypePtr& return_type, const FunctionAttr& attr = {},
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
         if (function_alias.contains(name)) {
             key_str = function_alias[name];
+        }
+
+        if (attr.enable_decimal256) {
+            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
+                key_str == "array_cum_sum") {
+                key_str += DECIMAL256_FUNCTION_SUFFIX;
+            }
         }
 
         temporary_function_update(be_version, key_str);
@@ -246,6 +250,7 @@ public:
             register_function_is_not_null(instance);
             register_function_nullables(instance);
             register_function_to_time_function(instance);
+            register_function_time_value_field(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
             register_function_in(instance);
@@ -294,6 +299,8 @@ public:
             register_function_variant_element(instance);
             register_function_multi_match(instance);
             register_function_split_by_regexp(instance);
+            register_function_assert_true(instance);
+            register_function_bit_test(instance);
         });
         return instance;
     }

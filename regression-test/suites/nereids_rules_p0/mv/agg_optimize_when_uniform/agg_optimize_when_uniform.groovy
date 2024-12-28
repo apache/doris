@@ -39,11 +39,6 @@ suite("agg_optimize_when_uniform") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -74,10 +69,6 @@ suite("agg_optimize_when_uniform") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -129,6 +120,14 @@ suite("agg_optimize_when_uniform") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
+    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders with sync;"""
+    sql """analyze table partsupp with sync;"""
+
     // single table
     // filter cover all roll up dimensions and contains agg function in mapping, combinator handler
     def mv1_0 = """
@@ -156,7 +155,7 @@ suite("agg_optimize_when_uniform") {
             o_orderdate;
             """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     qt_shape1_0_after """explain shape plan ${query1_0}"""
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
@@ -193,7 +192,7 @@ suite("agg_optimize_when_uniform") {
              bin(o_orderkey);
             """
     order_qt_query2_0_before "${query2_0}"
-    check_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
     qt_shape2_0_after """explain shape plan ${query2_0}"""
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
@@ -224,7 +223,7 @@ suite("agg_optimize_when_uniform") {
             o_comment;
             """
     order_qt_query3_0_before "${query3_0}"
-    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
     // query success and doesn't add aggregate
     qt_shape3_0_after """explain shape plan ${query3_0}"""
     order_qt_query3_0_after "${query3_0}"
@@ -257,7 +256,7 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query3_1_before "${query3_1}"
     // query where has a column not in agg output
-    check_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
     qt_shape3_1_after """explain shape plan ${query3_1}"""
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
@@ -290,7 +289,7 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query4_0_before "${query4_0}"
     // query success but add agg
-    check_mv_rewrite_success_without_check_chosen(db, mv4_0, query4_0, "mv4_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv4_0, query4_0, "mv4_0")
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
@@ -326,7 +325,7 @@ suite("agg_optimize_when_uniform") {
             l_suppkey;
             """
     order_qt_query5_0_before "${query5_0}"
-    check_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
+    async_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
     qt_shape5_0_after """explain shape plan ${query5_0}"""
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
@@ -369,7 +368,7 @@ suite("agg_optimize_when_uniform") {
              bin(o_orderkey);
             """
     order_qt_query6_0_before "${query6_0}"
-    check_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
     qt_shape6_0_after """explain shape plan ${query6_0}"""
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
@@ -405,7 +404,7 @@ suite("agg_optimize_when_uniform") {
             o_comment;
             """
     order_qt_query7_0_before "${query7_0}"
-    check_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
+    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
     // query success and doesn't add aggregate
     qt_shape7_0_after """explain shape plan ${query7_0}"""
     order_qt_query7_0_after "${query7_0}"
@@ -442,7 +441,7 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query7_1_before "${query7_1}"
     // query where has a column not in agg output
-    check_mv_rewrite_fail(db, mv7_1, query7_1, "mv7_1")
+    async_mv_rewrite_fail(db, mv7_1, query7_1, "mv7_1")
     qt_shape7_1_after """explain shape plan ${query7_1}"""
     order_qt_query7_1_after "${query7_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
@@ -478,7 +477,7 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query8_0_before "${query8_0}"
     // query success but add agg
-    check_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0")
+    async_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0")
     qt_shape8_0_after """explain shape plan ${query8_0}"""
     order_qt_query8_0_after "${query8_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""

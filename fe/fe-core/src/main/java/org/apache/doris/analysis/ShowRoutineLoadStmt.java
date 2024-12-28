@@ -62,7 +62,7 @@ import java.util.List;
         show routine load in all of database
         please use show proc
  */
-public class ShowRoutineLoadStmt extends ShowStmt {
+public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()

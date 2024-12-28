@@ -94,14 +94,15 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         DCHECK(!_finished);
         _finished = true;
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
         encode_fixed32_le(&_buf[0], _count);
-        return _buf.build();
+        *slice = _buf.build();
+        return Status::OK();
     }
 
     Status reset() override {

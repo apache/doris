@@ -152,17 +152,15 @@ PARTITION_COMMENT	text	Yes	false	\N
 NODEGROUP	varchar(256)	Yes	false	\N	
 TABLESPACE_NAME	varchar(268)	Yes	false	\N	
 
--- !select_partitions --
-
 -- !schemata --
 internal	test_query_sys_db_1	\N
 internal	test_query_sys_db_2	\N
 internal	test_query_sys_db_3	\N
 
 -- !tables --
-internal	test_query_sys_tb_1	BASE TABLE	0	\N	\N
-internal	test_query_sys_tb_2	BASE TABLE	0	\N	\N
-internal	test_query_sys_tb_3	BASE TABLE	0	\N	\N
+internal	test_query_sys_tb_1	BASE TABLE	0	\N	0
+internal	test_query_sys_tb_2	BASE TABLE	0	\N	0
+internal	test_query_sys_tb_3	BASE TABLE	0	\N	0
 
 -- !session_variables --
 wait_timeout	30000
@@ -174,7 +172,7 @@ wait_timeout	31000
 'original_test_sys_tables'@'%'	SELECT	NO
 
 -- !views --
-test_view	
+test_view	SELECT `internal`.`test_query_sys_db_1`.`test_query_sys_tb_1`.`ccc` AS `a` FROM `internal`.`test_query_sys_db_1`.`test_query_sys_tb_1`
 
 -- !sql --
 

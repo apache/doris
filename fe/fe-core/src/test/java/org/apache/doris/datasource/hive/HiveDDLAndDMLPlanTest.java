@@ -86,8 +86,6 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        connectContext.getSessionVariable().enableNereidsDML = true;
         Config.enable_query_hive_views = false;
         // create test internal table
         createDatabase(mockedDbName);
@@ -219,7 +217,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             @Mock
             public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
                 if (createdDbs.contains(dbName)) {
-                    return new HMSExternalDatabase(hmsExternalCatalog, RandomUtils.nextLong(), dbName);
+                    return new HMSExternalDatabase(hmsExternalCatalog, RandomUtils.nextLong(), dbName, dbName);
                 }
                 return null;
             }
@@ -230,7 +228,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             HMSExternalTable getTableNullable(String tableName) {
                 for (Table table : createdTables) {
                     if (table.getTableName().equals(tableName)) {
-                        return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                        return new HMSExternalTable(0, tableName, tableName, hmsExternalCatalog, (HMSExternalDatabase) hmsExternalCatalog.getDbNullable(mockedDbName));
                     }
                 }
                 return null;
@@ -339,8 +337,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                "errCode = 2, detailMessage = errCode = 2,"
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.UserException.class,
+                "errCode = 2,"
                         + " detailMessage = Create hive bucket table need set enable_create_hive_bucket_table to true",
                 () -> createTable(createBucketedTableErr, true));
 

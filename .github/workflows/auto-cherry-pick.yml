@@ -1,0 +1,72 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+name: Auto Cherry-Pick to Branch
+
+on:
+  pull_request_target:
+    types:
+      - closed
+      - labeled
+    branches:
+      - master
+permissions:
+  checks: write
+  contents: write
+  pull-requests: write
+jobs:
+  auto_cherry_pick:
+    runs-on: ubuntu-latest
+    if: ${{(contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') || contains(github.event.pull_request.labels.*.name, 'dev/2.1.x') ||github.event.label.name == 'dev/3.0.x' || github.event.label.name == 'dev/2.1.x') && github.event.pull_request.merged == true }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install PyGithub
+      - name: Check SHA
+        run: |
+            expected_sha="4761d95a336b92e492276d589e580678af8d490d73fa0bd7d53f826aa3bf86b54e2b8725b436bc010aaf14a001e286bcd2b55b3ec0d2668d1e962d8c8b397eab"
+            calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
+            if [ "$calculated_sha" != "$expected_sha" ]; then
+              echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
+              exit 1
+            else
+              echo "SHA matches: $calculated_sha"
+            fi
+      - name: Auto cherry-pick to branch-3.0
+        if: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'dev/3.0.x'))|| ((github.event_name == 'pull_request_target' && github.event.action == 'closed') && contains(github.event.pull_request.labels.*.name, 'dev/3.0.x')) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          CONFLICT_LABEL: dev/3.0.x-conflict
+        run: |
+          python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-3.0  
+      - name: Auto cherry-pick to branch-2.1
+        if: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'dev/2.1.x'))|| ((github.event_name == 'pull_request_target' && github.event.action == 'closed') && contains(github.event.pull_request.labels.*.name, 'dev/2.1.x')) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          CONFLICT_LABEL: dev/2.1.x-conflict
+        run: |
+            python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-2.1         

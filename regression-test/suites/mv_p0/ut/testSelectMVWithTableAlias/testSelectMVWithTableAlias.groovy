@@ -29,6 +29,8 @@ suite ("testSelectMVWithTableAlias") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
+
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
@@ -37,28 +39,12 @@ suite ("testSelectMVWithTableAlias") {
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
 
     sql "analyze table user_tags with sync;"
-    sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_all_fail("select * from user_tags order by time_col;", ["user_tags_mv"])
+        
     qt_select_star "select * from user_tags order by time_col;"
 
-    explain {
-        sql("select count(tag_id) from user_tags t;")
-        contains "(user_tags_mv)"
-    }
+    mv_rewrite_success("select count(tag_id) from user_tags t;", "user_tags_mv")
+    
     qt_select_mv "select count(tag_id) from user_tags t;"
-
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
-
-    explain {
-        sql("select count(tag_id) from user_tags t;")
-        contains "(user_tags_mv)"
-    }
 }

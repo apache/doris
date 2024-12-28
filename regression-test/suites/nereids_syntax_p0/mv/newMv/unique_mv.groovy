@@ -44,14 +44,10 @@ suite ("unique_mv") {
     sql "analyze table c5816_t with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("SELECT * FROM c5816_t WHERE call_uuid='adc';")
-        contains "(mv_1)"
-    }
+    mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT * FROM c5816_t WHERE call_uuid='adc';")
-        contains "(mv_1)"
-    }
+    sql """alter table c5816_t modify column org_id set stats ('row_count'='1');"""
+    mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
+
 }

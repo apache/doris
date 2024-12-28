@@ -36,6 +36,9 @@ import java.util.Objects;
  */
 public class DateTimeV2Literal extends DateTimeLiteral {
 
+    public static final DateTimeV2Literal USE_IN_FLOOR_CEIL
+            = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+
     public DateTimeV2Literal(String s) {
         this(DateTimeV2Type.forTypeFromString(s), s);
     }
@@ -77,7 +80,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
         }
-        if (checkRange() || checkDate()) {
+        if (checkRange() || checkDate(year, month, day)) {
             // may fallback to legacy planner. make sure the behaviour of rounding is same.
             throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
         }
@@ -102,6 +105,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, microSecond,
                 getDataType().toCatalogDataType());
+    }
+
+    @Override
+    public double getDouble() {
+        return super.getDouble() + microSecond / 1000000.0;
     }
 
     @Override
@@ -215,8 +223,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
+    // When performing addition or subtraction with MicroSeconds, the precision must
+    // be set to 6 to display it completely.
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), getDataType().getScale());
+        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), 6);
+    }
+
+    public Expression plusMilliSeconds(long microSeconds) {
+        return plusMicroSeconds(microSeconds * 1000L);
     }
 
     /**
@@ -239,7 +253,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         }
         if (newMicroSecond > MAX_MICROSECOND) {
             newMicroSecond %= newMicroSecond;
-            DateTimeV2Literal result = (DateTimeV2Literal) this.plusSeconds(1);
+            Expression plus1Second = this.plusSeconds(1);
+            if (plus1Second.isNullLiteral()) {
+                throw new AnalysisException("round ceil datetime literal (" + toString() + ", "
+                        + newScale + ") is out of range");
+            }
+            DateTimeV2Literal result = (DateTimeV2Literal) plus1Second;
             newSecond = result.second;
             newMinute = result.minute;
             newHour = result.hour;
@@ -265,9 +284,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
      */
     public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateTimeV2Type.of(precision))
-                : new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range" + dateTime.toString());
+        }
+        return new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);
@@ -285,6 +305,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             return false;
         }
         DateTimeV2Literal literal = (DateTimeV2Literal) o;
-        return Objects.equals(dataType, literal.dataType);
+        return Objects.equals(dataType, literal.dataType) && Objects.equals(microSecond, literal.microSecond);
     }
 }

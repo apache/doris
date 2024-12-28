@@ -17,8 +17,8 @@
 
 #pragma once
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -31,6 +31,8 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 class SlotDescriptor;
 class ObjectPool;
@@ -50,7 +52,7 @@ class AggFnEvaluator {
 
 public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
-                         AggFnEvaluator** result);
+                         const bool without_key, AggFnEvaluator** result);
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    const SlotDescriptor* intermediate_slot_desc,
@@ -97,7 +99,7 @@ public:
     bool is_merge() const { return _is_merge; }
     const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
-    static Status check_agg_fn_output(int key_size,
+    static Status check_agg_fn_output(uint32_t key_size,
                                       const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                       const RowDescriptor& output_row_desc);
 
@@ -109,8 +111,12 @@ private:
     const TFunction _fn;
 
     const bool _is_merge;
+    // We need this flag to distinguish between the two types of aggregation functions:
+    // 1. executed without group by key (agg function used with window function is also regarded as this type)
+    // 2. executed with group by key
+    const bool _without_key;
 
-    AggFnEvaluator(const TExprNode& desc);
+    AggFnEvaluator(const TExprNode& desc, const bool without_key);
     AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
     Status _calc_argument_columns(Block* block);
@@ -141,4 +147,5 @@ private:
 };
 } // namespace vectorized
 
+#include "common/compile_check_end.h"
 } // namespace doris

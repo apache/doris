@@ -28,12 +28,12 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTrinoConnectorFileDesc;
 import org.apache.doris.trinoconnector.TrinoColumnMetadata;
@@ -98,18 +98,20 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     private ConnectorMetadata connectorMetadata;
     private Constraint constraint;
 
-    public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE, needCheckColumnPriv);
+    public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
+            SessionVariable sv) {
+        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE, needCheckColumnPriv,
+                sv);
     }
 
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new TrinoConnectorSource(desc);
-        convertPredicate();
     }
 
-    protected void convertPredicate() throws UserException {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
             constraint = Constraint.alwaysTrue();
         }
@@ -130,7 +132,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         // 1. Get necessary objects
         Connector connector = source.getConnector();
         connectorMetadata = source.getConnectorMetadata();
@@ -233,7 +235,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
+    private void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
         // mock ObjectMapperProvider
         objectMapperProvider = createObjectMapperProvider();
 
@@ -313,17 +315,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
-
-    @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType("");
-    }
-
-    @Override
-    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        // todo: no use
-        return TFileType.FILE_S3;
     }
 
     @Override

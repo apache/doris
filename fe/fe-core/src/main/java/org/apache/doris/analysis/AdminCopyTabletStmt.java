@@ -34,7 +34,7 @@ import java.util.Iterator;
 import java.util.Map;
 
 // ADMIN COPY TABLET 10110 PROPERTIES('version' = '1000', backend_id = '10001');
-public class AdminCopyTabletStmt extends ShowStmt {
+public class AdminCopyTabletStmt extends ShowStmt implements NotFallbackInParser {
     public static final String PROP_VERSION = "version";
     public static final String PROP_BACKEND_ID = "backend_id";
     public static final String PROP_EXPIRATION = "expiration_minutes";

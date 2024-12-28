@@ -98,14 +98,14 @@ public class ShowBuildIndexStmtTest {
             List<OrderByElement> orderBy = Arrays.asList(
                     new OrderByElement(new SlotRef(tableName, "TableName"), false, false));
             ShowBuildIndexStmt stmt1 = new ShowBuildIndexStmt(null, where, orderBy, new LimitElement(1, 100));
-            Assertions.assertEquals(stmt1.toSql(), "SHOW BUILD INDEX  WHERE (`a`.`b`.`c`.`createtime` > '%.b.%') "
-                    + "AND (`a`.`b`.`c`.`tablename` = '%.b.%') ORDER BY `a`.`b`.`c`.`TableName` DESC NULLS LAST "
+            Assertions.assertEquals(stmt1.toSql(), "SHOW BUILD INDEX  WHERE ((`a`.`b`.`c`.`createtime` > '%.b.%') "
+                    + "AND (`a`.`b`.`c`.`tablename` = '%.b.%')) ORDER BY `a`.`b`.`c`.`TableName` DESC NULLS LAST "
                     + "LIMIT 1, 100");
 
             stmt1.analyze(analyzer);
             Assertions.assertEquals(stmt1.toSql(), "SHOW BUILD INDEX FROM `testDb` WHERE "
-                    + "(`a`.`b`.`c`.`createtime` > CAST('%.b.%' AS datetimev2(0))) "
-                    + "AND (`a`.`b`.`c`.`tablename` = '%.b.%') "
+                    + "((`a`.`b`.`c`.`createtime` > CAST('%.b.%' AS datetimev2(0))) "
+                    + "AND (`a`.`b`.`c`.`tablename` = '%.b.%')) "
                     + "ORDER BY `a`.`b`.`c`.`TableName` DESC NULLS LAST LIMIT 1, 100");
 
             Assertions.assertEquals(stmt1.getFilterMap().size(), 2);

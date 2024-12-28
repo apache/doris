@@ -20,12 +20,11 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class DropWorkloadGroupStmt extends DdlStmt {
+public class DropWorkloadGroupStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private String workloadGroupName;
 
@@ -50,8 +49,6 @@ public class DropWorkloadGroupStmt extends DdlStmt {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-
-        FeNameFormat.checkWorkloadGroupName(workloadGroupName);
     }
 
     @Override

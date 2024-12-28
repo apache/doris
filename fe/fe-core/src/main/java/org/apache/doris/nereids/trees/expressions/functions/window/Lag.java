@@ -22,7 +22,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -72,7 +71,7 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
 
     @Override
     public boolean nullable() {
-        if (children.size() == 3 && child(2) instanceof NullLiteral) {
+        if (children.size() == 3 && child(2).nullable()) {
             return true;
         }
         return child(0).nullable();

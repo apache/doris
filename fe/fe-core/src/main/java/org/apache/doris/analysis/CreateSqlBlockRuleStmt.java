@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
       )
 */
 @Getter
-public class CreateSqlBlockRuleStmt extends DdlStmt {
+public class CreateSqlBlockRuleStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final String SQL_PROPERTY = "sql";
 

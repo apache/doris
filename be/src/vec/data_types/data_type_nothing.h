@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <ostream>
 #include <string>
 
@@ -32,6 +33,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_nothing_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
@@ -64,7 +66,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return false; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }
@@ -74,7 +75,8 @@ public:
         return 0;
     }
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
 
     [[noreturn]] Field get_default() const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -91,8 +93,7 @@ public:
 
     bool have_subtypes() const override { return false; }
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_serde not support serde {}.", get_name());
+        return std::make_shared<DataTypeNothingSerde>();
     };
 };
 

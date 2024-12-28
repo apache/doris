@@ -42,20 +42,12 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
                 columnStatistic = table.getColumnStatistic(key.colName);
             }
         } catch (Throwable t) {
-            LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
+            LOG.info("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
                     key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
             if (LOG.isDebugEnabled()) {
                 LOG.debug(t);
             }
             return null;
-        }
-        if (columnStatistic.isPresent()) {
-            // For non-empty table, return UNKNOWN if we can't collect ndv value.
-            // Because inaccurate ndv is very misleading.
-            ColumnStatistic stats = columnStatistic.get();
-            if (stats.count > 0 && stats.ndv == 0 && stats.count != stats.numNulls) {
-                columnStatistic = Optional.of(ColumnStatistic.UNKNOWN);
-            }
         }
         return columnStatistic;
     }

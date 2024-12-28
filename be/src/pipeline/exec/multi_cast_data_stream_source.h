@@ -33,6 +33,7 @@ class Block;
 } // namespace vectorized
 
 namespace pipeline {
+#include "common/compile_check_begin.h"
 class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
@@ -62,10 +63,14 @@ public:
     }
 
 private:
+    friend class MultiCastDataStreamerSourceOperatorX;
     vectorized::VExprContextSPtrs _output_expr_contexts;
     std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _materialize_data_timer = nullptr;
 };
 
 class MultiCastDataStreamerSourceOperatorX final
@@ -83,8 +88,8 @@ public:
     };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
 
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::prepare(state));
+    Status open(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::open(state));
         // init profile for runtime filter
         // RuntimeFilterConsumer::_init_profile(local_state._shared_state->_multi_cast_data_streamer->profile());
         if (_t_data_stream_sink.__isset.output_exprs) {
@@ -95,19 +100,14 @@ public:
 
         if (_t_data_stream_sink.__isset.conjuncts) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.conjuncts,
-                                                                 _conjuncts));
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(_conjuncts, state, _row_desc()));
+                                                                 conjuncts()));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(conjuncts(), state, _row_desc()));
         }
-        return Status::OK();
-    }
-
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
         if (_t_data_stream_sink.__isset.output_exprs) {
             RETURN_IF_ERROR(vectorized::VExpr::open(_output_expr_contexts, state));
         }
         if (_t_data_stream_sink.__isset.conjuncts) {
-            RETURN_IF_ERROR(vectorized::VExpr::open(_conjuncts, state));
+            RETURN_IF_ERROR(vectorized::VExpr::open(conjuncts(), state));
         }
         return Status::OK();
     }
@@ -141,3 +141,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

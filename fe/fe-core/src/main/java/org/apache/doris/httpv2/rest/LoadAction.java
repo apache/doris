@@ -22,17 +22,26 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.StreamLoadHandler;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -44,9 +53,14 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.transaction.BeginTransactionException;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,10 +72,14 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
@@ -85,7 +103,7 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
-                       @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
         }
@@ -102,21 +120,29 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load", method = RequestMethod.PUT)
     public Object streamLoad(HttpServletRequest request,
-                             HttpServletResponse response,
-                             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table,  getAllHeaders(request));
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                if (isGroupCommitBlock(db, table)) {
-                    String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")
+                    && !groupCommitStr.equalsIgnoreCase("off_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode`, `async_mode` or `off_mode`.");
+            }
+            if (!groupCommitStr.equalsIgnoreCase("off_mode")) {
+                groupCommit = true;
+                if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                    try {
+                        if (isGroupCommitBlock(db, table)) {
+                            String msg = "insert table " + table + GroupCommitPlanner.SCHEMA_CHANGE;
+                            return new RestBaseResult(msg);
+                        }
+                    } catch (Exception e) {
+                        LOG.info("exception:" + e);
+                        return new RestBaseResult(e.getMessage());
+                    }
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
             }
         }
         if (needRedirect(request.getScheme())) {
@@ -147,21 +173,32 @@ public class LoadAction extends RestBaseController {
         boolean groupCommit = false;
         long tableId = -1;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equalsIgnoreCase("async_mode")) {
-            groupCommit = true;
-            try {
-                String[] pair = parseDbAndTb(sql);
-                Database db = Env.getCurrentInternalCatalog()
-                        .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
-                Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
-                tableId = tbl.getId();
-                if (isGroupCommitBlock(pair[0], pair[1])) {
-                    String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
-                    return new RestBaseResult(msg);
+        if (groupCommitStr != null) {
+            if (!groupCommitStr.equalsIgnoreCase("async_mode") && !groupCommitStr.equalsIgnoreCase("sync_mode")
+                    && !groupCommitStr.equalsIgnoreCase("off_mode")) {
+                return new RestBaseResult("Header `group_commit` can only be `sync_mode`, `async_mode` or `off_mode`.");
+            }
+            if (!groupCommitStr.equalsIgnoreCase("off_mode")) {
+                try {
+                    groupCommit = true;
+                    String[] pair = parseDbAndTb(sql);
+                    Database db = Env.getCurrentInternalCatalog()
+                            .getDbOrException(pair[0], s -> new TException("database is invalid for dbName: " + s));
+                    Table tbl = db.getTableOrException(pair[1], s -> new TException("table is invalid: " + s));
+                    tableId = tbl.getId();
+
+                    // async mode needs to write WAL, we need to block load during waiting WAL.
+                    if (groupCommitStr.equalsIgnoreCase("async_mode")) {
+                        if (isGroupCommitBlock(pair[0], pair[1])) {
+                            String msg = "insert table " + pair[1] + GroupCommitPlanner.SCHEMA_CHANGE;
+                            return new RestBaseResult(msg);
+                        }
+
+                    }
+                } catch (Exception e) {
+                    LOG.info("exception:" + e);
+                    return new RestBaseResult(e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.info("exception:" + e);
-                return new RestBaseResult(e.getMessage());
             }
         }
         executeCheckPassword(request, response);
@@ -223,8 +260,8 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC(HttpServletRequest request,
-                                   HttpServletResponse response,
-                                   @PathVariable(value = DB_KEY) String db) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db) {
         LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
@@ -236,9 +273,9 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC_table(HttpServletRequest request,
-                                      HttpServletResponse response,
-                                      @PathVariable(value = DB_KEY) String db,
-                                      @PathVariable(value = TABLE_KEY) String table) {
+            HttpServletResponse response,
+            @PathVariable(value = DB_KEY) String db,
+            @PathVariable(value = TABLE_KEY) String table) {
         LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
@@ -294,17 +331,20 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
-                if (!database.isPresent()) {
-                    return new RestBaseResult("Database not founded.");
-                }
+                long tableId = -1;
+                if (groupCommit) {
+                    Optional<?> database = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+                    if (!database.isPresent()) {
+                        return new RestBaseResult("Database not found.");
+                    }
 
-                Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
-                if (!olapTable.isPresent()) {
-                    return new RestBaseResult("OlapTable not founded.");
-                }
+                    Optional<?> olapTable = ((Database) database.get()).getTable(tableName);
+                    if (!olapTable.isPresent()) {
+                        return new RestBaseResult("OlapTable not found.");
+                    }
 
-                long tableId = ((OlapTable) olapTable.get()).getId();
+                    tableId = ((OlapTable) olapTable.get()).getId();
+                }
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
@@ -362,7 +402,12 @@ public class LoadAction extends RestBaseController {
             return cloudClusterName;
         }
 
-        cloudClusterName = ConnectContext.get().getCloudCluster();
+        try {
+            cloudClusterName = ConnectContext.get().getCloudCluster();
+        } catch (ComputeGroupException e) {
+            LOG.warn("get cloud cluster name failed", e);
+            return "";
+        }
         if (!Strings.isNullOrEmpty(cloudClusterName)) {
             return cloudClusterName;
         }
@@ -382,8 +427,11 @@ public class LoadAction extends RestBaseController {
             if (Strings.isNullOrEmpty(cloudClusterName)) {
                 throw new LoadException("No cloud cluster name selected.");
             }
-            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit);
+            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId);
         } else {
+            if (groupCommit && tableId == -1) {
+                throw new LoadException("Group commit table id wrong.");
+            }
             return selectLocalRedirectBackend(groupCommit, request, tableId);
         }
     }
@@ -394,8 +442,10 @@ public class LoadAction extends RestBaseController {
         BeSelectionPolicy policy = null;
         String qualifiedUser = ConnectContext.get().getQualifiedUser();
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+        boolean allowResourceTagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(qualifiedUser);
         policy = new BeSelectionPolicy.Builder()
                 .addTags(userTags)
+                .setAllowResourceTagDowngrade(allowResourceTagDowngrade)
                 .setEnableRoundRobin(true)
                 .needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
@@ -409,21 +459,7 @@ public class LoadAction extends RestBaseController {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         if (groupCommit) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
-            ctx.setRemoteIP(request.getRemoteAddr());
-            // We set this variable to fulfill required field 'user' in
-            // TMasterOpRequest(FrontendService.thrift)
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
-            ctx.setThreadLocalInfo();
-
-            try {
-                backend = Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommit(tableId, ctx, false);
-            } catch (DdlException e) {
-                throw new RuntimeException(e);
-            }
+            backend = selectBackendForGroupCommit("", request, tableId);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
@@ -433,9 +469,15 @@ public class LoadAction extends RestBaseController {
         return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 
-    private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit)
+    private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
+            long tableId)
             throws LoadException {
-        Backend backend = StreamLoadHandler.selectBackend(clusterName, groupCommit);
+        Backend backend = null;
+        if (groupCommit) {
+            backend = selectBackendForGroupCommit(clusterName, req, tableId);
+        } else {
+            backend = StreamLoadHandler.selectBackend(clusterName);
+        }
 
         String redirectPolicy = req.getHeader(LoadAction.HEADER_REDIRECT_POLICY);
         // User specified redirect policy
@@ -443,7 +485,7 @@ public class LoadAction extends RestBaseController {
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
         redirectPolicy = redirectPolicy == null || redirectPolicy.isEmpty()
-            ? Config.streamload_redirect_policy : redirectPolicy;
+                ? Config.streamload_redirect_policy : redirectPolicy;
 
         Pair<String, Integer> publicHostPort = null;
         Pair<String, Integer> privateHostPort = null;
@@ -552,7 +594,7 @@ public class LoadAction extends RestBaseController {
     // So this function is not widely tested under general scenario
     private boolean checkClusterToken(String token) {
         try {
-            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (UserException e) {
             throw new UnauthorizedException(e.getMessage());
         }
@@ -563,7 +605,7 @@ public class LoadAction extends RestBaseController {
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
     private Object executeWithClusterToken(HttpServletRequest request, String db,
-                                          String table, boolean isStreamLoad) {
+            String table, boolean isStreamLoad) {
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(Env.getCurrentEnv());
@@ -647,4 +689,222 @@ public class LoadAction extends RestBaseController {
         }
         return headers.toString();
     }
+
+    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
+            throws LoadException {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setThreadLocalInfo();
+        ctx.setRemoteIP(req.getRemoteAddr());
+        // We set this variable to fulfill required field 'user' in
+        // TMasterOpRequest(FrontendService.thrift)
+        ctx.setQualifiedUser(Auth.ADMIN_USER);
+        ctx.setThreadLocalInfo();
+        if (Config.isCloudMode()) {
+            ctx.setCloudCluster(clusterName);
+        }
+
+        Backend backend = null;
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(tableId, ctx);
+        } catch (DdlException e) {
+            throw new LoadException(e.getMessage(), e);
+        }
+        return backend;
+    }
+
+    /**
+     * Request body example:
+     * {
+     *     "label": "test",
+     *     "tableToPartition": {
+     *         "tbl_test_spark_load": ["p1","p2"]
+     *     },
+     *     "properties": {
+     *         "strict_mode": "true",
+     *         "timeout": 3600000
+     *     }
+     * }
+     *
+     */
+    @RequestMapping(path = "/api/ingestion_load/{" + CATALOG_KEY + "}/{" + DB_KEY
+            + "}/_create", method = RequestMethod.POST)
+    public Object createIngestionLoad(HttpServletRequest request, HttpServletResponse response,
+                                  @PathVariable(value = CATALOG_KEY) String catalog,
+                                  @PathVariable(value = DB_KEY) String db) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+            return ResponseEntityBuilder.okWithCommonError("Only support internal catalog. "
+                    + "Current catalog is " + catalog);
+        }
+
+        Object redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
+        }
+
+        String fullDbName = getFullDbName(db);
+
+        Map<String, Object> resultMap = new HashMap<>();
+
+        try {
+
+            String body = HttpUtils.getBody(request);
+            JsonMapper mapper = JsonMapper.builder().build();
+            JsonNode jsonNode = mapper.reader().readTree(body);
+
+            String label = jsonNode.get("label").asText();
+            Map<String, List<String>> tableToPartition = mapper.reader()
+                    .readValue(jsonNode.get("tableToPartition").traverse(),
+                            new TypeReference<Map<String, List<String>>>() {
+                            });
+            List<String> tableNames = new LinkedList<>(tableToPartition.keySet());
+            for (String tableName : tableNames) {
+                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
+            }
+
+            Map<String, String> properties = new HashMap<>();
+            if (jsonNode.hasNonNull("properties")) {
+                properties = mapper.readValue(jsonNode.get("properties").traverse(),
+                        new TypeReference<HashMap<String, String>>() {
+                        });
+            }
+
+            executeCreateAndStartIngestionLoad(fullDbName, label, tableNames, properties, tableToPartition, resultMap,
+                    ConnectContext.get().getCurrentUserIdentity());
+
+        } catch (Exception e) {
+            LOG.warn("create ingestion load job failed, db: {}, err: {}", db, e.getMessage());
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+
+        return ResponseEntityBuilder.ok(resultMap);
+
+    }
+
+    private void executeCreateAndStartIngestionLoad(String dbName, String label, List<String> tableNames,
+                                                Map<String, String> properties,
+                                                Map<String, List<String>> tableToPartition,
+                                                Map<String, Object> resultMap, UserIdentity userInfo)
+            throws DdlException, BeginTransactionException, MetaNotFoundException, AnalysisException,
+            QuotaExceedException, LoadException {
+
+        long loadId = -1;
+        try {
+
+            LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+            loadId = loadManager.createIngestionLoadJob(dbName, label, tableNames, properties, userInfo);
+            IngestionLoadJob loadJob = (IngestionLoadJob) loadManager.getLoadJob(loadId);
+            resultMap.put("loadId", loadId);
+
+            long txnId = loadJob.beginTransaction();
+            resultMap.put("txnId", txnId);
+
+            Map<String, Object> loadMeta = loadJob.getLoadMeta(tableToPartition);
+            resultMap.put("dbId", loadMeta.get("dbId"));
+            resultMap.put("signature", loadMeta.get("signature"));
+            resultMap.put("tableMeta", loadMeta.get("tableMeta"));
+
+            loadJob.startEtlJob();
+
+        } catch (DdlException | BeginTransactionException | MetaNotFoundException | AnalysisException
+                 | QuotaExceedException | LoadException e) {
+            LOG.warn("create ingestion load job failed, db: {}, load id: {}, err: {}", dbName, loadId, e.getMessage());
+            if (loadId != -1L) {
+                try {
+                    Env.getCurrentEnv().getLoadManager().getLoadJob(loadId).cancelJob(
+                            new FailMsg(FailMsg.CancelType.UNKNOWN, StringUtils.defaultIfBlank(e.getMessage(), "")));
+                } catch (DdlException ex) {
+                    LOG.warn("cancel ingestion load failed, db: {}, load id: {}, err: {}", dbName, loadId,
+                            e.getMessage());
+                }
+            }
+            throw e;
+        }
+
+    }
+
+    /**
+     * Request body example:
+     * {
+     *     "statusInfo": {
+     *         "msg": "",
+     *         "hadoopProperties": "{\"fs.defaultFS\":\"hdfs://hadoop01:8020\",\"hadoop.username\":\"hadoop\"}",
+     *         "appId": "local-1723088141438",
+     *         "filePathToSize": "{\"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/dpp_result.json\":179,
+     *         \"hdfs://hadoop01:8020/spark-load/jobs/25054/test/36019/load_meta.json\":3441,\"hdfs://hadoop01:8020
+     *         /spark-load/jobs/25054/test/36019/V1.test.25056.29373.25057.0.366242211.parquet\":5745}",
+     *         "dppResult": "{\"isSuccess\":true,\"failedReason\":\"\",\"scannedRows\":10,\"fileNumber\":1,
+     *         \"fileSize\":2441,\"normalRows\":10,\"abnormalRows\":0,\"unselectRows\":0,\"partialAbnormalRows\":\"[]\",
+     *         \"scannedBytes\":0}",
+     *         "status": "SUCCESS"
+     *     },
+     *     "loadId": 36018
+     * }
+     *
+     */
+    @RequestMapping(path = "/api/ingestion_load/{" + CATALOG_KEY + "}/{" + DB_KEY
+            + "}/_update", method = RequestMethod.POST)
+    public Object updateIngestionLoad(HttpServletRequest request, HttpServletResponse response,
+                                      @PathVariable(value = CATALOG_KEY) String catalog,
+                                      @PathVariable(value = DB_KEY) String db) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+            return ResponseEntityBuilder.okWithCommonError("Only support internal catalog. "
+                    + "Current catalog is " + catalog);
+        }
+
+        Object redirectView = redirectToMaster(request, response);
+        if (redirectView != null) {
+            return redirectView;
+        }
+
+        String fullDbName = getFullDbName(db);
+
+        long loadId = -1;
+        try {
+
+            String body = HttpUtils.getBody(request);
+            JsonMapper mapper = JsonMapper.builder().build();
+            JsonNode jsonNode = mapper.readTree(body);
+            LoadJob loadJob = null;
+
+            if (jsonNode.hasNonNull("loadId")) {
+                loadId = jsonNode.get("loadId").asLong();
+                loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadId);
+            }
+
+            if (loadJob == null) {
+                return ResponseEntityBuilder.okWithCommonError("load job not exists, load id: " + loadId);
+            }
+
+            IngestionLoadJob ingestionLoadJob = (IngestionLoadJob) loadJob;
+            Set<String> tableNames = ingestionLoadJob.getTableNames();
+            for (String tableName : tableNames) {
+                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
+            }
+            Map<String, String> statusInfo = mapper.readValue(jsonNode.get("statusInfo").traverse(),
+                    new TypeReference<HashMap<String, String>>() {
+                    });
+            ingestionLoadJob.updateJobStatus(statusInfo);
+        } catch (IOException | MetaNotFoundException | UnauthorizedException e) {
+            LOG.warn("cancel ingestion load job failed, db: {}, load id: {}, err: {}", db, loadId, e.getMessage());
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+
+        return ResponseEntityBuilder.ok();
+
+    }
+
 }

@@ -115,13 +115,15 @@ public:
 
     std::string get_info_for_log() const;
 
-    [[nodiscard]] Status change_cache_type_by_mgr(FileCacheType new_type);
+    [[nodiscard]] Status change_cache_type_between_ttl_and_others(FileCacheType new_type);
 
-    [[nodiscard]] Status change_cache_type_self(FileCacheType new_type);
+    [[nodiscard]] Status change_cache_type_between_normal_and_index(FileCacheType new_type);
 
     [[nodiscard]] Status update_expiration_time(uint64_t expiration_time);
 
     uint64_t expiration_time() const { return _key.meta.expiration_time; }
+
+    std::string get_cache_file() const;
 
     State state_unlock(std::lock_guard<std::mutex>&) const;
 

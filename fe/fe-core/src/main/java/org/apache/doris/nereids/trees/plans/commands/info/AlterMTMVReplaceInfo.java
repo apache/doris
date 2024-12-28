@@ -89,10 +89,10 @@ public class AlterMTMVReplaceInfo extends AlterMTMVInfo {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         MTMV mtmv = (MTMV) db.getTableOrDdlException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
         MTMV newMtmv = (MTMV) db.getTableOrDdlException(newName, TableType.MATERIALIZED_VIEW);
-        Env.getCurrentEnv().getAlterInstance().processReplaceTable(db, mtmv, newName, swapTable);
-        Env.getCurrentEnv().getMtmvService().alterTable(newMtmv);
+        Env.getCurrentEnv().getAlterInstance().processReplaceTable(db, mtmv, newName, swapTable, true);
+        Env.getCurrentEnv().getMtmvService().alterTable(newMtmv, mvName.getTbl());
         if (swapTable) {
-            Env.getCurrentEnv().getMtmvService().alterTable(mtmv);
+            Env.getCurrentEnv().getMtmvService().alterTable(mtmv, newName);
         } else {
             Env.getCurrentEnv().getMtmvService().dropMTMV(mtmv);
             Env.getCurrentEnv().getMtmvService().dropTable(mtmv);

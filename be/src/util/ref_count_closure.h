@@ -20,9 +20,12 @@
 #include <google/protobuf/stubs/common.h>
 
 #include <atomic>
+#include <utility>
 
+#include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
 
@@ -78,8 +81,9 @@ class AutoReleaseClosure : public google::protobuf::Closure {
     ENABLE_FACTORY_CREATOR(AutoReleaseClosure);
 
 public:
-    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
-            : request_(req), callback_(callback) {
+    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback,
+                       std::weak_ptr<QueryContext> context = {})
+            : request_(req), callback_(callback), context_(std::move(context)) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
     }
@@ -112,11 +116,24 @@ public:
 
 protected:
     virtual void _process_if_rpc_failed() {
-        LOG(WARNING) << "RPC meet failed: " << cntl_->ErrorText();
+        std::string error_msg = "RPC meet failed: " + cntl_->ErrorText();
+        if (auto ctx = context_.lock(); ctx) {
+            ctx->cancel(Status::NetworkError(error_msg));
+        } else {
+            LOG(WARNING) << error_msg;
+        }
     }
 
     virtual void _process_if_meet_error_status(const Status& status) {
-        LOG(WARNING) << "RPC meet error status: " << status;
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            // no need to log END_OF_FILE, reduce the unlessful log
+            return;
+        }
+        if (auto ctx = context_.lock(); ctx) {
+            ctx->cancel(status);
+        } else {
+            LOG(WARNING) << "RPC meet error status: " << status;
+        }
     }
 
 private:
@@ -125,13 +142,14 @@ private:
 
     template <HasStatus Response>
     void _process_status(Response* response) {
-        if (auto status = Status::create(response->status()); !status) {
+        if (Status status = Status::create(response->status()); !status.ok()) {
             _process_if_meet_error_status(status);
         }
     }
     // Use a weak ptr to keep the callback, so that the callback can be deleted if the main
     // thread is freed.
     Weak callback_;
+    std::weak_ptr<QueryContext> context_;
 };
 
 } // namespace doris

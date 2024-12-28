@@ -30,14 +30,14 @@
 namespace doris {
 namespace vectorized {
 class Arena;
-
-Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
+#include "common/compile_check_begin.h"
+Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                  int64_t end_idx, BufferWritable& bw,
                                                   FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -97,13 +97,17 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
          *
          *  So i use 'kv <= from' in order to get _map_kv_delimiter that appears first.
          * */
-        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from) {
+        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from &&
+            (options.escape_char == 0 || i == 0 || slice[i - 1] != options.escape_char)) {
             kv = i;
             continue;
         }
         if ((i == slice.size || slice[i] == collection_delimiter) && i >= kv + 1) {
-            key_slices.push_back({slice.data + from, kv - from});
-            value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
+            if (options.escape_char != 0 && i > 0 && slice[i - 1] == options.escape_char) {
+                continue;
+            }
+            key_slices.emplace_back(slice.data + from, kv - from);
+            value_slices.emplace_back(slice.data + kv + 1, i - 1 - kv);
             from = i + 1;
             kv = from;
         }
@@ -138,8 +142,8 @@ Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
-        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -163,12 +167,13 @@ void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         if (i != start) {
             bw.write(collection_delimiter);
         }
-        key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
-                                                   hive_text_complex_type_delimiter_level + 2);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_hive_text(
+                nested_keys_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
         bw.write(map_kv_delimiter);
-        value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
-                                                     hive_text_complex_type_delimiter_level + 2);
+        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_hive_text(
+                nested_values_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
     }
+    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -314,8 +319,9 @@ void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
 }
 
 void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                               Arena* mem_pool, int32_t col_id, int row_num) const {
-    result.writeKey(col_id);
+                                               Arena* mem_pool, int32_t col_id,
+                                               int64_t row_num) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
     StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
@@ -325,8 +331,8 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
 }
 
 void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int start, int end,
-                                             const cctz::time_zone& ctz) const {
+                                             arrow::ArrayBuilder* array_builder, int64_t start,
+                                             int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
@@ -397,7 +403,7 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
 template <bool is_binary_format>
 Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                int row_idx, bool col_const,
+                                                int64_t row_idx, bool col_const,
                                                 const FormatOptions& options) const {
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
@@ -467,21 +473,22 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
-                                               MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                               MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                bool col_const, const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
-                                               MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                               MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
                                                bool col_const, const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
-                                             orc::ColumnVectorBatch* orc_col_batch, int start,
-                                             int end, std::vector<StringRef>& buffer_list) const {
+                                             orc::ColumnVectorBatch* orc_col_batch, int64_t start,
+                                             int64_t end,
+                                             std::vector<StringRef>& buffer_list) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -509,8 +516,8 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                            int end) const {
+Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                            int64_t end) const {
     const auto& map_column = assert_cast<const ColumnMap&>(column);
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::MAP);

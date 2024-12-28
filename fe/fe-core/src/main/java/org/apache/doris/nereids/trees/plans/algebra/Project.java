@@ -18,15 +18,18 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +64,15 @@ public interface Project {
      * @return project list for merged project
      */
     default List<NamedExpression> mergeProjections(Project childProject) {
-        return PlanUtils.mergeProjections(childProject.getProjects(), getProjects());
+        List<NamedExpression> projects = new ArrayList<>();
+        projects.addAll(PlanUtils.mergeProjections(childProject.getProjects(), getProjects()));
+        for (NamedExpression expression : childProject.getProjects()) {
+            // keep NoneMovableFunction for later use
+            if (expression.containsType(NoneMovableFunction.class)) {
+                projects.add(expression);
+            }
+        }
+        return projects;
     }
 
     /**
@@ -96,5 +107,27 @@ public interface Project {
             }
         }
         return true;
+    }
+
+    /**
+     * project(A as B) is eventually slot project, where A is a slot
+     */
+    default boolean isEventuallyAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot() && !(project instanceof Alias && project.child(0) instanceof Slot)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** containsNoneMovableFunction */
+    default boolean containsNoneMovableFunction() {
+        for (NamedExpression expression : getProjects()) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

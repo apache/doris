@@ -78,7 +78,6 @@ bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIteratorUPtr>* out_iters,
                                                bool use_cache) {
-    RETURN_IF_ERROR(_rowset->load());
     _read_context = read_context;
     // The segment iterator is created with its own statistics,
     // and the member variable '_stats'  is initialized by '_stats(&owned_stats)'.
@@ -92,6 +91,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->stats != nullptr) {
         _stats = _read_context->stats;
     }
+    SCOPED_RAW_TIMER(&_stats->rowset_reader_get_segment_iterators_timer_ns);
+
+    RETURN_IF_ERROR(_rowset->load());
 
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.block_row_max = read_context->batch_size;
@@ -134,21 +136,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
-    std::string schema_key = SchemaCache::get_schema_key(
-            _read_options.tablet_id, _read_context->tablet_schema, read_columns,
-            _read_context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
-    // It is necessary to ensure that there is a schema version when using a cache
-    // because the absence of a schema version can result in reading a stale version
-    // of the schema after a schema change.
-    // For table contains variants, it's schema is unstable and variable so we could not use schema cache here
-    if (_read_context->tablet_schema->schema_version() < 0 ||
-        _read_context->tablet_schema->num_variant_columns() > 0 ||
-        (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
-        _input_schema =
-                std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
-        SchemaCache::instance()->insert_schema(schema_key, _input_schema);
-    }
-
+    _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),
@@ -160,27 +148,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             }
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(pred));
-        }
-    }
-
-    if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
-        bool should_push_down = true;
-        bool should_push_down_value_predicates = _should_push_down_value_predicates();
-        for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
-            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
-                !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
-                VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
-                           << pred->debug_string();
-                should_push_down = false;
-                break;
-            }
-        }
-
-        if (should_push_down) {
-            _read_options.column_predicates_except_leafnode_of_andnode.insert(
-                    _read_options.column_predicates_except_leafnode_of_andnode.end(),
-                    _read_context->predicates_except_leafnode_of_andnode->begin(),
-                    _read_context->predicates_except_leafnode_of_andnode->end());
         }
     }
 
@@ -249,13 +216,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // load segments
-    bool disable_file_cache = false;
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;
     if (state != nullptr) {
-        disable_file_cache = state->query_options().__isset.disable_file_cache
-                                     ? state->query_options().disable_file_cache
-                                     : false;
         enable_segment_cache = state->query_options().__isset.enable_segment_cache
                                        ? state->query_options().enable_segment_cache
                                        : true;
@@ -264,15 +227,25 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     bool should_use_cache = use_cache || (_read_context->reader_type == ReaderType::READER_QUERY &&
                                           enable_segment_cache);
     SegmentCacheHandle segment_cache_handle;
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-            _rowset, &segment_cache_handle, should_use_cache,
-            /*need_load_pk_index_and_bf*/ false, disable_file_cache));
+    {
+        SCOPED_RAW_TIMER(&_stats->rowset_reader_load_segments_timer_ns);
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                _rowset, &segment_cache_handle, should_use_cache,
+                /*need_load_pk_index_and_bf*/ false));
+    }
 
     // create iterator for each segment
     auto& segments = segment_cache_handle.get_segments();
     _segments_rows.resize(segments.size());
     for (size_t i = 0; i < segments.size(); i++) {
         _segments_rows[i] = segments[i]->num_rows();
+    }
+    if (_read_context->record_rowids) {
+        // init segment rowid map for rowid conversion
+        std::vector<uint32_t> segment_num_rows;
+        RETURN_IF_ERROR(get_segment_num_rows(&segment_num_rows));
+        RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
+                                                                          segment_num_rows));
     }
 
     auto [seg_start, seg_end] = _segment_offsets;
@@ -285,6 +258,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     const bool use_lazy_init_iterators =
             !is_merge_iterator && _read_context->reader_type == ReaderType::READER_QUERY;
     for (int i = seg_start; i < seg_end; i++) {
+        SCOPED_RAW_TIMER(&_stats->rowset_reader_create_iterators_timer_ns);
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
 
@@ -349,6 +323,8 @@ Status BetaRowsetReader::_init_iterator() {
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_read_context, &iterators));
 
+    SCOPED_RAW_TIMER(&_stats->rowset_reader_init_iterators_timer_ns);
+
     if (_read_context->merged_rows == nullptr) {
         _read_context->merged_rows = &_merged_rows;
     }
@@ -384,10 +360,15 @@ Status BetaRowsetReader::_init_iterator() {
 }
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     if (_empty) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
+    }
+
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
     }
 
     do {
@@ -398,14 +379,23 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
             }
             return s;
         }
+
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
+        }
     } while (block->empty());
 
     return Status::OK();
 }
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
+    }
+
     do {
         auto s = _iterator->next_block_view(block_view);
         if (!s.ok()) {
@@ -413,6 +403,10 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
                 LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
             return s;
+        }
+
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block_view->empty());
 

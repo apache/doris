@@ -141,8 +141,10 @@ std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
 namespace {
 
 [[noreturn]] void exit_at_unknown_path_version(std::string_view resource_id, int64_t path_version) {
-    LOG(FATAL) << "unknown path version, please upgrade BE or drop this storage vault. resource_id="
-               << resource_id << " path_version=" << path_version;
+    throw Exception(
+            Status::FatalError("unknown path version, please upgrade BE or drop this storage "
+                               "vault. resource_id={} path_version={}",
+                               resource_id, path_version));
 }
 
 } // namespace
@@ -185,6 +187,37 @@ std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64
                            rowset.rowset_id().to_string(), seg_id);
     case 1:
         return fmt::format("{}/{}/{}/{}/{}.dat", DATA_PREFIX, shard_fn(rowset.tablet_id()),
+                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id,
+                                                int64_t index_id,
+                                                std::string_view index_path_suffix) const {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}_{}{}.idx", DATA_PREFIX, rowset.tablet_id(),
+                           rowset.rowset_id().to_string(), seg_id, index_id, suffix);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}_{}{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()),
+                           rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id, index_id,
+                           suffix);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_idx_v2_path(const RowsetMeta& rowset, int64_t seg_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}.idx", DATA_PREFIX, rowset.tablet_id(),
+                           rowset.rowset_id().to_string(), seg_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}.idx", DATA_PREFIX, shard_fn(rowset.tablet_id()),
                            rowset.tablet_id(), rowset.rowset_id().to_string(), seg_id);
     default:
         exit_at_unknown_path_version(fs->id(), path_version);

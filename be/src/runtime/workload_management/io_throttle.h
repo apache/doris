@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <stdint.h>
 
 #include <atomic>
@@ -25,16 +26,11 @@
 
 namespace doris {
 
-class IOThrottle;
-
-struct IOThrottleCtx {
-    IOThrottle* io_throttle = nullptr;
-    int io_block_timeout;
-};
-
 class IOThrottle {
 public:
     IOThrottle() = default;
+
+    IOThrottle(std::string metric_name) : _metric_name(metric_name) {}
 
     ~IOThrottle() = default;
 
@@ -47,12 +43,14 @@ public:
 
     void set_io_bytes_per_second(int64_t read_bytes_per_second);
 
-    int64_t get_io_bytes_per_second() { return _io_bytes_per_second; }
+    std::string metric_name() { return _metric_name; }
 
 private:
     std::mutex _mutex;
     std::condition_variable wait_condition;
     int64_t _next_io_time_micros {0};
-    std::atomic<int64_t> _io_bytes_per_second {10485760};
+    std::atomic<int64_t> _io_bytes_per_second_limit {-1};
+
+    std::string _metric_name;
 };
 }; // namespace doris

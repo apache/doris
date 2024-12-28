@@ -151,8 +151,8 @@ public class Partition extends MetaObject {
     public void updateVersionForRestore(long visibleVersion) {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {
@@ -445,5 +445,28 @@ public class Partition extends MetaObject {
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
             distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
+    }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false);
     }
 }

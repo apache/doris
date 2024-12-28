@@ -20,6 +20,7 @@ suite("push_down_count_through_join") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI'"
 
     sql """
         DROP TABLE IF EXISTS count_t;
@@ -47,7 +48,7 @@ suite("push_down_count_through_join") {
     sql "insert into count_t values (8, null, 'c')"
     sql "insert into count_t values (9, 3, null)"
     sql "insert into count_t values (10, null, null)"
-
+    sql "analyze table count_t with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select count(t1.score) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name;
     """
@@ -100,7 +101,7 @@ suite("push_down_count_through_join") {
         explain shape plan select count(t1.score), count(*), max(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id group by t1.name;
     """
 
-    qt_groupby_pushdown_multi_table_join """
+    qt_groupby_pushdown_multi_table_join_1 """
         explain shape plan select count(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 
@@ -201,7 +202,7 @@ suite("push_down_count_through_join") {
         explain shape plan select count(*) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name having count(*) > 100;
     """
 
-    qt_groupby_pushdown_multi_table_join """
+    qt_groupby_pushdown_multi_table_join_2 """
         explain shape plan select count(*) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 
@@ -289,7 +290,7 @@ suite("push_down_count_through_join") {
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(t1.score), count(*), max(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id group by t1.name;
     """
 
-    qt_with_hint_groupby_pushdown_multi_table_join """
+    qt_with_hint_groupby_pushdown_multi_table_join_1 """
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(t1.score) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 
@@ -390,7 +391,7 @@ suite("push_down_count_through_join") {
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(*) from count_t t1, count_t t2 where t1.id = t2.id group by t1.name having count(*) > 100;
     """
 
-    qt_with_hint_groupby_pushdown_multi_table_join """
+    qt_with_hint_groupby_pushdown_multi_table_join_2 """
         explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join) */  count(*) from count_t t1 join count_t t2 on t1.id = t2.id join count_t t3 on t1.name = t3.name group by t1.name;
     """
 

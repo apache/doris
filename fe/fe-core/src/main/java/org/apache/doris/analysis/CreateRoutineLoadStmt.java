@@ -34,6 +34,7 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -87,7 +88,7 @@ import java.util.function.Predicate;
       type of routine load:
           KAFKA
 */
-public class CreateRoutineLoadStmt extends DdlStmt {
+public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
 
     // routine load properties
@@ -229,6 +230,51 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
     }
 
+    /*
+     * make stmt by nereids
+     */
+    public CreateRoutineLoadStmt(LabelName labelName, String dbName, String name, String tableName,
+            List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
+            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
+            int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
+            long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
+            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
+            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
+            boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
+        this.labelName = labelName;
+        this.dbName = dbName;
+        this.name = name;
+        this.tableName = tableName;
+        this.loadPropertyList = loadPropertyList;
+        this.setOrigStmt(origStmt);
+        this.setUserInfo(userIdentity);
+        this.jobProperties = jobProperties;
+        this.typeName = typeName;
+        this.routineLoadDesc = routineLoadDesc;
+        this.desiredConcurrentNum = desireTaskConcurrentNum;
+        this.maxErrorNum = maxErrorNum;
+        this.maxFilterRatio = maxFilterRatio;
+        this.maxBatchIntervalS = maxBatchIntervalS;
+        this.maxBatchRows = maxBatchRows;
+        this.maxBatchSizeBytes = maxBatchSizeBytes;
+        this.execMemLimit = execMemLimit;
+        this.sendBatchParallelism = sendBatchParallelism;
+        this.timezone = timezone;
+        this.format = format;
+        this.jsonPaths = jsonPaths;
+        this.jsonRoot = jsonRoot;
+        this.enclose = enclose;
+        this.escape = escape;
+        this.workloadGroupId = workloadGroupId;
+        this.loadToSingleTablet = loadToSingleTablet;
+        this.strictMode = strictMode;
+        this.isPartialUpdate = isPartialUpdate;
+        this.stripOuterArray = stripOuterArray;
+        this.numAsString = numAsString;
+        this.fuzzyParse = fuzzyParse;
+        this.dataSourceProperties = dataSourceProperties;
+    }
+
     public String getName() {
         return name;
     }
@@ -347,7 +393,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check dbName and tableName
         checkDBTable(analyzer);
         // check name
-        FeNameFormat.checkCommonName(NAME_TYPE, name);
+        try {
+            FeNameFormat.checkCommonName(NAME_TYPE, name);
+        } catch (AnalysisException e) {
+            // 64 is the length of regular expression matching
+            // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
+            throw new AnalysisException(e.getMessage()
+                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
+        }
         // check load properties include column separator etc.
         checkLoadProperties();
         // check routine load job properties include desired concurrent number etc.

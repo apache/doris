@@ -21,7 +21,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.nereids.exceptions.MetaNotFoundException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -48,15 +48,15 @@ public class TableIdentifier {
     public TableIf toTableIf() {
         CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (catalogIf == null) {
-            throw new MetaNotFoundException(String.format("Can not find catalog %s in constraint", catalogId));
+            throw new AnalysisException(String.format("Can not find catalog %s in constraint", catalogId));
         }
         DatabaseIf<?> databaseIf = catalogIf.getDbNullable(databaseId);
         if (databaseIf == null) {
-            throw new MetaNotFoundException(String.format("Can not find database %s in constraint", databaseId));
+            throw new AnalysisException(String.format("Can not find database %s in constraint", databaseId));
         }
         TableIf tableIf = databaseIf.getTableNullable(tableId);
         if (tableIf == null) {
-            throw new MetaNotFoundException(String.format("Can not find table %s in constraint", databaseId));
+            throw new AnalysisException(String.format("Can not find table %s in constraint", databaseId));
         }
         return tableIf;
     }

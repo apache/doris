@@ -40,11 +40,18 @@ public:
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
-    int _db_index;
-    int _table_index;
-    TGetDbsResult _db_result;
-    TListTableStatusResult _table_result;
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+
+private:
+    Status get_onedb_info_from_fe(int64_t dbId);
+    bool check_and_mark_eos(bool* eos) const;
+    int _block_rows_limit = 4096;
+    int _db_index = 0;
+    TGetDbsResult _db_result;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    std::unique_ptr<vectorized::Block> _partitions_block = nullptr;
+    int _rpc_timeout_ms = 3000;
 };
 
 } // namespace doris

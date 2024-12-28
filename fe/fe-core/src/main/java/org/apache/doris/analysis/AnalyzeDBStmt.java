@@ -24,7 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 
-public class AnalyzeDBStmt extends AnalyzeStmt {
+public class AnalyzeDBStmt extends AnalyzeStmt implements NotFallbackInParser {
 
     private final String ctlName;
     private final String dbName;

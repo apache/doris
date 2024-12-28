@@ -98,7 +98,7 @@ suite("test_auto_range_partition") {
     sql " insert into right_bound values ('9999-12-31 23:59:59'); "
     sql " insert into right_bound values ('9999-12-31 23:59:59.999999'); "
     qt_right_bound " select * from right_bound order by k0; "
-    result2 = sql "show partitions from right_bound"
+    def result2 = sql "show partitions from right_bound"
     logger.info("${result2}")
     assertEquals(result2.size(), 2)
 
@@ -117,7 +117,7 @@ suite("test_auto_range_partition") {
         );
     """
     sql " insert into week_range values (20240408), (20240409); "
-    def result2 = sql "show partitions from week_range"
+    result2 = sql "show partitions from week_range"
     logger.info("${result2}")
     assertEquals(result2.size(), 1)
 
@@ -170,4 +170,77 @@ suite("test_auto_range_partition") {
     def tmp_result = sql "select count() from isit"
     assertEquals(tmp_result[0][0], 1)
     qt_sql " select * from isit order by k "
+
+    sql "drop table if exists awh_test_range_auto"
+    test {
+        sql """
+            CREATE TABLE awh_test_range_auto (
+                DATE_ID BIGINT NOT NULL,
+                LAST_UPLOAD_TIME DATETIME
+            )
+            AUTO PARTITION BY RANGE (DATE_ID)()
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "auto create partition only support date_trunc function of RANGE partition"
+    }
+    test {
+        sql """
+            CREATE TABLE awh_test_range_auto (
+                DATE_ID BIGINT NOT NULL,
+                LAST_UPLOAD_TIME DATETIME
+            )
+            AUTO PARTITION BY RANGE (date(DATE_ID))()
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "auto create partition only support function call expr is"
+    }
+    test {
+        sql """
+            CREATE TABLE awh_test_range_auto (
+                DATE_ID BIGINT NOT NULL,
+                LAST_UPLOAD_TIME DATETIME
+            )
+            AUTO PARTITION BY RANGE (date_trunc(DATE_ID))()
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "partition expr date_trunc is illegal!"
+    }
+    test {
+        sql """
+            CREATE TABLE awh_test_range_auto (
+                DATE_ID BIGINT NOT NULL,
+                LAST_UPLOAD_TIME DATETIME
+            )
+            AUTO PARTITION BY RANGE (date_trunc(DATE_ID, 'year'))()
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "partition expr date_trunc is illegal!"
+    }
+    sql """
+        CREATE TABLE awh_test_range_auto (
+            DATE_ID BIGINT NOT NULL,
+            LAST_UPLOAD_TIME DATETIME NOT NULL
+        )
+        AUTO PARTITION BY RANGE (date_trunc(LAST_UPLOAD_TIME, 'yeear'))()
+        DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    test {
+        sql "insert into awh_test_range_auto values (1,'20201212')"
+        exception "date_trunc function second param only support argument is"
+    }
 }

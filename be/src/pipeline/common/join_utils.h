@@ -20,10 +20,10 @@
 #include <variant>
 #include <vector>
 
-#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_map_util.h"
+#include "vec/common/hash_table/join_hash_table.h"
 
-namespace doris::pipeline {
+namespace doris {
 using JoinOpVariants =
         std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
@@ -37,32 +37,77 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
-using I8HashTableContext = vectorized::PrimaryTypeHashTableContext<vectorized::UInt8>;
-using I16HashTableContext = vectorized::PrimaryTypeHashTableContext<vectorized::UInt16>;
-using I32HashTableContext = vectorized::PrimaryTypeHashTableContext<vectorized::UInt32>;
-using I64HashTableContext = vectorized::PrimaryTypeHashTableContext<UInt64>;
-using I128HashTableContext = vectorized::PrimaryTypeHashTableContext<UInt128>;
-using I256HashTableContext = vectorized::PrimaryTypeHashTableContext<UInt256>;
+template <class T>
+using PrimaryTypeHashTableContext = vectorized::MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>>>;
 
-template <bool has_null>
-using I64FixedKeyHashTableContext = vectorized::FixedKeyHashTableContext<UInt64, has_null>;
+template <class Key>
+using FixedKeyHashTableContext = vectorized::MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>>>;
 
-template <bool has_null>
-using I128FixedKeyHashTableContext = vectorized::FixedKeyHashTableContext<UInt128, has_null>;
+using SerializedHashTableContext = vectorized::MethodSerialized<JoinHashMap<StringRef>>;
+using MethodOneString = vectorized::MethodStringNoCache<JoinHashMap<StringRef>>;
 
-template <bool has_null>
-using I256FixedKeyHashTableContext = vectorized::FixedKeyHashTableContext<UInt256, has_null>;
+using HashTableVariants = std::variant<
+        std::monostate, SerializedHashTableContext, PrimaryTypeHashTableContext<vectorized::UInt8>,
+        PrimaryTypeHashTableContext<vectorized::UInt16>,
+        PrimaryTypeHashTableContext<vectorized::UInt32>,
+        PrimaryTypeHashTableContext<vectorized::UInt64>,
+        PrimaryTypeHashTableContext<vectorized::UInt128>,
+        PrimaryTypeHashTableContext<vectorized::UInt256>,
+        FixedKeyHashTableContext<vectorized::UInt64>, FixedKeyHashTableContext<vectorized::UInt128>,
+        FixedKeyHashTableContext<vectorized::UInt136>,
+        FixedKeyHashTableContext<vectorized::UInt256>, MethodOneString>;
 
-template <bool has_null>
-using I136FixedKeyHashTableContext = vectorized::FixedKeyHashTableContext<UInt136, has_null>;
+struct JoinDataVariants {
+    HashTableVariants method_variant;
 
-using HashTableVariants =
-        std::variant<std::monostate, vectorized::SerializedHashTableContext, I8HashTableContext,
-                     I16HashTableContext, I32HashTableContext, I64HashTableContext,
-                     I128HashTableContext, I256HashTableContext, I64FixedKeyHashTableContext<true>,
-                     I64FixedKeyHashTableContext<false>, I128FixedKeyHashTableContext<true>,
-                     I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
-                     I256FixedKeyHashTableContext<false>, I136FixedKeyHashTableContext<true>,
-                     I136FixedKeyHashTableContext<false>>;
+    void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        // todo: support single column nullable context
+        switch (type) {
+        case HashKeyType::serialized:
+            method_variant.emplace<SerializedHashTableContext>();
+            break;
+        case HashKeyType::int8_key:
+            method_variant.emplace<PrimaryTypeHashTableContext<vectorized::UInt8>>();
+            break;
+        case HashKeyType::int16_key:
+            method_variant.emplace<PrimaryTypeHashTableContext<vectorized::UInt16>>();
+            break;
+        case HashKeyType::int32_key:
+            method_variant.emplace<PrimaryTypeHashTableContext<vectorized::UInt32>>();
+            break;
+        case HashKeyType::int64_key:
+            method_variant.emplace<PrimaryTypeHashTableContext<vectorized::UInt64>>();
+            break;
+        case HashKeyType::int128_key:
+            method_variant.emplace<PrimaryTypeHashTableContext<vectorized::UInt128>>();
+            break;
+        case HashKeyType::int256_key:
+            method_variant.emplace<PrimaryTypeHashTableContext<vectorized::UInt256>>();
+            break;
+        case HashKeyType::string_key:
+            method_variant.emplace<MethodOneString>();
+            break;
+        case HashKeyType::fixed64:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt64>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed128:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt128>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed136:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt136>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed256:
+            method_variant.emplace<FixedKeyHashTableContext<vectorized::UInt256>>(
+                    get_key_sizes(data_types));
+            break;
+        default:
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "JoinDataVariants meet invalid key type, type={}", type);
+        }
+    }
+};
 
-} // namespace doris::pipeline
+} // namespace doris

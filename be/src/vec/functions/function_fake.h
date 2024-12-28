@@ -44,6 +44,7 @@ struct UDTFImpl {
     static std::string get_error_msg() {
         return "UDTF function do not support this, it's should execute with lateral view.";
     }
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
@@ -64,6 +65,10 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
     bool use_default_implementation_for_nulls() const override {
         if constexpr (std::is_same_v<Impl, UDTFImpl>) {
             return false;
@@ -74,7 +79,7 @@ public:
     bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Status::NotSupported(Impl::get_error_msg());
     }
 };

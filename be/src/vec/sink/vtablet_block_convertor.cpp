@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -54,6 +55,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
@@ -182,15 +184,14 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
     return DecimalType(value);
 }
 
-Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                                 bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, bool* stop_processing,
-                                                 fmt::memory_buffer& error_prefix,
-                                                 const uint32_t row_count,
-                                                 vectorized::IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_internal_validate_column(
+        RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
+        vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
+        fmt::memory_buffer& error_prefix, const size_t row_count,
+        vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
-    auto set_invalid_and_append_error_msg = [&](int row) {
+    auto set_invalid_and_append_error_msg = [&](size_t row) {
         _filter_map[row] = true;
         auto ret = state->append_error_msg_to_file([]() -> std::string { return ""; },
                                                    [&error_prefix, &error_msg]() -> std::string {
@@ -212,13 +213,13 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
     auto string_column_checker = [&](const ColumnString* column_string) {
         size_t limit = config::string_type_length_soft_limit_bytes;
         // when type.len is negative, std::min will return overflow value, so we need to check it
-        if (type.len > 0) {
+        if (type.len >= 0) {
             limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
         }
 
         auto* __restrict offsets = column_string->get_offsets().data();
         int invalid_count = 0;
-        for (int j = 0; j < row_count; ++j) {
+        for (int64_t j = 0; j < row_count; ++j) {
             invalid_count += (offsets[j] - offsets[j - 1]) > limit;
         }
 
@@ -452,7 +453,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
 }
 
 Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::Block* block,
-                                               const uint32_t rows, int& filtered_rows,
+                                               const size_t rows, int& filtered_rows,
                                                bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
@@ -505,7 +506,8 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column =
+                check_and_get_column<vectorized::ColumnConst>(src_column_ptr.get())) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -529,7 +531,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             dst_values.resize_fill(rows, value);
         }
     } else if (const auto* src_nullable_column =
-                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
+                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr.get())) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();
         dst_values.reserve(rows);
@@ -557,6 +559,10 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
 Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
                                                                    size_t rows) {
+    // avoid duplicate PARTIAL_UPDATE_AUTO_INC_COL
+    if (block->has(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)) {
+        return Status::OK();
+    }
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
     size_t null_value_count = rows;
@@ -571,7 +577,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
                                                     std::make_shared<DataTypeNumber<Int64>>(),
-                                                    "__PARTIAL_UPDATE_AUTO_INC_COLUMN__"));
+                                                    BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }
 

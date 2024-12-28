@@ -85,6 +85,8 @@ public:
         }
     };
 
+    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
+                         std::unique_ptr<BloomFilterIndexWriter>* res);
     // This method may allocate large memory for bf, will return error
     // when memory is exhaused to prevent oom.
     Status add_values(const void* values, size_t count) override;

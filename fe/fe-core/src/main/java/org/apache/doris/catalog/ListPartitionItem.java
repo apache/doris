@@ -61,7 +61,16 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     public String getItemsString() {
-        return toString();
+        // ATTN: DO NOT EDIT unless unless you explicitly guarantee compatibility
+        // between different versions.
+        //
+        // the ccr syncer depends on this string to identify partitions between two
+        // clusters (cluster versions may be different).
+        return getItems().toString();
+    }
+
+    public String getItemsSql() {
+        return toSql();
     }
 
     @Override
@@ -169,11 +178,6 @@ public class ListPartitionItem extends PartitionItem {
 
     @Override
     public String toString() {
-        // ATTN: DO NOT EDIT unless unless you explicitly guarantee compatibility
-        // between different versions.
-        //
-        // the ccr syncer depends on this string to identify partitions between two
-        // clusters (cluster versions may be different).
         StringBuilder builder = new StringBuilder();
         builder.append("partitionKeys: [");
         for (PartitionKey partitionKey : partitionKeys) {
@@ -185,10 +189,7 @@ public class ListPartitionItem extends PartitionItem {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        int size = partitionKeys.size();
-        if (size > 1) {
-            sb.append("(");
-        }
+        sb.append("(");
 
         int i = 0;
         for (PartitionKey partitionKey : partitionKeys) {
@@ -199,9 +200,7 @@ public class ListPartitionItem extends PartitionItem {
             i++;
         }
 
-        if (size > 1) {
-            sb.append(")");
-        }
+        sb.append(")");
 
         return sb.toString();
     }

@@ -54,6 +54,7 @@ suite("test_pk_no_need_read_data", "p0"){
 
     // case1: enable count on index
     sql "set enable_count_on_index_pushdown = true"
+    sql """ set enable_common_expr_pushdown = true """
 
     qt_select_0 "SELECT COUNT() FROM ${table1} WHERE date='2017-10-01'"
     qt_select_1 "SELECT COUNT() FROM ${table1} WHERE year(date)='2017'"

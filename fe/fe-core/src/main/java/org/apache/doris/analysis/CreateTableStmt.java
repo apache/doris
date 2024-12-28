@@ -47,6 +47,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -324,6 +325,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
+            if (Objects.equals(columnDef.getType(), Type.VARIANT) && columnNameUpperCase.indexOf('.') != -1) {
+                throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
@@ -334,6 +340,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableSkipBitmapColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // olap table
@@ -419,10 +426,30 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 }
             }
 
+            if (properties != null) {
+                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                        && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                            + "only be set in merge-on-write unique table.");
+                }
+                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
+                // and its value should be consistent with whether the table's full schema contains
+                // the skip bitmap hidden column
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    enableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                                new HashMap<>(properties));
+                }
+            }
+
             keysDesc.analyze(columnDefs);
-            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
-                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
-                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames())) {
+                if (!enableUniqueKeyMergeOnWrite) {
+                    throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                            + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
@@ -485,6 +512,13 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
+        if (enableSkipBitmapColumn && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE));
+            }
+            // TODO(bobhan1): add support for mor table
+        }
 
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
@@ -498,7 +532,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             columnDef.getType().getPrimitiveType() + " column can't support aggregation "
                                     + columnDef.getAggregateType());
                 }
-                if (columnDef.isKey()) {
+                if (columnDef.isKey() || columnDef.getClusterKeyId() != -1) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
                             + " can only be used in the non-key column of the duplicate table at present.");
                 }
@@ -570,7 +604,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
+                    .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            boolean disableInvertedIndexV1ForVariant =
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
+                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -580,7 +618,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(), enableUniqueKeyMergeOnWrite);
+                            indexDef.checkColumn(column,
+                                    getKeysDesc().getKeysType(),
+                                    enableUniqueKeyMergeOnWrite,
+                                    invertedIndexFileStorageFormat,
+                                    disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }
@@ -590,7 +632,8 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     }
                 }
                 indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(), indexDef.getColumns(),
-                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment()));
+                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment(),
+                        indexDef.getColumnUniqueIds()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(Pair.of(indexDef.getIndexType(),
                         indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList())));

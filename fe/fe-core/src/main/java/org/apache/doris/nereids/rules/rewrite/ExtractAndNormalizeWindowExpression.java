@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -25,11 +26,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -64,13 +62,14 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     if (output instanceof WindowExpression) {
                         WindowExpression windowExpression = (WindowExpression) output;
                         Expression expression = ((WindowExpression) output).getFunction();
-                        if (expression instanceof Sum || expression instanceof Max
-                                || expression instanceof Min || expression instanceof Avg) {
-                            // sum, max, min and avg in window function should be always nullable
-                            windowExpression = ((WindowExpression) output)
-                                    .withFunction(
-                                            ((NullableAggregateFunction) expression).withAlwaysNullable(true)
-                                    );
+                        if (expression.containsType(OrderExpression.class)) {
+                            throw new AnalysisException("order by is not supported in " + expression);
+                        }
+                        if (expression instanceof NullableAggregateFunction) {
+                            // NullableAggregateFunction in window function should be always nullable
+                            // Because there may be no data in the window frame, null values will be generated.
+                            windowExpression = ((WindowExpression) output).withFunction(
+                                    ((NullableAggregateFunction) expression).withAlwaysNullable(true));
                         }
 
                         ImmutableList.Builder<Expression> nonLiteralPartitionKeys =
@@ -119,7 +118,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         // we need replace alias's child expr with corresponding alias's slot in output
         // so create a customNormalizeMap alias's child -> alias.toSlot to do it
         Map<Expression, Slot> customNormalizeMap = toBePushedDown.stream()
-                .filter(expr -> expr instanceof Alias)
+                .filter(expr -> expr instanceof Alias && !(expr.child(0) instanceof Literal))
                 .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
                         (oldExpr, newExpr) -> oldExpr));
 

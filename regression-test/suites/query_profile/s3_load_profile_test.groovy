@@ -171,7 +171,7 @@ PROPERTIES (
     qt_select """ select count(*) from $loadAttribute.dataDesc.tableName """
 
     def profileString = getProfile(jobId)
-    profileJson = new JsonSlurper().parseText(profileString)
+    def profileJson = new JsonSlurper().parseText(profileString)
     assertEquals(0, profileJson.code)
     profileDataString = profileJson.data
     logger.info("profileDataString:" + profileDataString)
@@ -218,7 +218,6 @@ class LoadAttributes {
         this.isExceptFailed = isExceptFailed
 
         properties = new HashMap<>()
-        properties.put("use_new_load_scan_node", "true")
     }
 
     LoadAttributes addProperties(String k, String v) {

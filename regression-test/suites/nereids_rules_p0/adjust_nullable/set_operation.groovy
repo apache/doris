@@ -16,31 +16,88 @@
 // under the License.
 
 suite("test_set_operation_adjust_nullable") {
-
+    sql "set enable_fallback_to_original_planner=false"
+    String realDb = context.config.getDbNameByFile(context.file)
+    logger.info("realDb:${realDb}")
     sql """
-        DROP TABLE IF EXISTS t1
+        DROP TABLE IF EXISTS set_operation_t1
     """
     sql """
-        DROP TABLE IF EXISTS t2
-    """
-
-    sql """
-        CREATE TABLE t1(c1 varchar) DISTRIBUTED BY hash(c1) PROPERTIES ("replication_num" = "1");
+        DROP TABLE IF EXISTS set_operation_t2
     """
 
     sql """
-        CREATE TABLE t2(c2 date) DISTRIBUTED BY hash(c2) PROPERTIES ("replication_num" = "1");
+        CREATE TABLE set_operation_t1(c1 varchar) DISTRIBUTED BY hash(c1) PROPERTIES ("replication_num" = "1");
     """
 
     sql """
-        insert into t1 values('+06-00');
+        CREATE TABLE set_operation_t2(c2 date) DISTRIBUTED BY hash(c2) PROPERTIES ("replication_num" = "1");
     """
 
     sql """
-        insert into t2 values('1990-11-11');
+        insert into set_operation_t1 values('+06-00');
     """
 
     sql """
-        SELECT c1, c1 FROM t1 MINUS SELECT c2, c2 FROM t2;
+        insert into set_operation_t2 values('1990-11-11');
+    """
+
+    sql """
+        SELECT c1, c1 FROM set_operation_t1 MINUS SELECT c2, c2 FROM set_operation_t2;
+    """
+
+    // do not use regulator child output nullable as init nullable info
+
+    sql """
+        DROP TABLE IF EXISTS set_operation_t1
+    """
+    sql """
+        DROP TABLE IF EXISTS set_operation_t2
+    """
+
+    sql """
+        create table set_operation_t1 (
+            pk int,
+            c1 char(25)  not null  ,
+            c2 varchar(100)  null  ,
+        )
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+    """
+
+    sql """insert into set_operation_t1 values (1, '1', '1');"""
+
+    sql """
+        create table set_operation_t2 (
+            c3 varchar(100)  not null  ,
+            pk int
+        )
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+    """
+
+    sql """insert into set_operation_t2 values ('1', 1);"""
+
+    sql """
+        select
+            c2,
+            c1
+        from
+            set_operation_t1
+        order by
+            1,
+            2 asc
+        limit
+            0
+        union distinct
+        select
+            c3,
+            c3
+        from
+            set_operation_t2
+        except
+        select
+            'LDvlqYTfrq',
+            'rVdUjeSaJW';
     """
 }

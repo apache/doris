@@ -17,8 +17,17 @@
 
 package org.apache.doris.event;
 
+import org.apache.doris.common.AnalysisException;
+
 public class DropPartitionEvent extends TableEvent {
-    public DropPartitionEvent(long ctlId, long dbId, long tableId) {
+    private boolean isTempPartition;
+
+    public DropPartitionEvent(long ctlId, long dbId, long tableId, boolean isTempPartition) throws AnalysisException {
         super(EventType.DROP_PARTITION, ctlId, dbId, tableId);
+        this.isTempPartition = isTempPartition;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 }

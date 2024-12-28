@@ -27,7 +27,7 @@ import com.google.common.base.Strings;
 /**
  * Statement for alter the catalog name.
  */
-public class AlterCatalogNameStmt extends AlterCatalogStmt {
+public class AlterCatalogNameStmt extends AlterCatalogStmt implements NotFallbackInParser {
     private final String newCatalogName;
 
     public AlterCatalogNameStmt(String catalogName, String newCatalogName) {

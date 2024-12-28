@@ -29,7 +29,7 @@ include(cppcheck)
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
     set (ARCH_AMD64 1)
 endif ()
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*)")
     set (ARCH_AARCH64 1)
 endif ()
 if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
@@ -411,32 +411,48 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_definitions(-DBE_TEST)
 endif ()
 
+if (ENABLE_INJECTION_POINT)
+    add_definitions(-DENABLE_INJECTION_POINT)
+endif()
+
 # Add libs if needed, download to current dir -- ${BUILD_DIR}
 set(FDB_LIB "fdb_lib_7_1_23.tar.xz")
+if (ARCH_AARCH64)
+    set(FDB_LIB "fdb_lib_7_1_57.aarch64.tar.xz")
+endif ()
 file(GLOB RELEASE_FILE_LIST LIST_DIRECTORIES false "/etc/*release*")
 execute_process(COMMAND "cat" ${RELEASE_FILE_LIST}
                 RESULT_VARIABLE CAT_RET_CODE
                 OUTPUT_VARIABLE CAT_RET_CONTENT)
 string(TOUPPER "${CAT_RET_CONTENT}" CAT_RET_CONTENT)
-if ("${CAT_RET_CONTENT}" MATCHES "UBUNTU")
-    message("Ubuntu OS")
-    SET(OS_RELEASE "Ubuntu")
-    set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/ubuntu/")
-    string(APPEND FDB_LIB_URL "${FDB_LIB}")
-    set(FDB_LIB_MD5SUM "a00fe45da95cfac4e0caffa274bb2b30")
-else()
-    # If it is not ubuntu, it is regarded as centos by default
-    message("Centos OS")
-    SET(OS_RELEASE "Centos")
-    set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/centos/")
-    string(APPEND FDB_LIB_URL "${FDB_LIB}")
-    set(FDB_LIB_MD5SUM "f9839a564849c0232a351143b4340de0")
+
+if (ARCH_AARCH64)
+        message("Centos OS")
+        SET(OS_RELEASE "Centos")
+        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/aarch64/")
+        string(APPEND FDB_LIB_URL "${FDB_LIB}")
+        set(FDB_LIB_MD5SUM "2d01a431b7a7465077e4ae5520f89693")
+else ()
+    if ("${CAT_RET_CONTENT}" MATCHES "UBUNTU")
+        message("Ubuntu OS")
+        SET(OS_RELEASE "Ubuntu")
+        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/ubuntu/")
+        string(APPEND FDB_LIB_URL "${FDB_LIB}")
+        set(FDB_LIB_MD5SUM "a00fe45da95cfac4e0caffa274bb2b30")
+    else()
+        # If it is not ubuntu, it is regarded as centos by default
+        message("Centos OS")
+        SET(OS_RELEASE "Centos")
+        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/centos/")
+        string(APPEND FDB_LIB_URL "${FDB_LIB}")
+        set(FDB_LIB_MD5SUM "f9839a564849c0232a351143b4340de0")
+    endif()
 endif()
 
 if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
     file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND "curl" "${FDB_LIB_URL}"
-                            "-o" "${THIRDPARTY_SRC}/${FDB_LIB}" "-k"
+    execute_process(COMMAND curl --retry 10 --retry-delay 2 --retry-max-time 30 ${FDB_LIB_URL}
+                            -o ${THIRDPARTY_SRC}/${FDB_LIB} -k
                     RESULTS_VARIABLE DOWNLOAD_RET)
     if (NOT ${DOWNLOAD_RET} STREQUAL "0")
         execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
@@ -454,8 +470,13 @@ if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
         execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
         message(FATAL_ERROR "${THIRDPARTY_SRC}/${FDB_LIB} md5sum check failed, remove it")
     endif ()
-    execute_process(COMMAND "tar" "xf" "${THIRDPARTY_SRC}/${FDB_LIB}" "-C" "${THIRDPARTY_DIR}/")
+    execute_process(COMMAND tar xf ${THIRDPARTY_SRC}/${FDB_LIB} -C ${THIRDPARTY_DIR}/)
 endif ()
+
+# enable glog custom prefix
+add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
 
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/gen-cpp)
@@ -471,8 +492,6 @@ endif ()
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 if (${MAKE_TEST} STREQUAL "OFF")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
-
     add_executable(doris_cloud src/main.cpp)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.

@@ -17,15 +17,16 @@
 
 #pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
+class ExecEnv;
 
-class AdjustTracingDump : public HttpHandler {
+class AdjustTracingDump : public HttpHandlerWithAuth {
 public:
-    AdjustTracingDump() = default;
+    AdjustTracingDump(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
     ~AdjustTracingDump() override = default;
 

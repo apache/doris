@@ -45,7 +45,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
@@ -62,6 +61,7 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -101,7 +101,7 @@ public class StreamLoadPlanner {
         analyzer = new Analyzer(Env.getCurrentEnv(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
-        analyzer.setUDFAllowed(false);
+        analyzer.setUDFAllowed(Config.enable_udf_in_load);
         descTable = analyzer.getDescTbl();
     }
 
@@ -126,8 +126,9 @@ public class StreamLoadPlanner {
                 && !destTable.hasDeleteSign()) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
-
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
+        TUniqueKeyUpdateMode uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
+                && destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
             throw new UserException("Table " + destTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
@@ -143,12 +144,47 @@ public class StreamLoadPlanner {
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         boolean negative = taskInfo.getNegative();
         // get partial update related info
-        boolean isPartialUpdate = taskInfo.isPartialUpdate();
-        if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
+
+        // try to convert to upsert if only has missing auto-increment key column
+        boolean hasMissingColExceptAutoIncKey = false;
+        if (taskInfo.getColumnExprDescs().descs.isEmpty()
+                && uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+        }
+
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                || uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+            boolean hasSyncMaterializedView = destTable.getFullSchema().stream()
+                    .anyMatch(col -> col.isMaterializedViewColumn());
+            if (hasSyncMaterializedView) {
+                throw new DdlException("Can't do partial update on merge-on-write Unique table"
+                        + " with sync materialized view.");
+            }
+            if (destTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
+                throw new UserException("Can't do partial update on merge-on-write Unique table with cluster keys");
+            }
+        }
+
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && !destTable.hasSkipBitmapColumn()) {
+            String tblName = destTable.getName();
+            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
+                    + " But table " + tblName + " doesn't have it. You can use `ALTER TABLE " + tblName
+                            + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it to the table.");
+        }
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
+                && !destTable.getEnableLightSchemaChange()) {
+            throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
+                    + " But table " + destTable.getName() + "'s property light_schema_change is false");
+        }
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
+                && destTable.hasVariantColumns()) {
+            throw new UserException("Flexible partial update can only support table without variant columns.");
+        }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
-        if (isPartialUpdate) {
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             for (Column col : destTable.getFullSchema()) {
                 boolean existInExpr = false;
                 if (col.hasOnUpdateDefaultValue()) {
@@ -171,9 +207,16 @@ public class StreamLoadPlanner {
                         break;
                     }
                 }
-                if (col.isKey() && !existInExpr) {
-                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                if (!existInExpr) {
+                    if (col.isKey() && !col.isAutoInc()) {
+                        throw new UserException("Partial update should include all key columns, missing: "
+                                + col.getName());
+                    }
+                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                        hasMissingColExceptAutoIncKey = true;
+                    }
                 }
+
                 if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
                         && col.getGeneratedColumnInfo() == null && !existInExpr) {
                     throw new UserException("Partial update should include"
@@ -181,13 +224,18 @@ public class StreamLoadPlanner {
                             + " by generated columns, missing: " + col.getName());
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS && !hasMissingColExceptAutoIncKey) {
+            uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+        }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
-            if (isPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                    && !partialUpdateInputColumns.contains(col.getName())) {
                 continue;
             }
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
@@ -252,7 +300,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                taskInfo.isPartialUpdate());
+                uniquekeyUpdateMode, destTable.getSequenceMapCol());
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
@@ -260,12 +308,6 @@ public class StreamLoadPlanner {
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
-        if (taskInfo instanceof RoutineLoadJob) {
-            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
-            // So that the execution won't be killed before consuming finished.
-            timeout *= 2;
-        }
-
         final boolean enableMemtableOnSinkNode =
                 destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode() : false;
@@ -284,7 +326,7 @@ public class StreamLoadPlanner {
         int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
-        olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
+        olapTableSink.setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.

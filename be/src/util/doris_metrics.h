@@ -178,6 +178,7 @@ public:
     UIntGauge* stream_load_pipe_count = nullptr;
     UIntGauge* new_stream_load_pipe_count = nullptr;
     UIntGauge* brpc_endpoint_stub_count = nullptr;
+    UIntGauge* brpc_stream_endpoint_stub_count = nullptr;
     UIntGauge* brpc_function_endpoint_stub_count = nullptr;
     UIntGauge* tablet_writer_count = nullptr;
 
@@ -201,6 +202,7 @@ public:
     UIntGauge* send_batch_thread_pool_thread_num = nullptr;
     UIntGauge* send_batch_thread_pool_queue_size = nullptr;
     UIntGauge* fragment_thread_pool_queue_size = nullptr;
+    UIntGauge* fragment_thread_pool_num_active_threads = nullptr;
 
     // Upload metrics
     UIntGauge* upload_total_byte = nullptr;
@@ -217,6 +219,11 @@ public:
     UIntGauge* heavy_work_max_threads = nullptr;
     UIntGauge* light_work_max_threads = nullptr;
 
+    UIntGauge* arrow_flight_work_pool_queue_size = nullptr;
+    UIntGauge* arrow_flight_work_active_threads = nullptr;
+    UIntGauge* arrow_flight_work_pool_max_queue_size = nullptr;
+    UIntGauge* arrow_flight_work_max_threads = nullptr;
+
     UIntGauge* flush_thread_pool_queue_size = nullptr;
     UIntGauge* flush_thread_pool_thread_num = nullptr;
 
@@ -229,9 +236,17 @@ public:
     UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
 
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+    IntCounter* num_io_bytes_read_total = nullptr;
+    IntCounter* num_io_bytes_read_from_cache = nullptr;
+    IntCounter* num_io_bytes_read_from_remote = nullptr;
+
+    IntCounter* query_ctx_cnt = nullptr;
+    IntCounter* scanner_ctx_cnt = nullptr;
+    IntCounter* scanner_cnt = nullptr;
+    IntCounter* scanner_task_cnt = nullptr;
+    IntCounter* scanner_task_queued = nullptr;
+    IntCounter* scanner_task_submit_failed = nullptr;
+    IntCounter* scanner_task_running = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

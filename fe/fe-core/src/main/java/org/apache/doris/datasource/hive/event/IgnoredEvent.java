@@ -28,7 +28,7 @@ import java.util.List;
  */
 public class IgnoredEvent extends MetastoreEvent {
     private IgnoredEvent(NotificationEvent event, String catalogName) {
-        super(event, catalogName);
+        super(event);
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
@@ -38,6 +38,6 @@ public class IgnoredEvent extends MetastoreEvent {
 
     @Override
     public void process() {
-        infoLog("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
+        logInfo("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
     }
 }

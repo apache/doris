@@ -120,6 +120,8 @@ public:
     // Get current repeated value, make sure that count equals repeated_count()
     T get_repeated_value(size_t count);
 
+    const BitReader& bit_reader() const { return bit_reader_; }
+
 private:
     bool ReadHeader();
 
@@ -281,7 +283,7 @@ void RleDecoder<T>::RewindOne() {
 
     switch (rewind_state_) {
     case CANT_REWIND:
-        LOG(FATAL) << "Can't rewind more than once after each read!";
+        throw Exception(Status::FatalError("Can't rewind more than once after each read!"));
         break;
     case REWIND_RUN:
         ++repeat_count_;

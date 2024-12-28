@@ -110,7 +110,12 @@ function check_doris_conf() {
         echo "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above"
     fi
 
-    cv=$(curl "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>/dev/null | grep 'streaming_load_max_mb' | awk -F'=' '{print $2}')
+    if ! output=$(curl -s "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>&1); then
+        printf "Curl failed with the following output:\n%s\n" "${output}" >&2
+        printf "Error: Failed to execute curl to fetch BE's configuration.\n" >&2
+        exit 1
+    fi
+    cv=$(grep 'streaming_load_max_mb' <<< "${output}" | awk -F'=' '{print $2}')
     if (($cv < 16000)); then
         echo -e "advise: revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above and 'flush_thread_num_per_store=5' to speed up load."
     fi

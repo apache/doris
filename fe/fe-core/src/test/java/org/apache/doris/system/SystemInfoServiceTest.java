@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.meta.MetaContext;
@@ -133,6 +134,7 @@ public class SystemInfoServiceTest {
 
     @Test
     public void testSelectBackendIdsByPolicy() throws Exception {
+        Config.disable_backend_black_list = true;
         // 1. no backend
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy, 1).size());
@@ -329,6 +331,29 @@ public class SystemInfoServiceTest {
         BeSelectionPolicy policy07 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(3).build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy07, 3).size());
+    }
+
+    @Test
+    public void testResourceTagDowngrade() throws Exception {
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+        addBackend(10001, "192.168.1.1", 9050);
+        Backend be1 = infoService.getBackend(10001);
+        be1.setTagMap(taga.toMap());
+        be1.setAlive(true);
+
+        addBackend(10002, "192.168.1.2", 9050);
+        Backend be2 = infoService.getBackend(10002);
+        be2.setAlive(true);
+
+        BeSelectionPolicy policy1 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga)).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy1, 1).size());
+
+        be1.setAlive(false);
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy1, 1).size());
+
+        BeSelectionPolicy policy2 = new BeSelectionPolicy.Builder().setAllowResourceTagDowngrade(true)
+                .addTags(Sets.newHashSet(taga)).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy2, 1).size());
     }
 
     @Test

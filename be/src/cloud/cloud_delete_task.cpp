@@ -52,8 +52,10 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
         LOG_WARNING("tablet exceeds max version num limit")
                 .tag("limit", config::max_tablet_version_num)
                 .tag("tablet_id", tablet->tablet_id());
-        return Status::Error<TOO_MANY_VERSION>("too many versions, versions={} tablet={}",
-                                               config::max_tablet_version_num, tablet->tablet_id());
+        return Status::Error<TOO_MANY_VERSION>(
+                "too many versions, versions={} tablet={}. Please reduce the frequency of loading "
+                "data or adjust the max_tablet_version_num in be.conf to a larger value.",
+                config::max_tablet_version_num, tablet->tablet_id());
     }
 
     // check delete condition if push for delete
@@ -105,7 +107,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 request.timeout, nullptr);
     }
 
-    return Status::OK();
+    return st;
 }
 
 } // namespace doris

@@ -36,6 +36,7 @@
 #include "vec/sink/autoinc_buffer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class OlapTableBlockConvertor {
 public:
@@ -68,14 +69,25 @@ private:
 
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
-                            fmt::memory_buffer& error_prefix, const uint32_t row_count,
-                            vectorized::IColumn::Permutation* rows = nullptr);
+                            fmt::memory_buffer& error_prefix, const size_t row_count,
+                            vectorized::IColumn::Permutation* rows = nullptr) {
+        RETURN_IF_CATCH_EXCEPTION({
+            return _internal_validate_column(state, type, is_nullable, column, slot_index,
+                                             stop_processing, error_prefix, row_count, rows);
+        });
+    }
+
+    Status _internal_validate_column(RuntimeState* state, const TypeDescriptor& type,
+                                     bool is_nullable, vectorized::ColumnPtr column,
+                                     size_t slot_index, bool* stop_processing,
+                                     fmt::memory_buffer& error_prefix, const size_t row_count,
+                                     vectorized::IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     // set stop_processing if we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, const uint32_t rows,
+    Status _validate_data(RuntimeState* state, vectorized::Block* block, const size_t rows,
                           int& filtered_rows, bool* stop_processing);
 
     // some output column of output expr may have different nullable property with dest slot desc
@@ -113,3 +125,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

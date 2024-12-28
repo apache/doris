@@ -24,6 +24,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(

@@ -181,6 +181,8 @@ void ParquetReader::_init_profile() {
                 _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.predicate_filter_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
     }
 }
 
@@ -251,10 +253,8 @@ Status ParquetReader::_open_file() {
     return Status::OK();
 }
 
-// Get iceberg col id to col name map stored in parquet metadata key values.
-// This is for iceberg schema evolution.
-std::vector<tparquet::KeyValue> ParquetReader::get_metadata_key_values() {
-    return _t_metadata->key_value_metadata;
+const FieldDescriptor ParquetReader::get_file_metadata_schema() {
+    return _file_metadata->schema();
 }
 
 Status ParquetReader::open() {
@@ -410,7 +410,7 @@ Status ParquetReader::set_fill_columns(
                     visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (in_predicate->children().size() > 0) {
+                if (in_predicate->get_num_children() > 0) {
                     visit_slot(in_predicate->children()[0].get());
                 }
             } else {
@@ -477,8 +477,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
-        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -595,6 +594,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);
         _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
+        _statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
         if (_read_row_groups.size() == 0) {
             *eof = true;
         } else {
@@ -743,7 +743,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                     const tparquet::ColumnChunk& chunk =
                             row_group.columns[field->physical_column_index];
                     auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                    int64_t chunk_start = has_dict_page(chunk_meta)
                                                   ? chunk_meta.dictionary_page_offset
                                                   : chunk_meta.data_page_offset;
                     int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
@@ -938,15 +938,53 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
             continue;
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
+        bool ignore_min_max_stats = false;
         // Min-max of statistic is plain-encoded value
-        if (statistic.__isset.min_value) {
+        if (statistic.__isset.min_value && statistic.__isset.max_value) {
+            ColumnOrderName column_order =
+                    col_schema->physical_type == tparquet::Type::INT96 ||
+                                    col_schema->parquet_schema.logicalType.__isset.UNKNOWN
+                            ? ColumnOrderName::UNDEFINED
+                            : ColumnOrderName::TYPE_DEFINED_ORDER;
+            if ((statistic.min_value != statistic.max_value) &&
+                (column_order != ColumnOrderName::TYPE_DEFINED_ORDER)) {
+                ignore_min_max_stats = true;
+            }
             *filter_group = ParquetPredicate::filter_by_stats(
-                    slot_iter->second, col_schema, is_set_min_max, statistic.min_value,
+                    slot_iter->second, col_schema, ignore_min_max_stats, statistic.min_value,
                     statistic.max_value, is_all_null, *_ctz, true);
         } else {
+            if (statistic.__isset.min && statistic.__isset.max) {
+                bool max_equals_min = statistic.min == statistic.max;
+
+                SortOrder sort_order = _determine_sort_order(col_schema->parquet_schema);
+                bool sort_orders_match = SortOrder::SIGNED == sort_order;
+                if (!sort_orders_match && !max_equals_min) {
+                    ignore_min_max_stats = true;
+                }
+                bool should_ignore_corrupted_stats = false;
+                if (_ignored_stats.count(col_schema->physical_type) == 0) {
+                    if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
+                                                                    col_schema->physical_type)) {
+                        _ignored_stats[col_schema->physical_type] = true;
+                        should_ignore_corrupted_stats = true;
+                    } else {
+                        _ignored_stats[col_schema->physical_type] = false;
+                    }
+                } else if (_ignored_stats[col_schema->physical_type]) {
+                    should_ignore_corrupted_stats = true;
+                }
+                if (should_ignore_corrupted_stats) {
+                    ignore_min_max_stats = true;
+                } else if (!sort_orders_match && !max_equals_min) {
+                    ignore_min_max_stats = true;
+                }
+            } else {
+                ignore_min_max_stats = true;
+            }
             *filter_group = ParquetPredicate::filter_by_stats(
-                    slot_iter->second, col_schema, is_set_min_max, statistic.min, statistic.max,
-                    is_all_null, *_ctz, false);
+                    slot_iter->second, col_schema, ignore_min_max_stats, statistic.min,
+                    statistic.max, is_all_null, *_ctz, false);
         }
         if (*filter_group) {
             break;
@@ -968,11 +1006,7 @@ Status ParquetReader::_process_bloom_filter(bool* filter_group) {
 }
 
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
-    if (column.__isset.dictionary_page_offset) {
-        DCHECK_LT(column.dictionary_page_offset, column.data_page_offset);
-        return column.dictionary_page_offset;
-    }
-    return column.data_page_offset;
+    return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
 
 void ParquetReader::_collect_profile() {
@@ -1004,6 +1038,7 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
     COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);
@@ -1019,6 +1054,63 @@ void ParquetReader::_collect_profile() {
 
 void ParquetReader::_collect_profile_before_close() {
     _collect_profile();
+}
+
+SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& parquet_schema) {
+    tparquet::Type::type physical_type = parquet_schema.type;
+    const tparquet::LogicalType& logical_type = parquet_schema.logicalType;
+
+    // Assume string type is SortOrder::SIGNED, use ParquetPredicate::_try_read_old_utf8_stats() to handle it.
+    if (logical_type.__isset.STRING && (physical_type == tparquet::Type::BYTE_ARRAY ||
+                                        physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY)) {
+        return SortOrder::SIGNED;
+    }
+
+    if (logical_type.__isset.INTEGER) {
+        if (logical_type.INTEGER.isSigned) {
+            return SortOrder::SIGNED;
+        } else {
+            return SortOrder::UNSIGNED;
+        }
+    } else if (logical_type.__isset.DATE) {
+        return SortOrder::SIGNED;
+    } else if (logical_type.__isset.ENUM) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.BSON) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.JSON) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.STRING) {
+        return SortOrder::UNSIGNED;
+    } else if (logical_type.__isset.DECIMAL) {
+        return SortOrder::UNKNOWN;
+    } else if (logical_type.__isset.MAP) {
+        return SortOrder::UNKNOWN;
+    } else if (logical_type.__isset.LIST) {
+        return SortOrder::UNKNOWN;
+    } else if (logical_type.__isset.TIME) {
+        return SortOrder::SIGNED;
+    } else if (logical_type.__isset.TIMESTAMP) {
+        return SortOrder::SIGNED;
+    } else if (logical_type.__isset.UNKNOWN) {
+        return SortOrder::UNKNOWN;
+    } else {
+        switch (physical_type) {
+        case tparquet::Type::BOOLEAN:
+        case tparquet::Type::INT32:
+        case tparquet::Type::INT64:
+        case tparquet::Type::FLOAT:
+        case tparquet::Type::DOUBLE:
+            return SortOrder::SIGNED;
+        case tparquet::Type::BYTE_ARRAY:
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            return SortOrder::UNSIGNED;
+        case tparquet::Type::INT96:
+            return SortOrder::UNKNOWN;
+        default:
+            return SortOrder::UNKNOWN;
+        }
+    }
 }
 
 } // namespace doris::vectorized

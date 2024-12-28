@@ -69,6 +69,7 @@
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/json_parser.h"
 #include "vec/json/parse2column.h"
 #include "vec/json/path_in_data.h"
 
@@ -132,7 +133,7 @@ size_t get_size_of_interger(TypeIndex type) {
     case TypeIndex::UInt128:
         return sizeof(uint128_t);
     default:
-        LOG(FATAL) << "Unknown integer type: " << getTypeName(type);
+        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
         return 0;
     }
 }
@@ -147,8 +148,7 @@ bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeInd
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
-    ColumnsWithTypeAndName arguments {
-            arg, {type->create_column_const_with_default_value(1), type, type->get_name()}};
+    ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     if (!function) {
         return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
@@ -171,6 +171,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
                 variant->get_ptr(),
                 check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
         *result = type->is_nullable() ? nullable : variant->get_ptr();
+        return Status::OK();
+    }
+
+    if (WhichDataType(arg.type).is_nothing()) {
+        // cast from nothing to any type should result in nulls
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
         return Status::OK();
     }
 
@@ -212,7 +219,6 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
                            "", child, {});
         column.set_length(TabletColumn::get_field_length_by_type(TPrimitiveType::ARRAY, 0));
         column.add_sub_column(child);
-        column.set_default_value("[]");
         return;
     }
     // size is not fixed when type is string or json
@@ -225,8 +231,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -354,6 +359,10 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema) {
+    DCHECK(target.is_extracted_column());
+    target.set_aggregation_method(source.aggregation());
+
+    // 1. bloom filter
     if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
         target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
         target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
@@ -361,21 +370,24 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // above types are not supported in bf
         target.set_is_bf_column(source.is_bf_column());
     }
-    target.set_aggregation_method(source.aggregation());
-    const auto* source_index_meta = target_schema->get_inverted_index(source.unique_id(), "");
+
+    // 2. inverted index
+    const auto* source_index_meta = target_schema->inverted_index(source.unique_id());
     if (source_index_meta != nullptr) {
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        // get_inverted_index: No need to check, just inherit directly
-        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
+        const auto* target_index_meta = target_schema->inverted_index(
+                target.parent_unique_id(), target.path_info_ptr()->get_path());
         if (target_index_meta != nullptr) {
             // already exist
-            target_schema->update_index(target, index_info);
+            target_schema->update_index(target, IndexType::INVERTED, std::move(index_info));
         } else {
-            target_schema->append_index(index_info);
+            target_schema->append_index(std::move(index_info));
         }
     }
+
+    // 3. TODO: gnragm bf index
 }
 
 void inherit_column_attributes(TabletSchemaSPtr& schema) {
@@ -403,9 +415,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // duplicated paths following the update_least_common_schema process.
     auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
         output_schema = std::make_shared<TabletSchema>();
-        output_schema->copy_from(*base_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
+        // not copy columns but only shadow copy other attributes
+        output_schema->shawdow_copy_without_columns(*base_schema);
         // Get all columns without extracted columns and collect variant col unique id
         for (const TabletColumnPtr& col : base_schema->columns()) {
             if (col->is_variant_type()) {
@@ -461,7 +472,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 }
 
 Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              const ParseContext& ctx) {
+                              const ParseConfig& config) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -499,7 +510,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         if (scalar_root_column->is_column_string()) {
             variant_column = ColumnObject::create(true);
             parse_json_to_variant(*variant_column.get(),
-                                  assert_cast<const ColumnString&>(*scalar_root_column));
+                                  assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
             // Root maybe other types rather than string like ColumnObject(Int32).
             // In this case, we should finlize the root and cast to JSON type
@@ -522,31 +533,11 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 }
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseContext& ctx) {
-    try {
-        // Parse each variant column from raw string column
-        RETURN_IF_ERROR(vectorized::schema_util::_parse_variant_columns(block, variant_pos, ctx));
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
-    return Status::OK();
-}
-
-void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse) {
-    for (int i = 0; i < variant_pos.size(); ++i) {
-        auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
-        auto& column =
-                column_ref.is_nullable()
-                        ? assert_cast<ColumnObject&>(
-                                  assert_cast<ColumnNullable&>(column_ref).get_nested_column())
-                        : assert_cast<ColumnObject&>(column_ref);
-        // Record information about columns merged into a sparse column within a variant
-        std::vector<TabletColumn> sparse_subcolumns_schema;
-        column.finalize(ignore_sparse);
-    }
+                             const ParseConfig& config) {
+    // Parse each variant column from raw string column
+    RETURN_IF_CATCH_EXCEPTION({
+        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
+    });
 }
 
 Status encode_variant_sparse_subcolumns(ColumnObject& column) {
@@ -585,7 +576,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                                  : std::make_shared<DataTypeJsonb>();
     ColumnsWithTypeAndName arguments {
             {source, json_type, ""},
-            {type_string->create_column_const(1, Field(jsonpath.data(), jsonpath.size())),
+            {type_string->create_column_const(1, Field(String(jsonpath.data(), jsonpath.size()))),
              type_string, ""}};
     auto function =
             SimpleFunctionFactory::instance().get_function("jsonb_extract", arguments, json_type);
@@ -603,6 +594,22 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                   .column->convert_to_full_column_if_const()
                   ->assume_mutable();
     return Status::OK();
+}
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx) {
+    const auto& column_new = new_schema->column(new_col_idx);
+    const auto& column_old = old_schema->column(old_col_idx);
+
+    if (column_new.is_bf_column() != column_old.is_bf_column() ||
+        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+        return true;
+    }
+
+    bool new_schema_has_inverted_index = new_schema->inverted_index(column_new);
+    bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
+
+    return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
 } // namespace doris::vectorized::schema_util

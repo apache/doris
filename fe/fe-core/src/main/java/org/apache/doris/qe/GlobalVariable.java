@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -31,6 +32,14 @@ import java.util.List;
 // and change its value through `SET variable_name = xxx`
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
 public final class GlobalVariable {
+
+    public static final int VARIABLE_VERSION_0 = 0;
+    public static final int VARIABLE_VERSION_100 = 100;
+    public static final int VARIABLE_VERSION_101 = 101;
+    public static final int VARIABLE_VERSION_200 = 200;
+    public static final int VARIABLE_VERSION_300 = 300;
+    public static final int CURRENT_VARIABLE_VERSION = VARIABLE_VERSION_300;
+    public static final String VARIABLE_VERSION = "variable_version";
 
     public static final String VERSION_COMMENT = "version_comment";
     public static final String VERSION = "version";
@@ -68,10 +77,14 @@ public final class GlobalVariable {
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
+    @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
+            | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
+    public static int variableVersion = CURRENT_VARIABLE_VERSION;
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
-            + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+            + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
+            + (Config.isCloudMode() ? " (Cloud Mode)" : "");
 
     @VariableMgr.VarAttr(name = VERSION, flag = VariableMgr.READ_ONLY)
     public static String version = MysqlHandshakePacket.SERVER_VERSION;

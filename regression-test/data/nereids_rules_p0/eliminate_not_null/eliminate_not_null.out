@@ -37,7 +37,7 @@ PhysicalResultSink
 
 -- !eliminate_not_null_complex_logic --
 PhysicalResultSink
---filter(( not score IS NULL) and ((t.score > 5) OR (t.id < 10)))
+--filter(( not score IS NULL) and OR[(t.score > 5),(t.id < 10)])
 ----PhysicalOlapScan[t]
 
 -- !eliminate_not_null_date_function --

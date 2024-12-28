@@ -21,14 +21,28 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
+
+import java.util.Map;
+
 public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> {
 
-    public IcebergExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.ICEBERG);
+    public IcebergExternalDatabase(ExternalCatalog extCatalog, Long id, String name, String remoteName) {
+        super(extCatalog, id, name, remoteName, InitDatabaseLog.Type.ICEBERG);
     }
 
     @Override
-    protected IcebergExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
-        return new IcebergExternalTable(tblId, tableName, name, (IcebergExternalCatalog) extCatalog);
+    public IcebergExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+            ExternalCatalog catalog,
+            ExternalDatabase db) {
+        return new IcebergExternalTable(tblId, localTableName, remoteTableName, (IcebergExternalCatalog) extCatalog,
+                (IcebergExternalDatabase) db);
+    }
+
+    public String getLocation() {
+        Map<String, String> props = ((SupportsNamespaces) ((IcebergExternalCatalog) getCatalog()).getCatalog())
+                .loadNamespaceMetadata(Namespace.of(name));
+        return props.getOrDefault("location", "");
     }
 }

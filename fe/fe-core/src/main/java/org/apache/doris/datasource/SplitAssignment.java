@@ -69,7 +69,7 @@ public class SplitAssignment {
     }
 
     public void init() throws UserException {
-        splitGenerator.startSplit();
+        splitGenerator.startSplit(backendPolicy.numBackends());
         synchronized (assignLock) {
             while (sampleSplit == null && waitFirstSplit()) {
                 try {

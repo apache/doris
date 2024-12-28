@@ -16,6 +16,8 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_dup_vals_schema_change") {
     def tableName = "schema_change_dup_vals_regression_test"
@@ -72,7 +74,7 @@ suite ("test_dup_vals_schema_change") {
 
         // add column
         sql """
-            ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+            ALTER table ${tableName} ADD COLUMN new_column INT default "1"
             """
 
         sql """ SELECT * FROM ${tableName} WHERE user_id=2 order by min_dwell_time """
@@ -125,31 +127,7 @@ suite ("test_dup_vals_schema_change") {
             """
 
         // compaction
-        String[][] tablets = sql """ show tablets from ${tableName}; """
-        for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                logger.info("run compaction:" + tablet_id)
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                //assertEquals(code, 0)
-        }
-
-        // wait for all compactions done
-        for (String[] tablet in tablets) {
-                boolean running = true
-                do {
-                    Thread.sleep(100)
-                    String tablet_id = tablet[0]
-                    backend_id = tablet[2]
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
-        }
+        trigger_and_wait_compaction(tableName, "cumulative")
         qt_sc """ select count(*) from ${tableName} """
 
         qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 order by min_dwell_time """

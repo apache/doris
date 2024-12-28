@@ -99,8 +99,7 @@ public:
     };
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override {
-        LOG(FATAL) << "not implemeted";
-        return nullptr;
+        throw Exception(Status::FatalError("not implemeted"));
     }
 
     PUniqueId load_id() override { return _context.load_id; }
@@ -141,7 +140,7 @@ public:
     }
 
     bool is_partial_update() override {
-        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update();
     }
 
 private:
@@ -154,6 +153,7 @@ private:
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
     SegmentFileCollection _seg_files;
+    InvertedIndexFileCollection _idx_files;
 
     SegmentCreator _segment_creator;
 

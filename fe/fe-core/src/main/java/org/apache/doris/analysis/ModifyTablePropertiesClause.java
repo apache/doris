@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Strings;
 
@@ -64,6 +65,16 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     public ModifyTablePropertiesClause(Map<String, String> properties) {
         super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
+    }
+
+    // for nereids
+    public ModifyTablePropertiesClause(Map<String, String> properties, String storagePolicy, boolean isBeingSynced,
+            boolean needTableStable, AlterOpType opType) {
+        super(opType);
+        this.properties = properties;
+        this.storagePolicy = storagePolicy;
+        this.isBeingSynced = isBeingSynced;
+        this.needTableStable = needTableStable;
     }
 
     @Override
@@ -350,6 +361,23 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             // do nothing, will be analyzed when creating alter job
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
             // do nothing, will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
+            if (analyzePolicy != null
+                    && !analyzePolicy.equals(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY)
+                    && !analyzePolicy.equals(PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY)
+                    && !analyzePolicy.equals(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+                throw new AnalysisException(
+                    "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
+                        + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
+                        + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            // do nothing, will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
+            throw new AnalysisException("You can not modify storage_page_size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
@@ -358,6 +386,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private void analyzeForMTMV() throws AnalysisException {
         if (tableName != null) {
+            // Skip external catalog.
+            if (!(InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl()))) {
+                return;
+            }
             Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
                     .getTableOrAnalysisException(tableName.getTbl());
             if (!(table instanceof MTMV)) {

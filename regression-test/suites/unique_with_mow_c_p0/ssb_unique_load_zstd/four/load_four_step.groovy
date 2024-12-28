@@ -63,7 +63,7 @@ suite("load_four_step") {
             for (int i = 1; i <= 5; i++) {
                 def loadRowCount = sql "select count(1) from ${tableName}"
                 logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-                assertTrue(loadRowCount[0][0] == rows[1])
+                assertEquals(rows[1], loadRowCount[0][0])
             }
         }
         sql """ set delete_without_partition = true; """
@@ -71,7 +71,7 @@ suite("load_four_step") {
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-            assertTrue(loadRowCount[0][0] == rows[3])
+            assertEquals(rows[3], loadRowCount[0][0])
         }
         streamLoad {
             table tableName
@@ -105,7 +105,7 @@ suite("load_four_step") {
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-            assertTrue(loadRowCount[0][0] == rows[1])
+            assertEquals(rows[1], loadRowCount[0][0])
         }
     }
 }

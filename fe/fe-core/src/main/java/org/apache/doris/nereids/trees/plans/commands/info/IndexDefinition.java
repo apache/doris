@@ -24,9 +24,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -51,12 +51,15 @@ public class IndexDefinition {
     private Map<String, String> properties = new HashMap<>();
     private boolean isBuildDeferred = false;
 
+    private boolean ifNotExists = false;
+
     /**
      * constructor for IndexDefinition
      */
-    public IndexDefinition(String name, List<String> cols, String indexTypeName,
+    public IndexDefinition(String name, boolean ifNotExists, List<String> cols, String indexTypeName,
             Map<String, String> properties, String comment) {
         this.name = name;
+        this.ifNotExists = ifNotExists;
         this.cols = Utils.copyRequiredList(cols);
         this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
@@ -94,21 +97,28 @@ public class IndexDefinition {
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
+            boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
-            if (indexType == IndexType.INVERTED && colType.isArrayType()) {
-                colType = ((ArrayType) colType).getItemType();
-            }
-            if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
+            if (!(colType.isDateLikeType() || colType.isDecimalLikeType() || colType.isArrayType()
                     || colType.isIntegralType() || colType.isStringLikeType()
                     || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
@@ -125,7 +135,8 @@ public class IndexDefinition {
             if (indexType == IndexType.INVERTED) {
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                            colType.toCatalogDataType().getPrimitiveType(), properties);
+                            colType.toCatalogDataType().getPrimitiveType(), properties,
+                            invertedIndexFileStorageFormat);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
                 }
@@ -145,9 +156,9 @@ public class IndexDefinition {
                         throw new AnalysisException(
                                 "gram_size should be integer and less than 256");
                     }
-                    if (bfSize > 65536 || bfSize < 64) {
+                    if (bfSize > 65535 || bfSize < 64) {
                         throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65536");
+                                "bf_size should be integer and between 64 and 65535");
                     }
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
@@ -211,6 +222,58 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment);
+                comment, null);
+    }
+
+    public IndexDef translateToLegacyIndexDef() {
+        return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+    }
+
+    public String toSql() {
+        return toSql(null);
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql(String tableName) {
+        StringBuilder sb = new StringBuilder("INDEX ");
+        sb.append(name);
+        if (tableName != null && !tableName.isEmpty()) {
+            sb.append(" ON ").append(tableName);
+        }
+        if (cols != null && cols.size() > 0) {
+            sb.append(" (");
+            boolean first = true;
+            for (String col : cols) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(",");
+                }
+                sb.append("`" + col + "`");
+            }
+            sb.append(")");
+        }
+        if (indexType != null) {
+            sb.append(" USING ").append(indexType.toString());
+        }
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES(");
+            boolean first = true;
+            for (Map.Entry<String, String> e : properties.entrySet()) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(", ");
+                }
+                sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
+            }
+            sb.append(")");
+        }
+        if (comment != null) {
+            sb.append(" COMMENT '" + comment + "'");
+        }
+        return sb.toString();
     }
 }

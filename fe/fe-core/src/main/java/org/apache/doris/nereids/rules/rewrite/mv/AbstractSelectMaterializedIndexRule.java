@@ -144,6 +144,18 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return prunedExpr;
     }
 
+    protected static boolean containAllKeyColumns(OlapTable table, MaterializedIndex index) {
+        Set<String> mvColNames = table.getKeyColumnsByIndexId(index.getId()).stream()
+                .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
+                .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
+
+        Set<String> keyColNames = table.getBaseSchemaKeyColumns().stream()
+                .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
+                .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
+
+        return keyColNames.containsAll(mvColNames);
+    }
+
     protected static boolean containAllRequiredColumns(MaterializedIndex index, LogicalOlapScan scan,
             Set<Slot> requiredScanOutput, Set<? extends Expression> requiredExpr, Set<Expression> predicateExpr) {
         OlapTable table = scan.getTable();
@@ -207,8 +219,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
     }
 
     protected static boolean containsAllColumn(Expression expression, Set<String> mvColumnNames) {
-        if (mvColumnNames.contains(expression.toSql()) || mvColumnNames
-                .contains(org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(expression.toSql()))) {
+        String sql = expression.toSql();
+        if (mvColumnNames.contains(sql) || mvColumnNames
+                .contains(org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(sql))) {
             return true;
         }
         if (expression.children().isEmpty()) {
@@ -276,7 +289,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
                         .thenComparing(rid -> (Long) rid))
                 .collect(Collectors.toList());
 
-        return sortedIndexIds.get(0);
+        return table.getBestMvIdWithHint(sortedIndexIds);
     }
 
     protected static List<MaterializedIndex> matchPrefixMost(

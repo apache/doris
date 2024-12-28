@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -60,6 +61,9 @@ private:
     vectorized::ColumnRawPtrs _probe_columns;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+
+    RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -88,8 +92,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -111,8 +113,9 @@ private:
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
-    using OperatorBase::_child_x;
+    using OperatorBase::_child;
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

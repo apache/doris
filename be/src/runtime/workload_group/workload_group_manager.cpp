@@ -22,15 +22,37 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_metrics.h"
 #include "util/mem_info.h"
 #include "util/threadpool.h"
 #include "util/time.h"
+#include "vec/core/block.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
+
+void WorkloadGroupMgr::init_internal_workload_group() {
+    WorkloadGroupPtr internal_wg = nullptr;
+    {
+        std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+        if (_workload_groups.find(INTERNAL_WORKLOAD_GROUP_ID) == _workload_groups.end()) {
+            WorkloadGroupInfo internal_wg_info {
+                    .id = INTERNAL_WORKLOAD_GROUP_ID,
+                    .name = INTERNAL_WORKLOAD_GROUP_NAME,
+                    .cpu_share = CgroupCpuCtl::cpu_soft_limit_default_value()};
+            internal_wg = std::make_shared<WorkloadGroup>(internal_wg_info, false);
+            _workload_groups[internal_wg_info.id] = internal_wg;
+        }
+    }
+    DCHECK(internal_wg != nullptr);
+    if (internal_wg) {
+        internal_wg->create_cgroup_cpu_ctl();
+    }
+}
 
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
         const WorkloadGroupInfo& workload_group_info) {
@@ -65,10 +87,10 @@ void WorkloadGroupMgr::get_related_workload_groups(
     }
 }
 
-WorkloadGroupPtr WorkloadGroupMgr::get_task_group_by_id(uint64_t tg_id) {
+WorkloadGroupPtr WorkloadGroupMgr::get_group(uint64_t wg_id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_workload_groups.find(tg_id) != _workload_groups.end()) {
-        return _workload_groups.at(tg_id);
+    if (_workload_groups.find(wg_id) != _workload_groups.end()) {
+        return _workload_groups.at(wg_id);
     }
     return nullptr;
 }
@@ -84,6 +106,10 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         old_wg_size = _workload_groups.size();
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
             uint64_t wg_id = iter->first;
+            // internal workload group created by BE can not be dropped
+            if (wg_id == INTERNAL_WORKLOAD_GROUP_ID) {
+                continue;
+            }
             auto workload_group_ptr = iter->second;
             if (used_wg_id.find(wg_id) == used_wg_id.end()) {
                 workload_group_ptr->shutdown();
@@ -91,7 +117,8 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
             }
             // wg is shutdown and running rum = 0, its resource can be released in BE
             if (workload_group_ptr->can_be_dropped()) {
-                LOG(INFO) << "[topic_publish_wg]There is no query in wg" << wg_id << ", delete it.";
+                LOG(INFO) << "[topic_publish_wg]There is no query in wg " << wg_id
+                          << ", delete it.";
                 deleted_task_groups.push_back(workload_group_ptr);
             }
         }
@@ -120,31 +147,24 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     // Using cgdelete has no such issue.
     {
         if (config::doris_cgroup_cpu_path != "") {
-            std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
-            if (!_cg_cpu_ctl) {
-                _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
-            }
-            if (!_is_init_succ) {
-                Status ret = _cg_cpu_ctl->init();
-                if (ret.ok()) {
-                    _is_init_succ = true;
-                } else {
-                    LOG(INFO) << "[topic_publish_wg]init workload group mgr cpu ctl failed, "
-                              << ret.to_string();
-                }
-            }
-            if (_is_init_succ) {
-                Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
-                if (!ret.ok()) {
-                    LOG(WARNING) << "[topic_publish_wg]" << ret.to_string();
-                }
+            std::lock_guard<std::shared_mutex> write_lock(_clear_cgroup_lock);
+            Status ret = CgroupCpuCtl::delete_unused_cgroup_path(used_wg_id);
+            if (!ret.ok()) {
+                LOG(WARNING) << "[topic_publish_wg]" << ret.to_string();
             }
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
     LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: " << time_cost_ms
-              << "ms, deleted group size:" << deleted_task_groups.size()
+              << " ms, deleted group size:" << deleted_task_groups.size()
               << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
+}
+
+void WorkloadGroupMgr::do_sweep() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto& [wg_id, wg] : _workload_groups) {
+        wg->do_sweep();
+    }
 }
 
 struct WorkloadGroupMemInfo {
@@ -243,9 +263,9 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             // check whether queries need to revoke memory for task group
             for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
                 debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Parent Label={}, Used={}, SpillThreshold={}, "
+                        "\n    MemTracker Label={}, Used={}, SpillThreshold={}, "
                         "Peak={}",
-                        query_mem_tracker->label(), query_mem_tracker->parent_label(),
+                        query_mem_tracker->label(),
                         PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
                         PrettyPrinter::print(query_spill_threshold, TUnit::BYTES),
                         PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
@@ -254,6 +274,39 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
         } else {
             continue;
         }
+    }
+}
+
+void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
+    int cpu_num = CpuInfo::num_cores();
+    cpu_num = cpu_num <= 0 ? 1 : cpu_num;
+    uint64_t total_cpu_time_ns_per_second = cpu_num * 1000000000ll;
+
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    block->reserve(_workload_groups.size());
+    for (const auto& [id, wg] : _workload_groups) {
+        SchemaScannerHelper::insert_int64_value(0, be_id, block);
+        SchemaScannerHelper::insert_int64_value(1, wg->id(), block);
+        SchemaScannerHelper::insert_int64_value(2, wg->get_metrics()->get_memory_used(), block);
+
+        double cpu_usage_p = (double)wg->get_metrics()->get_cpu_time_nanos_per_second() /
+                             (double)total_cpu_time_ns_per_second * 100;
+        cpu_usage_p = std::round(cpu_usage_p * 100.0) / 100.0;
+
+        SchemaScannerHelper::insert_double_value(3, cpu_usage_p, block);
+
+        SchemaScannerHelper::insert_int64_value(
+                4, wg->get_metrics()->get_local_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(
+                5, wg->get_metrics()->get_remote_scan_bytes_per_second(), block);
+    }
+}
+
+void WorkloadGroupMgr::refresh_workload_group_metrics() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (const auto& [id, wg] : _workload_groups) {
+        wg->get_metrics()->refresh_metrics();
     }
 }
 

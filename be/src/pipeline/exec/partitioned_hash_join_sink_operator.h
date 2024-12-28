@@ -28,6 +28,7 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -82,8 +83,7 @@ class PartitionedHashJoinSinkOperatorX
         : public JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState> {
 public:
     PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, bool use_global_rf,
-                                     uint32_t partition_count);
+                                     const DescriptorTbl& descs, uint32_t partition_count);
 
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -92,7 +92,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -116,7 +115,7 @@ public:
                                           _distribution_partition_exprs);
     }
 
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
 
@@ -150,4 +149,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

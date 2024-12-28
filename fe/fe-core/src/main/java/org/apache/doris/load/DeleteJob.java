@@ -121,6 +121,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     private MarkedCountDownLatch<Long, Long> countDownLatch;
 
+    private long timeoutS = 300L;
+
     public DeleteJob(long id, long transactionId, String label,
                      Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
         this.id = id;
@@ -251,14 +253,16 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         return tabletDeleteInfoMap.values();
     }
 
+    public void setTimeoutS(long timeoutS) {
+        this.timeoutS = timeoutS;
+    }
+
     public long getTimeoutMs() {
         if (FeConstants.runningUnitTest) {
             // for making unit test run fast
             return 1000;
         }
-        // timeout is between 30 seconds to 5 min
-        long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
-        return Math.min(timeout, Config.delete_job_max_timeout_second * 1000L);
+        return timeoutS * 1000L;
     }
 
     public void setTargetDb(Database targetDb) {
@@ -316,13 +320,17 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : deleteConditions) {
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
-                    String columnName = new String(slotRef.getColumnName());
+                    String columnName = slotRef.getColumnName();
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
                     if (column == null) {
                         columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
                         column = colNameToColDesc.get(columnName);
                     }
                     if (column == null) {
+                        if (partition.isRollupIndex(index.getId())) {
+                            throw new AnalysisException("If MV or rollup index exists, do not support delete."
+                                    + "Drop existing rollup or MV and try again.");
+                        }
                         throw new AnalysisException(
                                 "condition's column not founded in index, column=" + columnName + " , index=" + index);
                     }
@@ -433,7 +441,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
                         return;
                     }
-                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
+                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendIdWithoutException()));
                 }));
         return tabletCommitInfos;
     }
@@ -559,6 +567,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             deleteJob.setTargetDb(params.getDb());
             deleteJob.setTargetTbl(params.getTable());
             deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                deleteJob.setTimeoutS(connectContext.getExecTimeout());
+            }
             return deleteJob;
         }
 

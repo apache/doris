@@ -16,6 +16,8 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
@@ -24,18 +26,14 @@ suite ("test_uniq_mv_schema_change") {
          return jobStateResult[0][8]
     }
     def waitForJob =  (tbName, timeout) -> {
-        while (timeout--){
+       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getMVJobState(tbName)
             if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
+                return true;
             }
-        }
+            return false;
+        });
+        // when timeout awaitlity will raise a exception.
     }
 
     try {
@@ -80,7 +78,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
+    sql "create materialized view ${mvName} as select user_id, date, city, age, sex from ${tableName};"
     waitForJob(tableName, 3000)
 
     // alter and test light schema change
@@ -90,7 +88,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName};"
+    sql "create materialized view ${mvName2} as select user_id, date, city, age, sex, cost from ${tableName};"
     waitForJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -106,7 +104,7 @@ suite ("test_uniq_mv_schema_change") {
 
     // add column
     sql """
-        ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+        ALTER table ${tableName} ADD COLUMN new_column INT default "1"
         """
 
     sql """ SELECT * FROM ${tableName} WHERE user_id=2 """
@@ -167,31 +165,8 @@ suite ("test_uniq_mv_schema_change") {
         """
 
     // compaction
-    String[][] tablets = sql """ show tablets from ${tableName}; """
-    for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            logger.info("run compaction:" + tablet_id)
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            //assertEquals(code, 0)
-    }
+    trigger_and_wait_compaction(tableName, "cumulative")
 
-    // wait for all compactions done
-    for (String[] tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(100)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-    }
     qt_sc """ select count(*) from ${tableName} """
 
     qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 """

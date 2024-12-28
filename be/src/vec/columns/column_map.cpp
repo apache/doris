@@ -47,12 +47,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
         : keys_column(std::move(keys)),
           values_column(std::move(values)),
           offsets_column(std::move(offsets)) {
-    const COffsets* offsets_concrete = typeid_cast<const COffsets*>(offsets_column.get());
-
-    if (!offsets_concrete) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "offsets_column must be a ColumnUInt64.");
-    }
+    const auto* offsets_concrete = assert_cast<const COffsets*>(offsets_column.get());
 
     if (!offsets_concrete->empty() && keys_column && values_column) {
         auto last_offset = offsets_concrete->get_data().back();
@@ -110,7 +105,7 @@ Field ColumnMap::operator[](size_t n) const {
     size_t element_size = size_at(n);
 
     if (element_size > max_array_size_as_field) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "element size {} is too large to be manipulated as single map "
                                "field, maximum size {}",
                                element_size, max_array_size_as_field);
@@ -202,6 +197,12 @@ void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_
     }
 }
 
+void ColumnMap::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnMap::insert_from(src, position);
+    }
+}
+
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);
@@ -242,7 +243,7 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
 }
 
 int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
-    const auto& rhs = assert_cast<const ColumnMap&>(rhs_);
+    const auto& rhs = assert_cast<const ColumnMap&, TypeCheckOnRelease::DISABLE>(rhs_);
 
     size_t lhs_size = size_at(n);
     size_t rhs_size = rhs.size_at(m);
@@ -501,27 +502,9 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-bool ColumnMap::could_shrinked_column() {
-    return keys_column->could_shrinked_column() || values_column->could_shrinked_column();
-}
-
-MutableColumnPtr ColumnMap::get_shrinked_column() {
-    MutableColumns new_columns(2);
-
-    if (keys_column->could_shrinked_column()) {
-        new_columns[0] = keys_column->get_shrinked_column();
-    } else {
-        new_columns[0] = keys_column->get_ptr();
-    }
-
-    if (values_column->could_shrinked_column()) {
-        new_columns[1] = values_column->get_shrinked_column();
-    } else {
-        new_columns[1] = values_column->get_ptr();
-    }
-
-    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
-                             offsets_column->assume_mutable());
+void ColumnMap::shrink_padding_chars() {
+    keys_column->shrink_padding_chars();
+    values_column->shrink_padding_chars();
 }
 
 void ColumnMap::reserve(size_t n) {
@@ -533,6 +516,9 @@ void ColumnMap::reserve(size_t n) {
 void ColumnMap::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_keys().resize(get_offsets().back());
+    get_values().resize(get_offsets().back());
 }
 
 size_t ColumnMap::byte_size() const {

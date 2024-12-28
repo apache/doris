@@ -20,6 +20,7 @@ suite("push_down_sum_through_join") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI'"
 
     sql """
         DROP TABLE IF EXISTS sum_t;
@@ -47,7 +48,7 @@ suite("push_down_sum_through_join") {
     sql "insert into sum_t values (8, null, 'c')"
     sql "insert into sum_t values (9, 3, null)"
     sql "insert into sum_t values (10, null, null)"
-
+    sql "analyze table sum_t with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select sum(t1.score) from sum_t t1, sum_t t2 where t1.id = t2.id group by t1.name;
     """

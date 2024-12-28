@@ -33,11 +33,15 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -51,6 +55,7 @@ import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -101,7 +106,17 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION = "doris.version";
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
+
+    public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
+
+    public static final String FOUND_CONFLICTING  = "Found conflicting";
+    public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
+
+    // Properties that should not be shown in the `show create catalog` result
+    public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
+            CREATE_TIME,
+            USE_META_CACHE);
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -121,6 +136,9 @@ public abstract class ExternalCatalog
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
+    // <db name, table name> to tableAutoAnalyzePolicy
+    @SerializedName(value = "taap")
+    protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -137,6 +155,10 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    protected PreExecutionAuthenticator preExecutionAuthenticator;
+
+    private volatile Configuration cachedConf = null;
+    private byte[] confLock = new byte[0];
 
     public ExternalCatalog() {
     }
@@ -149,6 +171,20 @@ public abstract class ExternalCatalog
     }
 
     public Configuration getConfiguration() {
+        // build configuration is costly, so we cache it.
+        if (cachedConf != null) {
+            return cachedConf;
+        }
+        synchronized (confLock) {
+            if (cachedConf != null) {
+                return cachedConf;
+            }
+            cachedConf = buildConf();
+            return cachedConf;
+        }
+    }
+
+    private Configuration buildConf() {
         Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
@@ -159,6 +195,7 @@ public abstract class ExternalCatalog
 
     /**
      * set some default properties when creating catalog
+     *
      * @return list of database names in this catalog
      */
     protected List<String> listDatabaseNames() {
@@ -238,10 +275,11 @@ public abstract class ExternalCatalog
                             name,
                             OptionalLong.of(86400L),
                             OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_hive_table_cache_num,
+                            Config.max_meta_object_cache_num,
                             ignored -> getFilteredDatabaseNames(),
-                            dbName -> Optional.ofNullable(
-                                    buildDbForInit(dbName, Util.genIdByName(name, dbName), logType)),
+                            localDbName -> Optional.ofNullable(
+                                    buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
+                                            true)),
                             (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                 }
                 setLastUpdateTime(System.currentTimeMillis());
@@ -291,11 +329,11 @@ public abstract class ExternalCatalog
             }
         }
 
-        if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-            LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-            getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-            useMetaCache = Optional.of(true);
-        }
+        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
+        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
+        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
+        //     useMetaCache = Optional.of(true);
+        // }
     }
 
     /**
@@ -338,32 +376,28 @@ public abstract class ExternalCatalog
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
-        List<String> allDatabases = getFilteredDatabaseNames();
-        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
-        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
-        for (String dbName : allDatabases) {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
-                // Exclude database map take effect with higher priority over include database map
-                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                    continue;
-                }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                    continue;
-                }
-            }
+        List<Pair<String, String>> remoteToLocalPairs = getFilteredDatabaseNames();
+        for (Pair<String, String> pair : remoteToLocalPairs) {
+            String remoteDbName = pair.key();
+            String localDbName = pair.value();
             long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
+            if (dbNameToId != null && dbNameToId.containsKey(localDbName)) {
+                dbId = dbNameToId.get(localDbName);
+                tmpDbNameToId.put(localDbName, dbId);
                 ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
+                // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
+                if (Strings.isNullOrEmpty(db.getRemoteName())) {
+                    db.setRemoteName(remoteDbName);
+                }
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addRefreshDb(dbId);
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
+                tmpDbNameToId.put(localDbName, dbId);
+                ExternalDatabase<? extends ExternalTable> db =
+                        buildDbForInit(remoteDbName, localDbName, dbId, logType, false);
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
+                initCatalogLog.addCreateDb(dbId, localDbName, remoteDbName);
             }
         }
 
@@ -374,14 +408,87 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
+    /**
+     * Retrieves a filtered list of database names and their corresponding local database names.
+     * The method applies to include and exclude filters based on the database properties, ensuring
+     * only the relevant databases are included for further operations.
+     * <p>
+     * The method also handles conflicts in database names under case-insensitive conditions
+     * and throws an exception if such conflicts are detected.
+     * <p>
+     * Steps:
+     * 1. Fetch all database names from the remote source.
+     * 2. Apply to include and exclude database filters:
+     * - Exclude filters take precedence over include filters.
+     * - If a database is in the exclude list, it is ignored.
+     * - If a database is not in the include list and the include list is not empty, it is ignored.
+     * 3. Map the filtered remote database names to local database names.
+     * 4. Handle conflicts when `lower_case_meta_names` is enabled:
+     * - Detect cases where multiple remote database names map to the same lower-cased local name.
+     * - Throw an exception if conflicts are found.
+     *
+     * @return A list of pairs where each pair contains the remote database name and local database name.
+     * @throws RuntimeException if there are conflicting database names under case-insensitive conditions.
+     */
     @NotNull
-    private List<String> getFilteredDatabaseNames() {
+    private List<Pair<String, String>> getFilteredDatabaseNames() {
         List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
         allDatabases.remove(MysqlDb.DATABASE_NAME);
         allDatabases.add(MysqlDb.DATABASE_NAME);
-        return allDatabases;
+
+        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
+        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
+
+        List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
+
+        allDatabases = allDatabases.stream().filter(dbName -> {
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
+                // Exclude database map take effect with higher priority over include database map
+                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                    return false;
+                }
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
+                    return false;
+                }
+            }
+            return true;
+        }).collect(Collectors.toList());
+
+        for (String remoteDbName : allDatabases) {
+            String localDbName = fromRemoteDatabaseName(remoteDbName);
+            remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
+        }
+
+        // Check for conflicts when lower_case_meta_names = true
+        if (Boolean.parseBoolean(getLowerCaseMetaNames())) {
+            // Map to track lowercase local names and their corresponding remote names
+            Map<String, List<String>> lowerCaseToRemoteNames = Maps.newHashMap();
+
+            // Collect lowercased local names and their remote counterparts
+            for (Pair<String, String> pair : remoteToLocalPairs) {
+                String lowerCaseLocalName = pair.second.toLowerCase();
+                lowerCaseToRemoteNames.computeIfAbsent(lowerCaseLocalName, k -> Lists.newArrayList()).add(pair.first);
+            }
+
+            // Identify conflicts: multiple remote names mapping to the same lowercase local name
+            List<String> conflicts = lowerCaseToRemoteNames.values().stream()
+                    .filter(remoteNames -> remoteNames.size() > 1) // Conflict: more than one remote name
+                    .flatMap(List::stream) // Collect all conflicting remote names
+                    .collect(Collectors.toList());
+
+            // Throw exception if conflicts are found
+            if (!conflicts.isEmpty()) {
+                throw new RuntimeException(String.format(
+                        FOUND_CONFLICTING + " database names under case-insensitive conditions. "
+                                + "Conflicting remote database names: %s in catalog %s. "
+                                + "Please use meta_names_mapping to handle name mapping.",
+                        String.join(", ", conflicts), name));
+            }
+        }
+
+        return remoteToLocalPairs;
     }
 
     public void onRefresh(boolean invalidCache) {
@@ -390,10 +497,24 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
+
+        synchronized (this.confLock) {
+            this.cachedConf = null;
+        }
+
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    public void onRefreshCache(boolean invalidCache) {
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
+    private void refreshOnlyCatalogCache(boolean invalidCache) {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
+                this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
                     db.setUnInitialized(invalidCache);
                 }
@@ -405,13 +526,13 @@ public abstract class ExternalCatalog
         }
     }
 
-    public final Optional<SchemaCacheValue> getSchema(String dbName, String tblName) {
+    public final Optional<SchemaCacheValue> getSchema(SchemaCacheKey key) {
         makeSureInitialized();
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(dbName);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(key.getDbName());
         if (db.isPresent()) {
-            Optional<? extends ExternalTable> table = db.get().getTable(tblName);
+            Optional<? extends ExternalTable> table = db.get().getTable(key.getTblName());
             if (table.isPresent()) {
-                return table.get().initSchemaAndUpdateTime();
+                return table.get().initSchemaAndUpdateTime(key);
             }
         }
         return Optional.empty();
@@ -444,6 +565,7 @@ public abstract class ExternalCatalog
     /**
      * Different from 'listDatabases()', this method will return dbnames from cache.
      * while 'listDatabases()' will return dbnames from remote datasource.
+     *
      * @return names of database in this catalog.
      */
     @Override
@@ -600,8 +722,17 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
+        // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
+        if (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()) {
+            dbNameToId = Maps.newConcurrentMap();
+            idToDb = Maps.newConcurrentMap();
+            lastUpdateTime = log.getLastUpdateTime();
+            initialized = false;
+            return;
+        }
+
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long,  ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
+        Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(log.getRefreshDbIds().get(i));
             // Should not return null.
@@ -618,7 +749,8 @@ public abstract class ExternalCatalog
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             ExternalDatabase<? extends ExternalTable> db =
-                    buildDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType());
+                    buildDbForInit(log.getRemoteDbNames().get(i), log.getCreateDbNames().get(i),
+                            log.getCreateDbIds().get(i), log.getType(), false);
             if (db != null) {
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
@@ -641,35 +773,96 @@ public abstract class ExternalCatalog
         }
     }
 
-    protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String dbName, long dbId,
-            InitCatalogLog.Type logType) {
-        if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+    /**
+     * Build a database instance.
+     * If checkExists is true, it will check if the database exists in the remote system.
+     *
+     * @param remoteDbName
+     * @param dbId
+     * @param logType
+     * @param checkExists
+     * @return
+     */
+    protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
+            long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+        // Step 1: Map local database name if not already provided
+        if (localDbName == null && remoteDbName != null) {
+            localDbName = fromRemoteDatabaseName(remoteDbName);
+        }
+
+        // Step 2:
+        // When running ut, disable this check to make ut pass.
+        // Because in ut, the database is not created in remote system.
+        if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
+            try {
+                List<String> dbNames = getDbNames();
+                if (!dbNames.contains(localDbName)) {
+                    dbNames = getFilteredDatabaseNames().stream()
+                            .map(Pair::value)
+                            .collect(Collectors.toList());
+                    if (!dbNames.contains(localDbName)) {
+                        LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
+                                localDbName);
+                        return null;
+                    }
+                }
+            } catch (RuntimeException e) {
+                // Handle "Found conflicting" exception explicitly
+                if (e.getMessage().contains(FOUND_CONFLICTING)) {
+                    LOG.error(e.getMessage());
+                    throw e; // Rethrow to let the caller handle this critical issue
+                } else {
+                    // Any errors other than name conflicts, we default to not finding the database
+                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                    return null;
+                }
+            } catch (Exception e) {
+                // If connection failed, it will throw exception.
+                // ignore it and treat it as not exist.
+                LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                return null;
+            }
+        }
+
+        // Step 3: Resolve remote database name if using meta cache
+        if (remoteDbName == null && useMetaCache.orElse(false)) {
+            if (Boolean.parseBoolean(getLowerCaseMetaNames()) || !Strings.isNullOrEmpty(getMetaNamesMapping())) {
+                remoteDbName = metaCache.getRemoteName(localDbName);
+                if (remoteDbName == null) {
+                    LOG.warn("Could not resolve remote database name for local database: {}", localDbName);
+                    return null;
+                }
+            } else {
+                remoteDbName = localDbName;
+            }
+        }
+
+        // Step 4: Instantiate the appropriate ExternalDatabase based on logType
+        if (localDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
             return new ExternalInfoSchemaDatabase(this, dbId);
         }
-        if (dbName.equals(MysqlDb.DATABASE_NAME)) {
+        if (localDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
             return new ExternalMysqlDatabase(this, dbId);
         }
         switch (logType) {
             case HMS:
-                return new HMSExternalDatabase(this, dbId, dbName);
+                return new HMSExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ES:
-                return new EsExternalDatabase(this, dbId, dbName);
+                return new EsExternalDatabase(this, dbId, localDbName, remoteDbName);
             case JDBC:
-                return new JdbcExternalDatabase(this, dbId, dbName);
+                return new JdbcExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
-                return new IcebergExternalDatabase(this, dbId, dbName);
+                return new IcebergExternalDatabase(this, dbId, localDbName, remoteDbName);
             case MAX_COMPUTE:
-                return new MaxComputeExternalDatabase(this, dbId, dbName);
-            //case HUDI:
-                //return new HudiExternalDatabase(this, dbId, dbName);
+                return new MaxComputeExternalDatabase(this, dbId, localDbName, remoteDbName);
             case LAKESOUL:
-                return new LakeSoulExternalDatabase(this, dbId, dbName);
+                return new LakeSoulExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TEST:
-                return new TestExternalDatabase(this, dbId, dbName);
+                return new TestExternalDatabase(this, dbId, localDbName, remoteDbName);
             case PAIMON:
-                return new PaimonExternalDatabase(this, dbId, dbName);
+                return new PaimonExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TRINO_CONNECTOR:
-                return new TrinoConnectorExternalDatabase(this, dbId, dbName);
+                return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }
@@ -708,8 +901,12 @@ public abstract class ExternalCatalog
             }
         }
         this.propLock = new byte[0];
+        this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
+        if (tableAutoAnalyzePolicy == null) {
+            tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -785,15 +982,15 @@ public abstract class ExternalCatalog
         throw new NotImplementedException("registerDatabase not implemented");
     }
 
-    public Map<String, Boolean> getIncludeDatabaseMap() {
+    protected Map<String, Boolean> getIncludeDatabaseMap() {
         return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
     }
 
-    public Map<String, Boolean> getExcludeDatabaseMap() {
+    protected Map<String, Boolean> getExcludeDatabaseMap() {
         return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
     }
 
-    public Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
+    private Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
         String specifiedDatabaseList = catalogProperty.getOrDefault(catalogPropertyKey, "");
         Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
         specifiedDatabaseList = specifiedDatabaseList.trim();
@@ -808,6 +1005,19 @@ public abstract class ExternalCatalog
             }
         }
         return specifiedDatabaseMap;
+    }
+
+
+    public String getLowerCaseMetaNames() {
+        return catalogProperty.getOrDefault(Resource.LOWER_CASE_META_NAMES, "false");
+    }
+
+    public int getOnlyTestLowerCaseTableNames() {
+        return Integer.parseInt(catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES, "0"));
+    }
+
+    public String getMetaNamesMapping() {
+        return catalogProperty.getOrDefault(Resource.META_NAMES_MAPPING, "");
     }
 
     public String bindBrokerName() {
@@ -870,5 +1080,18 @@ public abstract class ExternalCatalog
 
     public String getQualifiedName(String dbName) {
         return String.join(".", name, dbName);
+    }
+
+    public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
+        Pair<String, String> key = Pair.of(dbName, tableName);
+        if (policy == null) {
+            tableAutoAnalyzePolicy.remove(key);
+        } else {
+            tableAutoAnalyzePolicy.put(key, policy);
+        }
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
     }
 }

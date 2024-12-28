@@ -23,6 +23,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -44,6 +45,8 @@ public abstract class StorageVault {
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
 
+    public static final String VAULT_NAME = "VAULT_NAME";
+
     public enum StorageVaultType {
         UNKNOWN,
         S3,
@@ -64,6 +67,8 @@ public abstract class StorageVault {
     protected String id;
     private boolean ifNotExists;
     private boolean setAsDefault;
+    private int pathVersion = 0;
+    private int numShard = 0;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -105,6 +110,13 @@ public abstract class StorageVault {
         return this.setAsDefault;
     }
 
+    public int getPathVersion() {
+        return pathVersion;
+    }
+
+    public int getNumShard() {
+        return numShard;
+    }
 
     public String getId() {
         return this.id;
@@ -134,6 +146,9 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
+                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
+                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
+                }
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
@@ -142,6 +157,8 @@ public abstract class StorageVault {
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
+        vault.pathVersion = stmt.getPathVersion();
+        vault.numShard = stmt.getNumShard();
         return vault;
     }
 
@@ -177,8 +194,8 @@ public abstract class StorageVault {
 
     public static final ShowResultSetMetaData STORAGE_VAULT_META_DATA =
             ShowResultSetMetaData.builder()
-                .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(100)))
-                .addColumn(new Column("StorageVaultId", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Name", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Id", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
                 .addColumn(new Column("IsDefault", ScalarType.createVarchar(5)))
                 .build();
@@ -217,7 +234,7 @@ public abstract class StorageVault {
         }
 
         int vaultIdIndex = IntStream.range(0, columns.size())
-                .filter(i -> columns.get(i).getName().equals("StorageVaultId"))
+                .filter(i -> columns.get(i).getName().equals("Id"))
                 .findFirst()
                 .orElse(-1);
 

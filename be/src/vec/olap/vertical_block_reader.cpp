@@ -76,7 +76,6 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
-    _reader_context.is_vertical_compaction = true;
     for (const auto& rs_split : read_params.rs_splits) {
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
@@ -140,7 +139,8 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     auto ori_return_col_size = _return_columns.size();
     if (read_params.is_key_column_group) {
         uint32_t seq_col_idx = -1;
-        if (read_params.tablet->tablet_schema()->has_sequence_col()) {
+        if (read_params.tablet->tablet_schema()->has_sequence_col() &&
+            read_params.tablet->tablet_schema()->cluster_key_uids().empty()) {
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
         if (read_params.tablet->tablet_schema()->num_key_columns() == 0) {
@@ -194,7 +194,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         AggregateFunctionPtr function =
                 tablet_schema.column(_return_columns.at(idx))
-                        .get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+                        .get_aggregate_function(vectorized::AGG_READER_SUFFIX,
+                                                read_params.get_be_exec_version());
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
@@ -237,7 +238,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         _next_block_func = &VerticalBlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
             _next_block_func = &VerticalBlockReader::_unique_key_next_block;
             if (_filter_delete) {
                 _delete_filter_column = ColumnUInt8::create();

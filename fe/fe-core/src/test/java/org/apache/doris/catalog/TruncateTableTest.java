@@ -111,7 +111,7 @@ public class TruncateTableTest {
         Env.getCurrentEnv().truncateTable(truncateTableStmt);
         Assert.assertNotEquals(p20211008Id, tbl.getPartition("P20211008").getId());
         // 2. truncate P20211007
-        truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION P20211007; \n";
+        truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION P20211007 force; \n";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
         Env.getCurrentEnv().truncateTable(truncateTableStmt);
         Assert.assertEquals(3, tbl.getPartitionInfo().idToDataProperty.size());

@@ -20,8 +20,8 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -63,16 +63,15 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
-    "test_stream_stub_fault_injection," +
     "test_index_compaction_failure_injection," +
-    "test_delta_writer_v2_back_pressure_fault_injection," +
+    "test_full_compaction_run_status," +
+    "test_topn_fault_injection," + 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
@@ -81,6 +80,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
+    "plsql_p0," + // plsql is not developped any more, add by sk
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
@@ -145,7 +145,7 @@ extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
-max_failure_num=50000000
+max_failure_num=50
 
 externalEnvIp="127.0.0.1"
 

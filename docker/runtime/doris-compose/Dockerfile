@@ -29,16 +29,7 @@ ARG JDK_IMAGE=openjdk:17-jdk-slim
 
 FROM ${JDK_IMAGE}
 
-RUN <<EOF
-    if [ -d "/usr/local/openjdk-17" ]; then
-        ln -s /usr/local/openjdk-17  /usr/local/openjdk
-    else \
-        ln -s /usr/local/openjdk-8  /usr/local/openjdk
-    fi
-EOF
-
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk"
 ENV JACOCO_VERSION 0.8.8
 
 RUN mkdir -p /opt/apache-doris/coverage
@@ -47,7 +38,7 @@ RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
 RUN  apt-get clean
 
 RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps && \
+    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps util-linux gosu && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     apt-get clean
@@ -57,16 +48,14 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/j
     unzip jacoco.zip -d /jacoco
 
 # cloud
-COPY cloud/CMakeLists.txt cloud/output* output/ms* /opt/apache-doris/cloud/
-RUN <<EOF
-    mkdir /opt/apache-doris/fdb
-    if [ -d /opt/apache-doris/cloud/bin ]; then
-        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh
+COPY --chmod=777 README.md cloud/output* output/ms* /opt/apache-doris/cloud/
+RUN mkdir /opt/apache-doris/fdb
+RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
+        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh ; \
     fi
-EOF
 
 # fe and be
-COPY output /opt/apache-doris/
+COPY --chmod=777 output /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
 

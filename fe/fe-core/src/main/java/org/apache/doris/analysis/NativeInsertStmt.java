@@ -167,7 +167,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     boolean hasEmptyTargetColumns = false;
     private boolean allowAutoPartition = true;
-    private boolean withAutoDetectOverwrite = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -331,11 +330,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     public boolean isTransactionBegin() {
         return isTransactionBegin;
-    }
-
-    public NativeInsertStmt withAutoDetectOverwrite() {
-        this.withAutoDetectOverwrite = true;
-        return this;
     }
 
     protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
@@ -502,7 +496,8 @@ public class NativeInsertStmt extends InsertStmt {
                 }
 
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
-                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        && analyzer.getContext().getSessionVariable().isRequireSequenceInInsert()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -923,11 +918,16 @@ public class NativeInsertStmt extends InsertStmt {
             Column col = targetColumns.get(i);
 
             if (expr instanceof DefaultValueExpr) {
-                if (targetColumns.get(i).getDefaultValue() == null) {
+                if (targetColumns.get(i).getDefaultValue() == null && !targetColumns.get(i).isAllowNull()
+                        && !targetColumns.get(i).isAutoInc()) {
                     throw new AnalysisException("Column has no default value, column="
                             + targetColumns.get(i).getName());
                 }
-                expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                if (targetColumns.get(i).getDefaultValue() == null) {
+                    expr = new NullLiteral();
+                } else {
+                    expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+                }
             }
             if (expr instanceof Subquery) {
                 throw new AnalysisException("Insert values can not be query");
@@ -1346,7 +1346,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
-        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
             return;
         }
         // when enable_unique_key_partial_update = true,
@@ -1360,7 +1360,15 @@ public class NativeInsertStmt extends InsertStmt {
         if (hasEmptyTargetColumns) {
             return;
         }
-        boolean hasMissingColExceptAutoInc = false;
+
+        boolean hasSyncMaterializedView = olapTable.getFullSchema().stream()
+                .anyMatch(col -> col.isMaterializedViewColumn());
+        if (hasSyncMaterializedView) {
+            throw new UserException("Can't do partial update on merge-on-write Unique table"
+                    + " with sync materialized view.");
+        }
+
+        boolean hasMissingColExceptAutoIncKey = false;
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
@@ -1373,16 +1381,16 @@ public class NativeInsertStmt extends InsertStmt {
                     break;
                 }
             }
-            if (!exists && !col.isAutoInc()) {
-                if (col.isKey()) {
+            if (!exists) {
+                if (col.isKey() && !col.isAutoInc()) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
-                if (col.isVisible()) {
-                    hasMissingColExceptAutoInc = true;
+                if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                    hasMissingColExceptAutoIncKey = true;
                 }
             }
         }
-        if (!hasMissingColExceptAutoInc) {
+        if (!hasMissingColExceptAutoIncKey) {
             return;
         }
 

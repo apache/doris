@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 // Used to represent query which only contain comments
-public class EmptyStmt extends UnsupportedStmt {
+public class EmptyStmt extends UnsupportedStmt implements NotFallbackInParser {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.NO_FORWARD;

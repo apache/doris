@@ -206,11 +206,11 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     private Map<Slot, Slot> constructReplaceMap(LogicalCTEConsumer leftConsumer, Map<Slot, Slot> leftCloneToLeft,
             LogicalCTEConsumer rightConsumer, Map<Slot, Slot> rightCloneToRight) {
         Map<Slot, Slot> replaced = new HashMap<>();
-        for (Entry<Slot, Slot> entry : leftConsumer.getProducerToConsumerOutputMap().entrySet()) {
-            replaced.put(leftCloneToLeft.get(entry.getKey()), entry.getValue());
+        for (Entry<Slot, Slot> entry : leftConsumer.getConsumerToProducerOutputMap().entrySet()) {
+            replaced.put(leftCloneToLeft.get(entry.getValue()), entry.getKey());
         }
-        for (Entry<Slot, Slot> entry : rightConsumer.getProducerToConsumerOutputMap().entrySet()) {
-            replaced.put(rightCloneToRight.get(entry.getKey()), entry.getValue());
+        for (Entry<Slot, Slot> entry : rightConsumer.getConsumerToProducerOutputMap().entrySet()) {
+            replaced.put(rightCloneToRight.get(entry.getValue()), entry.getKey());
         }
         return replaced;
     }

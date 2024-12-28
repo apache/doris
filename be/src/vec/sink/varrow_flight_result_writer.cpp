@@ -19,21 +19,17 @@
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/runtime_state.h"
-#include "util/arrow/block_convertor.h"
-#include "util/arrow/row_batch.h"
+#include "runtime/thread_context.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-VArrowFlightResultWriter::VArrowFlightResultWriter(
-        BufferControlBlock* sinker, const VExprContextSPtrs& output_vexpr_ctxs,
-        RuntimeProfile* parent_profile, const std::shared_ptr<arrow::Schema>& arrow_schema)
-        : _sinker(sinker),
-          _output_vexpr_ctxs(output_vexpr_ctxs),
-          _parent_profile(parent_profile),
-          _arrow_schema(arrow_schema) {}
+VArrowFlightResultWriter::VArrowFlightResultWriter(BufferControlBlock* sinker,
+                                                   const VExprContextSPtrs& output_vexpr_ctxs,
+                                                   RuntimeProfile* parent_profile)
+        : _sinker(sinker), _output_vexpr_ctxs(output_vexpr_ctxs), _parent_profile(parent_profile) {}
 
 Status VArrowFlightResultWriter::init(RuntimeState* state) {
     _init_profile();
@@ -41,13 +37,11 @@ Status VArrowFlightResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
     _is_dry_run = state->query_options().dry_run_query;
-    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
 void VArrowFlightResultWriter::_init_profile() {
     _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
-    _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
     _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
@@ -66,29 +60,31 @@ Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) 
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
 
-    // convert one batch
-    std::shared_ptr<arrow::RecordBatch> result;
-    auto num_rows = block.rows();
-    // arrow::RecordBatch without `nbytes()` in C++
-    uint64_t bytes_sent = block.bytes();
     {
-        SCOPED_TIMER(_convert_tuple_timer);
-        RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                               &result, _timezone_obj));
-    }
-    {
-        SCOPED_TIMER(_result_send_timer);
-        // If this is a dry run task, no need to send data block
-        if (!_is_dry_run) {
-            status = _sinker->add_arrow_batch(state, result);
-        }
-        if (status.ok()) {
-            _written_rows += num_rows;
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_sinker->mem_tracker());
+        std::unique_ptr<vectorized::MutableBlock> mutable_block =
+                vectorized::MutableBlock::create_unique(block.clone_empty());
+        RETURN_IF_ERROR(mutable_block->merge_ignore_overflow(std::move(block)));
+        std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
+        output_block->swap(mutable_block->to_block());
+
+        auto num_rows = output_block->rows();
+        // arrow::RecordBatch without `nbytes()` in C++
+        uint64_t bytes_sent = output_block->bytes();
+        {
+            SCOPED_TIMER(_result_send_timer);
+            // If this is a dry run task, no need to send data block
             if (!_is_dry_run) {
-                _bytes_sent += bytes_sent;
+                status = _sinker->add_arrow_batch(state, output_block);
             }
-        } else {
-            LOG(WARNING) << "append result batch to sink failed.";
+            if (status.ok()) {
+                _written_rows += num_rows;
+                if (!_is_dry_run) {
+                    _bytes_sent += bytes_sent;
+                }
+            } else {
+                LOG(WARNING) << "append result batch to sink failed.";
+            }
         }
     }
     return status;
@@ -100,5 +96,4 @@ Status VArrowFlightResultWriter::close(Status st) {
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

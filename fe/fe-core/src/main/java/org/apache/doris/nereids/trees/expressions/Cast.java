@@ -81,6 +81,8 @@ public class Cast extends Expression implements UnaryExpression {
             return true;
         } else if (childDataType.isJsonType() || targetType.isJsonType()) {
             return true;
+        } else if (childDataType.isVariantType() || targetType.isVariantType()) {
+            return true;
         } else {
             return child().nullable();
         }
@@ -93,7 +95,7 @@ public class Cast extends Expression implements UnaryExpression {
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         return "cast(" + child().toSql() + " as " + targetType.toSql() + ")";
     }
 
