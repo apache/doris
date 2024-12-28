@@ -452,6 +452,8 @@ public class HiveScanNode extends FileQueryScanNode {
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
+        fileAttributes.setEnableTextValidateUtf8(
+                ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         if (textParams.isSet(TFileTextScanRangeParams._Fields.ENCLOSE)) {
             fileAttributes.setTrimDoubleQuotes(true);
         }
