@@ -27,7 +27,7 @@ import java.util.Map;
 
 public class AWSGlueProperties extends MetastoreProperties {
 
-    @ConnectorProperty(names = {"glue.endpoint", "aws.region"},
+    @ConnectorProperty(names = {"glue.endpoint", "aws.endpoint"},
             description = "The endpoint of the AWS Glue.")
     private String glueEndpoint = "";
 
@@ -70,33 +70,23 @@ public class AWSGlueProperties extends MetastoreProperties {
         }
     }
 
-    public GlueCatalogCredentials getGlueCatalogCredentials() {
-        return new GlueCatalogCredentials(glueEndpoint, glueAccessKey, glueSecretKey);
-    }
-
     public AWSCatalogMetastoreClientCredentials getAWSCatalogMetastoreClientCredentials() {
         return new AWSCatalogMetastoreClientCredentials(glueEndpoint, glueAccessKey, glueSecretKey);
     }
 
-    @Getter
-    public static class GlueCatalogCredentials {
-        private Map<String, String> credentials = Maps.newHashMap();
-
-        // Used for GlueCatalog in IcebergGlueExternalCatalog
+    public void toIcebergGlueCatalogProperties(Map<String, String> catalogProps) {
         // See AwsClientProperties.java for property keys
-        public GlueCatalogCredentials(String endpoint, String ak, String sk) {
-            credentials.put("client.credentials-provider",
-                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
-            credentials.put("client.credentials-provider.glue.access_key", ak);
-            credentials.put("client.credentials-provider.glue.secret_key", sk);
-            credentials.put("client.region", getRegionFromGlueEndpoint(endpoint));
-        }
+        catalogProps.put("client.credentials-provider",
+                "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
+        catalogProps.put("client.credentials-provider.glue.access_key", glueAccessKey);
+        catalogProps.put("client.credentials-provider.glue.secret_key", glueSecretKey);
+        catalogProps.put("client.region", getRegionFromGlueEndpoint());
+    }
 
-        private String getRegionFromGlueEndpoint(String endpoint) {
-            // https://glue.ap-northeast-1.amazonaws.com
-            // -> ap-northeast-1
-            return endpoint.split("\\.")[1];
-        }
+    private String getRegionFromGlueEndpoint() {
+        // https://glue.ap-northeast-1.amazonaws.com
+        // -> ap-northeast-1
+        return glueEndpoint.split("\\.")[1];
     }
 
     @Getter

@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties.Type;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -126,5 +127,10 @@ public class CatalogProperty implements Writable {
     public static CatalogProperty read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
+    }
+
+    public void initialize(Type type) {
+        metastoreProperties = new MetastoreProperties(type, properties);
+        storageProperties = new StorageProperties(properties);
     }
 }

@@ -85,4 +85,16 @@ public class HMSProperties extends MetastoreProperties {
             conf.set("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
         }
     }
+
+    public void toIcebergHiveCatalogProperties(Map<String, String> catalogProps) {
+        catalogProps.put("uri", hiveMetastoreUri);
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        allProps.forEach(catalogProps::put);
+        catalogProps.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        if ("catalogProps".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            catalogProps.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            catalogProps.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            catalogProps.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+        }
+    }
 }

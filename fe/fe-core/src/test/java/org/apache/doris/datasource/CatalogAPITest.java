@@ -11,8 +11,10 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -46,18 +48,41 @@ public class CatalogAPITest {
 
     @Test
     public void testGlueCatalog() {
+        String glueAk = "";
+        String glueSk = "";
         String region = "ap-northeast-1";
         GlueCatalog glueCatalog = new GlueCatalog();
         Map<String, String> properties = Maps.newHashMap();
         // See AwsClientProperties.java for property keys
         properties.put("client.credentials-provider",
                 "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
-        properties.put("client.credentials-provider.glue.access_key", ak);
-        properties.put("client.credentials-provider.glue.secret_key", sk);
+        properties.put("client.credentials-provider.glue.access_key", glueAk);
+        properties.put("client.credentials-provider.glue.secret_key", glueSk);
         properties.put("client.region", region);
+        properties.put("s3.access-key-id", glueAk);
+        properties.put("s3.secret-access-key", glueSk);
+        // properties.put("s3.endpoint", "https://s3.ap-northeast-1.amazonaws.com");
+
         glueCatalog.initialize("glue", properties);
         List<Namespace> dbs = glueCatalog.listNamespaces();
-        System.out.println(dbs);
+        for (Namespace db : dbs) {
+            List<TableIdentifier> tables = glueCatalog.listTables(db);
+            System.out.println(db + ": " + tables);
+            for (TableIdentifier table : tables) {
+                if (table.name().contains("iceberg_table")) {
+                    continue;
+                }
+                try {
+                    Table icebergTable = glueCatalog.loadTable(table);
+                    Map<String, String> tableProperties = icebergTable.properties();
+                    for (Map.Entry<String, String> entry : tableProperties.entrySet()) {
+                        System.out.println("table:" + table + ": " + entry.getKey() + ": " + entry.getValue());
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                }
+            }
+        }
     }
 
     @Test

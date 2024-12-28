@@ -28,10 +28,14 @@ public class IcebergRestProperties extends MetastoreProperties {
     private String icebergRestUri = "";
 
     @ConnectorProperty(names = {"iceberg.rest.security.type"},
+            required = false,
+            supported = false,
             description = "The security type of the iceberg rest catalog service.")
     private String icebergRestSecurityType = "none";
 
     @ConnectorProperty(names = {"iceberg.rest.prefix"},
+            required = false,
+            supported = false,
             description = "The prefix of the iceberg rest catalog service.")
     private String icebergRestPrefix = "";
 
@@ -41,5 +45,12 @@ public class IcebergRestProperties extends MetastoreProperties {
 
     @Override
     protected void checkRequiredProperties() {
+    }
+
+    public void toIcebergRestCatalogProperties(Map<String, String> catalogProps) {
+        // See CatalogUtil.java
+        catalogProps.put("type", "rest");
+        // See CatalogProperties.java
+        catalogProps.put("uri", icebergRestUri);
     }
 }
