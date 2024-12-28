@@ -77,7 +77,6 @@ bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIteratorUPtr>* out_iters,
                                                bool use_cache) {
-    RETURN_IF_ERROR(_rowset->load());
     _read_context = read_context;
     // The segment iterator is created with its own statistics,
     // and the member variable '_stats'  is initialized by '_stats(&owned_stats)'.
@@ -91,6 +90,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->stats != nullptr) {
         _stats = _read_context->stats;
     }
+
+    SCOPED_RAW_TIMER(&_stats->rowset_reader_get_segment_iterators_timer_ns);
+    RETURN_IF_ERROR(_rowset->load());
 
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.block_row_max = read_context->batch_size;
@@ -218,8 +220,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     // load segments
     bool should_use_cache = use_cache || _read_context->reader_type == ReaderType::READER_QUERY;
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
-                                                             should_use_cache));
+    {
+        SCOPED_RAW_TIMER(&_stats->rowset_reader_load_segments_timer_ns);
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
+                                                                 should_use_cache));
+    }
 
     // create iterator for each segment
     auto& segments = _segment_cache_handle.get_segments();
@@ -229,6 +234,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         seg_end = segments.size();
     }
 
+    SCOPED_RAW_TIMER(&_stats->rowset_reader_create_iterators_timer_ns);
     for (int i = seg_start; i < seg_end; i++) {
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
@@ -261,6 +267,7 @@ Status BetaRowsetReader::_init_iterator() {
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_read_context, &iterators));
 
+    SCOPED_RAW_TIMER(&_stats->rowset_reader_init_iterators_timer_ns);
     if (_read_context->merged_rows == nullptr) {
         _read_context->merged_rows = &_merged_rows;
     }
@@ -296,8 +303,8 @@ Status BetaRowsetReader::_init_iterator() {
 }
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     if (_empty) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
@@ -316,8 +323,8 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 }
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     do {
         auto s = _iterator->next_block_view(block_view);
         if (!s.ok()) {

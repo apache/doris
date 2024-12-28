@@ -48,6 +48,7 @@ public:
     Status init(const ReaderParams& read_params) override;
 
     Status next_block_with_aggregation(Block* block, bool* eof) override {
+        SCOPED_RAW_TIMER(&_stats.tablet_read_timer);
         auto res = (this->*_next_block_func)(block, eof);
         if (UNLIKELY(!res.ok() && !res.is<ErrorCode::END_OF_FILE>())) {
             _tablet->report_error(res);

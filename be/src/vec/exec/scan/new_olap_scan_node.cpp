@@ -104,6 +104,7 @@ Status NewOlapScanNode::_init_profile() {
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _tablet_read_timer = ADD_TIMER(_scanner_profile, "TabletReadTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
@@ -185,6 +186,16 @@ Status NewOlapScanNode::_init_profile() {
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
     _inverted_index_searcher_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
+
+    _rowset_reader_get_segment_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_create_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer");
+    _rowset_reader_init_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderInitIteratorsTimer");
+    _rowset_reader_load_segments_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderLoadSegmentsTimer");
+    _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 

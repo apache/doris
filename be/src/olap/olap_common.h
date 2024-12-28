@@ -278,6 +278,8 @@ struct OlapReaderStatistics {
     int64_t decompress_ns = 0;
     int64_t uncompressed_bytes_read = 0;
 
+    int64_t tablet_read_timer = 0;
+
     // total read bytes in memory
     int64_t bytes_read = 0;
 
@@ -364,6 +366,12 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_search_timer = 0;
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
+
+    int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
+    int64_t rowset_reader_create_iterators_timer_ns = 0;
+    int64_t rowset_reader_init_iterators_timer_ns = 0;
+    int64_t rowset_reader_load_segments_timer_ns = 0;
+    int64_t segment_load_index_timer_ns = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

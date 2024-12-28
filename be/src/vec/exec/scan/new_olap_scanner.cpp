@@ -518,6 +518,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(olap_parent->_decompressor_timer, stats.decompress_ns);
     COUNTER_UPDATE(olap_parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);
 
+    COUNTER_UPDATE(olap_parent->_tablet_read_timer, stats.tablet_read_timer);
     COUNTER_UPDATE(olap_parent->_block_load_timer, stats.block_load_ns);
     COUNTER_UPDATE(olap_parent->_block_load_counter, stats.blocks_load);
     COUNTER_UPDATE(olap_parent->_block_fetch_timer, stats.block_fetch_ns);
@@ -601,6 +602,15 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(olap_parent->_inverted_index_searcher_cache_miss_counter,
                    stats.inverted_index_searcher_cache_miss);
 
+    COUNTER_UPDATE(olap_parent->_rowset_reader_get_segment_iterators_timer,
+                   stats.rowset_reader_get_segment_iterators_timer_ns);
+    COUNTER_UPDATE(olap_parent->_rowset_reader_create_iterators_timer,
+                   stats.rowset_reader_create_iterators_timer_ns);
+    COUNTER_UPDATE(olap_parent->_rowset_reader_init_iterators_timer,
+                   stats.rowset_reader_init_iterators_timer_ns);
+    COUNTER_UPDATE(olap_parent->_rowset_reader_load_segments_timer,
+                   stats.rowset_reader_load_segments_timer_ns);
+    COUNTER_UPDATE(olap_parent->_segment_load_index_timer, stats.segment_load_index_timer_ns);
     if (config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(olap_parent->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
