@@ -90,7 +90,7 @@ class ChildOutputPropertyDeriverTest {
     @BeforeEach
     public void setUp() {
         FeConstants.runningUnitTest = true;
-        
+
         new MockUp<Env>() {
             @Mock
             ColocateTableIndex getCurrentColocateIndex() {
