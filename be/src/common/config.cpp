@@ -990,7 +990,7 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
-DEFINE_Int32(segcompaction_batch_size, "10");
+DEFINE_mInt32(segcompaction_batch_size, "10");
 
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");
