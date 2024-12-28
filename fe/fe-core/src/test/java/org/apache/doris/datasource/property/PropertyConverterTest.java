@@ -179,7 +179,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'AWS_REGION' = 'us-east-1'\n"
                 + ");";
         CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
-        Assertions.assertEquals(analyzedStmt.getProperties().size(), 5);
+        Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
         Repository repository = getRepository(analyzedStmt, "s3_repo");
         Assertions.assertEquals(9, repository.getRemoteFileSystem().getProperties().size());
 
@@ -223,7 +223,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Env.getCurrentEnv().getBrokerMgr().addBrokers("bos_broker", brokers);
 
         Repository repositoryNew = getRepository(analyzedStmt, "bos_broker_repo");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
     }
 
     @Test
