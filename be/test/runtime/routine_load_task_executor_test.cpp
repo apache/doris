@@ -67,6 +67,7 @@ public:
     }
 
     void TearDown() override {
+        delete _env->cluster_info();
         _env->clear_new_load_stream_mgr();
         _env->clear_stream_load_executor();
     }
