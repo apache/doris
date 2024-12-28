@@ -107,10 +107,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
@@ -199,6 +200,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
@@ -567,6 +569,8 @@ public class Env {
 
     private final NereidsSqlCacheManager sqlCacheManager;
 
+    private final NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager;
+
     private final SplitSourceManager splitSourceManager;
 
     private final GlobalExternalTransactionInfoMgr globalExternalTransactionInfoMgr;
@@ -819,6 +823,7 @@ public class Env {
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
+        this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
@@ -3721,7 +3726,10 @@ public class Env {
         }
 
         // Storage Vault
-        if (!olapTable.getStorageVaultName().isEmpty()) {
+        if (!Strings.isNullOrEmpty(olapTable.getStorageVaultId())) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_STORAGE_VAULT_ID).append("\" = \"");
+            sb.append(olapTable.getStorageVaultId()).append("\"");
             sb.append(",\n\"").append(PropertyAnalyzer
                     .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
             sb.append(olapTable.getStorageVaultName()).append("\"");
@@ -4727,6 +4735,10 @@ public class Env {
      */
     public void alterTable(AlterTableStmt stmt) throws UserException {
         this.alter.processAlterTable(stmt);
+    }
+
+    public void alterTable(AlterTableCommand command) throws UserException {
+        this.alter.processAlterTable(command);
     }
 
     /**
@@ -6477,6 +6489,7 @@ public class Env {
         try {
             tableMeta.setId(olapTable.getId());
             tableMeta.setName(olapTable.getName());
+            tableMeta.setType(olapTable.getType().name());
 
             PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
 
@@ -6657,6 +6670,10 @@ public class Env {
 
     public NereidsSqlCacheManager getSqlCacheManager() {
         return sqlCacheManager;
+    }
+
+    public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {
+        return sortedPartitionsCacheManager;
     }
 
     public SplitSourceManager getSplitSourceManager() {

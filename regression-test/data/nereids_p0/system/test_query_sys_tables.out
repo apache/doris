@@ -39,5 +39,5 @@ wait_timeout	31000
 'nereids_test_sys_tables'@'%'	SELECT	NO
 
 -- !views --
-test_view	
+test_view	SELECT `internal`.`test_query_sys_db_4`.`test_query_sys_tb_4`.`ccc` AS `a` FROM `internal`.`test_query_sys_db_4`.`test_query_sys_tb_4`
 
