@@ -455,23 +455,32 @@ static HttpResponse process_update_config(MetaServiceImpl* service, brpc::Contro
     const auto& uri = cntl->http_request().uri();
     bool persist = (http_query(uri, "persist") == "true");
     auto configs = std::string {http_query(uri, "configs")};
+    auto reason = std::string {http_query(uri, "reason")};
+    LOG(INFO) << "modify configs for reason=" << reason << ", configs=" << configs
+              << ", persist=" << http_query(uri, "persist");
     if (configs.empty()) [[unlikely]] {
+        LOG(WARNING) << "query param `config` should not be empty";
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
                                "query param `config` should not be empty");
     }
+    std::unordered_map<std::string, std::string> conf_map;
     auto conf_list = split(configs, ',');
     for (const auto& conf : conf_list) {
         auto conf_pair = split(conf, '=');
         if (conf_pair.size() != 2) [[unlikely]] {
+            LOG(WARNING) << "failed to split config=[{}] from `k=v` pattern" << conf;
             return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
                                    fmt::format("config {} is invalid", configs));
         }
         trim(conf_pair[0]);
         trim(conf_pair[1]);
-        if (!config::set_config(conf_pair[0], conf_pair[1], persist, config::custom_conf_path)) {
-            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                                   fmt::format("set {}={} failed", conf_pair[0], conf_pair[1]));
-        }
+        conf_map.emplace(std::move(conf_pair[0]), std::move(conf_pair[1]));
+    }
+    if (auto [succ, cause] =
+                config::set_config(std::move(conf_map), persist, config::custom_conf_path);
+        !succ) {
+        LOG(WARNING) << cause;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, cause);
     }
     return http_json_reply(MetaServiceCode::OK, "");
 }

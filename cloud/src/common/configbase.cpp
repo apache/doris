@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/core.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
@@ -25,6 +27,7 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <utility>
 
 #define __IN_CONFIGBASE_CPP__
 #include "common/config.h"
@@ -228,7 +231,6 @@ bool Properties::load(const char* conf_file, bool must_exist) {
     return true;
 }
 
-// dump props to conf file
 bool Properties::dump(const std::string& conffile) {
     std::string conffile_tmp = conffile + ".tmp";
 
@@ -410,35 +412,49 @@ bool do_set_config(const Register::Field& feild, const std::string& value, bool 
     return false;
 }
 
-bool set_config(const std::string& field, const std::string& value, bool need_persist,
-                const std::string& custom_conf_path) {
+std::pair<bool, std::string> set_config(const std::string& field, const std::string& value,
+                                        bool need_persist, Properties& props) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
-        return false;
+        return {false, fmt::format("config field={} not exists", field)};
     }
     if (!it->second.valmutable) {
-        return false;
+        return {false, fmt::format("config field={} is immutable", field)};
     }
 
-    Properties props;
-    auto set_conf_func = [&]() {
-        if (!do_set_config(it->second, value, need_persist, props)) {
-            std::cerr << "not supported to modify: " << field << "=" << value << std::endl;
-            return false;
-        }
-        return true;
-    };
-
-    if (need_persist) {
-        // lock to make sure only one thread can modify the be_custom.conf
-        std::lock_guard<std::mutex> l(conf_persist_lock);
-        if (!set_conf_func()) {
-            return false;
-        }
-        return props.dump(custom_conf_path);
+    if (!do_set_config(it->second, value, need_persist, props)) {
+        return {false, fmt::format("not supported to modify field={}, value={}", field, value)};
     }
-
-    return set_conf_func();
+    return {true, {}};
 }
 
+std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::string> field_map,
+                                        bool need_persist, const std::string& custom_conf_path) {
+    Properties props;
+    auto set_conf_closure = [&]() -> std::pair<bool, std::string> {
+        for (const auto& [field, value] : field_map) {
+            if (auto [succ, cause] = set_config(field, value, need_persist, props); !succ) {
+                return {false, std::move(cause)};
+            }
+        }
+        return {true, {}};
+    };
+
+    if (!need_persist) {
+        return set_conf_closure();
+    }
+
+    // lock to make sure only one thread can modify the conf file
+    std::lock_guard<std::mutex> l(conf_persist_lock);
+    auto [succ, cause] = set_conf_closure();
+    if (!succ) {
+        return {succ, std::move(cause)};
+    }
+    if (props.dump(custom_conf_path)) {
+        return {true, {}};
+    }
+    return {false, fmt::format("dump config modification to custom_conf_path={} "
+                               "failed, plz check config::custom_conf_path and io status",
+                               custom_conf_path)};
+}
 } // namespace doris::cloud::config

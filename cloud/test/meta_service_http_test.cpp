@@ -1646,7 +1646,14 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
     {
         auto [status_code, content] = ctx.query<std::string>("update_config", "configs=aaa=bbb");
         ASSERT_EQ(status_code, 400);
-        std::string msg = "set aaa=bbb failed";
+        std::string msg = "config field=aaa not exists";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "configs=custom_conf_path=./doris_conf");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "config field=custom_conf_path is immutable";
         ASSERT_NE(content.find(msg), std::string::npos);
     }
     {
@@ -1663,31 +1670,77 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
         ASSERT_EQ(config::recycle_interval_seconds, 3601);
     }
     {
-        auto original_conf_path = config::custom_conf_path;
-        config::custom_conf_path = "./doris_cloud.conf";
-        auto [status_code, content] = ctx.query<std::string>(
-                "update_config",
-                "configs=recycle_interval_seconds=3659,retention_seconds=259219&persist=true");
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "configs=enable_s3_rate_limiter=true");
         ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(config::recycle_interval_seconds, 3659);
-        ASSERT_EQ(config::retention_seconds, 259219);
-        config::Properties props;
-        ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+        ASSERT_TRUE(config::enable_s3_rate_limiter);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "enable_s3_rate_limiter=invalid");
+        ASSERT_EQ(status_code, 400);
+    }
+    {
+        auto original_conf_path = config::custom_conf_path;
+        config::custom_conf_path = "./doris_cloud_custom.conf";
         {
-            bool new_val_set = false;
-            int64_t recycle_interval_s = 0;
-            ASSERT_TRUE(props.get_or_default("recycle_interval_seconds", nullptr,
-                                             recycle_interval_s, &new_val_set));
-            ASSERT_TRUE(new_val_set);
-            ASSERT_EQ(recycle_interval_s, 3659);
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config",
+                    "configs=recycle_interval_seconds=3659,retention_seconds=259219&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::recycle_interval_seconds, 3659);
+            ASSERT_EQ(config::retention_seconds, 259219);
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                int64_t recycle_interval_s = 0;
+                ASSERT_TRUE(props.get_or_default("recycle_interval_seconds", nullptr,
+                                                 recycle_interval_s, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(recycle_interval_s, 3659);
+            }
+            {
+                bool new_val_set = false;
+                int64_t retention_s = 0;
+                ASSERT_TRUE(props.get_or_default("retention_seconds", nullptr, retention_s,
+                                                 &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(retention_s, 259219);
+            }
         }
         {
-            bool new_val_set = false;
-            int64_t retention_s = 0;
-            ASSERT_TRUE(
-                    props.get_or_default("retention_seconds", nullptr, retention_s, &new_val_set));
-            ASSERT_TRUE(new_val_set);
-            ASSERT_EQ(retention_s, 259219);
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config", "configs=enable_s3_rate_limiter=false&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::recycle_interval_seconds, 3659);
+            ASSERT_EQ(config::retention_seconds, 259219);
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                int64_t recycle_interval_s = 0;
+                ASSERT_TRUE(props.get_or_default("recycle_interval_seconds", nullptr,
+                                                 recycle_interval_s, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(recycle_interval_s, 3659);
+            }
+            {
+                bool new_val_set = false;
+                int64_t retention_s = 0;
+                ASSERT_TRUE(props.get_or_default("retention_seconds", nullptr, retention_s,
+                                                 &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(retention_s, 259219);
+            }
+            {
+                bool new_val_set = false;
+                bool enable_s3_rate_limiter = true;
+                ASSERT_TRUE(props.get_or_default("enable_s3_rate_limiter", nullptr,
+                                                 enable_s3_rate_limiter, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_FALSE(enable_s3_rate_limiter);
+            }
         }
         std::filesystem::remove(config::custom_conf_path);
         config::custom_conf_path = original_conf_path;
