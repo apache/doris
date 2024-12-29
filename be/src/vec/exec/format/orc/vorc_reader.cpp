@@ -358,7 +358,8 @@ Status OrcReader::_init_read_columns() {
                 if (_is_acid && i < _column_names->size() - TransactionalHive::READ_PARAMS.size()) {
                     if (TransactionalHive::ROW_OFFSET + 1 + pos < orc_cols_lower_case.size()) {
                         // shift TransactionalHive::ROW_OFFSET + 1 offset, 1 is row struct col
-                        orc_cols_lower_case[TransactionalHive::ROW_OFFSET + 1 + pos] = iter->first;
+                        orc_cols_lower_case[TransactionalHive::ROW_OFFSET + 1 + pos] =
+                                TransactionalHive::ROW + "." + iter->first;
                     }
                 } else {
                     if (pos < orc_cols_lower_case.size()) {
@@ -402,21 +403,22 @@ Status OrcReader::_init_read_columns() {
 void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                                std::vector<std::string>& orc_cols_lower_case,
                                std::unordered_map<std::string, const orc::Type*>& type_map,
-                               bool* is_hive1_orc) {
+                               bool* is_hive1_orc, std::string pre, bool recursion) {
     bool hive1_orc = true;
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
-        auto filed_name_lower_case = get_field_name_lower_case(&type, i);
+        auto filed_name_lower_case = pre + get_field_name_lower_case(&type, i);
         if (hive1_orc) {
             hive1_orc = _is_hive1_col_name(filed_name_lower_case);
         }
         auto filed_name_lower_case_copy = filed_name_lower_case;
         orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
         type_map.emplace(std::move(filed_name_lower_case_copy), type.getSubtype(i));
-        if (_is_acid) {
+        if (_is_acid && recursion) {
             const orc::Type* sub_type = type.getSubtype(i);
             if (sub_type->getKind() == orc::TypeKind::STRUCT) {
-                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc);
+                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc,
+                               TransactionalHive::ROW + ".", false);
             }
         }
     }
@@ -569,11 +571,16 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    DCHECK(_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name()));
-    auto file_col_name_low_case = _col_name_to_file_col_name_low_case[slot_ref->expr_name()];
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
+
+    DCHECK(_col_name_to_file_col_name_low_case.contains(expr_name));
+    auto file_col_name_low_case = _col_name_to_file_col_name_low_case[expr_name];
     if (!_type_map.contains(file_col_name_low_case)) {
         // TODO: this is for acid table
-        LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
+        LOG(WARNING) << "Column " << expr_name << " not found in _type_map";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
     DCHECK(_type_map.contains(file_col_name_low_case));
@@ -646,8 +653,14 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
     }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in orc file and not partition column
-    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) ||
-        _lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name())) {
+
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
+
+    if (!_col_name_to_file_col_name.contains(expr_name) ||
+        _lazy_read_ctx.predicate_partition_columns.contains(expr_name)) {
         return false;
     }
     auto [valid, _, predicate_type] = _make_orc_literal(slot_ref, nullptr);
@@ -745,7 +758,12 @@ void OrcReader::_build_less_than(const VExprSPtr& expr,
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-    builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
+    builder->lessThan(expr_name, predicate_type, orc_literal);
 }
 
 void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
@@ -759,7 +777,12 @@ void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-    builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
+    builder->lessThanEquals(expr_name, predicate_type, orc_literal);
 }
 
 void OrcReader::_build_equals(const VExprSPtr& expr,
@@ -773,7 +796,11 @@ void OrcReader::_build_equals(const VExprSPtr& expr,
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-    builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
+    builder->equals(expr_name, predicate_type, orc_literal);
 }
 
 void OrcReader::_build_filter_in(const VExprSPtr& expr,
@@ -793,10 +820,14 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
         }
     }
     DCHECK(!literals.empty());
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
     if (literals.size() == 1) {
-        builder->equals(slot_ref->expr_name(), predicate_type, literals[0]);
+        builder->equals(expr_name, predicate_type, literals[0]);
     } else {
-        builder->in(slot_ref->expr_name(), predicate_type, literals);
+        builder->in(expr_name, predicate_type, literals);
     }
 }
 
@@ -807,7 +838,12 @@ void OrcReader::_build_is_null(const VExprSPtr& expr,
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
-    builder->isNull(slot_ref->expr_name(), predicate_type);
+
+    std::string expr_name = slot_ref->expr_name();
+    if (_table_col_to_file_col.contains(expr_name)) {
+        expr_name = _table_col_to_file_col[expr_name];
+    }
+    builder->isNull(expr_name, predicate_type);
 }
 
 bool OrcReader::_build_search_argument(const VExprSPtr& expr,
@@ -1155,7 +1191,8 @@ Status OrcReader::set_fill_columns(
     return Status::OK();
 }
 
-Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
+Status OrcReader::_init_select_types(const orc::Type& type, int idx, std::string pre,
+                                     bool recursion) {
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
@@ -1165,11 +1202,12 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         } else {
             name = get_field_name_lower_case(&type, i);
         }
-        _colname_to_idx[name] = idx++;
+        _colname_to_idx[pre + name] = idx++;
         const orc::Type* sub_type = type.getSubtype(i);
         _col_orc_type.push_back(sub_type);
-        if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
-            RETURN_IF_ERROR(_init_select_types(*sub_type, idx));
+        if (_is_acid && recursion && sub_type->getKind() == orc::TypeKind::STRUCT) {
+            RETURN_IF_ERROR(
+                    _init_select_types(*sub_type, idx, TransactionalHive::ROW + ".", false));
         }
     }
     return Status::OK();
@@ -1880,6 +1918,13 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         std::vector<orc::ColumnVectorBatch*> batch_vec;
         _fill_batch_vec(batch_vec, _batch.get(), 0);
         for (auto& col_name : _lazy_read_ctx.lazy_read_columns) {
+            if (_is_acid &&
+                std::find(TransactionalHive::ACID_COLUMN_NAMES_LOWER_CASE.begin(),
+                          TransactionalHive::ACID_COLUMN_NAMES_LOWER_CASE.end(),
+                          col_name) != TransactionalHive::ACID_COLUMN_NAMES_LOWER_CASE.end()) {
+                //append data in : filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg)
+                continue;
+            }
             auto& column_with_type_and_name = block->get_by_name(col_name);
             auto& column_ptr = column_with_type_and_name.column;
             auto& column_type = column_with_type_and_name.type;
@@ -2068,11 +2113,11 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
 }
 
 void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
-                                orc::ColumnVectorBatch* batch, int idx) {
+                                orc::ColumnVectorBatch* batch, int idx, bool recursion) {
     for (auto* field : dynamic_cast<orc::StructVectorBatch*>(batch)->fields) {
         result.push_back(field);
-        if (_is_acid && _col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
-            _fill_batch_vec(result, field, idx);
+        if (_is_acid && recursion && _col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
+            _fill_batch_vec(result, field, idx, false);
         }
     }
 }

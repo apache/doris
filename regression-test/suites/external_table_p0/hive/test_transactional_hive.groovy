@@ -52,6 +52,29 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         select count(*) from orc_full_acid_par_empty;
         """
     }
+
+    def test_acid_orc_special_name = {
+        
+        for (String lazy : ["true","false"]) {
+        sql """set  enable_orc_lazy_materialization = ${lazy}; """
+
+
+        qt_special_1 """ select * from acid_orc_special_name order by operation """ 
+        qt_special_2 """ select `rowid` from acid_orc_special_name order by operation """ 
+        qt_special_3 """ select `bucket` from acid_orc_special_name order by operation """ 
+        qt_special_4 """ select `originalTransaction` from acid_orc_special_name order by operation """ 
+        qt_special_5 """ select *  from acid_orc_special_name where rowid > 5000  order by operation"""
+        qt_special_6 """ select bucket,rowid  from acid_orc_special_name where rowid = 1002  order by operation"""
+        qt_special_7 """ select *  from acid_orc_special_name where rowid >= 1002 order by operation """
+        qt_special_8 """ select data_id,struct_element(`row`, 'rowid'),rowid,originalTransaction  from acid_orc_special_name where rowid <= 1003 order by operation """
+        qt_special_9 """ select *  from acid_orc_special_name where bucket = 90 order by operation"""
+        qt_special_10 """ select bucket,rowid  from acid_orc_special_name where bucket >= 50   order by operation"""
+        qt_special_11 """ select data_id,struct_element(`row`, 'rowid'),rowid,originalTransaction  from acid_orc_special_name where bucket <= 40 order by operation """
+        qt_special_12 """ select data_id,struct_element(`row`, 'bucket'),bucket,rowid,originalTransaction  from acid_orc_special_name where data_id <= 1 order by operation """
+
+        }
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -78,6 +101,9 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
             skip_checking_acid_version_file = "true"
             q01()
             q01_par()
+
+
+            test_acid_orc_special_name()
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
