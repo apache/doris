@@ -21,11 +21,13 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.thrift.THudiMetadataParams;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,23 +49,22 @@ public class HudiCachedMetaClientProcessor {
                 true,
                 null);
 
-        this.hudiTableMetaClientCache =
-                partitionCacheFactory.buildCache(
-                        this::createHoodieTableMetaClient,
-                        null,
-                        executor);
+        this.hudiTableMetaClientCache = partitionCacheFactory.buildCache(
+                this::createHoodieTableMetaClient,
+                null,
+                executor);
     }
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiCachedClientKey key) {
         LOG.debug("create hudi table meta client for {}.{}", key.getDbName(), key.getTbName());
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(key.getConf());
         return HiveMetaStoreClientHelper.ugiDoAs(
-            key.getConf(),
-            () -> HoodieTableMetaClient
-                .builder()
-                .setConf(hadoopStorageConfiguration)
-                .setBasePath(key.getHudiBasePath())
-                .build());
+                key.getConf(),
+                () -> HoodieTableMetaClient
+                        .builder()
+                        .setConf(hadoopStorageConfiguration)
+                        .setBasePath(key.getHudiBasePath())
+                        .build());
     }
 
     public HoodieTableMetaClient getHoodieTableMetaClient(
@@ -133,8 +134,7 @@ public class HudiCachedMetaClientProcessor {
                 return false;
             }
             HudiCachedClientKey that = (HudiCachedClientKey) o;
-            return Objects.equals(dbName, that.dbName) && Objects.equals(tbName, that.tbName)
-                    && Objects.equals(hudiBasePath, that.hudiBasePath);
+            return Objects.equals(dbName, that.dbName) && Objects.equals(tbName, that.tbName);
         }
 
         @Override
@@ -148,5 +148,11 @@ public class HudiCachedMetaClientProcessor {
         res.put("hudi_meta_client_cache", ExternalMetaCacheMgr.getCacheStats(hudiTableMetaClientCache.stats(),
                 hudiTableMetaClientCache.estimatedSize()));
         return res;
+    }
+
+    public HoodieTimeline getTimeline(THudiMetadataParams params) {
+        HoodieTableMetaClient hoodieTableMetaClient = getHoodieTableMetaClient(
+                params.getDatabase(), params.getTable(), null, null);
+        return hoodieTableMetaClient.getCommitsTimeline();
     }
 }

@@ -56,6 +56,7 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
 import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
@@ -100,6 +101,8 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
@@ -388,38 +391,26 @@ public class MetadataGenerator {
 
         THudiMetadataParams hudiMetadataParams = params.getHudiMetadataParams();
         THudiQueryType hudiQueryType = hudiMetadataParams.getHudiQueryType();
-        HudiMetadataCache hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getHudiMetadataCache();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(hudiMetadataParams.getCatalog());
+        if (catalog == null) {
+            return errorResult("The specified catalog does not exist:" + hudiMetadataParams.getCatalog());
+        }
+        HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
+
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         switch (hudiQueryType) {
-            case SNAPSHOTS:
-                List<Snapshot> snapshotList;
-                try {
-                    snapshotList = hudiMetadataCache.getSnapshotList(hudiMetadataParams);
-                } catch (UserException e) {
-                    return errorResult(e.getMessage());
-                }
-                for (Snapshot snapshot : snapshotList) {
+            case TIMELINE:
+                HoodieTimeline timeline;
+                timeline = hudiMetadataCache.getTimeline(hudiMetadataParams);
+                for (HoodieInstant instant : timeline.getInstants()) {
                     TRow trow = new TRow();
-                    LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
-                            snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
-                    long encodedDatetime = TimeUtils.convertToDateTimeV2(committedAt.getYear(),
-                            committedAt.getMonthValue(),
-                            committedAt.getDayOfMonth(), committedAt.getHour(), committedAt.getMinute(),
-                            committedAt.getSecond(), committedAt.getNano() / 1000);
-
-                    trow.addToColumnValue(new TCell().setLongVal(encodedDatetime));
-                    trow.addToColumnValue(new TCell().setLongVal(snapshot.snapshotId()));
-                    if (snapshot.parentId() == null) {
-                        trow.addToColumnValue(new TCell().setLongVal(-1L));
-                    } else {
-                        trow.addToColumnValue(new TCell().setLongVal(snapshot.parentId()));
-                    }
-                    trow.addToColumnValue(new TCell().setStringVal(snapshot.operation()));
-                    trow.addToColumnValue(new TCell().setStringVal(snapshot.manifestListLocation()));
-                    trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(snapshot.summary())));
-
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getStateTransitionTime()));
                     dataBatch.add(trow);
                 }
                 break;

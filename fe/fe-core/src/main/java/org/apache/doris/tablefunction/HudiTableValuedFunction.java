@@ -42,7 +42,7 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * hudi_meta("table" = "ctl.db.tbl", "query_type" = "snapshots").
+ * hudi_meta("table" = "ctl.db.tbl", "query_type" = "timeline").
  */
 public class HudiTableValuedFunction extends MetadataTableValuedFunction {
 
@@ -52,21 +52,18 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
 
-    private static final ImmutableList<Column> SCHEMA_SNAPSHOT = ImmutableList.of(
-            new Column("committed_at", PrimitiveType.DATETIMEV2, false),
-            new Column("snapshot_id", PrimitiveType.BIGINT, false),
-            new Column("parent_id", PrimitiveType.BIGINT, false),
-            new Column("operation", PrimitiveType.STRING, false),
-            // todo: compress manifest_list string
-            new Column("manifest_list", PrimitiveType.STRING, false),
-            new Column("summary", PrimitiveType.STRING, false));
+    private static final ImmutableList<Column> SCHEMA_TIMELINE = ImmutableList.of(
+            new Column("timestamp", PrimitiveType.STRING, false),
+            new Column("action", PrimitiveType.STRING, false),
+            new Column("state", PrimitiveType.STRING, false),
+            new Column("state_transition_time", PrimitiveType.STRING, false));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
-        for (int i = 0; i < SCHEMA_SNAPSHOT.size(); i++) {
-            builder.put(SCHEMA_SNAPSHOT.get(i).getName().toLowerCase(), i);
+        for (int i = 0; i < SCHEMA_TIMELINE.size(); i++) {
+            builder.put(SCHEMA_TIMELINE.get(i).getName().toLowerCase(), i);
         }
         COLUMN_TO_INDEX = builder.build();
     }
@@ -119,13 +116,13 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public TMetadataType getMetadataType() {
-        return TMetadataType.ICEBERG;
+        return TMetadataType.HUDI;
     }
 
     @Override
     public TMetaScanRange getMetaScanRange() {
         TMetaScanRange metaScanRange = new TMetaScanRange();
-        metaScanRange.setMetadataType(TMetadataType.ICEBERG);
+        metaScanRange.setMetadataType(TMetadataType.HUDI);
         // set hudi metadata params
         THudiMetadataParams hudiMetadataParams = new THudiMetadataParams();
         hudiMetadataParams.setHudiQueryType(queryType);
@@ -150,8 +147,8 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
      */
     @Override
     public List<Column> getTableColumns() {
-        if (queryType == THudiQueryType.SNAPSHOTS) {
-            return SCHEMA_SNAPSHOT;
+        if (queryType == THudiQueryType.TIMELINE) {
+            return SCHEMA_TIMELINE;
         }
         return Lists.newArrayList();
     }

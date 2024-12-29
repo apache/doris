@@ -750,7 +750,7 @@ enum TIcebergQueryType {
 }
 
 enum THudiQueryType {
-  SNAPSHOTS
+  TIMELINE
 }
 
 // represent a user identity
