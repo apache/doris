@@ -108,6 +108,7 @@
 #include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/parquet/arrow_memory_pool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
+#include "vec/functions/dictionary_factory.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_map_pool.h"
@@ -376,6 +377,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     _runtime_query_statistics_mgr->start_report_thread();
+    _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
     return Status::OK();
@@ -776,6 +778,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_workload_group_manager);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
+    SAFE_DELETE(_dict_factory);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);

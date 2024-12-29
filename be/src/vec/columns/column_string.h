@@ -141,6 +141,10 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
+    String get_element(size_t n) const { return get_data_at(n).to_string(); }
+
+    void insert_value(const String& value) { insert_data(value.data(), value.size()); }
+
     void insert(const Field& x) override {
         StringRef s;
         if (x.get_type() == Field::Types::JSONB) {
