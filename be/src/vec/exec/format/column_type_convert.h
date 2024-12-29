@@ -504,8 +504,9 @@ public:
                 auto& v = reinterpret_cast<DstNativeType&>(data[start_idx + i]);
                 v = (DstNativeType)decimal_int128;
             } else {
-                data[start_idx + i] =
-                        DstCppType::from_int_frac(cast_set<int>(src_data[i]), 0, _scale);
+                // TODO: check cast overflow
+                data[start_idx + i] = DstCppType::from_int_frac(
+                        static_cast<DstNativeType>(src_data[i]), 0, _scale);
             }
         }
 
