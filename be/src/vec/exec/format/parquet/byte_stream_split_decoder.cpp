@@ -22,7 +22,7 @@
 #include "util/byte_stream_split.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 Status ByteStreamSplitDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                              ColumnSelectVector& select_vector,
                                              bool is_dict_filter) {
@@ -83,7 +83,7 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
+Status ByteStreamSplitDecoder::skip_values(int num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
         return Status::IOError(
@@ -92,4 +92,6 @@ Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 }; // namespace doris::vectorized

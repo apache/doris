@@ -35,6 +35,7 @@ class ColumnSelectVector;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 /// Decoder bit-packed boolean-encoded values.
 /// Implementation from https://github.com/apache/impala/blob/master/be/src/exec/parquet/parquet-bool-decoder.h
 class BoolPlainDecoder final : public Decoder {
@@ -57,7 +58,7 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status skip_values(size_t num_values) override;
+    Status skip_values(int num_values) override;
 
 protected:
     inline bool _decode_value(bool* value) {
@@ -91,4 +92,6 @@ protected:
     /// Bit packed decoder, used if 'encoding_' is PLAIN.
     BatchedBitReader bool_values_;
 };
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

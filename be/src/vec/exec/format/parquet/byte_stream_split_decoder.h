@@ -20,6 +20,7 @@
 #include "vec/exec/format/parquet/decoder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class ByteStreamSplitDecoder final : public Decoder {
 public:
     ByteStreamSplitDecoder() = default;
@@ -32,7 +33,8 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status skip_values(size_t num_values) override;
+    Status skip_values(int num_values) override;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

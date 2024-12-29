@@ -44,7 +44,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
                                      const tparquet::OffsetIndex* offset_index,
@@ -277,7 +277,7 @@ Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     _remaining_num_values -= num_values;
     if (skip_data) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        return _page_decoder->skip_values(num_values);
+        return _page_decoder->skip_values(cast_set<int>(num_values));
     } else {
         return Status::OK();
     }
@@ -353,4 +353,5 @@ bool has_dict_page(const tparquet::ColumnMetaData& column) {
            column.dictionary_page_offset < column.data_page_offset;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

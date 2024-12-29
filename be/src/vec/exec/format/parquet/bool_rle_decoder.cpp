@@ -30,6 +30,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 void BoolRLEDecoder::set_data(Slice* slice) {
     _data = slice;
     _num_bytes = slice->size;
@@ -40,7 +41,7 @@ void BoolRLEDecoder::set_data(Slice* slice) {
                                            std::to_string(_num_bytes)));
     }
     // Load the first 4 bytes in little-endian, which indicates the length
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(_data->data);
+    const auto* data = reinterpret_cast<const uint8_t*>(_data->data);
     uint32_t num_bytes = decode_fixed32_le(data);
     if (num_bytes > static_cast<uint32_t>(_num_bytes - 4)) {
         throw Exception(
@@ -52,7 +53,7 @@ void BoolRLEDecoder::set_data(Slice* slice) {
     _decoder = RleDecoder<uint8_t>(decoder_data, num_bytes, 1);
 }
 
-Status BoolRLEDecoder::skip_values(size_t num_values) {
+Status BoolRLEDecoder::skip_values(int num_values) {
     _current_value_idx += num_values;
     return Status::OK();
 }
@@ -106,4 +107,6 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
     _current_value_idx = 0;
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

@@ -68,7 +68,7 @@ struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
@@ -247,7 +247,7 @@ private:
     std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader
     bool _row_group_eof = true;
-    int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
+    size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
@@ -289,4 +289,6 @@ private:
     bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 };
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

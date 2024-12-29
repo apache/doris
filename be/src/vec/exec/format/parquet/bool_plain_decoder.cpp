@@ -27,7 +27,8 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-Status BoolPlainDecoder::skip_values(size_t num_values) {
+#include "common/compile_check_begin.h"
+Status BoolPlainDecoder::skip_values(int num_values) {
     int skip_cached = std::min(num_unpacked_values_ - unpacked_value_idx_, (int)num_values);
     unpacked_value_idx_ += skip_cached;
     if (skip_cached == num_values) {
@@ -101,4 +102,6 @@ Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataType
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

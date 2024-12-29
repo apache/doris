@@ -42,7 +42,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
@@ -68,7 +68,7 @@ public:
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                  ColumnSelectVector& select_vector, bool is_dict_filter) = 0;
 
-    virtual Status skip_values(size_t num_values) = 0;
+    virtual Status skip_values(int num_values) = 0;
 
     virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) {
         return Status::NotSupported("set_dict is not supported");
@@ -143,7 +143,7 @@ protected:
         return Status::OK();
     }
 
-    Status skip_values(size_t num_values) override {
+    Status skip_values(int num_values) override {
         _indexes.resize(num_values);
         _index_batch_decoder->GetBatch(_indexes.data(), num_values);
         return Status::OK();
@@ -154,5 +154,6 @@ protected:
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

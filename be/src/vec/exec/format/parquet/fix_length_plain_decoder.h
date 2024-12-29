@@ -29,7 +29,7 @@ class ColumnSelectVector;
 } // namespace doris::vectorized
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FixLengthPlainDecoder final : public Decoder {
 public:
     FixLengthPlainDecoder() = default;
@@ -42,10 +42,10 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status skip_values(size_t num_values) override;
+    Status skip_values(int num_values) override;
 };
 
-Status FixLengthPlainDecoder::skip_values(size_t num_values) {
+Status FixLengthPlainDecoder::skip_values(int num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
@@ -103,4 +103,6 @@ Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized
