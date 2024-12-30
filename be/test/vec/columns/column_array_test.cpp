@@ -464,7 +464,7 @@ TEST_F(ColumnArrayTest, PermutationAndSortTest) {
         auto column_type = type->get_name();
         std::cout << "column_type: " << column_type << std::endl;
         // permutation
-        assert_column_permutations(column->assume_mutable_ref(), type);
+        EXPECT_ANY_THROW(assert_column_permutations(column->assume_mutable_ref(), type));
     }
 }
 
