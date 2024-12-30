@@ -732,7 +732,6 @@ enum TSortType {
 
 enum TMetadataType {
   ICEBERG,
-  HUDI,
   BACKENDS,
   FRONTENDS,
   CATALOGS,
@@ -742,7 +741,8 @@ enum TMetadataType {
   TASKS,
   WORKLOAD_SCHED_POLICY,
   PARTITIONS,
-  PARTITION_VALUES;
+  PARTITION_VALUES,
+  HUDI,
 }
 
 enum TIcebergQueryType {
