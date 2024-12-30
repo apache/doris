@@ -42,7 +42,7 @@ public class GetStreamLoadState extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        if (!checkForwardToMaster(request)) {
+        if (checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
 

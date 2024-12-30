@@ -95,7 +95,7 @@ public class ColocateMetaService extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        if (!checkForwardToMaster(request)) {
+        if (checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
         executeWithoutPassword(request, response);
