@@ -69,7 +69,7 @@ using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<AnyType>;
 
-// FIXME: should use exception or expected to deal null value.w
+// FIXME: should use exception or expected to deal null value.
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
@@ -315,7 +315,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    EXPECT_TRUE(column != nullptr);
+    EXPECT_TRUE(column);
 
     for (int i = 0; i < row_size; ++i) {
         // update current line

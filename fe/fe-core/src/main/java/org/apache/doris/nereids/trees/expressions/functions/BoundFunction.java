@@ -85,7 +85,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         StringBuilder sql = new StringBuilder(getName()).append("(");
         int arity = arity();
         for (int i = 0; i < arity; i++) {

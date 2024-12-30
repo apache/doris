@@ -185,6 +185,12 @@ ThreadPool* ExecEnv::non_block_close_thread_pool() {
 #endif
 }
 
+ExecEnv::ExecEnv() = default;
+
+ExecEnv::~ExecEnv() {
+    destroy();
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
@@ -290,16 +296,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             _store_paths.size() * config::flush_thread_num_per_store,
             static_cast<size_t>(CpuInfo::num_cores()) * config::max_flush_thread_num_per_cpu);
     _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
-    _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
+    _new_load_stream_mgr = NewLoadStreamMgr::create_unique();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _streaming_client_cache =
             new BrpcClientCache<PBackendService_Stub>("baidu_std", "single", "streaming");
     _function_client_cache =
             new BrpcClientCache<PFunctionService_Stub>(config::function_service_protocol);
     if (config::is_cloud_mode()) {
-        _stream_load_executor = std::make_shared<CloudStreamLoadExecutor>(this);
+        _stream_load_executor = CloudStreamLoadExecutor::create_unique(this);
     } else {
-        _stream_load_executor = StreamLoadExecutor::create_shared(this);
+        _stream_load_executor = StreamLoadExecutor::create_unique(this);
     }
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
@@ -309,7 +315,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
-    _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
+    _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
     _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
@@ -421,9 +427,9 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     std::unordered_set<std::string> cache_path_set;
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
-        LOG(FATAL) << "parse config file cache path failed, path=" << doris::config::file_cache_path
-                   << ", reason=" << rest.msg();
-        exit(-1);
+        throw Exception(
+                Status::FatalError("parse config file cache path failed, path={}, reason={}",
+                                   doris::config::file_cache_path, rest.msg()));
     }
 
     doris::Status cache_status;
@@ -437,8 +443,8 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 cache_path.path, cache_path.init_settings());
         if (!cache_status.ok()) {
             if (!doris::config::ignore_broken_disk) {
-                LOG(FATAL) << "failed to init file cache, err: " << cache_status;
-                exit(-1);
+                throw Exception(
+                        Status::FatalError("failed to init file cache, err: {}", cache_status));
             }
             LOG(WARNING) << "failed to init file cache, err: " << cache_status;
         }
@@ -463,8 +469,6 @@ Status ExecEnv::_init_mem_env() {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
         return Status::InternalError(ss.str());
     }
-
-    _dummy_lru_cache = std::make_shared<DummyLRUCache>();
 
     _cache_manager = CacheManager::create_global_instance();
 
@@ -681,7 +685,30 @@ void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
 }
+#ifdef BE_TEST
+void ExecEnv::set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr) {
+    this->_new_load_stream_mgr = std::move(new_load_stream_mgr);
+}
 
+void ExecEnv::clear_new_load_stream_mgr() {
+    this->_new_load_stream_mgr.reset();
+}
+
+void ExecEnv::set_stream_load_executor(std::unique_ptr<StreamLoadExecutor>&& stream_load_executor) {
+    this->_stream_load_executor = std::move(stream_load_executor);
+}
+
+void ExecEnv::clear_stream_load_executor() {
+    this->_stream_load_executor.reset();
+}
+
+void ExecEnv::set_wal_mgr(std::unique_ptr<WalManager>&& wm) {
+    this->_wal_manager = std::move(wm);
+}
+void ExecEnv::clear_wal_mgr() {
+    this->_wal_manager.reset();
+}
+#endif
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
 void ExecEnv::destroy() {

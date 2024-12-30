@@ -18,9 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 /** monotonicity of expressions */
 public interface Monotonic extends ExpressionTrait {
+    default boolean isMonotonic(Literal lower, Literal upper) {
+        return true;
+    }
+
     // true means that the function is an increasing function
     boolean isPositive();
 

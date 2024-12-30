@@ -36,15 +36,16 @@ void BoolRLEDecoder::set_data(Slice* slice) {
     _offset = 0;
     _current_value_idx = 0;
     if (_num_bytes < 4) {
-        LOG(FATAL) << "Received invalid length : " + std::to_string(_num_bytes) +
-                              " (corrupt data page?)";
+        throw Exception(Status::FatalError("Received invalid length : {} (corrupt data page?)",
+                                           std::to_string(_num_bytes)));
     }
     // Load the first 4 bytes in little-endian, which indicates the length
     const uint8_t* data = reinterpret_cast<const uint8_t*>(_data->data);
     uint32_t num_bytes = decode_fixed32_le(data);
     if (num_bytes > static_cast<uint32_t>(_num_bytes - 4)) {
-        LOG(FATAL) << ("Received invalid number of bytes : " + std::to_string(num_bytes) +
-                       " (corrupt data page?)");
+        throw Exception(
+                Status::FatalError("Received invalid number of bytes : {} (corrupt data page?)",
+                                   std::to_string(_num_bytes)));
     }
     _num_bytes = num_bytes;
     auto decoder_data = data + 4;

@@ -2766,7 +2766,7 @@ void Tablet::check_table_size_correctness() {
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas = _tablet_meta->all_rs_metas();
     for (const auto& rs_meta : all_rs_metas) {
         int64_t total_segment_size = get_segment_file_size(rs_meta);
-        int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
+        int64_t total_inverted_index_size = get_inverted_index_file_size(rs_meta);
         if (rs_meta->data_disk_size() != total_segment_size ||
             rs_meta->index_disk_size() != total_inverted_index_size ||
             rs_meta->data_disk_size() + rs_meta->index_disk_size() != rs_meta->total_disk_size()) {
@@ -2817,7 +2817,7 @@ int64_t Tablet::get_segment_file_size(const RowsetMetaSharedPtr& rs_meta) {
     return total_segment_size;
 }
 
-int64_t Tablet::get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta) {
+int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta) {
     const auto& fs = rs_meta->fs();
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta->resource_id();

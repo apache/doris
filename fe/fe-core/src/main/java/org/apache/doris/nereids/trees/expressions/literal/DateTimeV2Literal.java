@@ -36,6 +36,9 @@ import java.util.Objects;
  */
 public class DateTimeV2Literal extends DateTimeLiteral {
 
+    public static final DateTimeV2Literal USE_IN_FLOOR_CEIL
+            = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+
     public DateTimeV2Literal(String s) {
         this(DateTimeV2Type.forTypeFromString(s), s);
     }
@@ -250,7 +253,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         }
         if (newMicroSecond > MAX_MICROSECOND) {
             newMicroSecond %= newMicroSecond;
-            DateTimeV2Literal result = (DateTimeV2Literal) this.plusSeconds(1);
+            Expression plus1Second = this.plusSeconds(1);
+            if (plus1Second.isNullLiteral()) {
+                throw new AnalysisException("round ceil datetime literal (" + toString() + ", "
+                        + newScale + ") is out of range");
+            }
+            DateTimeV2Literal result = (DateTimeV2Literal) plus1Second;
             newSecond = result.second;
             newMinute = result.minute;
             newHour = result.hour;
@@ -276,9 +284,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
      */
     public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateTimeV2Type.of(precision))
-                : new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range" + dateTime.toString());
+        }
+        return new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);

@@ -1484,7 +1484,7 @@ Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::Str
 #endif
     for (const auto& subcolumn : subcolumns) {
         RETURN_IF_ERROR(find_and_set_leave_value(
-                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_finalized_column_ptr().get(), subcolumn->path,
                 subcolumn->data.get_least_common_type_serde(),
                 subcolumn->data.get_least_common_type(),
                 subcolumn->data.least_common_type.get_base_type_id(), root,
@@ -1558,7 +1558,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
                 continue;
             }
             bool succ = find_and_set_leave_value(
-                    column, subcolumn->path, subcolumn->data.get_least_common_type_serde(),
+                    column.get(), subcolumn->path, subcolumn->data.get_least_common_type_serde(),
                     subcolumn->data.get_least_common_type(),
                     subcolumn->data.least_common_type.get_base_type_id(), root,
                     doc_structure->GetAllocator(), mem_pool, i);
@@ -1705,7 +1705,7 @@ bool ColumnObject::empty() const {
 }
 
 ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
+    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
         return column_array->get_data_ptr();
     }
     return column;
@@ -1953,6 +1953,7 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
+#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
@@ -1967,6 +1968,7 @@ Status ColumnObject::sanitize() const {
     }
 
     VLOG_DEBUG << "sanitized " << debug_string();
+#endif
     return Status::OK();
 }
 

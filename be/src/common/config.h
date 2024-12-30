@@ -1040,7 +1040,7 @@ DECLARE_Bool(hide_webserver_config_page);
 DECLARE_Bool(enable_segcompaction);
 
 // Max number of segments allowed in a single segcompaction task.
-DECLARE_Int32(segcompaction_batch_size);
+DECLARE_mInt32(segcompaction_batch_size);
 
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DECLARE_Int32(segcompaction_candidate_max_rows);
@@ -1489,6 +1489,8 @@ DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 DECLARE_Bool(enable_table_size_correctness_check);
 // Enable sleep 5s between delete cumulative compaction.
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
+
+DECLARE_mInt32(compaction_num_per_round);
 
 #ifdef BE_TEST
 // test s3
