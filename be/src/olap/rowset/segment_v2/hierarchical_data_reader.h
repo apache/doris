@@ -153,10 +153,10 @@ private:
 
         _rows_read += nrows;
         variant.finalize();
+        RETURN_IF_ERROR(_init_null_map_and_clear_columns(container, dst, nrows));
 #ifndef NDEBUG
         variant.check_consistency();
 #endif
-        RETURN_IF_ERROR(_init_null_map_and_clear_columns(container, dst, nrows));
 
         return Status::OK();
     }

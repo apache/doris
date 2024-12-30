@@ -352,9 +352,9 @@ void get_field_info(const Field& field, FieldInfo* info) {
 }
 
 #ifdef NDEBUG
-#define ENABLE_CHECK_CONSISTENCY /* Nothing */
+#define ENABLE_CHECK_CONSISTENCY (void) /* Nothing */
 #else
-#define ENABLE_CHECK_CONSISTENCY(this) this->check_consistency()
+#define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
 
 // current nested level is 2, inside column object
@@ -642,7 +642,7 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
     res->num_rows = res->serialized_sparse_column->size();
-    res->check_consistency();
+    ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
 }
 
@@ -837,9 +837,7 @@ void ColumnObject::check_consistency() const {
 }
 
 size_t ColumnObject::size() const {
-#ifndef NDEBUG
-    check_consistency();
-#endif
+    ENABLE_CHECK_CONSISTENCY(this);
     return num_rows;
 }
 
@@ -875,6 +873,10 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
             callback(part);
         }
     }
+    callback(serialized_sparse_column);
+    // callback may be filter, so the row count may be changed
+    num_rows = serialized_sparse_column->size();
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
@@ -896,6 +898,7 @@ void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
         if (field.is_null()) {
             insert_default();
+            ENABLE_CHECK_CONSISTENCY(this);
             return;
         }
         auto* root = get_subcolumn({});
@@ -1267,10 +1270,8 @@ bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const auto& src_object = assert_cast<const ColumnObject&>(src);
-#ifndef NDEBUG
-    check_consistency();
-    src_object.check_consistency();
-#endif
+    ENABLE_CHECK_CONSISTENCY(&src_object);
+    ENABLE_CHECK_CONSISTENCY(this);
 
     // First, insert src subcolumns
     // We can reach the limit of subcolumns, and in this case
@@ -1981,6 +1982,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     std::swap(subcolumns, new_subcolumns);
     doc_structure = nullptr;
     _prev_positions.clear();
+    ENABLE_CHECK_CONSISTENCY(this);
     return Status::OK();
 }
 
@@ -2022,7 +2024,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     }
     if (subcolumns.empty()) {
         auto res = ColumnObject::create(count_bytes_in_filter(filter));
-        res->check_consistency();
+        ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
     }
     auto new_column = ColumnObject::create(true, false);
@@ -2032,7 +2034,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
                                    entry->data.get_least_common_type());
     }
     new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
-    new_column->check_consistency();
+    ENABLE_CHECK_CONSISTENCY(new_column.get());
     return new_column;
 }
 
@@ -2065,14 +2067,6 @@ size_t ColumnObject::filter(const Filter& filter) {
                 }
             }
         });
-        const auto result_size = serialized_sparse_column->filter(filter);
-        if (result_size != count) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "result_size not euqal with filter_size, result_size={}, "
-                            "filter_size={}",
-                            result_size, count);
-        }
-        CHECK_EQ(result_size, count);
     }
     num_rows = count;
     ENABLE_CHECK_CONSISTENCY(this);
