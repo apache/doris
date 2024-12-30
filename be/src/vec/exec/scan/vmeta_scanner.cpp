@@ -234,6 +234,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::ICEBERG:
         RETURN_IF_ERROR(_build_iceberg_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::HUDI:
+        RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
+        break;
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
