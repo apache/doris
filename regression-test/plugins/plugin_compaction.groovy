@@ -105,7 +105,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             if (trigger_status.status.toLowerCase() == "already_exist") {
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
-                // ignore the error if auto compaction enabled
+                if ((compaction_type == "cumulative" && trigger_status.status.toLowerCase() == "e-2000") ||
+                    (compaction_type == "base" && trigger_status.status.toLowerCase() == "e-808") ||
+                    (compaction_type == "full" && trigger_status.status.toLowerCase() == "e-2008")) {
+                    // no suitable rowsets for compaction, ignore
+                } else {
+                    throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status}")
+                }
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
             }
