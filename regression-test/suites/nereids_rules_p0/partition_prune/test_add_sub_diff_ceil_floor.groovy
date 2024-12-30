@@ -438,4 +438,21 @@ suite("test_add_sub_diff_ceil_floor") {
         sql """select * from unix_time_t where unix_timestamp(dt) <=0"""
         contains("partitions=3/4 (p1,p3,p4)")
     }
+
+    explain {
+        sql """select * from max_t where year(weeks_add(dt, 1)) >2019"""
+        contains("partitions=3/6 (p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where month(weeks_add(dt, 1)) >6"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where quarter(weeks_sub(dt, 1)) >3"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where weeks_diff(dt, quarter(weeks_sub(dt, 1))) >'2020-01-01'"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
 }
