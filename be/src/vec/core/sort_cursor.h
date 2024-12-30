@@ -125,7 +125,7 @@ struct MergeSortCursorImpl {
     ENABLE_FACTORY_CREATOR(MergeSortCursorImpl);
     std::shared_ptr<Block> block;
     ColumnRawPtrs sort_columns;
-    Columns columns;
+    ColumnRawPtrs columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
     size_t pos = 0;
@@ -150,12 +150,16 @@ struct MergeSortCursorImpl {
     void reset() {
         sort_columns.clear();
 
-        columns = block->get_columns_and_convert();
+        auto tmp_columns = block->get_columns_and_convert();
+        columns.reserve(tmp_columns.size());
+        for (auto col : tmp_columns) {
+            columns.push_back(col.get());
+        }
         for (auto& column_desc : desc) {
             size_t column_number = !column_desc.column_name.empty()
                                            ? block->get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
-            sort_columns.push_back(columns[column_number].get());
+            sort_columns.push_back(columns[column_number]);
         }
 
         pos = 0;
@@ -239,7 +243,7 @@ struct MergeSortCursor {
     ENABLE_FACTORY_CREATOR(MergeSortCursor);
     std::shared_ptr<MergeSortCursorImpl> impl;
 
-    MergeSortCursor(std::shared_ptr<MergeSortCursorImpl> impl_) : impl(impl_) {}
+    MergeSortCursor(std::shared_ptr<MergeSortCursorImpl> impl_) : impl(std::move(impl_)) {}
     MergeSortCursorImpl* operator->() const { return impl.get(); }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.

@@ -119,7 +119,7 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
                     std::min(needed_rows, std::min(current_rows, batch_size - current_output_rows));
             if (step) {
                 for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_range_from(*current->impl->block->get_columns()[i],
+                    merged_columns[i]->insert_range_from(*current->impl->columns[i],
                                                          current->impl->pos, step);
                 }
             }
