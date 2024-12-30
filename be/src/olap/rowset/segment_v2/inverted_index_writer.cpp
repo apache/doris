@@ -138,11 +138,13 @@ public:
 
     void close_on_error() override {
         try {
-            if (_index_writer) {
-                _index_writer->close();
-            }
+            // delete directory must be done before index_writer close
+            // because index_writer will close the directory
             if (_dir) {
                 _dir->deleteDirectory();
+            }
+            if (_index_writer) {
+                _index_writer->close();
             }
         } catch (CLuceneError& e) {
             LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
@@ -664,11 +666,13 @@ private:
     std::unique_ptr<lucene::document::Document> _doc = nullptr;
     lucene::document::Field* _field = nullptr;
     bool _single_field = true;
+    // Since _index_writer's write.lock is created by _dir.lockFactory,
+    // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
+    DorisFSDirectory* _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
-    DorisFSDirectory* _dir = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;

@@ -35,6 +35,7 @@ import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -75,6 +76,7 @@ import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -539,34 +541,38 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         makeSureInitialized();
-        List<Column> columns;
         if (dlaType.equals(DLAType.ICEBERG)) {
-            columns = getIcebergSchema();
+            return getIcebergSchema();
         } else if (dlaType.equals(DLAType.HUDI)) {
-            columns = getHudiSchema();
+            return getHudiSchema();
         } else {
-            columns = getHiveSchema();
+            return getHiveSchema();
         }
+    }
+
+    private Optional<SchemaCacheValue> getIcebergSchema() {
+        List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
-    private List<Column> getIcebergSchema() {
-        return IcebergUtils.getSchema(catalog, dbName, name);
-    }
-
-    private List<Column> getHudiSchema() {
+    private Optional<SchemaCacheValue> getHudiSchema() {
         org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
+        List<String> colTypes = Lists.newArrayList();
         for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
             String columnName = hudiField.name().toLowerCase(Locale.ROOT);
             tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
                     true, null, true, null, "", true, null, -1, null));
+            colTypes.add(HudiUtils.convertAvroToHiveType(hudiField.schema()));
         }
-        return tmpSchema;
+        List<Column> partitionColumns = initPartitionColumns(tmpSchema);
+        HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
+        hudiSchemaCacheValue.setColTypes(colTypes);
+        return Optional.of(hudiSchemaCacheValue);
     }
 
-    private List<Column> getHiveSchema() {
+    private Optional<SchemaCacheValue> getHiveSchema() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         List<FieldSchema> schema = client.getSchema(dbName, name);
         Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
@@ -578,7 +584,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
-        return columns;
+        List<Column> partitionColumns = initPartitionColumns(columns);
+        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
     @Override
@@ -656,9 +663,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     break;
                 }
             default:
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get column stats for dlaType {} is not supported.", dlaType);
-                }
+                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
         return Optional.empty();
     }
@@ -1024,5 +1029,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
         Env.getCurrentEnv().getRefreshManager()
                 .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
+    }
+
+    public HoodieTableMetaClient getHudiClient() {
+        return Env.getCurrentEnv()
+            .getExtMetaCacheMgr()
+            .getMetaClientProcessor(getCatalog())
+            .getHoodieTableMetaClient(
+                getDbName(),
+                getName(),
+                getRemoteTable().getSd().getLocation(),
+                getCatalog().getConfiguration());
     }
 }

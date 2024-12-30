@@ -214,6 +214,9 @@ const char* DorisCompoundReader::getObjectName() const {
 }
 
 bool DorisCompoundReader::list(std::vector<std::string>* names) const {
+    if (_closed || entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     for (EntriesType::const_iterator i = entries->begin(); i != entries->end(); i++) {
         names->push_back(i->first);
     }
@@ -221,6 +224,9 @@ bool DorisCompoundReader::list(std::vector<std::string>* names) const {
 }
 
 bool DorisCompoundReader::fileExists(const char* name) const {
+    if (_closed || entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     return entries->exists((char*)name);
 }
 
@@ -237,6 +243,9 @@ int64_t DorisCompoundReader::fileModified(const char* name) const {
 }
 
 int64_t DorisCompoundReader::fileLength(const char* name) const {
+    if (_closed || entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     ReaderFileEntry* e = entries->get((char*)name);
     if (e == nullptr) {
         char buf[CL_MAX_PATH + 30];
@@ -251,6 +260,9 @@ int64_t DorisCompoundReader::fileLength(const char* name) const {
 bool DorisCompoundReader::openInput(const char* name,
                                     std::unique_ptr<lucene::store::IndexInput>& ret,
                                     CLuceneError& error, int32_t bufferSize) {
+    if (_closed || entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     lucene::store::IndexInput* tmp;
     bool success = openInput(name, tmp, error, bufferSize);
     if (success) {
@@ -294,6 +306,10 @@ void DorisCompoundReader::close() {
         _CLDELETE(stream)
     }
     if (entries != nullptr) {
+        // The life cycle of _entries should be consistent with that of the DorisCompoundReader.
+        // DO NOT DELETE _entries here, it will be deleted in the destructor
+        // When directory is closed, all _entries are cleared. But the directory may be called in other places.
+        // If we delete the _entries object here, it will cause core dump.
         entries->clear();
     }
     if (ram_dir) {

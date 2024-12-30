@@ -75,12 +75,11 @@ public class UseStmt extends StatementBase {
         if (Strings.isNullOrEmpty(database)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-
+        String currentCatalogName = catalogName == null ? ConnectContext.get().getDefaultCatalog() : catalogName;
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), ConnectContext.get().getDefaultCatalog(), database,
-                        PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    analyzer.getQualifiedUser(), database);
+                .checkDbPriv(ConnectContext.get(), currentCatalogName, database, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+                    database);
         }
     }
 
