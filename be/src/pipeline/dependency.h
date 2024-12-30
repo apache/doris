@@ -564,26 +564,36 @@ struct BlockRowPos {
     }
 };
 
+struct BoundaryPose {
+    BlockRowPos start;
+    BlockRowPos end;
+    bool is_ended = false;
+};
+
 struct AnalyticSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AnalyticSharedState)
 
 public:
     AnalyticSharedState() = default;
 
-    int64_t current_row_position = 0;
-    BlockRowPos partition_by_end;
-    int64_t input_total_rows = 0;
-    BlockRowPos all_block_end;
-    std::vector<vectorized::Block> input_blocks;
-    bool input_eos = false;
-    BlockRowPos found_partition_end;
-    std::vector<int64_t> origin_cols;
-    std::vector<int64_t> input_block_first_row_positions;
-    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
+    // int64_t current_row_position = 0;
+    // BlockRowPos partition_by_end;
+    // int64_t input_total_rows = 0;
+    // BlockRowPos all_block_end;
+    // std::vector<vectorized::Block> input_blocks;
+    // bool input_eos = false;
+    // BlockRowPos found_partition_end;
+    // std::vector<int64_t> origin_cols;
+    // std::vector<int64_t> input_block_first_row_positions;
+    // std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
 
+    std::queue<vectorized::Block> blocks_buffer;
+    std::mutex buffer_mutex;
+    bool sink_eos = false;
+    std::mutex sink_eos_lock;
     // TODO: maybe global?
-    std::vector<int64_t> partition_by_column_idxs;
-    std::vector<int64_t> ordey_by_column_idxs;
+    // std::vector<int64_t> partition_by_column_idxs;
+    // std::vector<int64_t> order_by_column_idxs;
 };
 
 struct JoinSharedState : public BasicSharedState {
