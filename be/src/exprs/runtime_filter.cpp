@@ -110,11 +110,14 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_VARCHAR;
     case TYPE_STRING:
         return PColumnType::COLUMN_TYPE_STRING;
+    case TYPE_IPV4:
+        return PColumnType::COLUMN_TYPE_IPV4;
+    case TYPE_IPV6:
+        return PColumnType::COLUMN_TYPE_IPV6;
     default:
-        DCHECK(false) << "Invalid type.";
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PrimitiveType type {}", int(type));
     }
-    DCHECK(false);
-    return PColumnType::COLUMN_TYPE_INT;
 }
 
 // PColumnType->PrimitiveType
@@ -160,10 +163,14 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_CHAR;
     case PColumnType::COLUMN_TYPE_STRING:
         return TYPE_STRING;
+    case PColumnType::COLUMN_TYPE_IPV4:
+        return TYPE_IPV4;
+    case PColumnType::COLUMN_TYPE_IPV6:
+        return TYPE_IPV6;
     default:
-        DCHECK(false);
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PColumnType type {}", int(type));
     }
-    return TYPE_INT;
 }
 
 // PFilterType -> RuntimeFilterType
@@ -559,14 +566,13 @@ public:
     }
 
     Status assign(const PInFilter* in_filter, bool contain_null) {
-        PrimitiveType type = to_primitive_type(in_filter->column_type());
-        _context->hybrid_set.reset(create_set(type));
+        _context->hybrid_set.reset(create_set(_column_return_type));
         if (contain_null) {
             _context->hybrid_set->set_null_aware(true);
             _context->hybrid_set->insert((const void*)nullptr);
         }
 
-        switch (type) {
+        switch (_column_return_type) {
         case TYPE_BOOLEAN: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
@@ -723,9 +729,29 @@ public:
             });
             break;
         }
+        case TYPE_IPV4: {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                int32_t tmp = column.intval();
+                set->insert(&tmp);
+            });
+            break;
+        }
+        case TYPE_IPV6: {
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                auto string_val = column.stringval();
+                StringParser::ParseResult result;
+                auto int128_val = StringParser::string_to_int<uint128_t>(
+                        string_val.c_str(), string_val.length(), &result);
+                DCHECK(result == StringParser::PARSE_SUCCESS);
+                set->insert(&int128_val);
+            });
+            break;
+        }
         default: {
             return Status::InternalError("not support assign to in filter, type: " +
-                                         type_to_string(type));
+                                         type_to_string(_column_return_type));
         }
         }
         return Status::OK();
@@ -748,15 +774,14 @@ public:
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status assign(const PMinMaxFilter* minmax_filter, bool contain_null) {
-        PrimitiveType type = to_primitive_type(minmax_filter->column_type());
-        _context->minmax_func.reset(create_minmax_filter(type));
+        _context->minmax_func.reset(create_minmax_filter(_column_return_type));
 
         if (contain_null) {
             _context->minmax_func->set_null_aware(true);
             _context->minmax_func->set_contain_null();
         }
 
-        switch (type) {
+        switch (_column_return_type) {
         case TYPE_BOOLEAN: {
             bool min_val = minmax_filter->min_val().boolval();
             bool max_val = minmax_filter->max_val().boolval();
@@ -874,6 +899,23 @@ public:
             auto max_val_ptr = _pool->add(new std::string(max_val_ref));
             StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
             StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
+            return _context->minmax_func->assign(&min_val, &max_val);
+        }
+        case TYPE_IPV4: {
+            int tmp_min = minmax_filter->min_val().intval();
+            int tmp_max = minmax_filter->max_val().intval();
+            return _context->minmax_func->assign(&tmp_min, &tmp_max);
+        }
+        case TYPE_IPV6: {
+            auto min_string_val = minmax_filter->min_val().stringval();
+            auto max_string_val = minmax_filter->max_val().stringval();
+            StringParser::ParseResult result;
+            auto min_val = StringParser::string_to_int<uint128_t>(min_string_val.c_str(),
+                                                                  min_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
+            auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
+                                                                  max_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
             return _context->minmax_func->assign(&min_val, &max_val);
         }
         default:
@@ -1168,7 +1210,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_request->set_opt_remote_rf(opt_remote_rf);
     merge_filter_request->set_is_pipeline(_state->enable_pipeline_exec);
     auto column_type = _wrapper->column_type();
-    merge_filter_request->set_column_type(to_proto(column_type));
+    RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
     merge_filter_callback->cntl_->ignore_eovercrowded();
 
@@ -1530,13 +1572,10 @@ template <class T>
 Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
-    PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
-    if (param->request->has_in_filter()) {
-        column_type = to_primitive_type(param->request->in_filter().column_type());
+    if (!param->request->has_column_type()) {
+        return Status::InternalError("unknown filter column type");
     }
-    if (param->request->has_column_type()) {
-        column_type = to_primitive_type(param->request->column_type());
-    }
+    PrimitiveType column_type = to_primitive_type(param->request->column_type());
     *wrapper = std::make_unique<RuntimePredicateWrapper>(pool, column_type, get_type(filter_type),
                                                          param->request->filter_id());
 
@@ -1754,9 +1793,21 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         });
         return;
     }
+    case TYPE_IPV4: {
+        batch_copy<IPv4>(filter, it, [](PColumnValue* column, const IPv4* value) {
+            column->set_intval(*reinterpret_cast<const int32_t*>(value));
+        });
+        return;
+    }
+    case TYPE_IPV6: {
+        batch_copy<IPv6>(filter, it, [](PColumnValue* column, const IPv6* value) {
+            column->set_stringval(LargeIntValue::to_string(*value));
+        });
+        return;
+    }
     default: {
-        DCHECK(false) << "unknown type";
-        break;
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PrimitiveType type {}", int(column_type));
     }
     }
 }
@@ -1872,9 +1923,22 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
                 std::string(max_string_value->data, max_string_value->size));
         break;
     }
+    case TYPE_IPV4: {
+        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
+        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
+        return;
+    }
+    case TYPE_IPV6: {
+        filter->mutable_min_val()->set_stringval(
+                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(min_data)));
+        filter->mutable_max_val()->set_stringval(
+                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(max_data)));
+        return;
+    }
     default: {
-        DCHECK(false) << "unknown type";
-        break;
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter meet invalid PrimitiveType type {}",
+                        int(_wrapper->column_type()));
     }
     }
 }
