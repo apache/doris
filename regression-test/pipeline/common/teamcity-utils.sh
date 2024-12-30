@@ -282,7 +282,7 @@ trigger_or_skip_build() {
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p1"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
         fi
     fi
 }
