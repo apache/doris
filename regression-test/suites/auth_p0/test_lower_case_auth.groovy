@@ -41,23 +41,21 @@ suite("test_lower_case_auth","p0,auth") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user2}""";
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user3}""";
-    }
-
-    try_sql("DROP USER ${user1}")
-    try_sql("DROP USER ${user2}")
-    try_sql("DROP USER ${user3}")
-    try_sql("DROP role ${role1}")
-    try_sql("DROP role ${role2}")
-    try_sql("DROP role ${role3}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
-    sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
-    sql """CREATE USER '${user3}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on regression_test to ${user1}"""
-    sql """grant select_priv on regression_test to ${user2}"""
-    sql """grant select_priv on regression_test to ${user3}"""
-    sql """create database ${dbName}"""
-    sql """create table ${dbName}.${tableName} (
+        try_sql("DROP USER ${user1}")
+        try_sql("DROP USER ${user2}")
+        try_sql("DROP USER ${user3}")
+        try_sql("DROP role ${role1}")
+        try_sql("DROP role ${role2}")
+        try_sql("DROP role ${role3}")
+        try_sql """drop database if exists ${dbName}"""
+        sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+        sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
+        sql """CREATE USER '${user3}' IDENTIFIED BY '${pwd}'"""
+        sql """grant select_priv on regression_test to ${user1}"""
+        sql """grant select_priv on regression_test to ${user2}"""
+        sql """grant select_priv on regression_test to ${user3}"""
+        sql """create database ${dbName}"""
+        sql """create table ${dbName}.${tableName} (
                 id BIGINT,
                 username VARCHAR(20)
             )
@@ -65,72 +63,165 @@ suite("test_lower_case_auth","p0,auth") {
             PROPERTIES (
                 "replication_num" = "1"
             );"""
-    sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmvName} 
+        sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmvName} 
                 BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
                 DISTRIBUTED BY RANDOM BUCKETS 1 
                 PROPERTIES ('replication_num' = '1') 
                 AS select username, sum(id) as sum_id from ${dbName}.${tableName} group by username"""
 
-    sql """grant Create_priv on ${dbName}.${mtmvName} to ${user1}"""
-    sql """grant Create_priv on ${dbName}.${mtmvName} to ${user2}"""
-    sql """grant Create_priv on ${dbName}.${mtmvName} to ${user3}"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to ${user1}"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to ${user2}"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to ${user3}"""
 
-    def res = sql """show all grants;"""
-    logger.info("res: " + res)
-    def count = 0
-    for (int i = 0; i < res.size(); i++) {
-        if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
-            assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
-            count ++
+        def res = sql """show all grants;"""
+        logger.info("res: " + res)
+        def count = 0
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            }
         }
-    }
-    assertTrue(count == 3)
+        assertTrue(count == 3)
 
-    sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user1}"""
-    sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user2}"""
-    sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user3}"""
+        sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user1}"""
+        sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user2}"""
+        sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user3}"""
 
-    res = sql """show all grants;"""
-    count = 0
-    for (int i = 0; i < res.size(); i++) {
-        if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
-            assertTrue(res[i][7] == null)
-            count ++
+        res = sql """show all grants;"""
+        count = 0
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == null)
+                count ++
+            }
         }
-    }
-    assertTrue(count == 3)
+        assertTrue(count == 3)
 
-    sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role1}'"""
-    sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role2}'"""
-    sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role3}'"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role1}'"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role2}'"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role3}'"""
 
-    sql """GRANT '${role1}' TO ${user1};"""
-    sql """GRANT '${role2}' TO ${user2};"""
-    sql """GRANT '${role3}' TO ${user3};"""
+        sql """GRANT '${role1}' TO ${user1};"""
+        sql """GRANT '${role2}' TO ${user2};"""
+        sql """GRANT '${role3}' TO ${user3};"""
 
 
-    res = sql """show all grants;"""
-    count = 0
-    for (int i = 0; i < res.size(); i++) {
-        if (res[i][0] == """'${user1}'@'%'""") {
-            assertTrue(res[i][3] == role1)
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
-            assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
-            count ++
-        } else if (res[i][0] == """'${user2}'@'%'""") {
-            assertTrue(res[i][3] == role2)
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
-            assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
-            count ++
-        } else if (res[i][0] == """'${user3}'@'%'""") {
-            assertTrue(res[i][3] == role3)
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
-            assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
-            count ++
+        res = sql """show all grants;"""
+        count = 0
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][0] == """'${user1}'@'%'""") {
+                assertTrue(res[i][3] == role1)
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            } else if (res[i][0] == """'${user2}'@'%'""") {
+                assertTrue(res[i][3] == role2)
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            } else if (res[i][0] == """'${user3}'@'%'""") {
+                assertTrue(res[i][3] == role3)
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            }
         }
+        assertTrue(count == 3)
+    } else {
+        try_sql("DROP USER ${user1}")
+        try_sql("DROP USER ${user2}")
+        try_sql("DROP USER ${user3}")
+        try_sql("DROP role ${role1}")
+        try_sql("DROP role ${role2}")
+        try_sql("DROP role ${role3}")
+        try_sql """drop database if exists ${dbName}"""
+        sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+        sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
+        sql """CREATE USER '${user3}' IDENTIFIED BY '${pwd}'"""
+        sql """grant select_priv on regression_test to ${user1}"""
+        sql """grant select_priv on regression_test to ${user2}"""
+        sql """grant select_priv on regression_test to ${user3}"""
+        sql """create database ${dbName}"""
+        sql """create table ${dbName}.${tableName} (
+                id BIGINT,
+                username VARCHAR(20)
+            )
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );"""
+        sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmvName} 
+                BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
+                DISTRIBUTED BY RANDOM BUCKETS 1 
+                PROPERTIES ('replication_num' = '1') 
+                AS select username, sum(id) as sum_id from ${dbName}.${tableName} group by username"""
+
+        sql """grant Create_priv on ${dbName}.${mtmvName} to ${user1}"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to ${user2}"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to ${user3}"""
+
+        def res = sql """show all grants;"""
+        logger.info("res: " + res)
+        def count = 0
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            }
+        }
+        assertTrue(count == 3)
+
+        sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user1}"""
+        sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user2}"""
+        sql """revoke Create_priv on ${dbName}.${mtmvName} from ${user3}"""
+
+        res = sql """show all grants;"""
+        count = 0
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == null)
+                count ++
+            }
+        }
+        assertTrue(count == 3)
+
+        sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role1}'"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role2}'"""
+        sql """grant Create_priv on ${dbName}.${mtmvName} to role '${role3}'"""
+
+        sql """GRANT '${role1}' TO ${user1};"""
+        sql """GRANT '${role2}' TO ${user2};"""
+        sql """GRANT '${role3}' TO ${user3};"""
+
+
+        res = sql """show all grants;"""
+        count = 0
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][0] == """'${user1}'@'%'""") {
+                assertTrue(res[i][3] == role1)
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            } else if (res[i][0] == """'${user2}'@'%'""") {
+                assertTrue(res[i][3] == role2)
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            } else if (res[i][0] == """'${user3}'@'%'""") {
+                assertTrue(res[i][3] == role3)
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+                assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
+                count ++
+            }
+        }
+        assertTrue(count == 3)
     }
-    assertTrue(count == 3)
+
+
 
 }
