@@ -968,15 +968,14 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     InvertedIndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
         io::FileWriterPtr idx_file_writer;
+        std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
             InvertedIndexStorageFormatPB::V1) {
-            std::string prefix =
-                    std::string {InvertedIndexDescriptor::get_index_file_path_prefix(path)};
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
             RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
         }
         index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _context.fs(), path, _context.rowset_id.to_string(), _num_segcompacted,
+                _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));
     }
