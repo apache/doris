@@ -150,37 +150,49 @@ public:
     }
 
     static inline int64_t get_je_all_arena_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
         return get_jemallctl_value<int64_t>(
                 fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
     }
 
     static inline int64_t get_je_all_arena_extents_metrics(int64_t page_size_index,
                                                            const std::string& extent_type) {
+#ifdef USE_JEMALLOC
         return get_jemallctl_value<int64_t>(fmt::format(
                 "stats.arenas.{}.extents.{}.{}", MALLCTL_ARENAS_ALL, page_size_index, extent_type));
+#endif
+        return 0;
     }
 
     static inline void je_purge_all_arena_dirty_pages() {
+#ifdef USE_JEMALLOC
         // https://github.com/jemalloc/jemalloc/issues/2470
         // If there is a core dump here, it may cover up the real stack, if stack trace indicates heap corruption
         // (which led to invalid jemalloc metadata), like double free or use-after-free in the application.
         // Try sanitizers such as ASAN, or build jemalloc with --enable-debug to investigate further.
         action_jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL));
+#endif
     }
 
     static inline void je_reset_all_arena_dirty_decay_ms(ssize_t dirty_decay_ms) {
+#ifdef USE_JEMALLOC
         // Each time this interface is set, all currently unused dirty pages are considered
         // to have fully decayed, which causes immediate purging of all unused dirty pages unless
         // the decay time is set to -1
         set_jemallctl_value<ssize_t>(fmt::format("arena.{}.dirty_decay_ms", MALLCTL_ARENAS_ALL),
                                      dirty_decay_ms);
+#endif
     }
 
     static inline void je_decay_all_arena_dirty_pages() {
+#ifdef USE_JEMALLOC
         // Trigger decay-based purging of unused dirty/muzzy pages for arena <i>, or for all arenas if <i> equals
         // MALLCTL_ARENAS_ALL. The proportion of unused dirty/muzzy pages to be purged depends on the
         // current time; see opt.dirty_decay_ms and opt.muzy_decay_ms for details.
         action_jemallctl(fmt::format("arena.{}.decay", MALLCTL_ARENAS_ALL));
+#endif
     }
 
     // the limit of `tcache` is the number of pages, not the total number of page bytes.

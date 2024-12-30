@@ -490,8 +490,6 @@ int64_t MemTrackerLimiter::free_top_memory_query(
         while (!min_pq.empty()) {
             TUniqueId cancelled_queryid = label_to_queryid(min_pq.top().second);
             if (cancelled_queryid == TUniqueId()) {
-                LOG(WARNING) << log_prefix
-                             << "Task ID parsing failed, label: " << min_pq.top().second;
                 min_pq.pop();
                 continue;
             }
