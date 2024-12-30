@@ -400,10 +400,18 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         if constexpr (with_other_conjuncts) {
             // _null_flags is true means build or probe side of the row is null
             memcpy(mark_null_map, _null_flags.data(), row_count);
-        } else if (null_map) {
-            // probe side of the row is null, so the mark sign should also be null.
-            for (size_t i = 0; i != row_count; ++i) {
-                mark_null_map[i] |= null_map[_probe_indexs[i]];
+        } else {
+            if (null_map) {
+                // probe side of the row is null, so the mark sign should also be null.
+                for (size_t i = 0; i != row_count; ++i) {
+                    mark_null_map[i] |= null_map[_probe_indexs[i]];
+                }
+            }
+            if (!with_other_conjuncts && *_has_null_in_build_side) {
+                // _has_null_in_build_side will change false to null when row not matched
+                for (size_t i = 0; i != row_count; ++i) {
+                    mark_null_map[i] |= _build_indexs[i] == 0;
+                }
             }
         }
     } else {
@@ -432,8 +440,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             // null & false => false
             mark_null_map[i] &= other_filter_data[i];
         }
-    } else if (*_has_null_in_build_side && is_null_aware_join) {
-        memset(mark_null_map, 1, row_count);
     }
 
     auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
