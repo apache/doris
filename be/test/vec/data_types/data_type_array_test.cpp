@@ -98,8 +98,88 @@ protected:
                 array_float,     array_double,     array_ipv4,       array_ipv6,    array_date,
                 array_datetime,  array_datev2,     array_datetimev2, array_varchar, array_decimal,
                 array_decimal64, array_decimal128, array_decimal256};
+        // array<array<tinyint>>
+        BaseInputTypeSet array_array_tinyint = {TypeIndex::Array, TypeIndex::Array,
+                                                TypeIndex::Int8};
+        // array<array<smallint>>
+        BaseInputTypeSet array_array_smallint = {TypeIndex::Array, TypeIndex::Array,
+                                                 TypeIndex::Int16};
+        // array<array<int>>
+        BaseInputTypeSet array_array_int = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Int32};
+        // array<array<bigint>>
+        BaseInputTypeSet array_array_bigint = {TypeIndex::Array, TypeIndex::Array,
+                                               TypeIndex::Int64};
+        // array<array<largeint>>
+        BaseInputTypeSet array_array_largeint = {TypeIndex::Array, TypeIndex::Array,
+                                                 TypeIndex::Int128};
+        // array<array<float>>
+        BaseInputTypeSet array_array_float = {TypeIndex::Array, TypeIndex::Array,
+                                              TypeIndex::Float32};
+        // array<array<double>>
+        BaseInputTypeSet array_array_double = {TypeIndex::Array, TypeIndex::Array,
+                                               TypeIndex::Float64};
+        // array<array<ipv4>>
+        BaseInputTypeSet array_array_ipv4 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::IPv4};
+        // array<array<ipv6>>
+        BaseInputTypeSet array_array_ipv6 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::IPv6};
+        // array<array<date>>
+        BaseInputTypeSet array_array_date = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Date};
+        // array<array<datetime>>
+        BaseInputTypeSet array_array_datetime = {TypeIndex::Array, TypeIndex::Array,
+                                                 TypeIndex::DateTime};
+        // array<array<datev2>>
+        BaseInputTypeSet array_array_datev2 = {TypeIndex::Array, TypeIndex::Array,
+                                               TypeIndex::DateV2};
+        // array<array<datetimev2>>
+        BaseInputTypeSet array_array_datetimev2 = {TypeIndex::Array, TypeIndex::Array,
+                                                   TypeIndex::DateTimeV2};
+        // array<array<varchar>>
+        BaseInputTypeSet array_array_varchar = {TypeIndex::Array, TypeIndex::Array,
+                                                TypeIndex::String};
+        // array<array<decimal32(9, 5)>> UT
+        BaseInputTypeSet array_array_decimal = {TypeIndex::Array, TypeIndex::Array,
+                                                TypeIndex::Decimal32};
+        // array<array<decimal64(18, 9)>> UT
+        BaseInputTypeSet array_array_decimal64 = {TypeIndex::Array, TypeIndex::Array,
+                                                  TypeIndex::Decimal64};
+        // array<array<decimal128(38, 20)>> UT
+        BaseInputTypeSet array_array_decimal128 = {TypeIndex::Array, TypeIndex::Array,
+                                                   TypeIndex::Decimal128V3};
+        // array<array<decimal256(76, 40)>> UT
+        BaseInputTypeSet array_array_decimal256 = {TypeIndex::Array, TypeIndex::Array,
+                                                   TypeIndex::Decimal256};
+        // array<map<char,double>>
+        BaseInputTypeSet array_map_char_double = {TypeIndex::Array, TypeIndex::Map,
+                                                  TypeIndex::String, TypeIndex::Float64};
+        // test_array_map<datetime,decimal<76,56>>.csv
+        BaseInputTypeSet array_map_datetime_decimal = {TypeIndex::Array, TypeIndex::Map,
+                                                       TypeIndex::DateTime, TypeIndex::Decimal256};
+        // test_array_map<ipv4,ipv6>.csv
+        BaseInputTypeSet array_map_ipv4_ipv6 = {TypeIndex::Array, TypeIndex::Map, TypeIndex::IPv4,
+                                                TypeIndex::IPv6};
+        // test_array_map<largeInt,string>.csv
+        BaseInputTypeSet array_map_largeint_string = {TypeIndex::Array, TypeIndex::Map,
+                                                      TypeIndex::Int128, TypeIndex::String};
+        // array<struct<f1:int,f2:date,f3:decimal,f4:string,f5:double,f6:ipv4,f7:ipv6>>
+        BaseInputTypeSet array_struct = {
+                TypeIndex::Array,   TypeIndex::Struct,    TypeIndex::Int32,
+                TypeIndex::Date,    TypeIndex::Decimal32, TypeIndex::String,
+                TypeIndex::Float64, TypeIndex::IPv4,      TypeIndex::IPv6};
 
-        array_descs.reserve(array_typeIndex.size());
+        std::vector<BaseInputTypeSet> array_array_typeIndex = {
+                array_array_tinyint,    array_array_smallint,   array_array_int,
+                array_array_bigint,     array_array_largeint,   array_array_float,
+                array_array_double,     array_array_ipv4,       array_array_ipv6,
+                array_array_date,       array_array_datetime,   array_array_datev2,
+                array_array_datetimev2, array_array_varchar,    array_array_decimal,
+                array_array_decimal64,  array_array_decimal128, array_array_decimal256};
+        std::vector<BaseInputTypeSet> array_map_typeIndex = {
+                array_map_char_double, array_map_datetime_decimal, array_map_ipv4_ipv6,
+                array_map_largeint_string};
+        std::vector<BaseInputTypeSet> array_struct_typeIndex = {array_struct};
+
+        array_descs.reserve(array_typeIndex.size() + array_array_typeIndex.size() +
+                            array_map_typeIndex.size() + array_struct_typeIndex.size());
         for (int i = 0; i < array_typeIndex.size(); i++) {
             array_descs.push_back(ut_type::UTDataTypeDescs());
             InputTypeSet input_types {};
@@ -108,12 +188,67 @@ protected:
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(input_types, array_descs[i]));
         }
+        for (int i = 0; i < array_array_typeIndex.size(); i++) {
+            array_descs.push_back(ut_type::UTDataTypeDescs());
+            InputTypeSet input_types {};
+            input_types.push_back(array_array_typeIndex[i][0]);
+            input_types.push_back(Nullable {static_cast<TypeIndex>(array_array_typeIndex[i][1])});
+            input_types.push_back(Nullable {static_cast<TypeIndex>(array_array_typeIndex[i][2])});
+            EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
+            EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
+            EXPECT_TRUE(parse_ut_data_type(input_types, array_descs[i + array_typeIndex.size()]));
+        }
+
+        for (int i = 0; i < array_map_typeIndex.size(); i++) {
+            array_descs.push_back(ut_type::UTDataTypeDescs());
+            InputTypeSet input_types {};
+            input_types.push_back(array_map_typeIndex[i][0]); // array
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_map_typeIndex[i][1])}); // map
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_map_typeIndex[i][2])}); // key
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_map_typeIndex[i][3])}); // val
+            EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
+            EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
+            EXPECT_TRUE(parse_ut_data_type(
+                    input_types,
+                    array_descs[i + array_typeIndex.size() + array_array_typeIndex.size()]));
+        }
+
+        for (int i = 0; i < array_struct_typeIndex.size(); i++) {
+            array_descs.push_back(ut_type::UTDataTypeDescs());
+            InputTypeSet input_types {};
+            input_types.push_back(array_struct_typeIndex[i][0]); // arr
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][1])}); // struct
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][2])}); // f1
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][3])}); // f2
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][4])}); // f3
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][5])}); // f4
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][6])}); // f5
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][7])}); // f6
+            input_types.push_back(
+                    Nullable {static_cast<TypeIndex>(array_struct_typeIndex[i][8])}); // f7
+
+            EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
+            EXPECT_TRUE(parse_ut_data_type(
+                    input_types,
+                    array_descs[i + array_typeIndex.size() + array_array_typeIndex.size() +
+                                array_map_typeIndex.size()]));
+        }
 
         // create column_array for each data type
         // step2. according to the datatype to make column_array
         //          && load data from csv file into column_array
         EXPECT_EQ(array_descs.size(), data_files.size());
-        for (int i = 0; i < array_typeIndex.size(); i++) {
+        for (int i = 0; i < array_descs.size(); i++) {
             auto& desc = array_descs[i];
             auto& data_file = data_files[i];
             // first is array type
@@ -135,24 +270,48 @@ protected:
     }
 
     std::string data_file_dir = "regression-test/data/nereids_function_p0/array/";
-    vector<string> data_files = {data_file_dir + "test_array_tinyint.csv",
-                                 data_file_dir + "test_array_smallint.csv",
-                                 data_file_dir + "test_array_int.csv",
-                                 data_file_dir + "test_array_bigint.csv",
-                                 data_file_dir + "test_array_largeint.csv",
-                                 data_file_dir + "test_array_float.csv",
-                                 data_file_dir + "test_array_double.csv",
-                                 data_file_dir + "test_array_ipv4.csv",
-                                 data_file_dir + "test_array_ipv6.csv",
-                                 data_file_dir + "test_array_date.csv",
-                                 data_file_dir + "test_array_datetime.csv",
-                                 data_file_dir + "test_array_date.csv",
-                                 data_file_dir + "test_array_datetimev2(6).csv",
-                                 data_file_dir + "test_array_varchar(65535).csv",
-                                 data_file_dir + "test_array_decimalv3(7,4).csv",
-                                 data_file_dir + "test_array_decimalv3(16,10).csv",
-                                 data_file_dir + "test_array_decimalv3(38,30).csv",
-                                 data_file_dir + "test_array_decimalv3(76,56).csv"};
+
+    vector<string> data_files = {
+            // array-scalar
+            data_file_dir + "test_array_tinyint.csv", data_file_dir + "test_array_smallint.csv",
+            data_file_dir + "test_array_int.csv", data_file_dir + "test_array_bigint.csv",
+            data_file_dir + "test_array_largeint.csv", data_file_dir + "test_array_float.csv",
+            data_file_dir + "test_array_double.csv", data_file_dir + "test_array_ipv4.csv",
+            data_file_dir + "test_array_ipv6.csv", data_file_dir + "test_array_date.csv",
+            data_file_dir + "test_array_datetime.csv", data_file_dir + "test_array_date.csv",
+            data_file_dir + "test_array_datetimev2(6).csv",
+            data_file_dir + "test_array_varchar(65535).csv",
+            data_file_dir + "test_array_decimalv3(7,4).csv",
+            data_file_dir + "test_array_decimalv3(16,10).csv",
+            data_file_dir + "test_array_decimalv3(38,30).csv",
+            data_file_dir + "test_array_decimalv3(76,56).csv",
+            // array-array
+            data_file_dir + "test_array_array_tinyint.csv",
+            data_file_dir + "test_array_array_smallint.csv",
+            data_file_dir + "test_array_array_int.csv",
+            data_file_dir + "test_array_array_bigint.csv",
+            data_file_dir + "test_array_array_largeint.csv",
+            data_file_dir + "test_array_array_float.csv",
+            data_file_dir + "test_array_array_double.csv",
+            data_file_dir + "test_array_array_ipv4.csv",
+            data_file_dir + "test_array_array_ipv6.csv",
+            data_file_dir + "test_array_array_date.csv",
+            data_file_dir + "test_array_array_datetime.csv",
+            data_file_dir + "test_array_array_date.csv",
+            data_file_dir + "test_array_array_datetimev2(5).csv",
+            data_file_dir + "test_array_array_varchar(65535).csv",
+            data_file_dir + "test_array_array_decimalv3(1,0).csv",
+            data_file_dir + "test_array_array_decimalv3(27,9).csv",
+            data_file_dir + "test_array_array_decimalv3(38,30).csv",
+            data_file_dir + "test_array_array_decimalv3(76,56).csv",
+            // array-map
+            data_file_dir + "test_array_map<char,double>.csv",
+            data_file_dir + "test_array_map<datetime,decimal<76,56>>.csv",
+            data_file_dir + "test_array_map<ipv4,ipv6>.csv",
+            data_file_dir + "test_array_map<largeInt,string>.csv",
+            // array-struct
+            data_file_dir + "test_array_struct.csv"};
+
     vector<ut_type::UTDataTypeDescs> array_descs; // array<> descs matrix
     MutableColumns array_columns;                 // column_array list
     DataTypes array_types;
@@ -265,6 +424,7 @@ TEST_F(DataTypeArrayTest, SerdeHiveTextAndJsonFormatTest) {
 }
 
 TEST_F(DataTypeArrayTest, SerdePbTest) {
+    // fix serde pb for read decimal64 not support
     CommonDataTypeSerdeTest::assert_pb_format(array_columns, serdes);
 }
 
@@ -283,15 +443,38 @@ TEST_F(DataTypeArrayTest, SerdeArrowTest) {
     for (int i = 0; i < 17; i++) {
         array_cols.push_back(array_columns[i]->get_ptr());
     }
+    for (int i = 18; i < 35; i++) {
+        array_cols.push_back(array_columns[i]->get_ptr());
+    }
+    array_cols.push_back(array_columns[36]->get_ptr());
     DataTypes types;
     for (int i = 0; i < 17; i++) {
         types.push_back(array_types[i]);
     }
+    for (int i = 18; i < 35; i++) {
+        types.push_back(array_types[i]);
+    }
+    types.push_back(array_types[36]);
     DataTypeSerDeSPtrs serde;
     for (int i = 0; i < 17; i++) {
         serde.push_back(serdes[i]);
     }
+    for (int i = 18; i < 35; i++) {
+        serde.push_back(serdes[i]);
+    }
+    serde.push_back(serdes[36]);
     CommonDataTypeSerdeTest::assert_arrow_format(array_cols, serde, types);
+    {
+        for (int i = 38; i < 41; ++i) {
+            MutableColumns error_cols;
+            error_cols.push_back(array_columns[i]->get_ptr());
+            DataTypeSerDeSPtrs serde1;
+            serde1.push_back(serdes[i]);
+            DataTypes typ;
+            typ.push_back(array_types[i]);
+            EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, serde1, typ));
+        }
+    }
 }
 
 //================== datatype for array ut test ==================
