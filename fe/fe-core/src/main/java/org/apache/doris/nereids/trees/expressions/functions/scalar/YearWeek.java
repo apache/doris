@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -87,6 +88,14 @@ public class YearWeek extends ScalarFunction
     }
 
     @Override
+    public boolean isMonotonic(Literal lower, Literal upper) {
+        if (arity() == 1) {
+            return true;
+        }
+        return child(1) instanceof Literal;
+    }
+
+    @Override
     public boolean isPositive() {
         return true;
     }
@@ -98,6 +107,9 @@ public class YearWeek extends ScalarFunction
 
     @Override
     public Expression withConstantArgs(Expression literal) {
+        if (arity() == 1) {
+            return new YearWeek(literal);
+        }
         return new YearWeek(literal, child(1));
     }
 }
