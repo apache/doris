@@ -317,10 +317,10 @@ Status VMetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_
 }
 
 Status VMetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                     TFetchSchemaTableDataRequest* request) {
+                                                  TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_hudi_metadata_request";
-    if (!meta_scan_range.__isset.iceberg_params) {
-        return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
+    if (!meta_scan_range.__isset.hudi_params) {
+        return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
     }
 
     // create request
@@ -329,8 +329,8 @@ Status VMetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_sca
 
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::ICEBERG);
-    metadata_table_params.__set_iceberg_metadata_params(meta_scan_range.iceberg_params);
+    metadata_table_params.__set_metadata_type(TMetadataType::HUDI);
+    metadata_table_params.__set_hudi_metadata_params(meta_scan_range.hudi_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

@@ -134,7 +134,8 @@ public class HudiCachedMetaClientProcessor {
                 return false;
             }
             HudiCachedClientKey that = (HudiCachedClientKey) o;
-            return Objects.equals(dbName, that.dbName) && Objects.equals(tbName, that.tbName);
+            return Objects.equals(dbName, that.dbName) && Objects.equals(tbName, that.tbName)
+                    && Objects.equals(hudiBasePath, that.hudiBasePath);
         }
 
         @Override
@@ -148,11 +149,5 @@ public class HudiCachedMetaClientProcessor {
         res.put("hudi_meta_client_cache", ExternalMetaCacheMgr.getCacheStats(hudiTableMetaClientCache.stats(),
                 hudiTableMetaClientCache.estimatedSize()));
         return res;
-    }
-
-    public HoodieTimeline getTimeline(THudiMetadataParams params) {
-        HoodieTableMetaClient hoodieTableMetaClient = getHoodieTableMetaClient(
-                params.getDatabase(), params.getTable(), null, null);
-        return hoodieTableMetaClient.getCommitsTimeline();
     }
 }

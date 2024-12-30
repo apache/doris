@@ -107,6 +107,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.iceberg.Snapshot;
@@ -397,14 +398,17 @@ public class MetadataGenerator {
         }
         HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
+        String hudiBasePathString = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(hudiMetadataParams.getDatabase(), hudiMetadataParams.getTable()).getSd().getLocation();
+        Configuration conf = ((HMSExternalCatalog) catalog).getConfiguration();
 
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         switch (hudiQueryType) {
             case TIMELINE:
-                HoodieTimeline timeline;
-                timeline = hudiMetadataCache.getTimeline(hudiMetadataParams);
+                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(hudiMetadataParams.getDatabase(),
+                        hudiMetadataParams.getTable(), hudiBasePathString, conf).getActiveTimeline();
                 for (HoodieInstant instant : timeline.getInstants()) {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
@@ -1460,7 +1464,7 @@ public class MetadataGenerator {
                         trow.addToColumnValue(new TCell().setStringVal(
                                 item.getItemsSql())); // PARITION DESC
                     }
-                    trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount())); //TABLE_ROWS (PARTITION row)
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount())); // TABLE_ROWS (PARTITION)
                     trow.addToColumnValue(new TCell().setLongVal(partition.getAvgRowLength())); // AVG_ROW_LENGTH
                     trow.addToColumnValue(new TCell().setLongVal(partition.getDataLength())); // DATA_LENGTH
                     trow.addToColumnValue(new TCell().setIntVal(0)); // MAX_DATA_LENGTH (not available)
