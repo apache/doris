@@ -833,7 +833,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             if ((top_tablets.size() >= config::compaction_num_per_round &&
                  current_compaction_score > top_tablets.top().score) ||
                 top_tablets.size() < config::compaction_num_per_round) {
-                    top_tablets.push(ts);
+                top_tablets.push(ts);
                 if (top_tablets.size() > config::compaction_num_per_round) {
                     top_tablets.pop();
                 }
