@@ -269,7 +269,7 @@ void je_reset_dirty_decay() {
     }
 
     if (je_reset_dirty_decay_sleep_time_ms <= 0) {
-        bool new_je_enable_dirty_page;
+        bool new_je_enable_dirty_page = true;
         if (doris::MemInfo::je_enable_dirty_page) {
             // if Jemalloc dirty page is enabled and process memory exceed soft mem limit,
             // disable Jemalloc dirty page.
