@@ -199,6 +199,9 @@ public:
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
         parse_id(queryid, &querytid);
+        if (querytid == TUniqueId()) {
+            LOG(WARNING) << "Task ID parsing failed, label: " << label;
+        }
         return querytid;
     }
 

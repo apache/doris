@@ -368,16 +368,19 @@ void Daemon::je_purge_dirty_pages_thread() const {
         std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
         while (_stop_background_threads_latch.count() != 0 &&
                !doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
-            doris::MemInfo::je_purge_dirty_pages_cv.wait_for(l, std::chrono::seconds(1));
+            doris::MemInfo::je_purge_dirty_pages_cv.wait_for(l, std::chrono::milliseconds(100));
         }
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
+
+        Defer defer {[&]() {
+            doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+        }};
         if (config::disable_memory_gc) {
             continue;
         }
         doris::MemInfo::je_purge_all_arena_dirty_pages();
-        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
     } while (true);
 }
 
