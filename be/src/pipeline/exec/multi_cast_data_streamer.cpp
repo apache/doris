@@ -51,13 +51,6 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
     MultiCastBlock* multi_cast_block = nullptr;
     {
         std::lock_guard l(_mutex);
-
-        if (!_cached_blocks[sender_idx].empty()) {
-            *block = std::move(_cached_blocks[sender_idx].front());
-            _cached_blocks[sender_idx].erase(_cached_blocks[sender_idx].begin());
-            return Status::OK();
-        }
-
         for (auto it = _spill_readers[sender_idx].begin();
              it != _spill_readers[sender_idx].end();) {
             if ((*it)->all_data_read) {
@@ -65,6 +58,14 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
             } else {
                 it++;
             }
+        }
+
+        if (!_cached_blocks[sender_idx].empty()) {
+            *block = std::move(_cached_blocks[sender_idx].front());
+            _cached_blocks[sender_idx].erase(_cached_blocks[sender_idx].begin());
+
+            *eos = _cached_blocks[sender_idx].empty() && _spill_readers[sender_idx].empty() && _eos;
+            return Status::OK();
         }
 
         if (!_spill_readers[sender_idx].empty()) {
