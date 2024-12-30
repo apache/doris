@@ -201,6 +201,16 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
         qt_select_5_1 """ SELECT count(cast(v['b'] as int)) FROM ${tableName} where cast(v['b'] as int) = 42004;"""
         qt_select_6_1 """ SELECT count(cast(v['b'] as int)) FROM ${tableName} where cast(v['b'] as int) = 42005;"""
         qt_select_all """SELECT k, v['a'], v['b'], v['xxxx'], v['point'], v['ddddd'] from ${tableName} where (cast(v['point'] as int) = 1);"""
+
+        sql "truncate table ${tableName}"
+        sql """insert into ${tableName} values (1, '{"1" : 1, "2" : 2, "3" : 3, "4": "4", "a" : 1, "aa":2, "aaa" : 3,"aaaaaa":1234, ".a." : 1}')"""
+        sql """insert into ${tableName} values (1, '{"1" : 1, "2" : 2, "3" : 3, "4": "4", "a" : 1, "aa":2, "aaa" : 3,"aaaaaa":1234, ".a." : 1}')"""
+        sql """insert into ${tableName} values (1, '{"1" : 1, "2" : 2, "3" : 3, "4": "4", "a" : 1, "aa":2, "aaa" : 3,"aaaaaa":1234, ".a." : 1}')"""
+        sql """insert into ${tableName} values (1, '{"1" : 1, "2" : 2, "3" : 3, "4": "4", "a" : 1, "aa":2, "aaa" : 3,"aaaaaa":1234, ".a." : 1}')"""
+        qt_sql """select v['aaaa'] from ${tableName}"""
+        qt_sql """select v['aaa'] from ${tableName}"""
+        qt_sql """select v['aa'] from ${tableName}"""
+        qt_sql """select v['1'] from ${tableName}"""
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
         GetDebugPoint().disableDebugPointForAllBEs("variant_column_writer_impl._get_subcolumn_paths_from_stats")

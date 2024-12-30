@@ -209,7 +209,6 @@ public:
 
                 for (int idx = 0; idx < columns; idx++) {
                     auto column = finalized_block.get_by_position(idx).column->assume_mutable();
-
                     for (int j = 0; j < limit; j++) {
                         auto row_ref = pushed_row_refs[i + j];
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);

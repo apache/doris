@@ -299,14 +299,14 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator,
                                                       std::unique_ptr<ColumnIterator>(inner_iter));
             return Status::OK();
         }
-        // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b
+        // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
         // then we must read the sparse columns
         bool prefix_existed_in_sparse_column =
                 _statistics &&
                 (_statistics->sparse_column_non_null_size.lower_bound(relative_path.get_path()) !=
                  _statistics->sparse_column_non_null_size.end()) &&
                 _statistics->sparse_column_non_null_size.lower_bound(relative_path.get_path())
-                        ->first.starts_with(relative_path.get_path());
+                        ->first.starts_with(relative_path.get_path() + ".");
 
         // Otherwise the prefix is not exist and the sparse column size is reached limit
         // which means the path maybe exist in sparse_column
