@@ -27,9 +27,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
                     random_ip.add(result[i][1])
                 }
             }
-            def random = new Random()
-            def ip_index = random.nextInt(random_ip.size())
-            return random_ip[ip_index]
+            if (random_ip.size() > 0) {
+                def random = new Random()
+                def ip_index = random.nextInt(random_ip.size())
+                return random_ip[ip_index]
+            }
         }
         return "null"
     }
