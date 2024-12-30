@@ -520,16 +520,18 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             Block::erase_useless_column(block, origin_column_num);
 
             if (!pre_eof) {
-                if (pre_raw_read_rows >= config::doris_scanner_row_num) {
-                    break;
-                }
                 // If continuous batches are skipped, we can cache them to skip a whole page
                 _cached_filtered_rows += pre_read_rows;
+                if (pre_raw_read_rows >= config::doris_scanner_row_num) {
+                    *read_rows = 0;
+                    _convert_dict_cols_to_string_cols(block);
+                    return Status::OK();
+                }
             } else { // pre_eof
                 // If select_vector_ptr->filter_all() and pre_eof, we can skip whole row group.
                 *read_rows = 0;
                 *batch_eof = true;
-                _lazy_read_filtered_rows += pre_read_rows;
+                _lazy_read_filtered_rows += (pre_read_rows + _cached_filtered_rows);
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
