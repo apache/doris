@@ -48,6 +48,7 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -612,6 +613,18 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
         Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
+
+        if (DebugPointUtil.isEnable("SchemaChangeJobV2.runRunningJob.beforeTableLock.block")) {
+            while (DebugPointUtil.isEnable("SchemaChangeJobV2.runRunningJob.beforeTableLock.block")) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave SchemaChangeJobV2.runRunningJob.beforeTableLock.block");
+        }
+
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.

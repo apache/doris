@@ -24,6 +24,7 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -333,6 +334,17 @@ public class Partition extends MetaObject {
      * Also move it to idToVisibleRollupIndex if it is not the base index.
      */
     public boolean visualiseShadowIndex(long shadowIndexId, boolean isBaseIndex) {
+        if (DebugPointUtil.isEnable("visualiseShadowIndex.block")) {
+            while (DebugPointUtil.isEnable("visualiseShadowIndex.block")) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave visualiseShadowIndex.block");
+        }
+
         MaterializedIndex shadowIdx = idToShadowIndex.remove(shadowIndexId);
         if (shadowIdx == null) {
             return false;
