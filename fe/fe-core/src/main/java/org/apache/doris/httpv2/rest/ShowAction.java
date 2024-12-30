@@ -103,6 +103,9 @@ public class ShowAction extends RestBaseController {
     //http://username:password@192.168.1.1:8030/api/show_proc?path=/
     @RequestMapping(path = "/api/show_proc", method = RequestMethod.GET)
     public Object show_proc(HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
         executeCheckPassword(request, response);
         // check authority
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
