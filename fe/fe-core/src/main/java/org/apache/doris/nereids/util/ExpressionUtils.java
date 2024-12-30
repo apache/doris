@@ -174,12 +174,18 @@ public class ExpressionUtils {
         return optionalAnd(ImmutableList.copyOf(collection));
     }
 
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Collection<Expression> expressions) {
         return combineAsLeftDeepTree(And.class, expressions);
     }
 
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Expression... expressions) {
-        return combineAsLeftDeepTree(And.class, Lists.newArrayList(expressions));
+        return and(Lists.newArrayList(expressions));
     }
 
     public static Optional<Expression> optionalOr(List<Expression> expressions) {
@@ -190,10 +196,16 @@ public class ExpressionUtils {
         }
     }
 
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Expression... expressions) {
-        return combineAsLeftDeepTree(Or.class, Lists.newArrayList(expressions));
+        return or(Lists.newArrayList(expressions));
     }
 
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Collection<Expression> expressions) {
         return combineAsLeftDeepTree(Or.class, expressions);
     }
