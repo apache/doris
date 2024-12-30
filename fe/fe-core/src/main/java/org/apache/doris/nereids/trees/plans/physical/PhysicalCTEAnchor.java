@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -138,8 +139,10 @@ public class PhysicalCTEAnchor<
     }
 
     @Override
-    public PhysicalCTEAnchor<Plan, Plan> resetLogicalProperties() {
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, null, physicalProperties,
+    public PhysicalCTEAnchor<Plan, Plan> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child(0), child(1));
     }
 }

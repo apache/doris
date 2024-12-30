@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -118,8 +119,10 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     }
 
     @Override
-    public PhysicalQuickSort<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, null, physicalProperties,
+    public PhysicalQuickSort<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
     }
 }

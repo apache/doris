@@ -27,6 +27,7 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -253,10 +254,12 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     }
 
     @Override
-    public PhysicalOlapTableSink<Plan> resetLogicalProperties() {
+    public PhysicalOlapTableSink<Plan> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
                 singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
-                syncMvWhereClauses, targetTableSlots, groupExpression, null, physicalProperties,
+                syncMvWhereClauses, targetTableSlots, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
     }
 }

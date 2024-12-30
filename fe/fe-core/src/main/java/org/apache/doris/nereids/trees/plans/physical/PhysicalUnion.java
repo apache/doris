@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -123,8 +124,10 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     }
 
     @Override
-    public PhysicalUnion resetLogicalProperties() {
+    public PhysicalUnion reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
-                Optional.empty(), null, physicalProperties, statistics, children);
+                Optional.empty(), newLogicalProperties, physicalProperties, statistics, children);
     }
 }

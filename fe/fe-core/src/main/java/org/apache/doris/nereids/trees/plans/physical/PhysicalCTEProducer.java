@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -135,8 +136,10 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     }
 
     @Override
-    public PhysicalCTEProducer<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalCTEProducer<>(cteId, groupExpression, null, physicalProperties,
+    public PhysicalCTEProducer<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        return new PhysicalCTEProducer<>(cteId, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
     }
 }

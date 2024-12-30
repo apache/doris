@@ -598,6 +598,18 @@ public class DataTrait {
             return slotUniformValue.containsKey(slot) && slotUniformValue.get(slot).isPresent();
         }
 
+        public Optional<Expression> getUniformValue(Slot slot) {
+            if (slotUniformValue.containsKey(slot)) {
+                if (slotUniformValue.get(slot).isPresent()) {
+                    return Optional.of(slotUniformValue.get(slot).get());
+                } else {
+                    return Optional.empty();
+                }
+            } else {
+                return null;
+            }
+        }
+
         @Override
         public String toString() {
             return "{" + slotUniformValue + "}";

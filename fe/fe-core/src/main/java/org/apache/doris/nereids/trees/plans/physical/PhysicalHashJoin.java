@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -219,9 +220,11 @@ public class PhysicalHashJoin<
     }
 
     @Override
-    public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
+    public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression, null,
+                markJoinConjuncts, hint, markJoinSlotReference, groupExpression, newLogicalProperties,
                 physicalProperties, statistics, left(), right());
     }
 }

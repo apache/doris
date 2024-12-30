@@ -22,13 +22,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 
 /**
- * merge consecutive projects
+ * recompute output in logical properties
+ * after join reorder, plan output slot order is changed, recompute them.
  */
-public class RecomputeLogicalPropertiesProcessor extends PlanPostProcessor {
+public class RecomputeOutputProcessor extends PlanPostProcessor {
     @Override
     public Plan visit(Plan plan, CascadesContext ctx) {
         AbstractPhysicalPlan newPlan = (AbstractPhysicalPlan) visitChildren(this, plan, ctx);
-        return ((AbstractPhysicalPlan) newPlan.resetLogicalProperties())
+        return ((AbstractPhysicalPlan) newPlan.reComputeOutput())
                 .copyStatsAndGroupIdFrom((AbstractPhysicalPlan) plan);
     }
 }

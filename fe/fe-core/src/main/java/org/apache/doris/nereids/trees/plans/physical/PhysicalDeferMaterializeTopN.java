@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -140,9 +141,11 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public PhysicalDeferMaterializeTopN<? extends Plan> resetLogicalProperties() {
+    public PhysicalDeferMaterializeTopN<? extends Plan> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalDeferMaterializeTopN<>(physicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, null, physicalProperties, statistics, child());
+                groupExpression, newLogicalProperties, physicalProperties, statistics, child());
     }
 
     @Override

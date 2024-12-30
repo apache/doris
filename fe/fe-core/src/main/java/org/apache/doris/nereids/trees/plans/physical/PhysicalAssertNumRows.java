@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -130,8 +131,10 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public PhysicalAssertNumRows<CHILD_TYPE> resetLogicalProperties() {
+    public PhysicalAssertNumRows<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
-                null, physicalProperties, statistics, child());
+                newLogicalProperties, physicalProperties, statistics, child());
     }
 }

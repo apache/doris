@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -182,58 +183,11 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     }
 
     @Override
-    public PhysicalProject<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalProject<>(projects, groupExpression, null, physicalProperties,
+    public PhysicalProject<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        return new PhysicalProject<>(projects, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
-    }
-
-    /**
-     * extract common expr, set multi layer projects
-     */
-    public void computeMultiLayerProjectsForCommonExpress() {
-        // hard code: select (s_suppkey + s_nationkey), 1+(s_suppkey + s_nationkey), s_name from supplier;
-        if (projects.size() == 3) {
-            if (projects.get(2) instanceof SlotReference) {
-                SlotReference sName = (SlotReference) projects.get(2);
-                if (sName.getName().equals("s_name")) {
-                    Alias a1 = (Alias) projects.get(0); // (s_suppkey + s_nationkey)
-                    Alias a2 = (Alias) projects.get(1); // 1+(s_suppkey + s_nationkey)
-                    // L1: (s_suppkey + s_nationkey) as x, s_name
-                    multiLayerProjects.add(Lists.newArrayList(projects.get(0), projects.get(2)));
-                    List<NamedExpression> l2 = Lists.newArrayList();
-                    l2.add(a1.toSlot());
-                    Alias a3 = new Alias(a2.getExprId(), new Add(a1.toSlot(), a2.child().child(1)), a2.getName());
-                    l2.add(a3);
-                    l2.add(sName);
-                    // L2: x, (1+x) as y, s_name
-                    multiLayerProjects.add(l2);
-                }
-            }
-        }
-        // hard code:
-        // select (s_suppkey + n_regionkey) + 1 as x, (s_suppkey + n_regionkey) + 2 as y
-        // from supplier join nation on s_nationkey=n_nationkey
-        // projects: x, y
-        // multi L1: s_suppkey, n_regionkey, (s_suppkey + n_regionkey) as z
-        //       L2: z +1 as x, z+2 as y
-        if (projects.size() == 2 && projects.get(0) instanceof Alias && projects.get(1) instanceof Alias
-                && ((Alias) projects.get(0)).getName().equals("x")
-                && ((Alias) projects.get(1)).getName().equals("y")) {
-            Alias a0 = (Alias) projects.get(0);
-            Alias a1 = (Alias) projects.get(1);
-            Add common = (Add) a0.child().child(0); // s_suppkey + n_regionkey
-            List<NamedExpression> l1 = Lists.newArrayList();
-            common.children().stream().forEach(child -> l1.add((SlotReference) child));
-            Alias aliasOfCommon = new Alias(common);
-            l1.add(aliasOfCommon);
-            multiLayerProjects.add(l1);
-            Add add1 = new Add(common, a0.child().child(0).child(1));
-            Alias aliasOfAdd1 = new Alias(a0.getExprId(), add1, a0.getName());
-            Add add2 = new Add(common, a1.child().child(0).child(1));
-            Alias aliasOfAdd2 = new Alias(a1.getExprId(), add2, a1.getName());
-            List<NamedExpression> l2 = Lists.newArrayList(aliasOfAdd1, aliasOfAdd2);
-            multiLayerProjects.add(l2);
-        }
     }
 
     public boolean hasMultiLayerProjection() {

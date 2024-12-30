@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -180,8 +181,10 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     }
 
     @Override
-    public PhysicalLimit<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalLimit<>(limit, offset, phase, groupExpression, null, physicalProperties,
+    public PhysicalLimit<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
     }
 }

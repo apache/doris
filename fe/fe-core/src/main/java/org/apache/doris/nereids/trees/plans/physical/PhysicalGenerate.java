@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -159,9 +160,11 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     }
 
     @Override
-    public PhysicalGenerate<CHILD_TYPE> resetLogicalProperties() {
+    public PhysicalGenerate<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalGenerate<>(generators, generatorOutput,
-                Optional.empty(), null, physicalProperties,
+                Optional.empty(), newLogicalProperties, physicalProperties,
                 statistics, child());
     }
 }

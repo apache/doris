@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -122,9 +123,11 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public PhysicalDeferMaterializeResultSink<CHILD_TYPE> resetLogicalProperties() {
+    public PhysicalDeferMaterializeResultSink<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalDeferMaterializeResultSink<>(physicalResultSink, olapTable, selectedIndexId,
-                groupExpression, null, physicalProperties, statistics, child());
+                groupExpression, newLogicalProperties, physicalProperties, statistics, child());
     }
 
     @Override

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -123,9 +124,11 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     }
 
     @Override
-    public PhysicalResultSink<CHILD_TYPE> resetLogicalProperties() {
+    public PhysicalResultSink<CHILD_TYPE> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalResultSink<>(outputExprs, groupExpression,
-                null, physicalProperties, statistics, child());
+                newLogicalProperties, physicalProperties, statistics, child());
     }
 
     @Override

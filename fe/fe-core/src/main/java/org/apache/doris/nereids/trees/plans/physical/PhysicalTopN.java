@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -157,9 +158,11 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     }
 
     @Override
-    public PhysicalTopN<Plan> resetLogicalProperties() {
+    public PhysicalTopN<Plan> reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
-                null, physicalProperties, statistics, child());
+                newLogicalProperties, physicalProperties, statistics, child());
     }
 
 }

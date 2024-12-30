@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -105,8 +106,10 @@ public class PhysicalExcept extends PhysicalSetOperation {
     }
 
     @Override
-    public PhysicalExcept resetLogicalProperties() {
+    public PhysicalExcept reComputeOutput() {
+        DataTrait dataTrait = getLogicalProperties().getTrait();
+        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
         return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children);
+                newLogicalProperties, physicalProperties, statistics, children);
     }
 }
