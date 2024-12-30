@@ -1816,7 +1816,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     } else {
         return Status::InternalError("Not support load to complex column.");
     }
-    // we should set nullmap at last to avoid column_nullable nullmap and data column size not same
+    //We need to finally set the nullmap of column_nullable to keep the size consistent with data_column
     if (nullable_column && value.type() != simdjson::ondemand::json_type::null) {
         nullable_column->get_null_map_data().push_back(0);
     }
