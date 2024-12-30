@@ -504,7 +504,6 @@ public:
                         }
                         buffer_writer.commit();
                         std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                        std::cout << "actual_str_value: " << actual_str_value << std::endl;
                         data.push_back(actual_str_value);
                     }
                     res.push_back(data);
@@ -729,7 +728,6 @@ public:
                 }
                 buffer_writer.commit();
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                std::cout << "actual_str_value: " << actual_str_value << std::endl;
                 data.push_back(actual_str_value);
             }
             res.push_back(data);
@@ -760,7 +758,6 @@ public:
                 }
                 buffer_writer.commit();
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                std::cout << "actual_str_value: " << actual_str_value << std::endl;
                 data.push_back(actual_str_value);
             }
             res2.push_back(data);
@@ -809,7 +806,6 @@ public:
                 }
                 buffer_writer.commit();
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                std::cout << "actual_str_value: " << actual_str_value << std::endl;
                 data.push_back(actual_str_value);
             }
             res.push_back(data);
@@ -1248,7 +1244,12 @@ public:
                       << " for column size : " << source_column->size() << std::endl;
             //               auto ptr = const_col->convert_to_full_column();
             // here will return different ptr
+            // record replicate cost time
+            auto start = std::chrono::high_resolution_clock::now();
             auto ptr = source_column->replicate(offsets);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+            std::cout << "replicate cost time: " << duration.count() << "ms" << std::endl;
             // check ptr
             EXPECT_NE(ptr.get(), source_column.get());
             // check after replicate with assert_res
@@ -1940,17 +1941,8 @@ public:
         // step1. get expect permutation as stabled sort
         stable_get_column_permutation(column, ascending, limit, nan_direction_hint,
                                       expected_permutation);
-        std::cout << "expected_permutation size: " << expected_permutation.size() << std::endl;
-        for (size_t i = 0; i < expected_permutation.size(); i++) {
-            std::cout << "expected_permutation: " << expected_permutation[i] << std::endl;
-        }
         // step2. get permutation by column
         column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation);
-
-        std::cout << "actual_permutation size: " << actual_permutation.size() << std::endl;
-        for (size_t i = 0; i < actual_permutation.size(); i++) {
-            std::cout << "actual_permutation: " << actual_permutation[i] << std::endl;
-        }
 
         if (limit == 0) {
             limit = actual_permutation.size();

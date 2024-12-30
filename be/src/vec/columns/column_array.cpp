@@ -795,27 +795,74 @@ void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t l
 }
 
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
-    if (replicate_offsets.empty()) return clone_empty();
+    if (replicate_offsets.empty()) {
+        return clone_empty();
+    }
 
     // keep ColumnUInt8 for ColumnNullable::null_map
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
         return replicate_number<UInt8>(replicate_offsets);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt8*>(data.get())) {
         return replicate_number<Int8>(replicate_offsets);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
+        return replicate_number<UInt8>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnInt16*>(data.get())) {
         return replicate_number<Int16>(replicate_offsets);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt16*>(data.get())) {
+        return replicate_number<UInt16>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnInt32*>(data.get())) {
         return replicate_number<Int32>(replicate_offsets);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt32*>(data.get())) {
+        return replicate_number<UInt32>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnInt64*>(data.get())) {
         return replicate_number<Int64>(replicate_offsets);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt64*>(data.get())) {
+        return replicate_number<UInt64>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnInt128*>(data.get())) {
+        return replicate_number<Int128>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnIPv4*>(data.get())) {
+        return replicate_number<IPv4>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnFloat32*>(data.get())) {
         return replicate_number<Float32>(replicate_offsets);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat64*>(data.get())) {
         return replicate_number<Float64>(replicate_offsets);
-    if (typeid_cast<const ColumnString*>(data.get())) return replicate_string(replicate_offsets);
-    if (typeid_cast<const ColumnConst*>(data.get())) return replicate_const(replicate_offsets);
-    if (typeid_cast<const ColumnNullable*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
+        return replicate_number<Decimal32>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
+        return replicate_number<Decimal64>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
+        return replicate_number<Decimal128V2>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
+        return replicate_number<Decimal128V3>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
+        return replicate_number<Decimal256>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnString*>(data.get())) {
+        return replicate_string(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnConst*>(data.get())) {
+        return replicate_const(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnNullable*>(data.get())) {
         return replicate_nullable(replicate_offsets);
+    }
     return replicate_generic(replicate_offsets);
 }
 
@@ -832,12 +879,12 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
     auto& res_arr = assert_cast<ColumnArray&>(*res);
 
-    const typename ColumnVector<T>::Container& src_data =
-            assert_cast<const ColumnVector<T>&>(*data).get_data();
+    const typename ColumnVectorOrDecimal<T>::Container& src_data =
+            assert_cast<const ColumnVectorOrDecimal<T>&>(*data).get_data();
     const auto& src_offsets = get_offsets();
 
-    typename ColumnVector<T>::Container& res_data =
-            assert_cast<ColumnVector<T>&>(res_arr.get_data()).get_data();
+    typename ColumnVectorOrDecimal<T>::Container& res_data =
+            assert_cast<ColumnVectorOrDecimal<T>&>(res_arr.get_data()).get_data();
     auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
@@ -991,6 +1038,8 @@ ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offse
         size_t size_to_replicate = replicate_offsets[i] - prev_offset;
         prev_offset = replicate_offsets[i];
 
+        std::cout << "replicate_generic: " << i << " " << i << " with prev:" << prev_offset
+                  << " with size_to_replicate: " << size_to_replicate << std::endl;
         for (size_t j = 0; j < size_to_replicate; ++j) {
             res_concrete.insert_from(*this, i);
         }
