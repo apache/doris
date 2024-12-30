@@ -1419,6 +1419,9 @@ DECLARE_mInt32(lz4_compression_block_size);
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
+// Enable sleep 5s between delete cumulative compaction.
+DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
