@@ -1043,7 +1043,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                 } else if (rs_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             mutable_column.get())
-                            ->insert_null_elements(1);
+                            ->insert_default();
                 } else {
                     mutable_column->insert_default();
                 }
@@ -1157,7 +1157,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_null_elements(1);
+                            ->insert_default();
                 } else {
                     new_col->insert_default();
                 }

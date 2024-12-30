@@ -882,7 +882,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         DCHECK(doris_type->is_nullable());
         auto mutable_column = doris_field->assume_mutable();
         auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
-        nullable_column->insert_null_elements(missing_column_sz);
+        nullable_column->insert_many_defaults(missing_column_sz);
     }
 
     if (null_map_ptr != nullptr) {
