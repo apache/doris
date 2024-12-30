@@ -38,7 +38,11 @@ public class GetStreamLoadState extends RestBaseController {
                           HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        if (!checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
 

@@ -50,7 +50,7 @@ public class CancelLoadAction extends RestBaseController {
         }
 
         executeCheckPassword(request, response);
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
 

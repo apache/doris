@@ -144,7 +144,11 @@ public class NodeAction extends RestBaseController {
     private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
             throws Exception {
         try {
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (needRedirect(request.getScheme())) {
+                return redirectToHttps(request);
+            }
+
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request, null);
             }
 
@@ -604,7 +608,11 @@ public class NodeAction extends RestBaseController {
     public Object operateBackend(HttpServletRequest request, HttpServletResponse response, @PathVariable String action,
             @RequestBody BackendReqInfo reqInfo) {
         try {
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (needRedirect(request.getScheme())) {
+                return redirectToHttps(request);
+            }
+
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request, reqInfo);
             }
 
@@ -647,7 +655,11 @@ public class NodeAction extends RestBaseController {
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
             @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
         try {
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (needRedirect(request.getScheme())) {
+                return redirectToHttps(request);
+            }
+
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request, reqInfo);
             }
 

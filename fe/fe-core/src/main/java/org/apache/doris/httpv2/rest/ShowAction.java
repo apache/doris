@@ -115,7 +115,7 @@ public class ShowAction extends RestBaseController {
         }
 
         // forward to master if necessary
-        if (!Env.getCurrentEnv().isMaster() && isForward) {
+        if (checkForwardToMaster(request) && isForward) {
             return forwardToMaster(request);
         } else {
             ProcNodeInterface procNode = null;

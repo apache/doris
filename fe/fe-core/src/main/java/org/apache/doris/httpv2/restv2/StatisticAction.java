@@ -50,8 +50,11 @@ public class StatisticAction extends RestBaseController {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
 

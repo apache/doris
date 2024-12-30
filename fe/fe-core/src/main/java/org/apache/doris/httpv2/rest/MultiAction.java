@@ -67,7 +67,7 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request);
             }
 
@@ -95,7 +95,7 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request);
             }
 
@@ -128,7 +128,7 @@ public class MultiAction extends RestBaseController {
 
             // Multi start request must redirect to master, because all following sub requests will be handled
             // on Master
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request);
             }
 
@@ -177,7 +177,7 @@ public class MultiAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request);
             }
 
@@ -209,7 +209,7 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            if (!Env.getCurrentEnv().isMaster()) {
+            if (checkForwardToMaster(request)) {
                 return forwardToMaster(request);
             }
 

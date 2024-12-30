@@ -55,7 +55,11 @@ public class ESCatalogAction extends RestBaseController {
             executeCheckPassword(request, response);
         }
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        if (checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
 

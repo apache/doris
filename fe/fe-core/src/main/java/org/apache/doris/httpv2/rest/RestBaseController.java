@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -65,6 +66,7 @@ public class RestBaseController extends BaseController {
     protected static final String TXN_ID_KEY = "txn_id";
     protected static final String TXN_OPERATION_KEY = "txn_operation";
     protected static final String SINGLE_REPLICA_KEY = "single_replica";
+    protected static final String FORBID_FORWARD_UT_TEST = "forbid_forward_ut_test";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
@@ -220,6 +222,18 @@ public class RestBaseController extends BaseController {
         }
     }
 
+    public boolean checkForwardToMaster(HttpServletRequest request) {
+        if (FeConstants.runningUnitTest) {
+            String forbidForward = request.getHeader(FORBID_FORWARD_UT_TEST);
+            if (forbidForward != null) {
+                return !"true".equals(forbidForward);
+            }
+            return true;
+        }
+        return !Env.getCurrentEnv().isMaster();
+    }
+
+
     private String getRequestBody(HttpServletRequest request) throws IOException {
         BufferedReader reader = request.getReader();
         return reader.lines().collect(Collectors.joining(System.lineSeparator()));
@@ -228,13 +242,24 @@ public class RestBaseController extends BaseController {
     public Object forwardToMaster(HttpServletRequest request, @Nullable Object body) {
         try {
             Env env = Env.getCurrentEnv();
-            String redirectUrl = getRedirectUrL(request,
-                    new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+            String redirectUrl = null;
+            if (FeConstants.runningUnitTest) {
+                redirectUrl =
+                        getRedirectUrL(request, new TNetworkAddress(request.getServerName(), request.getServerPort()));
+            } else {
+                redirectUrl = getRedirectUrL(request,
+                        new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+            }
             String method = request.getMethod();
 
             HttpHeaders headers = new HttpHeaders();
             for (String headerName : Collections.list(request.getHeaderNames())) {
                 headers.add(headerName, request.getHeader(headerName));
+            }
+
+            if (FeConstants.runningUnitTest) {
+                //Add a header to avoid forward.
+                headers.add(FORBID_FORWARD_UT_TEST, "true");
             }
 
             HttpEntity<Object> entity = new HttpEntity<>(body, headers);

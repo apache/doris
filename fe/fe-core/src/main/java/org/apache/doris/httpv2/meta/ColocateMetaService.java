@@ -77,7 +77,7 @@ public class ColocateMetaService extends RestBaseController {
         GroupId groupId = new GroupId(dbId, grpId);
 
         if (!colocateIndex.isGroupExist(groupId)) {
-            throw new DdlException("the group " + groupId + "isn't  exist");
+            throw new DdlException("the group " + groupId + " isn't exist");
         }
         return groupId;
     }
@@ -95,7 +95,7 @@ public class ColocateMetaService extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
         executeWithoutPassword(request, response);
@@ -109,7 +109,7 @@ public class ColocateMetaService extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (checkForwardToMaster(request)) {
             return forwardToMaster(request);
         }
 
