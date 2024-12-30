@@ -119,7 +119,7 @@ public:
                     return start + pos_lf;
                 } else if (pos_cr < pos_lf) {
                     if (pos_lf != INT32_MAX) {
-                        if (pos_lf - 1 >= 0 && start[pos_lf - 1] == '\r') {
+                        if (pos_lf >= 1 && start[pos_lf - 1] == '\r') {
                             //check   xxx\r\r\r\nxxx
                             line_crlf = true;
                             return start + pos_lf - 1;
