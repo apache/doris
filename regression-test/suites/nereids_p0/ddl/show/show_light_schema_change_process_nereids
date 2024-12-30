@@ -16,7 +16,6 @@
 // under the License.
 
 suite("show_light_schema_change_process_nereids") {
-    // can not use qt command since the output change based on cluster and backend ip
    sql """drop database if exists testdb;""
    sql """create database testdb;"""
    checkNereidsExecute("""SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS FROM testdb;""")

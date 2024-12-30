@@ -5200,8 +5200,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowConvertLsc(ShowConvertLscContext ctx) {
-        MultipartIdentifierContext database = ctx.database;
-        return database == null ? new ShowConvertLSCCommand(null) : new ShowConvertLSCCommand(database.getText());
+        Optional<List<String>> partsOptional = Optional.ofNullable(visitMultipartIdentifier(ctx.database));
+        String databaseName = partsOptional
+                .map(partList -> {
+                    if (partList.size() > 1) {
+                        throw new ParseException("database name can not be more than one part");
+                    }
+                    return partList.stream().findFirst().orElse(null);
+                })
+                .orElse(null);
+        return new ShowConvertLSCCommand(databaseName);
     }
 }
 
