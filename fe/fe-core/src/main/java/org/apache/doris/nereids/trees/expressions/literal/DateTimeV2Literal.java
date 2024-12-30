@@ -36,6 +36,9 @@ import java.util.Objects;
  */
 public class DateTimeV2Literal extends DateTimeLiteral {
 
+    public static final DateTimeV2Literal USE_IN_FLOOR_CEIL
+            = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+
     public DateTimeV2Literal(String s) {
         this(DateTimeV2Type.forTypeFromString(s), s);
     }
@@ -281,9 +284,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
      */
     public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateTimeV2Type.of(precision))
-                : new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range" + dateTime.toString());
+        }
+        return new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);

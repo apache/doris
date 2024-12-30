@@ -85,10 +85,8 @@ import org.apache.doris.nereids.DorisParser.AlterWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
-import org.apache.doris.nereids.DorisParser.ArrayRangeContext;
 import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BaseTableRefContext;
-import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
@@ -124,10 +122,6 @@ import org.apache.doris.nereids.DorisParser.CreateViewContext;
 import org.apache.doris.nereids.DorisParser.CreateWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
-import org.apache.doris.nereids.DorisParser.DateCeilContext;
-import org.apache.doris.nereids.DorisParser.DateFloorContext;
-import org.apache.doris.nereids.DorisParser.Date_addContext;
-import org.apache.doris.nereids.DorisParser.Date_subContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
@@ -348,8 +342,6 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
-import org.apache.doris.nereids.DorisParser.TimestampaddContext;
-import org.apache.doris.nereids.DorisParser.TimestampdiffContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedContext;
@@ -439,63 +431,18 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDayUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeHourUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMinuteUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMonthUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeSecondUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeWeekUnit;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYearUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -2350,22 +2297,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitBitOperation(BitOperationContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            Expression left = getExpression(ctx.left);
-            Expression right = getExpression(ctx.right);
-            if (ctx.operator.getType() == DorisParser.BITAND) {
-                return new BitAnd(left, right);
-            } else if (ctx.operator.getType() == DorisParser.BITOR) {
-                return new BitOr(left, right);
-            } else if (ctx.operator.getType() == DorisParser.BITXOR) {
-                return new BitXor(left, right);
-            }
-            throw new ParseException(" not supported", ctx);
-        });
-    }
-
-    @Override
     public Expression visitArithmeticBinary(ArithmeticBinaryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression left = getExpression(ctx.left);
@@ -2419,210 +2350,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             });
         });
-    }
-
-    @Override
-    public Expression visitTimestampdiff(TimestampdiffContext ctx) {
-        Expression start = (Expression) visit(ctx.startTimestamp);
-        Expression end = (Expression) visit(ctx.endTimestamp);
-        String unit = ctx.unit.getText();
-        // TODO: support quarters_diff
-        if ("YEAR".equalsIgnoreCase(unit)) {
-            return new YearsDiff(end, start);
-        } else if ("MONTH".equalsIgnoreCase(unit)) {
-            return new MonthsDiff(end, start);
-        } else if ("WEEK".equalsIgnoreCase(unit)) {
-            return new WeeksDiff(end, start);
-        } else if ("DAY".equalsIgnoreCase(unit)) {
-            return new DaysDiff(end, start);
-        } else if ("HOUR".equalsIgnoreCase(unit)) {
-            return new HoursDiff(end, start);
-        } else if ("MINUTE".equalsIgnoreCase(unit)) {
-            return new MinutesDiff(end, start);
-        } else if ("SECOND".equalsIgnoreCase(unit)) {
-            return new SecondsDiff(end, start);
-        }
-        throw new ParseException("Unsupported time stamp diff time unit: " + unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-
-    }
-
-    @Override
-    public Expression visitTimestampadd(TimestampaddContext ctx) {
-        Expression start = (Expression) visit(ctx.startTimestamp);
-        Expression end = (Expression) visit(ctx.endTimestamp);
-        String unit = ctx.unit.getText();
-        if ("YEAR".equalsIgnoreCase(unit)) {
-            return new YearsAdd(end, start);
-        } else if ("QUARTER".equalsIgnoreCase(unit)) {
-            return new QuartersAdd(end, start);
-        } else if ("MONTH".equalsIgnoreCase(unit)) {
-            return new MonthsAdd(end, start);
-        } else if ("WEEK".equalsIgnoreCase(unit)) {
-            return new WeeksAdd(end, start);
-        } else if ("DAY".equalsIgnoreCase(unit)) {
-            return new DaysAdd(end, start);
-        } else if ("HOUR".equalsIgnoreCase(unit)) {
-            return new HoursAdd(end, start);
-        } else if ("MINUTE".equalsIgnoreCase(unit)) {
-            return new MinutesAdd(end, start);
-        } else if ("SECOND".equalsIgnoreCase(unit)) {
-            return new SecondsAdd(end, start);
-        }
-        throw new ParseException("Unsupported time stamp add time unit: " + unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitDate_add(Date_addContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            //use "DAY" as unit by default
-            return new DaysAdd(timeStamp, amount);
-        }
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearsAdd(timeStamp, amount);
-        } else if ("QUARTER".equalsIgnoreCase(ctx.unit.getText())) {
-            return new QuartersAdd(timeStamp, amount);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthsAdd(timeStamp, amount);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeeksAdd(timeStamp, amount);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DaysAdd(timeStamp, amount);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HoursAdd(timeStamp, amount);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinutesAdd(timeStamp, amount);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondsAdd(timeStamp, amount);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitArrayRange(ArrayRangeContext ctx) {
-        Expression start = (Expression) visit(ctx.start);
-        Expression end = (Expression) visit(ctx.end);
-        Expression step = (Expression) visit(ctx.unitsAmount);
-
-        String unit = ctx.unit == null ? null : ctx.unit.getText();
-        if (unit != null && !unit.isEmpty()) {
-            if ("Year".equalsIgnoreCase(unit)) {
-                return new ArrayRangeYearUnit(start, end, step);
-            } else if ("Month".equalsIgnoreCase(unit)) {
-                return new ArrayRangeMonthUnit(start, end, step);
-            } else if ("Week".equalsIgnoreCase(unit)) {
-                return new ArrayRangeWeekUnit(start, end, step);
-            } else if ("Day".equalsIgnoreCase(unit)) {
-                return new ArrayRangeDayUnit(start, end, step);
-            } else if ("Hour".equalsIgnoreCase(unit)) {
-                return new ArrayRangeHourUnit(start, end, step);
-            } else if ("Minute".equalsIgnoreCase(unit)) {
-                return new ArrayRangeMinuteUnit(start, end, step);
-            } else if ("Second".equalsIgnoreCase(unit)) {
-                return new ArrayRangeSecondUnit(start, end, step);
-            }
-            throw new ParseException("Unsupported time unit: " + ctx.unit
-                    + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-        } else if (ctx.unitsAmount != null) {
-            return new ArrayRange(start, end, step);
-        } else if (ctx.end != null) {
-            return new ArrayRange(start, end);
-        } else {
-            return new ArrayRange(start);
-        }
-    }
-
-    @Override
-    public Expression visitDate_sub(Date_subContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            //use "DAY" as unit by default
-            return new DaysSub(timeStamp, amount);
-        }
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearsSub(timeStamp, amount);
-        } else if ("QUARTER".equalsIgnoreCase(ctx.unit.getText())) {
-            return new QuartersSub(timeStamp, amount);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthsSub(timeStamp, amount);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeeksSub(timeStamp, amount);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DaysSub(timeStamp, amount);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HoursSub(timeStamp, amount);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinutesSub(timeStamp, amount);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondsSub(timeStamp, amount);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitDateFloor(DateFloorContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            // use "SECOND" as unit by default
-            return new SecondFloor(timeStamp, amount);
-        }
-        Expression e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearFloor(timeStamp, amount, e);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthFloor(timeStamp, amount, e);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeekFloor(timeStamp, amount, e);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DayFloor(timeStamp, amount, e);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HourFloor(timeStamp, amount, e);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinuteFloor(timeStamp, amount, e);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondFloor(timeStamp, amount, e);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-    }
-
-    @Override
-    public Expression visitDateCeil(DateCeilContext ctx) {
-        Expression timeStamp = (Expression) visit(ctx.timestamp);
-        Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (ctx.unit == null) {
-            // use "Second" as unit by default
-            return new SecondCeil(timeStamp, amount);
-        }
-        DateTimeV2Literal e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new YearCeil(timeStamp, amount, e);
-        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MonthCeil(timeStamp, amount, e);
-        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
-            return new WeekCeil(timeStamp, amount, e);
-        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
-            return new DayCeil(timeStamp, amount, e);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new HourCeil(timeStamp, amount, e);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new MinuteCeil(timeStamp, amount, e);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new SecondCeil(timeStamp, amount, e);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
     }
 
     @Override
@@ -3789,6 +3516,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return last;
     }
 
+    private List<List<String>> getTableList(List<MultipartIdentifierContext> ctx) {
+        List<List<String>> tableList = new ArrayList<>();
+        for (MultipartIdentifierContext tableCtx : ctx) {
+            tableList.add(visitMultipartIdentifier(tableCtx));
+        }
+        return tableList;
+    }
+
     private LogicalPlan withSelectHint(LogicalPlan logicalPlan, List<ParserRuleContext> hintContexts) {
         if (hintContexts.isEmpty()) {
             return logicalPlan;
@@ -3797,6 +3532,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (ParserRuleContext hintContext : hintContexts) {
             SelectHintContext selectHintContext = (SelectHintContext) hintContext;
             for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
+                if (hintStatement.USE_MV() != null) {
+                    hints.add(new SelectHintUseMv("USE_MV", getTableList(hintStatement.tableList), true));
+                    continue;
+                } else if (hintStatement.NO_USE_MV() != null) {
+                    hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
+                    continue;
+                }
                 String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
                 switch (hintName) {
                     case "set_var":
@@ -3851,26 +3593,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             }
                         }
                         hints.add(new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
-                        break;
-                    case "use_mv":
-                        List<String> useIndexParameters = new ArrayList<String>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            String parameterName = visitIdentifierOrText(kv.key);
-                            if (kv.key != null) {
-                                useIndexParameters.add(parameterName);
-                            }
-                        }
-                        hints.add(new SelectHintUseMv(hintName, useIndexParameters, true));
-                        break;
-                    case "no_use_mv":
-                        List<String> noUseIndexParameters = new ArrayList<String>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            String parameterName = visitIdentifierOrText(kv.key);
-                            if (kv.key != null) {
-                                noUseIndexParameters.add(parameterName);
-                            }
-                        }
-                        hints.add(new SelectHintUseMv(hintName, noUseIndexParameters, false));
                         break;
                     default:
                         break;

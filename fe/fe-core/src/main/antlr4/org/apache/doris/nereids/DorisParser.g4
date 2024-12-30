@@ -1243,6 +1243,7 @@ selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)
 
 hintStatement
     : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
+    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -1403,7 +1404,7 @@ fixedPartitionDef
     ;
 
 stepPartitionDef
-    : FROM from=partitionValueList TO to=partitionValueList INTERVAL unitsAmount=INTEGER_VALUE unit=datetimeUnit?
+    : FROM from=partitionValueList TO to=partitionValueList INTERVAL unitsAmount=INTEGER_VALUE unit=unitIdentifier?
     ;
 
 inPartitionDef
@@ -1507,57 +1508,8 @@ valueExpression
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
-datetimeUnit
-    :YEAR | MONTH | QUARTER | WEEK | DAY | HOUR | MINUTE | SECOND
-    ;
-
 primaryExpression
-    : operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
-            COMMA right = valueExpression RIGHT_PAREN                                          #bitOperation
-    | name=(TIMESTAMPDIFF | DATEDIFF)
-            LEFT_PAREN
-                unit=datetimeUnit COMMA
-                startTimestamp=valueExpression COMMA
-                endTimestamp=valueExpression
-            RIGHT_PAREN                                                                        #timestampdiff
-    | name=(TIMESTAMPADD | DATEADD)
-                  LEFT_PAREN
-                      unit=datetimeUnit COMMA
-                      startTimestamp=valueExpression COMMA
-                      endTimestamp=valueExpression
-                  RIGHT_PAREN                                                                  #timestampadd
-    | name =(ADDDATE | DAYS_ADD | DATE_ADD)
-            LEFT_PAREN
-                timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
-                | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #date_add
-    | name=(SUBDATE | DAYS_SUB | DATE_SUB)
-            LEFT_PAREN
-                timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
-                | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #date_sub
-    | name=DATE_FLOOR
-            LEFT_PAREN
-                timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
-                | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #dateFloor 
-    | name=DATE_CEIL
-            LEFT_PAREN
-                timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
-                | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #dateCeil
-    | name =(ARRAY_RANGE | SEQUENCE)
-            LEFT_PAREN
-                start=valueExpression COMMA
-                end=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
-                | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #arrayRange
-    | name=CURRENT_DATE                                                                        #currentDate
+    : name=CURRENT_DATE                                                                        #currentDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
     | name=LOCALTIME                                                                           #localTime
@@ -1821,7 +1773,6 @@ number
 nonReserved
 //--DEFAULT-NON-RESERVED-START
     : ACTIONS
-    | ADDDATE
     | AFTER
     | AGG_STATE
     | AGGREGATE
@@ -1829,7 +1780,6 @@ nonReserved
     | ALWAYS
     | ANALYZED
     | ARRAY
-    | ARRAY_RANGE
     | AT
     | AUTHORS
     | AUTO_INCREMENT
@@ -1894,21 +1844,12 @@ nonReserved
     | CURRENT_USER
     | DATA
     | DATE
-    | DATE_ADD
-    | DATE_CEIL
-    | DATE_DIFF
-    | DATE_FLOOR
-    | DATE_SUB
-    | DATEADD
-    | DATEDIFF
     | DATETIME
     | DATETIMEV1
     | DATETIMEV2
     | DATEV1
     | DATEV2
     | DAY
-    | DAYS_ADD
-    | DAYS_SUB
     | DECIMAL
     | DECIMALV2
     | DECIMALV3
@@ -2091,7 +2032,6 @@ nonReserved
     | SECOND
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
-    | SEQUENCE
     | SESSION
     | SESSION_USER
     | SHAPE
@@ -2112,7 +2052,6 @@ nonReserved
     | STREAMING
     | STRING
     | STRUCT
-    | SUBDATE
     | SUM
     | TABLES
     | TASK
@@ -2122,8 +2061,6 @@ nonReserved
     | THAN
     | TIME
     | TIMESTAMP
-    | TIMESTAMPADD
-    | TIMESTAMPDIFF
     | TRANSACTION
     | TREE
     | TRIGGERS

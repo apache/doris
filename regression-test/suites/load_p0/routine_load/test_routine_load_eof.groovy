@@ -173,6 +173,5 @@ suite("test_routine_load_eof","p0") {
             sql "stop routine load for ${jobName}"
             sql "DROP TABLE IF EXISTS ${tableName}"
         }
-        thread.interrupt()
     }
 }
