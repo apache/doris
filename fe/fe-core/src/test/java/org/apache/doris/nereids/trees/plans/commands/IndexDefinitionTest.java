@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -38,14 +37,15 @@ public class IndexDefinitionTest {
     @Test
     void testVariantIndexFormatV1() throws AnalysisException {
         IndexDefinition def = new IndexDefinition("variant_index", false, Lists.newArrayList("col1"), "INVERTED",
-                                        null, "comment");
+                                                  null, "comment");
         try {
             boolean isIndexFormatV1 = true;
             def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true,
-                                    null, "comment"), KeysType.UNIQUE_KEYS, true, null, isIndexFormatV1);
+                                                 null, "comment"), KeysType.UNIQUE_KEYS, true, null, isIndexFormatV1);
             Assertions.fail("No exception throws.");
         } catch (AnalysisException e) {
-            Assertions.assertTrue(e instanceof AnalysisException);
+            org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class, e);
             Assertions.assertTrue(e.getMessage().contains("not supported in inverted index format V1"));
         }
     }
@@ -58,8 +58,9 @@ public class IndexDefinitionTest {
 
         IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
-        def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-            KeysType.DUP_KEYS, false, null, false);
+        def.checkColumn(
+                new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, null, false);
     }
 
     @Test
@@ -71,8 +72,10 @@ public class IndexDefinitionTest {
         IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
-            def.checkColumn(new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, null, false));
+                def.checkColumn(
+                        new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE, true, null,
+                                             "comment"),
+                        KeysType.DUP_KEYS, false, null, false));
     }
 
     @Test
@@ -81,11 +84,12 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "256");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index",false, Lists.newArrayList("col1"), "NGRAM_BF",
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
-            def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, null, false));
+                def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null,
+                                                     "comment"),
+                                KeysType.DUP_KEYS, false, null, false));
     }
 
     @Test
@@ -97,7 +101,8 @@ public class IndexDefinitionTest {
         IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
-            def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, null, false));
+                def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null,
+                                                     "comment"),
+                                KeysType.DUP_KEYS, false, null, false));
     }
 }

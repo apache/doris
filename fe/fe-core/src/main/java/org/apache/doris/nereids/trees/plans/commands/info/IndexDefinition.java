@@ -150,8 +150,10 @@ public class IndexDefinition {
                             "ngram_bf index should have gram_size and bf_size properties");
                 }
                 try {
-                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE, IndexDef.MAX_NGRAM_SIZE);
-                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE, IndexDef.MAX_BF_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE,
+                                                      IndexDef.MAX_NGRAM_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE,
+                                                      IndexDef.MAX_BF_SIZE);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
