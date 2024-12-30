@@ -87,7 +87,8 @@ protected:
                     if (auto st = serders[c_idx]->deserialize_one_cell_from_json(
                                 *columns[c_idx], string_slice, options);
                         !st.ok()) {
-                        std::cout << "error in deserialize but continue: " << st.to_string()  << std::endl;
+                        std::cout << "error in deserialize but continue: " << st.to_string()
+                                  << std::endl;
                     }
                     ++c_idx;
                 }
@@ -132,8 +133,9 @@ public:
         ASSERT_EQ(data_type->text_can_contain_only_valid_utf8(),
                   meta_info.text_can_contain_only_valid_utf8);
         ASSERT_EQ(data_type->have_maximum_size_of_value(), meta_info.have_maximum_size_of_value);
-        if (is_decimal(data_type) || data_type->is_nullable() || is_struct(data_type)
-            || is_nothing(data_type) || is_number(data_type) || is_columned_as_number(data_type) || is_ip(data_type)) {
+        if (is_decimal(data_type) || data_type->is_nullable() || is_struct(data_type) ||
+            is_nothing(data_type) || is_number(data_type) || is_columned_as_number(data_type) ||
+            is_ip(data_type)) {
             ASSERT_EQ(data_type->get_size_of_value_in_memory(), meta_info.size_of_value_in_memory);
         } else {
             EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_size_of_value_in_memory()));
@@ -152,7 +154,8 @@ public:
     }
 
     // create column assert with default field is simple and can be used for all DataType
-    void create_column_assert(DataTypePtr& data_type, Field& default_field, size_t uncompressed_serialized_bytes = -1) {
+    void create_column_assert(DataTypePtr& data_type, Field& default_field,
+                              size_t uncompressed_serialized_bytes = -1) {
         std::cout << "create_column_assert: " << data_type->get_name() << std::endl;
         auto column = data_type->create_column();
         ASSERT_EQ(column->size(), 0);
@@ -164,7 +167,8 @@ public:
             ASSERT_EQ(const_col->operator[](i), default_const_col->operator[](i));
         }
         // get_uncompressed_serialized_bytes
-        ASSERT_EQ(data_type->get_uncompressed_serialized_bytes(*column, 0), uncompressed_serialized_bytes);
+        ASSERT_EQ(data_type->get_uncompressed_serialized_bytes(*column, 0),
+                  uncompressed_serialized_bytes);
     }
 
     // get_field assert is simple and can be used for all DataType
@@ -187,7 +191,6 @@ public:
     // to_string | to_string_batch | from_string assert is simple and can be used for all DataType
     void assert_to_string_from_string_assert(MutableColumnPtr mutableColumn,
                                              DataTypePtr& data_type) {
-
         {
             // to_string_batch | from_string
             auto col_to = ColumnString::create();
@@ -206,7 +209,8 @@ public:
             }
         }
         {
-            std::cout << "assert to_string from_string is reciprocal: " << data_type->get_name() << std::endl;
+            std::cout << "assert to_string from_string is reciprocal: " << data_type->get_name()
+                      << std::endl;
             // to_string | from_string
             auto ser_col = ColumnString::create();
             ser_col->reserve(mutableColumn->size());
