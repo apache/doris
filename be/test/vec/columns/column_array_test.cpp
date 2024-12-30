@@ -463,8 +463,8 @@ TEST_F(ColumnArrayTest, PermutationAndSortTest) {
         auto& type = array_types[i];
         auto column_type = type->get_name();
         std::cout << "column_type: " << column_type << std::endl;
-        // permutation get_permutation is not support in column_array, compare_at maybe not incorrect
-        EXPECT_ANY_THROW(assert_column_permutations(column->assume_mutable_ref(), type));
+        // permutation
+        assert_column_permutations(column->assume_mutable_ref(), type);
     }
 }
 
@@ -531,7 +531,6 @@ TEST_F(ColumnArrayTest, MetaInfoTest) {
         auto& column = array_columns[i];
         auto& type = array_types[i];
         auto column_type = type->get_name();
-        std::cout << "column_type: " << column_type << std::endl;
         EXPECT_TRUE(column->is_variable_length()) << "column is not variable length";
     }
 }
@@ -589,18 +588,20 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
         column->get(column->size() - 1, a);
         Array af = a.get<Array>();
         if (af.size() > 0) {
+            auto start_size = af.size();
             Field ef = af[0];
             for (int j = 0; j < max_array_size_as_field; ++j) {
                 af.push_back(ef);
             }
-            std::cout << "array size: " << af.size() << std::endl;
+            EXPECT_EQ(af.size(), start_size + max_array_size_as_field)
+                    << "array size is not equal to start size + max_array_size_as_field";
             auto cloned = column->clone_resized(0);
             cloned->insert(af);
-            std::cout << "cloned size: " << cloned->size() << std::endl;
             // get cloned offset size
             auto cloned_offset_size =
                     check_and_get_column<ColumnArray>(cloned.get())->get_offsets().back();
-            std::cout << "cloned offset size: " << cloned_offset_size << std::endl;
+            EXPECT_EQ(cloned_offset_size, start_size + max_array_size_as_field)
+                    << "cloned offset size is not equal to start size + max_array_size_as_field";
 
             Field f;
             // test get
@@ -626,6 +627,11 @@ TEST_F(ColumnArrayTest, IsDefaultAtTest) {
                 column->get(j, f);
                 auto array = f.get<Array>();
                 EXPECT_EQ(array.size(), 0) << "array is not empty";
+            } else {
+                Field f;
+                column->get(j, f);
+                auto array = f.get<Array>();
+                EXPECT_GT(array.size(), 0) << "array is empty";
             }
         }
     }
