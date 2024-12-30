@@ -474,9 +474,15 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (wrapper->is_ignored()) {
+        if (wrapper->is_disabled()) {
+            set_disabled();
             return Status::OK();
         }
+
+        if (wrapper->is_ignored() || is_disabled()) {
+            return Status::OK();
+        }
+
         _context->ignored = false;
 
         bool can_not_merge_in_or_bloom =
@@ -957,6 +963,10 @@ public:
 
     void set_ignored() { _context->ignored = true; }
 
+    bool is_disabled() const { return _context->disabled; }
+
+    void set_disabled() { _context->disabled = true; }
+
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                           PColumnValue&, ObjectPool*)) {
@@ -1217,9 +1227,10 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
     merge_filter_callback->cntl_->ignore_eovercrowded();
 
-    if (get_ignored()) {
+    if (get_ignored() || get_disabled()) {
         merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
-        merge_filter_request->set_ignored(true);
+        merge_filter_request->set_ignored(get_ignored());
+        merge_filter_request->set_disabled(get_disabled());
     } else {
         RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
     }
@@ -1241,7 +1252,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
     auto origin_size = push_exprs.size();
-    if (!_wrapper->is_ignored()) {
+    if (!_wrapper->is_ignored() && !_wrapper->is_disabled()) {
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
@@ -1367,12 +1378,16 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
-    if (_enable_pipeline_exec) {
-        _rf_state_atomic.store(RuntimeFilterState::READY);
-        if (!_filter_timer.empty()) {
-            for (auto& timer : _filter_timer) {
-                timer->call_ready();
-            }
+    if (!_wrapper->is_ignored() && !_wrapper->is_disabled() && _wrapper->is_bloomfilter() &&
+        !_wrapper->get_bloomfilter()->inited()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored/disabled, rf: {}",
+                        debug_string());
+    }
+
+    _rf_state_atomic.store(RuntimeFilterState::READY);
+    if (!_filter_timer.empty()) {
+        for (auto& timer : _filter_timer) {
+            timer->call_ready();
         }
     } else {
         std::unique_lock lock(_inner_mutex);
@@ -1420,16 +1435,21 @@ bool IRuntimeFilter::get_ignored() {
     return _wrapper->is_ignored();
 }
 
-std::string IRuntimeFilter::formatted_state() const {
-    return fmt::format(
-            "[IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
-            "HasLocalTarget = {}, Ignored = {}]",
-            _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
-            _wrapper->_context->ignored);
+void IRuntimeFilter::set_disabled() {
+    _wrapper->set_disabled();
 }
 
-BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
-    return _wrapper->get_bloomfilter();
+bool IRuntimeFilter::get_disabled() const {
+    return _wrapper->is_disabled();
+}
+
+std::string IRuntimeFilter::formatted_state() const {
+    return fmt::format(
+            "[Id = {}, IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
+            "HasLocalTarget = {}, Ignored = {}, Disabled = {}, Type = {}, WaitTimeMS = {}]",
+            _filter_id, _is_push_down, _get_explain_state_string(), _has_remote_target,
+            _has_local_target, _wrapper->_context->ignored, _wrapper->_context->disabled,
+            _wrapper->get_real_type(), wait_time_ms());
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
@@ -1536,6 +1556,11 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     *wrapper = param->pool->add(new RuntimePredicateWrapper(
             param->pool, column_type, get_type(filter_type), param->request->filter_id()));
 
+    if (param->request->has_disabled() && param->request->disabled()) {
+        (*wrapper)->set_disabled();
+        return Status::OK();
+    }
+
     if (param->request->has_ignored() && param->request->ignored()) {
         (*wrapper)->set_ignored();
         return Status::OK();
@@ -1581,6 +1606,11 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     PrimitiveType column_type = to_primitive_type(param->request->column_type());
     *wrapper = std::make_unique<RuntimePredicateWrapper>(pool, column_type, get_type(filter_type),
                                                          param->request->filter_id());
+
+    if (param->request->has_disabled() && param->request->disabled()) {
+        (*wrapper)->set_disabled();
+        return Status::OK();
+    }
 
     if (param->request->has_ignored() && param->request->ignored()) {
         (*wrapper)->set_ignored();

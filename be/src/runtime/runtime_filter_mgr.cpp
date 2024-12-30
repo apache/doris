@@ -456,7 +456,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             void* data = nullptr;
             int len = 0;
             bool has_attachment = false;
-            if (!cnt_val->filter->get_ignored()) {
+            if (!cnt_val->filter->get_ignored() && !cnt_val->filter->get_disabled()) {
                 RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
             } else {
                 apply_request.set_ignored(true);
@@ -535,7 +535,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             void* data = nullptr;
             int len = 0;
             bool has_attachment = false;
-            if (!cnt_val->filter->get_ignored()) {
+            if (!cnt_val->filter->get_ignored() && !cnt_val->filter->get_disabled()) {
                 RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
             } else {
                 apply_request.set_ignored(true);
