@@ -787,6 +787,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         brokers.get(0),
                         S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                LOG.info("Remote file system properties: {}", repo.getRemoteFileSystem().getProperties());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }
