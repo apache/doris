@@ -750,8 +750,8 @@ function create_warehouse_vault() {
     fi
 
     if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
-        \"instance_id\": \"cloud_instance_0\",
-        \"name\":\"cloud_instance_0\",
+        \"instance_id\": \"instance_id_vault_0\",
+        \"name\":\"instance_name_vault_0\",
         \"user_id\":\"user-id\",
         \"vault\": {
             \"obj_info\": {
