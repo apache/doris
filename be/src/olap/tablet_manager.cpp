@@ -810,7 +810,6 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             if ((top_tablets.size() >= config::compaction_num_per_round &&
                  current_compaction_score > top_tablets.top().score) ||
                 top_tablets.size() < config::compaction_num_per_round) {
-
                 top_tablets.push(ts);
                 if (top_tablets.size() > config::compaction_num_per_round) {
                     top_tablets.pop();
@@ -819,13 +818,12 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
                     highest_score = current_compaction_score;
                     compaction_score = current_compaction_score;
                 }
-
             }
         } else {
-           if (current_compaction_score > highest_score) {
-               highest_score = current_compaction_score;
-               compaction_score = current_compaction_score;
-               best_tablet = tablet_ptr;
+            if (current_compaction_score > highest_score) {
+                highest_score = current_compaction_score;
+                compaction_score = current_compaction_score;
+                best_tablet = tablet_ptr;
             }
         }
     };

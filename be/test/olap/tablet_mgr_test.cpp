@@ -32,10 +32,13 @@
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -342,8 +345,6 @@ TEST_F(TabletMgrTest, GetRowsetId) {
     }
 }
 
-<<<<<<< HEAD
-=======
 TEST_F(TabletMgrTest, FindTabletWithCompact) {
     auto create_tablet = [this](int64_t tablet_id, bool enable_single_compact, int rowset_size) {
         std::vector<TColumn> cols;
@@ -406,8 +407,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             rowset_meta->set_tablet_id(tablet->tablet_id());
             rowset_meta->set_tablet_uid(tablet->tablet_uid());
             rowset_meta->set_rowset_id(k_engine->next_rowset_id());
-            return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
-                                                tablet->tablet_path());
+            return std::make_shared<BetaRowset>(tablet->tablet_schema(), tablet->tablet_path(),
+                                                std::move(rowset_meta));
         };
         auto st = tablet->init();
         ASSERT_TRUE(st.ok()) << st;
@@ -440,7 +441,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             cumulative_compaction_policies);
     ASSERT_EQ(compact_tablets.size(), 1);
     ASSERT_EQ(compact_tablets[0]->tablet_id(), 10);
-    ASSERT_EQ(score, 14);
+    ASSERT_EQ(score, 13);
 
     // create 10 tablets enable single compact
     // 5 tablets do cumu compaction, 5 tablets do single compaction
@@ -452,10 +453,9 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
             cumulative_compaction_policies);
-    ASSERT_EQ(compact_tablets.size(), 2);
-    ASSERT_EQ(compact_tablets[0]->tablet_id(), 19);
-    ASSERT_EQ(compact_tablets[1]->tablet_id(), 20);
-    ASSERT_EQ(score, 24);
+    ASSERT_EQ(compact_tablets.size(), 1);
+    ASSERT_EQ(compact_tablets[0]->tablet_id(), 20);
+    ASSERT_EQ(score, 23);
 
     create_tablet(21, false, rowset_size++);
 
@@ -464,7 +464,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             cumulative_compaction_policies);
     ASSERT_EQ(compact_tablets.size(), 1);
     ASSERT_EQ(compact_tablets[0]->tablet_id(), 21);
-    ASSERT_EQ(score, 25);
+    ASSERT_EQ(score, 24);
 
     // drop all tablets
     for (int64_t id = 1; id <= 21; ++id) {
@@ -485,7 +485,10 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         int index = 0;
         for (auto t : compact_tablets) {
             ASSERT_EQ(t->tablet_id(), 10100 - index);
-            ASSERT_EQ(t->calc_compaction_score(), 100 - index);
+            ASSERT_EQ(t->calc_compaction_score(
+                              CompactionType::CUMULATIVE_COMPACTION,
+                              cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY]),
+                      99 - index);
             index++;
         }
         config::compaction_num_per_round = 1;
@@ -501,18 +504,18 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         for (int64_t i = 1; i <= 100; ++i) {
             create_tablet(20000 + i, false, i);
         }
-        create_tablet(20102, true, 200);
 
         compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
                 CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
                 cumulative_compaction_policies);
-        ASSERT_EQ(compact_tablets.size(), 11);
+        ASSERT_EQ(compact_tablets.size(), 10);
         for (int i = 0; i < 10; ++i) {
             ASSERT_EQ(compact_tablets[i]->tablet_id(), 20100 - i);
-            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 100 - i);
+            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(
+                              CompactionType::CUMULATIVE_COMPACTION,
+                              cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY]),
+                      99 - i);
         }
-        ASSERT_EQ(compact_tablets[10]->tablet_id(), 20102);
-        ASSERT_EQ(compact_tablets[10]->calc_compaction_score(), 200);
 
         config::compaction_num_per_round = 1;
         // drop all tablets
@@ -537,7 +540,10 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         ASSERT_EQ(compact_tablets.size(), 5);
         for (int i = 0; i < 5; ++i) {
             ASSERT_EQ(compact_tablets[i]->tablet_id(), 30000 + 5 - i);
-            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 10 - i);
+            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(
+                              CompactionType::CUMULATIVE_COMPACTION,
+                              cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY]),
+                      9 - i);
         }
 
         config::compaction_num_per_round = 1;
@@ -552,5 +558,4 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_TRUE(trash_st.ok()) << trash_st;
 }
 
->>>>>>> 1bd8003a1a ([Enhancement](compaction) enable the compaction producer to generate multiple compaction tasks in a single run (#45411))
 } // namespace doris
