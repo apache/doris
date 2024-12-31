@@ -273,7 +273,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(13, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(22, hdProps.size());
+        Assertions.assertEquals(21, hdProps.size());
     }
 
     @Test
@@ -291,7 +291,8 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(12, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(21, hdProps.size());
+        Assertions.assertNull(hdProps.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals(20, hdProps.size());
     }
 
     @Test
@@ -442,7 +443,8 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(30, hdProps.size());
+        Assertions.assertEquals(29, hdProps.size());
+        Assertions.assertNull(hdProps.get("fs.s3.impl.disable.cache"));
 
         String query = "create catalog hms_glue properties (\n"
                 + "    'type'='hms',\n"
@@ -460,7 +462,8 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(30, hdPropsNew.size());
+        Assertions.assertNull(hdPropsNew.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals(29, hdPropsNew.size());
     }
 
     @Test
@@ -474,7 +477,7 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'cos.secret_key' = 'skk'\n"
                     + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                "cos.ap-beijing.myqcloud.com", query0, 12, 18);
+                "cos.ap-beijing.myqcloud.com", query0, 12, 17);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
@@ -496,7 +499,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'minio.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
-                "http://127.0.0.1", query2, 12, 21);
+                "http://127.0.0.1", query2, 12, 20);
 
         String catalogName3 = "hms_obs";
         String query3 = "create catalog hms_obs properties (\n"
@@ -507,7 +510,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'obs.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName3, ObsProperties.OBS_PREFIX,
-                "obs.cn-north-4.myhuaweicloud.com", query3, 12, 17);
+                "obs.cn-north-4.myhuaweicloud.com", query3, 12, 16);
     }
 
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
@@ -521,6 +524,7 @@ public class PropertyConverterTest extends TestWithFeService {
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(bePropsSize, hdProps.size());
+        Assertions.assertNull(hdProps.get(String.format("fs.%s.impl.disable.cache", prefix)));
 
         Map<String, String> expectedMetaProperties = new HashMap<>();
         expectedMetaProperties.put("endpoint", endpoint);
