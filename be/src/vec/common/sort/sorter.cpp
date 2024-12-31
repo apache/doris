@@ -114,8 +114,8 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
 
         if (current_rows) {
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_range_from(*current->impl->columns[i], current->impl->pos,
-                                                     current_rows);
+                merged_columns[i]->insert_range_from(*current->impl->columns[i],
+                                                     current->impl->pos + step, current_rows);
             }
             merged_rows += current_rows;
         }
