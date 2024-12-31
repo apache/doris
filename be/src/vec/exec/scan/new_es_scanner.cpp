@@ -154,7 +154,7 @@ Status NewEsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
+                columns[i] = block->get_by_position(i).column->assume_mutable();
             } else {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
