@@ -77,6 +77,8 @@ public class AzureObjStorageTest {
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/2/tmp.ehJi0Y5QKt", 1L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/non-existed-dir", 0L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/2/non-existed-file", 0L));
+        inputs.add(new I("s3://gavin-test-jp/azure_backup/__palo_repository_azure_repo1/__ss_*/*", 1L));
+
         return inputs;
     }
 
@@ -120,6 +122,11 @@ public class AzureObjStorageTest {
             Status st = azs.globList(i.pattern, result, fileNameOnly);
             Assertions.assertTrue(st.ok());
             Assertions.assertEquals(i.expectedMatchSize, result.size());
+            for (int j = 0; j < result.size() && j < 10; ++j) {
+                System.out.println(result.get(j).getName());
+            }
+            System.out.println("pattern: " + i.pattern + " matched " + result.size());
+            System.out.println("====================");
         });
     }
 
@@ -153,6 +160,8 @@ public class AzureObjStorageTest {
             ret.add("azure-test/2/tmp." + i);
             ret.add("azure-test/3/tmp." + i);
         }
+        ret.add("azure_backup/__palo_repository_azure_repo1/__ss_yyq/__meta.ff9b669c1505f51993d5fb448a345811");
+        ret.sort(String::compareTo);
         return ret;
     }
 
