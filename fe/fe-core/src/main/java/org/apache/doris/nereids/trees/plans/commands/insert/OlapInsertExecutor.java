@@ -167,6 +167,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             addTableIndexes(state);
             if (physicalOlapTableSink.isPartialUpdate()) {
                 state.setSchemaForPartialUpdate((OlapTable) table);
+                state.cancelOrWaitForSchemaChange();
             }
         }
     }

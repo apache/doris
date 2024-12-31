@@ -279,6 +279,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 txnState.addTableIndexes(table);
                 if (isPartialUpdate()) {
                     txnState.setSchemaForPartialUpdate(table);
+                    txnState.cancelOrWaitForSchemaChange();
                 }
             }
         } finally {

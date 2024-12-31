@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -41,6 +42,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -870,6 +872,28 @@ public class TransactionState implements Writable {
             }
         }
         return true;
+    }
+
+    public void cancelOrWaitForSchemaChange() {
+        boolean hasUnfinishedAlterJobs = false;
+        String msg = "cancel schema change job because of conflicting partial update,"
+                + " transactionId: " + transactionId;
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        for (long tableId : tableIdList) {
+            List<AlterJobV2> unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
+                    .getUnfinishedAlterJobV2ByTableId(tableId);
+            for (AlterJobV2 job : unfinishedAlterJobs) {
+                if (job.cancel(msg)) {
+                    hasUnfinishedAlterJobs = true;
+                }
+            }
+        }
+        stopWatch.stop();
+        if (hasUnfinishedAlterJobs) {
+            LOG.info("wait for cancelling unfinished schema change task before partial update,"
+                    + "cost {} ms, transactionId: {}", stopWatch.getTime(), transactionId);
+        }
     }
 
     public void setSubTxnIds(List<Long> subTxnIds) {

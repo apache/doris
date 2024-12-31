@@ -254,6 +254,7 @@ public class StreamLoadHandler {
                 if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
                         || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                     txnState.setSchemaForPartialUpdate(table);
+                    txnState.cancelOrWaitForSchemaChange();
                 }
             }
         } finally {

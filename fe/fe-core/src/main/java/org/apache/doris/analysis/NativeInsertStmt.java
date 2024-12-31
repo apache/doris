@@ -1105,6 +1105,7 @@ public class NativeInsertStmt extends InsertStmt {
                 txnState.addTableIndexes((OlapTable) targetTable);
                 if (isPartialUpdate) {
                     txnState.setSchemaForPartialUpdate((OlapTable) targetTable);
+                    txnState.cancelOrWaitForSchemaChange();
                 }
             }
         }

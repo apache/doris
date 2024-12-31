@@ -994,6 +994,7 @@ public abstract class RoutineLoadJob
             txnState.addTableIndexes(planner.getDestTable());
             if (isPartialUpdate) {
                 txnState.setSchemaForPartialUpdate((OlapTable) table);
+                txnState.cancelOrWaitForSchemaChange();
             }
 
             return planParams;
