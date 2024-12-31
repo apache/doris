@@ -49,7 +49,12 @@ public final class FlightAuthUtils {
             Logger logger) {
         try {
             List<UserIdentity> currentUserIdentity = Lists.newArrayList();
-
+            // If the password is empty, DBeaver will pass "null" string for authentication.
+            // This behavior of DBeaver is strange, but we have to be compatible with it, of course,
+            // it may be a problem with Arrow Flight Jdbc driver.
+            // Here, "null" is converted to null, if user's password is really the string "null",
+            // authentication will fail. Usually, the user's password will not be "null", let's hope so.
+            password = (password.equals("null")) ? null : password;
             Env.getCurrentEnv().getAuth().checkPlainPassword(username, remoteIp, password, currentUserIdentity);
             Preconditions.checkState(currentUserIdentity.size() == 1);
             return FlightAuthResult.of(username, currentUserIdentity.get(0), remoteIp);
