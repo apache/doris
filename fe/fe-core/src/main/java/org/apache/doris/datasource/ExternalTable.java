@@ -308,7 +308,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public DatabaseIf getDatabase() {
-        return catalog.getDbNullable(dbName);
+        return this.db;
     }
 
     @Override

@@ -108,7 +108,7 @@ public abstract class ExternalCatalog
     public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
 
-    public static final String FOUND_CONFLICTING  = "Found conflicting";
+    public static final String FOUND_CONFLICTING = "Found conflicting";
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
 
     // Properties that should not be shown in the `show create catalog` result
@@ -741,6 +741,7 @@ public abstract class ExternalCatalog
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
+            LOG.info("Synchronized database (refresh): [Name: {}, ID: {}]", db.get().getFullName(), db.get().getId());
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             ExternalDatabase<? extends ExternalTable> db =
@@ -749,6 +750,8 @@ public abstract class ExternalCatalog
             if (db != null) {
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
+                LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
+                        db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
             }
         }
         dbNameToId = tmpDbNameToId;
