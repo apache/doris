@@ -794,6 +794,8 @@ void Compaction::mark_skip_index_compaction(
     for (auto&& column_uniq_id : context.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
         const auto* index_meta = _cur_tablet_schema->inverted_index(col);
+        DBUG_EXECUTE_IF("Compaction::mark_skip_index_compaction_can_not_find_index_meta",
+                        { index_meta = nullptr; })
         if (index_meta == nullptr) {
             LOG(WARNING) << "mark skip index compaction, can not find index_meta for column"
                          << ". tablet=" << _tablet->tablet_id()
