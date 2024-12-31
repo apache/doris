@@ -112,7 +112,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
             }
         }
 
-        for (int i = 0; i < _right_col_len; i++) {
+        for (size_t i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
                 if (!build_index_has_zero && _build_column_has_null[i]) {
@@ -123,7 +123,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                     mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
                                                                   _build_indexs.data() + size);
                 }
-            } else {
+            } else if (i + _right_col_idx != _parent->_mark_column_id) {
                 mcol[i + _right_col_idx] = MutableColumnPtr();
             }
         }
