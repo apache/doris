@@ -128,6 +128,21 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+    if (_closed) {
+        return Status::OK();
+    }
+
+    _destroy_agg_status();
+    _agg_arena_pool = nullptr;
+
+    std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
+    _result_window_columns.swap(tmp_result_window_columns);
+    return PipelineXSinkLocalState<AnalyticSharedState>::close(state, exec_status);
+}
+
 Status AnalyticSinkLocalState::_get_next_for_sliding_rows() {
     do {
         auto batch_size = _input_blocks[_output_block_index].rows();

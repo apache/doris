@@ -38,6 +38,7 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class AnalyticSinkOperatorX;
@@ -72,7 +73,7 @@ private:
     void _get_partition_by_end();
     BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
                                          bool need_check_first = false);
-    bool _has_input_data() {return _output_block_index < _input_blocks.size();}
+    bool _has_input_data() { return _output_block_index < _input_blocks.size(); }
     bool _check_need_block_task();
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);
     void _reset_state_for_next_partition();

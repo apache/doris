@@ -27,8 +27,7 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<AnalyticSharedState>(state, parent)
-{}
+        : PipelineXLocalState<AnalyticSharedState>(state, parent) {}
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
@@ -38,21 +37,11 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-Status AnalyticLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    return Status::OK();
-}
-
-
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                  int operator_id, const DescriptorTbl& descs)
         : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {
     _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-
 }
-
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
                                           bool* eos) {
@@ -89,21 +78,6 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         }
     }
     return Status::OK();
-}
-
-Status AnalyticLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_close_timer);
-    if (_closed) {
-        return Status::OK();
-    }
-
-    // _destroy_agg_status();
-    // _agg_arena_pool = nullptr;
-
-    // std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
-    // _result_window_columns.swap(tmp_result_window_columns);
-    return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
 Status AnalyticSourceOperatorX::open(RuntimeState* state) {

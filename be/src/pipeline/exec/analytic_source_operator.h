@@ -28,16 +28,13 @@ class RuntimeState;
 namespace pipeline {
 #include "common/compile_check_begin.h"
 
-
 class AnalyticSourceOperatorX;
 class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
-
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
-    Status close(RuntimeState* state) override;
+
 private:
     friend class AnalyticSourceOperatorX;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
@@ -52,7 +49,6 @@ public:
 
     bool is_source() const override { return true; }
 
-    // Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
 private:
