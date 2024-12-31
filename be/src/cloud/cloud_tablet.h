@@ -172,6 +172,9 @@ public:
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                               const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
+    Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
+                                    DeleteBitmapPtr delete_bitmap);
+
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
                                              const RowIdConversion& rowid_conversion,

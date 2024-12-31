@@ -1813,6 +1813,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     // 3. store all pending delete bitmap for this txn
     PendingDeleteBitmapPB delete_bitmap_keys;
+    delete_bitmap_keys.set_lock_id(request->lock_id());
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
                                        request->versions(i), request->segment_ids(i)};
