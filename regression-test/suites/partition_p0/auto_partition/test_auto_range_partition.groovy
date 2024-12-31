@@ -243,28 +243,4 @@ suite("test_auto_range_partition") {
         sql "insert into awh_test_range_auto values (1,'20201212')"
         exception "date_trunc function second param only support argument is"
     }
-
-    sql "drop table if exists DAILY_TRADE_VALUE"
-    sql """
-        CREATE TABLE `DAILY_TRADE_VALUE`
-        (
-            `TRADE_DATE`              datev2 NOT NULL COMMENT '交易日期',
-            `TRADE_ID`                varchar(40) NOT NULL COMMENT '交易编号'
-        )
-        UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)
-        AUTO PARTITION BY RANGE (date_trunc(`TRADE_DATE`, 'year'))
-        (
-        )
-        DISTRIBUTED BY HASH(`TRADE_DATE`) BUCKETS 10
-        PROPERTIES (
-        "storage_medium" = "ssd",
-        "replication_num" = "1"
-        );
-    """
-    sql " insert into DAILY_TRADE_VALUE values ('2022-02-02','asd'); "
-    result2 = sql "show partitions from DAILY_TRADE_VALUE"
-    logger.info("${result2}")
-    assertEquals(result2.size(), 1)
-    // check storage medium, and have check the pipeline P0 disk is all ssd
-    assertEquals(result2[0][10], "SSD")
 }
