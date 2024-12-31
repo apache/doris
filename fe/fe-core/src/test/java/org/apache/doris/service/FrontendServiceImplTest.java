@@ -232,7 +232,8 @@ public class FrontendServiceImplTest {
         TGetDbsResult dbNames = impl.getDbNames(params);
 
         Assert.assertEquals(dbNames.getDbs().size(), 2);
-        Assert.assertEquals(dbNames.getDbs(), Arrays.asList("test", "test_"));
+        Assert.assertTrue(dbNames.getDbs().contains("test"));
+        Assert.assertTrue(dbNames.getDbs().contains("test_"));
     }
 
     @Test
