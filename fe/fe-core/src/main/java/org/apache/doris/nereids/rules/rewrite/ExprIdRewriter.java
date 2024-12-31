@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -125,7 +126,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                             return slot.withExprId(newId);
                         }
                         return slot;
-                    })
+                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
             );
         }
     }
