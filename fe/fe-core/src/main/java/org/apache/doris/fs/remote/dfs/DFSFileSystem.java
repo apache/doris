@@ -447,7 +447,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @return Status.OK if success.
      */
     @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
         try {
             URI pathUri = URI.create(remotePath);
             FileSystem fileSystem = nativeFileSystem(remotePath);
@@ -459,7 +459,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
             for (FileStatus fileStatus : files) {
                 RemoteFile remoteFile = new RemoteFile(
-                        fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
+                        fileStatus.getPath().toString(),
                         !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
                         fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);

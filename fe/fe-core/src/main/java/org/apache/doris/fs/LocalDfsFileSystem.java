@@ -134,7 +134,7 @@ public class LocalDfsFileSystem implements FileSystem {
     }
 
     @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
         try {
             FileStatus[] locatedFileStatusRemoteIterator = fs.globStatus(new Path(remotePath));
             if (locatedFileStatusRemoteIterator == null) {
@@ -142,7 +142,7 @@ public class LocalDfsFileSystem implements FileSystem {
             }
             for (FileStatus fileStatus : locatedFileStatusRemoteIterator) {
                 RemoteFile remoteFile = new RemoteFile(
-                        fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
+                        fileStatus.getPath().toString(),
                         !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
                         fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);

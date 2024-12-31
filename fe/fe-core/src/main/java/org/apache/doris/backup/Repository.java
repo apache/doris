@@ -65,6 +65,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -185,12 +186,6 @@ public class Repository implements Writable, GsonPostProcessable {
         }
 
         return Pair.of(fileName, md5sum);
-    }
-
-    // in: /path/to/orig_file
-    // out: /path/to/orig_file.BUWDnl831e4nldsf
-    public static String replaceFileNameWithChecksumFileName(String origPath, String fileNameWithChecksum) {
-        return origPath.substring(0, origPath.lastIndexOf(PATH_DELIMITER) + 1) + fileNameWithChecksum;
     }
 
     public static Repository read(DataInput in) throws IOException {
@@ -425,23 +420,52 @@ public class Repository implements Writable, GsonPostProcessable {
     public Status listSnapshots(List<String> snapshotNames) {
         // list with prefix:
         // eg. __palo_repository_repo_name/__ss_*
-        String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
-                + "*";
+
+        String listPathPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+                PREFIX_SNAPSHOT_DIR);
+
+        try {
+            listPathPrefix = new URI(listPathPrefix).normalize().toString();
+        } catch (URISyntaxException e) {
+            LOG.error("Invalid URI syntax: " + listPathPrefix, e);
+            return new Status(ErrCode.COMMON_ERROR, "Invalid URI syntax: " + listPathPrefix);
+        }
+
+
+        String listPath = listPathPrefix + "*" + PATH_DELIMITER + "*";
         List<RemoteFile> result = Lists.newArrayList();
         Status st = fileSystem.globList(listPath, result);
         if (!st.ok()) {
             return st;
         }
 
+        int snapshotNameOffset = listPathPrefix.lastIndexOf(PATH_DELIMITER);
+
+        HashSet<String> uniqueSnapshotNames = new HashSet<>();
         for (RemoteFile remoteFile : result) {
-            if (remoteFile.isFile()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get snapshot path{} which is not a dir", remoteFile);
-                }
+            int index = remoteFile.getName().indexOf(listPathPrefix);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get remote file: {} {}", remoteFile.getName(), listPathPrefix);
+            }
+            if (index == -1) {
+                LOG.info("glob list wrong results, prefix {}, file name {}", listPathPrefix, remoteFile.getName());
+                continue;
+            }
+            String snapshotName = remoteFile.getName().substring(index + snapshotNameOffset + 1);
+            snapshotName = disjoinPrefix(PREFIX_SNAPSHOT_DIR, snapshotName);
+            index = snapshotName.indexOf(PATH_DELIMITER);
+            if (index != -1) {
+                snapshotName = snapshotName.substring(0, index);
+            } else {
                 continue;
             }
 
-            snapshotNames.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, remoteFile.getName()));
+            if (uniqueSnapshotNames.contains(snapshotName)) {
+                continue;
+            }
+
+            uniqueSnapshotNames.add(snapshotName);
+            snapshotNames.add(snapshotName);
         }
         return Status.OK;
     }
@@ -604,6 +628,13 @@ public class Repository implements Writable, GsonPostProcessable {
 
     // remoteFilePath must be a file(not dir) and does not contain checksum
     public Status download(String remoteFilePath, String localFilePath) {
+        try {
+            remoteFilePath = new URI(remoteFilePath).normalize().toString();
+        } catch (URISyntaxException e) {
+            LOG.error("Invalid URI syntax: " + remoteFilePath, e);
+            return new Status(ErrCode.COMMON_ERROR, "Invalid URI syntax: " + remoteFilePath);
+        }
+
         // 0. list to get to full name(with checksum)
         List<RemoteFile> remoteFiles = Lists.newArrayList();
         Status status = fileSystem.globList(remoteFilePath + "*", remoteFiles);
@@ -618,8 +649,7 @@ public class Repository implements Writable, GsonPostProcessable {
             return new Status(ErrCode.COMMON_ERROR, "Expected file with path: " + remoteFilePath + ". but get dir");
         }
 
-        String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
-                remoteFiles.get(0).getName());
+        String remoteFilePathWithChecksum = remoteFiles.get(0).getName();
         if (LOG.isDebugEnabled()) {
             LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
         }
@@ -780,13 +810,17 @@ public class Repository implements Writable, GsonPostProcessable {
                 List<String> tmp = Lists.newArrayList();
                 for (RemoteFile file : results) {
                     // __info_2018-04-18-20-11-00.Jdwnd9312sfdn1294343
-                    Pair<String, String> pureFileName = decodeFileNameWithChecksum(file.getName());
-                    if (pureFileName == null) {
+                    Pair<String, String> pureFilePath = decodeFileNameWithChecksum(file.getName());
+                    if (pureFilePath == null) {
                         // maybe: __info_2018-04-18-20-11-00.part
                         tmp.add("Invalid: " + file.getName());
                         continue;
                     }
-                    tmp.add(disjoinPrefix(PREFIX_JOB_INFO, pureFileName.first));
+
+                    int index = pureFilePath.first.lastIndexOf(PATH_DELIMITER);
+                    String pureFileName = pureFilePath.first.substring(index + 1);
+                    LOG.info("path {} filename {}", pureFilePath.first, pureFileName);
+                    tmp.add(disjoinPrefix(PREFIX_JOB_INFO, pureFileName));
                 }
                 if (!tmp.isEmpty()) {
                     info.add(snapshotName);

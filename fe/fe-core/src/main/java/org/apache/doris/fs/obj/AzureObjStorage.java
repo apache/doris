@@ -319,24 +319,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return globPattern.substring(0, earliestSpecialCharIndex);
     }
 
-    class MatcherContext {
-        public long elementCnt = 0;
-        public long matchCnt = 0;
-        public List<RemoteFile> result;
-        public boolean fileNameOnly;
-        public PathMatcher matcher;
-
-        public MatcherContext(List<RemoteFile> result, boolean fileNameOnly) {
-            this.result = result;
-            this.fileNameOnly = fileNameOnly;
-        }
-    }
-
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
+        long roundCnt = 0;
+        long elementCnt = 0;
+        long matchCnt = 0;
         long startTime = System.nanoTime();
         Status st = Status.OK;
-        MatcherContext matchContext = new MatcherContext(result, fileNameOnly);
-
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
@@ -347,11 +335,34 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.info("path pattern {}", pathPattern.toString());
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern.toString());
 
-            matchContext.matcher = matcher;
             String listPrefix = getLongestPrefix(globPath);
             LOG.info("azure glob list prefix is {}", listPrefix);
+            ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
+            String newContinuationToken = null;
+            do {
+                roundCnt++;
+                PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
+                PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
-            listBlobsHierarchicalListing(client, listPrefix, matchContext);
+                for (BlobItem blobItem : pagedResponse.getElements()) {
+                    elementCnt++;
+                    java.nio.file.Path blobPath = Paths.get(blobItem.getName());
+
+                    if (!matcher.matches(blobPath)) {
+                        continue;
+                    }
+                    matchCnt++;
+                    RemoteFile remoteFile = new RemoteFile(
+                            constructS3Path(blobPath.toString(), uri.getBucket()),
+                            !blobItem.isPrefix(),
+                            blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
+                            blobItem.getProperties().getContentLength(),
+                            blobItem.getProperties().getLastModified().getSecond());
+                    result.add(remoteFile);
+                }
+                newContinuationToken = pagedResponse.getContinuationToken();
+            } while (newContinuationToken != null);
+
         } catch (BlobStorageException e) {
             LOG.warn("glob file " + remotePath + " failed because azure error: " + e.getMessage());
             st = new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
@@ -362,12 +373,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {}, match {} elements, take {} micro second",
-                    remotePath, matchContext.elementCnt, matchContext.matchCnt, duration / 1000);
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, result {} take {} "
+                    + "micro second",
+                    remotePath, elementCnt, roundCnt, matchCnt, result.size(), duration / 1000);
         }
         return st;
     }
-
     public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
                                                      String newContinuationToken) {
         PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);

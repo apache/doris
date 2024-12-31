@@ -103,7 +103,7 @@ public class S3FileSystem extends ObjFileSystem {
 
     // broker file pattern glob is too complex, so we use hadoop directly
     @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
         try {
             FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
@@ -113,7 +113,7 @@ public class S3FileSystem extends ObjFileSystem {
             }
             for (FileStatus fileStatus : files) {
                 RemoteFile remoteFile = new RemoteFile(
-                        fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
+                        fileStatus.getPath().toString(),
                         !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
                         fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);

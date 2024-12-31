@@ -72,24 +72,11 @@ public interface FileSystem {
 
     /**
      * List files in remotePath by wildcard <br/>
-     * The {@link RemoteFile}'name will only contain file name (Not full path)
      * @param remotePath remote path
      * @param result All eligible files under the path
      * @return
      */
-    default Status globList(String remotePath, List<RemoteFile> result) {
-        return globList(remotePath, result, true);
-    }
-
-    /**
-     * List files in remotePath by wildcard <br/>
-     * @param remotePath remote path
-     * @param result All eligible files under the path
-     * @param fileNameOnly for {@link RemoteFile}'name: whether the full path is included.<br/>
-     *                     true: only contains file name, false: contains full path<br/>
-     * @return
-     */
-    Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
+    Status globList(String remotePath, List<RemoteFile> result);
 
     default Status listDirectories(String remotePath, Set<String> result) {
         throw new UnsupportedOperationException("Unsupported operation list directories on current file system.");

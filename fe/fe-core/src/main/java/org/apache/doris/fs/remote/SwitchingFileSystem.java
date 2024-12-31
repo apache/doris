@@ -113,11 +113,6 @@ public class SwitchingFileSystem implements FileSystem {
     }
 
     @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        return fileSystem(remotePath).globList(remotePath, result, fileNameOnly);
-    }
-
-    @Override
     public Status listDirectories(String remotePath, Set<String> result) {
         return fileSystem(remotePath).listDirectories(remotePath, result);
     }
