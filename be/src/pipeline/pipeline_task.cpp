@@ -511,7 +511,7 @@ std::string PipelineTask::debug_string() {
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
                    _wake_up_early.load(),
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
-                   is_running());
+                   _holder ? false : _holder->state.load() == TaskState::RUNNING);
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finalized ? _operators[i]->debug_string(_state, i)

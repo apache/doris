@@ -97,7 +97,6 @@ void _close_task(TaskHolderSPtr holder, Status exec_status) {
         task->fragment_context()->cancel(status);
     }
     task->finalize();
-    task->set_running(false);
     {
         auto expected = TaskState::RUNNING;
         CHECK(holder->state.compare_exchange_strong(expected, TaskState::VALID));

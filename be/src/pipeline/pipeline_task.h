@@ -172,9 +172,6 @@ public:
 
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
-    bool is_running() { return _running.load(); }
-    void set_running(bool running) { _running = running; }
-
     bool is_exceed_debug_timeout() {
         if (_has_exceed_timeout) {
             return true;
@@ -297,7 +294,6 @@ private:
     std::atomic<bool> _finalized = false;
     std::mutex _dependency_lock;
 
-    std::atomic<bool> _running = false;
     std::atomic<bool> _eos = false;
     std::atomic<bool> _wake_up_early = false;
     std::shared_ptr<TaskHolder> _holder;
