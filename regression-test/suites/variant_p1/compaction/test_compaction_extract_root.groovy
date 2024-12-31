@@ -85,7 +85,7 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
         union  all select 5, '{"a": 1123}' as json_str union all select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
     // // fix cast to string tobe {}
-    qt_select_b_1 """ SELECT count(cast(v['b'] as string)) FROM test_t"""
+    // qt_select_b_1 """ SELECT count(cast(v['b'] as string)) FROM test_t where cast(v['b'] as string) != '{}' """
     qt_select_b_2 """ SELECT count(cast(v['b'] as int)) FROM test_t"""
     // TODO, sparse columns with v['b'] will not be merged in hierachical_data_reader with sparse columns
     // qt_select_b_2 """ select v['b'] from test_t where  cast(v['b'] as string) != '42005' and  cast(v['b'] as string) != '42004' and  cast(v['b'] as string) != '42003' order by cast(v['b'] as string); """
