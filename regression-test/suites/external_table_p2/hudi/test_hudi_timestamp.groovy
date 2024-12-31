@@ -45,10 +45,12 @@ suite("test_hudi_timestamp", "p2,external,hudi,external_remote,external_remote_h
 
     // test native reader
     test_timestamp_different_timezones()
-    sql """ set force_jni_scanner = true; """
+
+    // disable jni scanner because the old hudi jni reader based on spark can't read the emr hudi data
+    // sql """ set force_jni_scanner = true; """
     // test jni reader
-    test_timestamp_different_timezones()
-    sql """ set force_jni_scanner = false; """
+    // test_timestamp_different_timezones()
+    // sql """ set force_jni_scanner = false; """
 
 
     sql """drop catalog if exists ${catalog_name};"""

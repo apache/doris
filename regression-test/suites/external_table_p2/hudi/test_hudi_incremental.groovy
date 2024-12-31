@@ -107,12 +107,14 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
     test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
     test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
     test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
-    sql """set force_jni_scanner=true;"""
+
+    // disable jni scanner because the old hudi jni reader based on spark can't read the emr hudi data
+    // sql """set force_jni_scanner=true;"""
     // don't support incremental query for cow table by jni reader
     // test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
     // test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
-    test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
-    test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+    // test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
+    // test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
     // sql """set force_jni_scanner=false;"""
 
     sql """drop catalog if exists ${catalog_name};"""
