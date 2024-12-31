@@ -43,10 +43,10 @@ public class IndexDef {
     private boolean isBuildDeferred = false;
     private PartitionNames partitionNames;
     private List<Integer> columnUniqueIds = Lists.newArrayList();
-    private static final int MIN_NGRAM_SIZE = 1;
-    private static final int MAX_NGRAM_SIZE = 255;
-    private static final int MIN_BF_SIZE = 64;
-    private static final int MAX_BF_SIZE = 65535;
+    public static final int MIN_NGRAM_SIZE = 1;
+    public static final int MAX_NGRAM_SIZE = 255;
+    public static final int MIN_BF_SIZE = 64;
+    public static final int MAX_BF_SIZE = 65535;
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
@@ -270,7 +270,7 @@ public class IndexDef {
         }
     }
 
-    private void parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
+    public static void parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
             throws AnalysisException {
         String valueStr = properties.get(key);
         if (valueStr == null) {
