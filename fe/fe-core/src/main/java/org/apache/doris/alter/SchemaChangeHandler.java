@@ -2704,7 +2704,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     /**
      * Returns true if the index already exists, there is no need to create the job to add the index.
-     * Otherwise return false, there is need to create a job to add the index.
+     * Otherwise, return false, there is need to create a job to add the index.
      */
     private boolean processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
             throws UserException {
@@ -2718,23 +2718,11 @@ public class SchemaChangeHandler extends AlterHandler {
         Set<String> newColset = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         newColset.addAll(indexDef.getColumns());
         Set<Long> existedIndexIdSet = Sets.newHashSet();
-        for (Index existedIdx : existedIndexes) {
-            if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
-                if (indexDef.isSetIfNotExists()) {
-                    LOG.info("create index[{}] which already exists on table[{}]", indexDef.getIndexName(),
-                            olapTable.getName());
-                    return true;
-                }
-                throw new DdlException("index `" + indexDef.getIndexName() + "` already exist.");
-            }
-            Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            existedIdxColSet.addAll(existedIdx.getColumns());
-            if (existedIdx.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
-                throw new DdlException(
-                        indexDef.getIndexType() + " index for columns (" + String.join(",", indexDef.getColumns())
-                                + " ) already exist.");
-            }
-            existedIndexIdSet.add(existedIdx.getIndexId());
+        if (checkDuplicateIndexes(existedIndexes, indexDef, newColset, existedIndexIdSet, olapTable)) {
+            return true;
+        }
+        if (checkDuplicateIndexes(newIndexes, indexDef, newColset, existedIndexIdSet, olapTable)) {
+            return true;
         }
 
         // The restored olap table may not reset the index id, which comes from the upstream,
@@ -2767,6 +2755,29 @@ public class SchemaChangeHandler extends AlterHandler {
         alterIndex.setColumns(indexDef.getColumns());
         alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
+        return false;
+    }
+
+    private boolean checkDuplicateIndexes(List<Index> indexes, IndexDef indexDef, Set<String> newColset,
+                                          Set<Long> existedIndexIdSet, OlapTable olapTable) throws DdlException {
+        for (Index index : indexes) {
+            if (index.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                if (indexDef.isSetIfNotExists()) {
+                    LOG.info("create index[{}] which already exists on table[{}]", indexDef.getIndexName(),
+                            olapTable.getName());
+                    return true;
+                }
+                throw new DdlException("index `" + indexDef.getIndexName() + "` already exist.");
+            }
+            Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            existedIdxColSet.addAll(index.getColumns());
+            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
+                throw new DdlException(
+                        indexDef.getIndexType() + " index for columns (" + String.join(",", indexDef.getColumns())
+                                + ") already exist.");
+            }
+            existedIndexIdSet.add(index.getIndexId());
+        }
         return false;
     }
 
