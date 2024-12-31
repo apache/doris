@@ -87,6 +87,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
@@ -2912,7 +2913,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         //update base index schema
         try {
-            updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
+            updateBaseIndexSchema(db, olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
@@ -3095,7 +3096,7 @@ public class SchemaChangeHandler extends AlterHandler {
         return changedIndexIdToSchema;
     }
 
-    public void updateBaseIndexSchema(OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
+    public void updateBaseIndexSchema(Database db, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
                                       List<Index> indexes) throws IOException {
         long baseIndexId = olapTable.getBaseIndexId();
         List<Long> indexIds = new ArrayList<Long>();
@@ -3130,6 +3131,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         if (hasEnableUniqueKeySkipBitmapChanged) {
             olapTable.setEnableUniqueKeySkipBitmap(true);
+            ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), olapTable.getId(),
+                    olapTable.getName(),
+                    olapTable.getTableProperty().getProperties());
+            Env.getCurrentEnv().getEditLog().logModifyTableProperties(info);
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();
