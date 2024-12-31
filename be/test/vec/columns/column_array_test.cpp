@@ -334,7 +334,6 @@ protected:
             array_types.push_back(type);
             serdes.push_back(serde);
         }
-
     }
 
     MutableColumns array_columns; // column_array list
