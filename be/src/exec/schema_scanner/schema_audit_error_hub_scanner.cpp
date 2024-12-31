@@ -70,10 +70,11 @@ Status SchemaAuditErrorHubScanner::_get_audit_error_from_all_fe() {
     for (const auto& fe_addr : _param->common_param->fe_addr_list) {
         RETURN_IF_ERROR(_get_audit_error_from_fe(fe_addr, request));
     }
-    return Status::OK(); 
+    return Status::OK();
 }
 
-Status SchemaAuditErrorHubScanner::_get_audit_error_from_fe(const TNetworkAddress& fe_addr, const TSchemaTableRequestParams& request) {
+Status SchemaAuditErrorHubScanner::_get_audit_error_from_fe(
+        const TNetworkAddress& fe_addr, const TSchemaTableRequestParams& request) {
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             fe_addr.hostname, fe_addr.port,
@@ -108,8 +109,7 @@ Status SchemaAuditErrorHubScanner::_get_audit_error_from_fe(const TNetworkAddres
     return Status::OK();
 }
 
-Status SchemaAuditErrorHubScanner::get_next_block_internal(vectorized::Block* block,
-                                                                   bool* eos) {
+Status SchemaAuditErrorHubScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -121,11 +121,6 @@ Status SchemaAuditErrorHubScanner::get_next_block_internal(vectorized::Block* bl
     if (_block == nullptr) {
         RETURN_IF_ERROR(_get_audit_error_from_all_fe());
         _total_rows = (int)_block->rows();
-    }
-
-    if (_row_idx == _total_rows && _fe_idx == _total_fe) {
-        *eos = true;
-        return Status::OK();
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
