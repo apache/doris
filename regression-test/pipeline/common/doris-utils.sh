@@ -477,6 +477,16 @@ set_session_variable() {
     fi
 }
 
+set_default_storage_vault() {
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    if ${cl} -e"set built_in_storage_vault as default storage vault;"; then
+        echo "INFO:      set built_in_storage_vault as default storage vault;"
+    else
+        echo "ERROR:     set built_in_storage_vault as default storage vault;" && return 1
+    fi
+}
+
 function reset_doris_session_variables() {
     # reset all session variables to default
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi

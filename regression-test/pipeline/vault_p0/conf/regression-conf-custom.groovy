@@ -24,3 +24,13 @@ targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoa
 // for vault case, consistent with the configuration in the create_warehouse_vault method in the doris-utils.sh file.
 instanceId="cloud_instance_0"
 multiClusterInstanceId="cloud_instance_0"
+
+hdfsFs = "hdfs://127.0.0.1:8020"
+hdfsUser = "root"
+hdfsPasswd = ""
+
+extHiveHmsHost = "127.0.0.1"
+extHiveHmsPort = 7004
+extHdfsPort = 8020
+extHiveServerPort= 7001
+extHiveHmsUser = "root"
