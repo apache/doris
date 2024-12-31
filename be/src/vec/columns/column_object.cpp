@@ -352,7 +352,7 @@ void get_field_info(const Field& field, FieldInfo* info) {
 }
 
 #ifdef NDEBUG
-#define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
+#define ENABLE_CHECK_CONSISTENCY (void) /* Nothing */
 #else
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
@@ -1912,11 +1912,6 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     // finalize all subcolumns
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
-        /// Do not add subcolumns, which consists only from NULLs
-        if (is_nothing(remove_nullable(get_base_type_of_array(least_common_type)))) {
-            continue;
-        }
-
         // unnest all nested columns, add them to new_subcolumns
         if (mode == FinalizeMode::WRITE_MODE &&
             least_common_type->equals(*ColumnObject::NESTED_TYPE)) {

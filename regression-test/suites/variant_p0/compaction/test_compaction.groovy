@@ -53,7 +53,7 @@ suite("test_compaction_variant") {
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
         }
 

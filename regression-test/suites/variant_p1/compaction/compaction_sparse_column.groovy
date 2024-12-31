@@ -146,7 +146,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
 
         sql """insert into ${tableName} values (6, '{"b" : "789"}')"""
         
-        qt_select_b_bfcompact """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
+        qt_select_b_bfcompact """ SELECT count(cast(v['b'] as string)) FROM ${tableName};"""
         qt_select_xxxx_bfcompact """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName};"""
         qt_select_point_bfcompact """ SELECT count(cast(v['point'] as bigint)) FROM ${tableName};"""
         qt_select_1_bfcompact """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName} where cast(v['xxxx'] as string) = 'aaaaa';"""
@@ -185,7 +185,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
             }
         */
 
-        qt_select_b """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
+        qt_select_b """ SELECT count(cast(v['b'] as string)) FROM ${tableName};"""
         qt_select_xxxx """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName};"""
         qt_select_point """ SELECT count(cast(v['point'] as bigint)) FROM ${tableName};"""
         qt_select_1 """ SELECT count(cast(v['xxxx'] as string)) FROM ${tableName} where cast(v['xxxx'] as string) = 'aaaaa';"""
@@ -215,6 +215,6 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
         GetDebugPoint().disableDebugPointForAllBEs("variant_column_writer_impl._get_subcolumn_paths_from_stats")
         set_be_config.call("write_buffer_size", "209715200")
-        set_be_config.call("variant_max_subcolumns_count", "5")
+        // set_be_config.call("variant_max_subcolumns_count", "5")
     }
 }

@@ -25,7 +25,7 @@ suite("regression_test_variant_add_drop_column", "variant_type"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1",  "bloom_filter_columns" = "v");
+        properties("replication_num" = "1");
     """
     sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}')"""
 
