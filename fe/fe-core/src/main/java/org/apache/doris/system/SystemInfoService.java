@@ -109,6 +109,10 @@ public class SystemInfoService {
             return host + "_" + port;
         }
 
+        public String toIpPort() {
+            return host + ":" + port;
+        }
+
         @Override
         public int compareTo(@NotNull HostInfo o) {
             int res = host.compareTo(o.getHost());

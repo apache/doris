@@ -71,6 +71,8 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
+import org.apache.doris.qe.AuditErrorHub.AuditError;
+import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -142,6 +144,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> AUDIT_ERROR_HUB_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -203,6 +207,13 @@ public class MetadataGenerator {
             partitionsBuilder.put(partitionsColList.get(i).getName().toLowerCase(), i);
         }
         PARTITIONS_COLUMN_TO_INDEX = partitionsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> auditErrorBuilder = new ImmutableMap.Builder();
+        List<Column> auditErrorColList = SchemaTable.TABLE_MAP.get("audit_error_hub").getFullSchema();
+        for (int i = 0; i < auditErrorColList.size(); i++) {
+            auditErrorBuilder.put(auditErrorColList.get(i).getName().toLowerCase(), i);
+        }
+        AUDIT_ERROR_HUB_COLUMN_TO_INDEX = auditErrorBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -308,6 +319,10 @@ public class MetadataGenerator {
             case PARTITIONS:
                 result = partitionsMetadataResult(schemaTableParams);
                 columnIndex = PARTITIONS_COLUMN_TO_INDEX;
+                break;
+            case AUDIT_ERROR_HUB:
+                result = auditErrorHubMetadataResult(schemaTableParams);
+                columnIndex = AUDIT_ERROR_HUB_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -1623,6 +1638,23 @@ public class MetadataGenerator {
             dataBatch.add(trow);
         }
         return dataBatch;
+    }
+
+    private static TFetchSchemaTableDataResult auditErrorHubMetadataResult(TSchemaTableRequestParams params) {
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        AuditEventProcessor processor = Env.getCurrentEnv().getAuditEventProcessor();
+        List<AuditError> auditErrors = processor.getAuditErrors();
+        for (AuditError auditError : auditErrors) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(auditError.getFeNode())); // FE_HOST
+            trow.addToColumnValue(new TCell().setLongVal(auditError.getTimestamp())); // EVENT_TIME
+            trow.addToColumnValue(new TCell().setStringVal(auditError.getMessage())); // ERROR_MESSAGE
+            dataBatch.add(trow);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
     }
 
 }
