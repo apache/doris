@@ -60,7 +60,7 @@ touch "$lockfile2"
 if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     cd /mnt/scripts/
-    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tpch1.db.tar.gz
+    curl -O https://s3BucketName.s3Endpoint/regression/datalake/pipeline_data/tpch1.db.tar.gz
     tar -zxf tpch1.db.tar.gz
     rm -rf tpch1.db.tar.gz
     cd -
@@ -72,7 +72,7 @@ fi
 rm -rf "/mnt/scripts/paimon1"
 echo "/mnt/scripts/paimon1 does not exist"
 cd /mnt/scripts/
-curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/paimon1.tar.gz
+curl -O https://s3BucketName.s3Endpoint/regression/datalake/pipeline_data/paimon1.tar.gz
 tar -zxf paimon1.tar.gz
 rm -rf paimon1.tar.gz
 cd -
@@ -81,7 +81,7 @@ cd -
 if [[ ! -d "/mnt/scripts/tvf_data" ]]; then
     echo "/mnt/scripts/tvf_data does not exist"
     cd /mnt/scripts/
-    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tvf_data.tar.gz
+    curl -O https://s3BucketName.s3Endpoint/regression/datalake/pipeline_data/tvf_data.tar.gz
     tar -zxf tvf_data.tar.gz
     rm -rf tvf_data.tar.gz
     cd -
