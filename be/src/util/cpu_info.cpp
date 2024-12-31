@@ -59,6 +59,7 @@
 #include "gflags/gflags.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
+#include "util/cgroup_util.h"
 #include "util/pretty_printer.h"
 
 using boost::algorithm::contains;
@@ -108,58 +109,6 @@ static struct {
         {"ssse3", CpuInfo::SSSE3},   {"sse4_1", CpuInfo::SSE4_1}, {"sse4_2", CpuInfo::SSE4_2},
         {"popcnt", CpuInfo::POPCNT}, {"avx", CpuInfo::AVX},       {"avx2", CpuInfo::AVX2},
 };
-
-int cgroup_bandwidth_quota(int physical_cores) {
-    namespace fs = std::filesystem;
-    fs::path cpu_max = "/sys/fs/cgroup/cpu.max";
-    fs::path cfs_quota = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us";
-    fs::path cfs_period = "/sys/fs/cgroup/cpu/cpu.cfs_period_us";
-
-    int64_t quota, period;
-    char byte_buffer[1000];
-    int64_t read_bytes;
-
-    if (fs::exists(cpu_max)) {
-        // cgroup v2
-        // https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
-        std::ifstream file(cpu_max);
-        file.read(byte_buffer, 999);
-        read_bytes = file.gcount();
-        byte_buffer[read_bytes] = '\0';
-        if (sscanf(byte_buffer, "%" SCNd64 " %" SCNd64 "", &quota, &period) != 2) {
-            return physical_cores;
-        }
-    } else if (fs::exists(cfs_quota) && fs::exists(cfs_period)) {
-        // cgroup v1
-        // https://www.kernel.org/doc/html/latest/scheduler/sched-bwc.html#management
-
-        // Read the quota, this indicates how many microseconds the CPU can be utilized by this cgroup per period
-        std::ifstream quota_file(cfs_quota);
-        quota_file.read(byte_buffer, 999);
-        read_bytes = quota_file.gcount();
-        byte_buffer[read_bytes] = '\0';
-        if (sscanf(byte_buffer, "%" SCNd64 "", &quota) != 1) {
-            return physical_cores;
-        }
-
-        // Read the time period, a cgroup can utilize the CPU up to quota microseconds every period
-        std::ifstream period_file(cfs_period);
-        period_file.read(byte_buffer, 999);
-        read_bytes = period_file.gcount();
-        byte_buffer[read_bytes] = '\0';
-        if (sscanf(byte_buffer, "%" SCNd64 "", &period) != 1) {
-            return physical_cores;
-        }
-    } else {
-        // No cgroup quota
-        return physical_cores;
-    }
-    if (quota > 0 && period > 0) {
-        return int64_t(ceil(double(quota) / double(period)));
-    } else {
-        return physical_cores;
-    }
-}
 
 // Helper function to parse for hardware flags.
 // values contains a list of space-separated flags.  check to see if the flags we
@@ -212,7 +161,7 @@ void CpuInfo::init() {
         }
     }
 
-    int num_cores = cgroup_bandwidth_quota(physical_num_cores);
+    int num_cores = CGroupUtil::get_cgroup_limited_cpu_number(physical_num_cores);
     if (max_mhz != 0) {
         cycles_per_ms_ = int64_t(max_mhz) * 1000;
     } else {

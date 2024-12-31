@@ -1209,10 +1209,12 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
-DEFINE_mString(doris_cgroup_cpu_path, "");
+DEFINE_String(doris_cgroup_cpu_path, "");
 
 DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+
+DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
