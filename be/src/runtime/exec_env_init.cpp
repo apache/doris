@@ -139,10 +139,6 @@ namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
-
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
@@ -342,7 +338,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_wal_manager->init());
     _heartbeat_flags = new HeartbeatFlags();
-    _register_metrics();
 
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
@@ -672,19 +667,6 @@ Status ExecEnv::_check_deploy_mode() {
     return Status::OK();
 }
 
-void ExecEnv::_register_metrics() {
-    REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
-                         [this]() { return _send_batch_thread_pool->num_threads(); });
-
-    REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
-                         [this]() { return _send_batch_thread_pool->get_queue_size(); });
-}
-
-void ExecEnv::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
-}
 #ifdef BE_TEST
 void ExecEnv::set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr) {
     this->_new_load_stream_mgr = std::move(new_load_stream_mgr);
@@ -740,6 +722,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_fragment_mgr);
     SAFE_STOP(_runtime_filter_timer_queue);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
+    _load_stream_mgr.reset();
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
@@ -762,8 +745,8 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
+    SAFE_SHUTDOWN(_send_table_stats_thread_pool);
 
-    _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
 
     SAFE_DELETE(_spill_stream_mgr);
