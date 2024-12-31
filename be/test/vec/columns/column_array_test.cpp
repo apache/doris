@@ -335,11 +335,6 @@ protected:
             serdes.push_back(serde);
         }
 
-        // step3. show array column data
-        for (int i = 0; i < array_columns.size(); i++) {
-            //            auto& column = array_columns[i];
-            //            printColumn(*column, *descs[i][0].data_type);
-        }
     }
 
     MutableColumns array_columns; // column_array list
