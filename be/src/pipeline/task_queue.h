@@ -42,7 +42,7 @@ enum class TaskState {
     INVALID = 2, // Invalid task which already de-constructed.
 };
 
-struct TaskHolder : public std::enable_shared_from_this<TaskHolder> {
+struct TaskHolder {
     PipelineTask* task;
     std::atomic<TaskState> state;
     TaskHolder(PipelineTask* task_);

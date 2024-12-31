@@ -29,9 +29,7 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
-TaskHolder::TaskHolder(PipelineTask* task_) : task(task_), state(TaskState::VALID) {
-    task_->set_holder(shared_from_this());
-}
+TaskHolder::TaskHolder(PipelineTask* task_) : task(task_), state(TaskState::VALID) {}
 
 TaskHolderSPtr SubTaskQueue::try_take(bool is_steal) {
     if (_queue.empty()) {

@@ -141,6 +141,9 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     }
     _tasks.clear();
     for (auto& holder : _task_holders) {
+        if (holder == nullptr) {
+            break;
+        }
         auto expected = TaskState::VALID;
         CHECK(holder->state.compare_exchange_strong(expected, TaskState::INVALID));
     }
@@ -368,6 +371,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
     _runtime_filter_states.resize(target_size);
+    _task_holders.resize(target_size * _pipelines.size());
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
         _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
@@ -458,8 +462,12 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
-                _task_holders.emplace_back(
-                        std::shared_ptr<TaskHolder>(new TaskHolder(_tasks[i].back().get())));
+                auto holder = std::make_shared<TaskHolder>(_tasks[i].back().get());
+                _tasks[i].back()->set_holder(holder);
+                _task_holders[cur_task_id] = holder;
+                LOG(WARNING) << "========1 " << print_id(_query_ctx->query_id()) << " "
+                             << _fragment_id;
+                DCHECK(_task_holders[cur_task_id]);
             }
         }
 
@@ -1684,8 +1692,8 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
-    for (auto& holder : _task_holders) {
-        st = scheduler->schedule_task(holder);
+    for (size_t i = 0; i < _total_tasks; i++) {
+        st = scheduler->schedule_task(_task_holders[i]);
         if (!st) {
             cancel(Status::InternalError("submit context to executor fail"));
             std::lock_guard<std::mutex> l(_task_mutex);
