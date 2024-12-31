@@ -325,7 +325,13 @@ public:
         return _using_brpc_stubs;
     }
 
+    void push_instance_ids(const TUniqueId& ins_id) {
+        std::lock_guard<std::mutex> lock(_ins_lock);
+        fragment_instance_ids.push_back(ins_id);
+    }
+
 private:
+    std::mutex _ins_lock;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
