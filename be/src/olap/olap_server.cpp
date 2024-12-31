@@ -919,11 +919,11 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
             continue;
         }
 
-        // Even if need_pick_tablet is false, we still need to call find_best_tablet_to_compaction(),
+        // Even if need_pick_tablet is false, we still need to call find_best_tablets_to_compaction(),
         // So that we can update the max_compaction_score metric.
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
-            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
+            std::vector<TabletSharedPtr> tablets = _tablet_manager->find_best_tablets_to_compaction(
                     compaction_type, data_dir,
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
@@ -932,11 +932,13 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
             int concurrent_num = get_concurrent_per_disk(disk_max_score, thread_per_disk);
             need_pick_tablet = need_generate_compaction_tasks(
                     count, concurrent_num, compaction_type, copied_cumu_map[data_dir].empty());
-            if (tablet != nullptr) {
-                if (need_pick_tablet) {
-                    tablets_compaction.emplace_back(tablet);
+            for (const auto& tablet : tablets) {
+                if (tablet != nullptr) {
+                    if (need_pick_tablet) {
+                        tablets_compaction.emplace_back(tablet);
+                    }
+                    max_compaction_score = std::max(max_compaction_score, disk_max_score);
                 }
-                max_compaction_score = std::max(max_compaction_score, disk_max_score);
             }
         }
     }
