@@ -66,7 +66,7 @@ public class RestBaseController extends BaseController {
     protected static final String TXN_ID_KEY = "txn_id";
     protected static final String TXN_OPERATION_KEY = "txn_operation";
     protected static final String SINGLE_REPLICA_KEY = "single_replica";
-    protected static final String FORBID_FORWARD_UT_TEST = "forbid_forward_ut_test";
+    protected static final String FORWARD_MASTER_UT_TEST = "forward_master_ut_test";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
@@ -224,11 +224,10 @@ public class RestBaseController extends BaseController {
 
     public boolean checkForwardToMaster(HttpServletRequest request) {
         if (FeConstants.runningUnitTest) {
-            String forbidForward = request.getHeader(FORBID_FORWARD_UT_TEST);
+            String forbidForward = request.getHeader(FORWARD_MASTER_UT_TEST);
             if (forbidForward != null) {
-                return !"true".equals(forbidForward);
+                return "true".equals(forbidForward);
             }
-            return true;
         }
         return !Env.getCurrentEnv().isMaster();
     }
@@ -258,8 +257,8 @@ public class RestBaseController extends BaseController {
             }
 
             if (FeConstants.runningUnitTest) {
-                //Add a header to avoid forward.
-                headers.add(FORBID_FORWARD_UT_TEST, "true");
+                //remove header to avoid forward.
+                headers.remove(FORWARD_MASTER_UT_TEST);
             }
 
             HttpEntity<Object> entity = new HttpEntity<>(body, headers);

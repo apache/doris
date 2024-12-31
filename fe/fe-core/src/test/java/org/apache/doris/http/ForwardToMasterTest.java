@@ -40,6 +40,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 Request request = new Request.Builder()
                         .get()
                         .addHeader("Authorization", rootAuth)
+                        .addHeader("forward_master_ut_test", "true")
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -76,6 +77,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .url(url)
                         .addHeader("Content-Type", "application/json")
                         .addHeader("Authorization", rootAuth)
+                        .addHeader("forward_master_ut_test", "true")
                         .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -88,6 +90,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 Request request = new Request.Builder()
                         .get()
                         .addHeader("Authorization", rootAuth)
+                        .addHeader("forward_master_ut_test", "true")
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -125,6 +128,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .url(url)
                         .addHeader("Content-Type", "application/json")
                         .addHeader("Authorization", rootAuth)
+                        .addHeader("forward_master_ut_test", "true")
                         .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -136,6 +140,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 String url = "http://localhost:" + HTTP_PORT + "/rest/v2/manager/node/backends";
                 Request request = new Request.Builder()
                         .get()
+                        .addHeader("forward_master_ut_test", "true")
                         .addHeader("Authorization", rootAuth)
                         .url(url)
                         .build();
@@ -168,6 +173,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
         Request request = new Request.Builder()
                 .url(url)
                 .addHeader("Authorization", rootAuth)
+                .addHeader("forward_master_ut_test", "true")
                 .post(emptyBody)
                 .build();
         Response response = networkClient.newCall(request).execute();
@@ -192,6 +198,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
         Request request = new Request.Builder()
                 .url(url)
                 .post(requestBody)
+                .addHeader("forward_master_ut_test", "true")
                 .addHeader("Authorization", rootAuth)
                 .build();
         Response response = networkClient.newCall(request).execute();
@@ -211,6 +218,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
         Request request = new Request.Builder()
                 .get()
                 .addHeader("Authorization", rootAuth)
+                .addHeader("forward_master_ut_test", "true")
                 .url(url)
                 .build();
         Response response = networkClient.newCall(request).execute();
