@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -135,6 +136,7 @@ public class FrontendServiceImplTest {
 
     @Test
     public void testCreatePartitionRangeMedium() throws Exception {
+        ConfigBase.setMutableConfig("disable_storage_medium_check", "true");
         String createOlapTblStmt = new String("CREATE TABLE test.partition_range2(\n"
                 + "    event_day DATETIME NOT NULL,\n"
                 + "    site_id INT DEFAULT '10',\n"
