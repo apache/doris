@@ -22,6 +22,8 @@
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 
+#include <gen_cpp/FrontendService_types.h>
+
 namespace doris {
 class RuntimeState;
 namespace vectorized {
@@ -41,7 +43,8 @@ public:
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    Status _get_audit_error_from_fe();
+    Status _get_audit_error_from_fe(const TNetworkAddress& fe_addr,
+                                    const TFetchSchemaTableDataRequest& request);
     Status _get_audit_error_from_all_fe();
 
     int _block_rows_limit = 4096;

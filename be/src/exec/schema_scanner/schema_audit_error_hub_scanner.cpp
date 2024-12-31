@@ -74,7 +74,7 @@ Status SchemaAuditErrorHubScanner::_get_audit_error_from_all_fe() {
 }
 
 Status SchemaAuditErrorHubScanner::_get_audit_error_from_fe(
-        const TNetworkAddress& fe_addr, const TSchemaTableRequestParams& request) {
+        const TNetworkAddress& fe_addr, const TFetchSchemaTableDataRequest& request) {
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             fe_addr.hostname, fe_addr.port,
