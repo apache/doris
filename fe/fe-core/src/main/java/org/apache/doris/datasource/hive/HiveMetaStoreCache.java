@@ -402,7 +402,6 @@ public class HiveMetaStoreCache {
                 URI uri = finalLocation.getPath().toUri();
                 if (uri.getScheme() != null) {
                     String scheme = uri.getScheme();
-                    updateJobConf("fs." + scheme + ".impl.disable.cache", "true");
                     if (jobConf.get("fs." + scheme + ".impl") == null) {
                         if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
                             updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
@@ -451,8 +450,6 @@ public class HiveMetaStoreCache {
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
         // disable FileSystem's cache
-        jobConf.set("fs.hdfs.impl.disable.cache", "true");
-        jobConf.set("fs.file.impl.disable.cache", "true");
     }
 
     private synchronized void updateJobConf(String key, String value) {
