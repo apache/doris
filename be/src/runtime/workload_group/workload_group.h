@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -55,6 +54,8 @@ class TaskScheduler;
 class WorkloadGroup;
 struct WorkloadGroupInfo;
 struct TrackerLimiterGroup;
+class WorkloadGroupMetrics;
+
 class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
@@ -201,16 +202,13 @@ public:
 
     void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
 
-    void update_cpu_adder(int64_t delta_cpu_time);
+    void update_cpu_time(int64_t delta_cpu_time);
 
-    void update_total_local_scan_io_adder(size_t scan_bytes);
+    void update_local_scan_io(std::string path, size_t scan_bytes);
 
-    int64_t get_mem_used() { return _mem_used_status->get_value(); }
-    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
-    int64_t get_local_scan_bytes_per_second() {
-        return _total_local_scan_io_per_second->get_value();
-    }
-    int64_t get_remote_scan_bytes_per_second();
+    void update_remote_scan_io(size_t scan_bytes);
+
+    int64_t get_mem_used();
 
     void create_cgroup_cpu_ctl();
 
@@ -221,6 +219,10 @@ public:
         // to avoid lock competition with the workload thread pool's update
         return _memtable_flush_pool.get();
     }
+
+    std::shared_ptr<WorkloadGroupMetrics> get_metrics() { return _wg_metrics; }
+
+    friend class WorkloadGroupMetrics;
 
 private:
     void create_cgroup_cpu_ctl_no_lock();
@@ -274,12 +276,7 @@ private:
     // for some background workload, it doesn't need to create query thread pool
     const bool _need_create_query_thread_pool;
 
-    // bvar metric
-    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
-    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
-    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
+    std::shared_ptr<WorkloadGroupMetrics> _wg_metrics {nullptr};
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;

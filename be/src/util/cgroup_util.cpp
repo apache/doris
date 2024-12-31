@@ -18,6 +18,7 @@
 #include "util/cgroup_util.h"
 
 #include <algorithm>
+#include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <utility>
 #include <vector>
@@ -218,6 +219,10 @@ std::optional<std::string> CGroupUtil::get_cgroupsv2_path(const std::string& sub
 Status CGroupUtil::read_int_line_from_cgroup_file(const std::filesystem::path& file_path,
                                                   int64_t* val) {
     std::ifstream file_stream(file_path, std::ios::in);
+    if (!file_stream.is_open()) {
+        return Status::CgroupError("Error open {}", file_path.string());
+    }
+
     string line;
     getline(file_stream, line);
     if (file_stream.fail() || file_stream.bad()) {
@@ -262,6 +267,169 @@ void CGroupUtil::read_int_metric_from_cgroup_file(
     if (cgroup_file.is_open()) {
         cgroup_file.close();
     }
+}
+
+Status CGroupUtil::read_string_line_from_cgroup_file(const std::filesystem::path& file_path,
+                                                     std::string* line_ptr) {
+    std::ifstream file_stream(file_path, std::ios::in);
+    if (!file_stream.is_open()) {
+        return Status::CgroupError("Error open {}", file_path.string());
+    }
+    string line;
+    getline(file_stream, line);
+    if (file_stream.fail() || file_stream.bad()) {
+        return Status::CgroupError("Error reading {}: {}", file_path.string(), get_str_err_msg());
+    }
+    *line_ptr = line;
+    return Status::OK();
+}
+
+Status CGroupUtil::parse_cpuset_line(std::string cpuset_line, int* cpu_count_ptr) {
+    if (cpuset_line.empty()) {
+        return Status::CgroupError("cpuset line is empty");
+    }
+    std::vector<string> ranges;
+    boost::split(ranges, cpuset_line, boost::is_any_of(","));
+    int cpu_count = 0;
+
+    for (const std::string& range : ranges) {
+        std::vector<std::string> cpu_values;
+        boost::split(cpu_values, range, boost::is_any_of("-"));
+
+        if (cpu_values.size() == 2) {
+            int start = std::stoi(cpu_values[0]);
+            int end = std::stoi(cpu_values[1]);
+            cpu_count += (end - start) + 1;
+        } else {
+            cpu_count++;
+        }
+    }
+    *cpu_count_ptr = cpu_count;
+    return Status::OK();
+}
+
+int CGroupUtil::get_cgroup_limited_cpu_number(int physical_cores) {
+    if (physical_cores <= 0) {
+        return physical_cores;
+    }
+    int ret = physical_cores;
+#if defined(OS_LINUX)
+    // For cgroup v2
+    // Child cgroup's cpu.max may bigger than parent group's cpu.max,
+    //      so it should look up from current cgroup to top group.
+    // For cpuset, child cgroup's cpuset.cpus could not bigger thant parent's cpuset.cpus.
+    if (CGroupUtil::cgroupsv2_enable()) {
+        std::string cgroupv2_process_path = CGroupUtil::cgroupv2_of_process();
+        if (cgroupv2_process_path.empty()) {
+            return ret;
+        }
+        std::filesystem::path current_cgroup_path = (default_cgroups_mount / cgroupv2_process_path);
+        ret = get_cgroup_v2_cpu_quota_number(current_cgroup_path, default_cgroups_mount, ret);
+
+        current_cgroup_path = (default_cgroups_mount / cgroupv2_process_path);
+        ret = get_cgroup_v2_cpuset_number(current_cgroup_path, default_cgroups_mount, ret);
+    } else if (CGroupUtil::cgroupsv1_enable()) {
+        // cpu quota, should find first not empty config from current path to top.
+        // because if a process attach to current cgroup, its cpu quota may not be set.
+        std::string cpu_quota_path = "";
+        Status cpu_quota_ret = CGroupUtil::find_abs_cgroupv1_path("cpu", &cpu_quota_path);
+        if (cpu_quota_ret.ok() && !cpu_quota_path.empty()) {
+            std::filesystem::path current_cgroup_path = cpu_quota_path;
+            ret = get_cgroup_v1_cpu_quota_number(current_cgroup_path, default_cgroups_mount, ret);
+        }
+
+        //cpuset
+        // just lookup current process cgroup path is enough
+        // because if a process attach to current cgroup, its cpuset.cpus must be set.
+        std::string cpuset_path = "";
+        Status cpuset_ret = CGroupUtil::find_abs_cgroupv1_path("cpuset", &cpuset_path);
+        if (cpuset_ret.ok() && !cpuset_path.empty()) {
+            std::filesystem::path current_path = cpuset_path;
+            ret = get_cgroup_v1_cpuset_number(current_path, ret);
+        }
+    }
+#endif
+    return ret;
+}
+
+int CGroupUtil::get_cgroup_v2_cpu_quota_number(std::filesystem::path& current_path,
+                                               const std::filesystem::path& default_cg_mout_path,
+                                               int cpu_num) {
+    int ret = cpu_num;
+    while (current_path != default_cg_mout_path.parent_path()) {
+        std::ifstream cpu_max_file(current_path / "cpu.max");
+        if (cpu_max_file.is_open()) {
+            std::string cpu_limit_str;
+            double cpu_period;
+            cpu_max_file >> cpu_limit_str >> cpu_period;
+            if (cpu_limit_str != "max" && cpu_period != 0) {
+                double cpu_limit = std::stod(cpu_limit_str);
+                ret = std::min(static_cast<int>(std::ceil(cpu_limit / cpu_period)), ret);
+            }
+        }
+        current_path = current_path.parent_path();
+    }
+    return ret;
+}
+
+int CGroupUtil::get_cgroup_v2_cpuset_number(std::filesystem::path& current_path,
+                                            const std::filesystem::path& default_cg_mout_path,
+                                            int cpu_num) {
+    int ret = cpu_num;
+    while (current_path != default_cg_mout_path.parent_path()) {
+        std::ifstream cpuset_cpus_file(current_path / "cpuset.cpus.effective");
+        current_path = current_path.parent_path();
+        if (cpuset_cpus_file.is_open()) {
+            std::string cpuset_line;
+            cpuset_cpus_file >> cpuset_line;
+            if (cpuset_line.empty()) {
+                continue;
+            }
+            int cpus_count = 0;
+            static_cast<void>(CGroupUtil::parse_cpuset_line(cpuset_line, &cpus_count));
+            ret = std::min(cpus_count, ret);
+            break;
+        }
+    }
+    return ret;
+}
+
+int CGroupUtil::get_cgroup_v1_cpu_quota_number(std::filesystem::path& current_path,
+                                               const std::filesystem::path& default_cg_mout_path,
+                                               int cpu_num) {
+    int ret = cpu_num;
+    while (current_path != default_cg_mout_path.parent_path()) {
+        std::ifstream cpu_quota_file(current_path / "cpu.cfs_quota_us");
+        std::ifstream cpu_period_file(current_path / "cpu.cfs_period_us");
+        if (cpu_quota_file.is_open() && cpu_period_file.is_open()) {
+            double cpu_quota_value;
+            double cpu_period_value;
+            cpu_quota_file >> cpu_quota_value;
+            cpu_period_file >> cpu_period_value;
+            if (cpu_quota_value > 0 && cpu_period_value > 0) {
+                ret = std::min(ret,
+                               static_cast<int>(std::ceil(cpu_quota_value / cpu_period_value)));
+                break;
+            }
+        }
+        current_path = current_path.parent_path();
+    }
+    return ret;
+}
+
+int CGroupUtil::get_cgroup_v1_cpuset_number(std::filesystem::path& current_path, int cpu_num) {
+    int ret = cpu_num;
+    std::string cpuset_line = "";
+    Status cpuset_ret = CGroupUtil::read_string_line_from_cgroup_file(
+            (current_path / "cpuset.cpus"), &cpuset_line);
+    if (cpuset_ret.ok() && !cpuset_line.empty()) {
+        int cpuset_count = 0;
+        static_cast<void>(CGroupUtil::parse_cpuset_line(cpuset_line, &cpuset_count));
+        if (cpuset_count > 0) {
+            ret = std::min(ret, cpuset_count);
+        }
+    }
+    return ret;
 }
 
 } // namespace doris
