@@ -267,6 +267,7 @@ cherry	3
 
 -- !right_anti_right_side --
 
+
 -- !grouping --
 \N	\N
 \N	1
@@ -276,4 +277,57 @@ cherry	3
 1	1
 1	2
 1	3
+
+-- !to_limit_project_uniform --
+1
+
+-- !to_limit_predicate_uniform --
+1
+
+-- !to_limit_project_uniform_has_upper_ref --
+2
+
+-- !to_limit_predicate_uniform_has_upper_ref --
+2
+
+-- !to_limit_join_predicate --
+105
+
+-- !to_limit_join_project --
+1
+
+-- !to_limit_multi_group_by --
+1	1
+
+-- !to_limit_multi_group_by_one_col_in_project --
+2
+
+-- !to_limit_join_project_shape --
+PhysicalResultSink
+--PhysicalQuickSort[MERGE_SORT]
+----PhysicalQuickSort[LOCAL_SORT]
+------PhysicalLimit[GLOBAL]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.a = t2.a)) otherCondition=() build RFs:RF0 a->[a];RF1 a->[a]
+--------------PhysicalProject
+----------------PhysicalOlapScan[test1] apply RFs: RF0 RF1
+--------------PhysicalProject
+----------------filter((test2.b = 105))
+------------------PhysicalOlapScan[test2]
+
+-- !to_limit_project_uniform_shape --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------PhysicalStorageLayerAggregate[eli_gbk_by_uniform_t]
+
+-- !to_limit_multi_group_by_shape --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------filter((eli_gbk_by_uniform_t.a = 1))
+----------PhysicalOlapScan[eli_gbk_by_uniform_t]
 

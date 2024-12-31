@@ -221,4 +221,18 @@ suite("eliminate_group_by_key_by_uniform") {
 
     //grouping
     qt_grouping "select k, k3 from (select 1 as k, a k3, sum(b) as sum_k1 from  test1  group by cube(k,a)) t group by k,k3 order by 1,2"
+
+    // test agg to limit
+    qt_to_limit_project_uniform "select 1 as c1 from eli_gbk_by_uniform_t group by c1"
+    qt_to_limit_predicate_uniform "select a from eli_gbk_by_uniform_t where a=1 group by a"
+    qt_to_limit_project_uniform_has_upper_ref "select c1+1 from (select 1 as c1 from eli_gbk_by_uniform_t group by c1) t"
+    qt_to_limit_predicate_uniform_has_upper_ref "select a+1 from (select a from eli_gbk_by_uniform_t where a=1 group by a) t"
+    qt_to_limit_join_predicate "select t2.b from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by t2.b order by 1;"
+    qt_to_limit_join_project "select 1 as c1 from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by c1 order by 1;"
+    qt_to_limit_multi_group_by "select 1 as c1,a from eli_gbk_by_uniform_t where a=1 group by c1,a"
+    qt_to_limit_multi_group_by_one_col_in_project "select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
+
+    qt_to_limit_join_project_shape "explain shape plan select 1 as c1 from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by c1 order by 1;"
+    qt_to_limit_project_uniform_shape "explain shape plan select 1 as c1 from eli_gbk_by_uniform_t group by c1"
+    qt_to_limit_multi_group_by_shape "explain shape plan select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
 }
