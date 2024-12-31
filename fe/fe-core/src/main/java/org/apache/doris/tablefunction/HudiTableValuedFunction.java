@@ -55,6 +55,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA_TIMELINE = ImmutableList.of(
             new Column("timestamp", PrimitiveType.STRING, false),
             new Column("action", PrimitiveType.STRING, false),
+            new Column("file_name", PrimitiveType.STRING, false),
             new Column("state", PrimitiveType.STRING, false),
             new Column("state_transition_time", PrimitiveType.STRING, false));
 

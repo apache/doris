@@ -413,6 +413,7 @@ public class MetadataGenerator {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getFileName()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getStateTransitionTime()));
                     dataBatch.add(trow);
