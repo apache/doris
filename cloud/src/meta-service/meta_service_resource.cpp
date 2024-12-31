@@ -2203,6 +2203,11 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         }
     } break;
     case AlterClusterRequest::RENAME_CLUSTER: {
+        // SQL mode, cluster cluster name eq empty cluster name, need drop empty cluster first.
+        // but in http api, cloud control will drop empty cluster
+        bool drop_empty_cluster =
+                request->has_drop_empty_cluster() ? request->drop_empty_cluster() : false;
+
         msg = resource_mgr_->update_cluster(
                 instance_id, cluster,
                 [&](const ClusterPB& i) { return i.cluster_id() == cluster.cluster.cluster_id(); },
@@ -2212,7 +2217,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     LOG(INFO) << "cluster.cluster.cluster_name(): "
                               << cluster.cluster.cluster_name();
                     for (auto itt : cluster_names) {
-                        LOG(INFO) << "itt : " << itt;
+                        LOG(INFO) << "instance's cluster name : " << itt;
                     }
                     if (it != cluster_names.end()) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2232,7 +2237,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     }
                     c.set_cluster_name(cluster.cluster.cluster_name());
                     return msg;
-                });
+                }, drop_empty_cluster);
     } break;
     case AlterClusterRequest::UPDATE_CLUSTER_ENDPOINT: {
         msg = resource_mgr_->update_cluster(

@@ -75,6 +75,7 @@ import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
+import org.apache.doris.nereids.DorisParser.AlterSystemRenameComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableAddRollupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterTableContext;
@@ -487,6 +488,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
@@ -1282,6 +1284,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String vaultName = nameParts.get(0);
         Map<String, String> properties = this.visitPropertyClause(ctx.properties);
         return new AlterStorageVaultCommand(vaultName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterSystemRenameComputeGroup(AlterSystemRenameComputeGroupContext ctx) {
+        return new AlterSystemRenameComputeGroupCommand(ctx.name.getText(), ctx.newName.getText());
     }
 
     @Override

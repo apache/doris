@@ -885,7 +885,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     private String tryCreateComputeGroup(String clusterName, String computeGroupId) throws UserException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
-            throw new DdlException("unable to create compute group due to empty cluster_id");
+            throw new DdlException("unable to create compute group due to empty cloud_instance_id");
         }
 
         Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
@@ -1156,6 +1156,46 @@ public class CloudSystemInfoService extends SystemInfoService {
         } catch (RpcException e) {
             LOG.warn("Failed to get instance info {}", cloudUniqueId, e);
             throw new IOException("Failed to get instance info");
+        }
+    }
+
+    public void renameComputeGroup(String originalName, String newGroupName) throws UserException {
+        String cloudInstanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
+        if (Strings.isNullOrEmpty(cloudInstanceId)) {
+            throw new DdlException("unable to rename compute group due to empty cloud_instance_id");
+        }
+        String originalComputeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterIdByName(originalName);
+        if (Strings.isNullOrEmpty(originalComputeGroupId)) {
+            throw new DdlException("unable to rename compute group, "
+                    +  "cant get compute group id by compute name " + originalName);
+        }
+
+        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+                .setClusterId(originalComputeGroupId)
+                .setClusterName(newGroupName)
+                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.RENAME_CLUSTER)
+                .setDropEmptyCluster(true)
+                .setCluster(clusterPB)
+                .build();
+
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter rename compute group, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter rename compute group not ok, response: {}", response);
+                throw new UserException("failed to rename compute group errorCode: " + response.getStatus().getCode()
+                    + " msg: " + response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new UserException("failed to alter rename compute group", e);
         }
     }
 }

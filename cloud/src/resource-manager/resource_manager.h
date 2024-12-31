@@ -88,13 +88,15 @@ public:
      *
      * @param cluster cluster to update, only cluster name and cluster id are concered
      * @param action update operation code snippet
+     * @param drop_empty_cluster, find cluster.cluster_name is a empty cluster(no node), drop it
      * @filter filter condition
      * @return empty string for success, otherwise failure reason returned
      */
     virtual std::string update_cluster(
             const std::string& instance_id, const ClusterInfo& cluster,
             std::function<bool(const ClusterPB&)> filter,
-            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action);
+            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+            bool drop_empty_cluster = false);
 
     /**
      * Get instance from underlying storage with given transaction.

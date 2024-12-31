@@ -221,6 +221,7 @@ supportedAlterStatement
         dropRollupClause (COMMA dropRollupClause)*                                          #alterTableDropRollup
     | ALTER TABLE name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterTableProperties
+    | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     ;
 
 supportedDropStatement
