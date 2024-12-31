@@ -143,6 +143,7 @@ public:
     }
 
     static Status get_proxy(MetaServiceProxy** proxy) {
+        // The 'stub' is a useless parameter, added only to reuse the `get_pooled_client` function.
         std::shared_ptr<MetaService_Stub> stub;
         return get_pooled_client(&stub, proxy);
     }
@@ -154,7 +155,7 @@ public:
 
     bool need_reconn(long now) {
         return maybe_unhealthy &&
-               ((now - last_reconn_time_ms.front()) > config::ms_rpc_reconn_interval_ms);
+               ((now - last_reconn_time_ms.front()) > config::meta_service_rpc_reconn_interval_ms);
     }
 
     Status get(std::shared_ptr<MetaService_Stub>* stub) {
@@ -210,6 +211,15 @@ private:
         return config::meta_service_endpoint.find(',') != std::string::npos;
     }
 
+    /**
+    * This function initializes a pool of `MetaServiceProxy` objects and selects one using
+    * round-robin. It returns a client stub via the selected proxy.
+    *
+    * @param stub A pointer to a shared pointer of `MetaService_Stub` to be retrieved.
+    * @param proxy (Optional) A pointer to store the selected `MetaServiceProxy`.
+    *
+    * @return Status Returns `Status::OK()` on success or an error status on failure.
+    */
     static Status get_pooled_client(std::shared_ptr<MetaService_Stub>* stub,
                                     MetaServiceProxy** proxy) {
         static std::once_flag proxies_flag;
@@ -464,6 +474,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         _get_rowset_latency << latency;
         int retry_times = config::meta_service_rpc_retry_times;
         if (cntl.Failed()) {
+            proxy->set_unhealthy();
             if (tried++ < retry_times) {
                 auto rng = make_random_engine();
                 std::uniform_int_distribution<uint32_t> u(20, 200);
@@ -478,7 +489,6 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                         .tag("partition_id", tablet->partition_id())
                         .tag("tried", tried)
                         .tag("sleep", duration_ms);
-                proxy->set_unhealthy();
                 continue;
             }
             return Status::RpcError("failed to get rowset meta: {}", cntl.ErrorText());
@@ -701,15 +711,16 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
 
     int retry_times = 0;
-    brpc::Controller cntl;
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
+    auto start = std::chrono::high_resolution_clock::now();
     while (true) {
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
         // When there are many delete bitmaps that need to be synchronized, it
         // may take a longer time, especially when loading the tablet for the
         // first time, so set a relatively long timeout time.
+        brpc::Controller cntl;
         cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
         cntl.set_max_retry(kBrpcRetryTimes);
         res.Clear();
@@ -733,6 +744,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
             break;
         }
     }
+    auto end = std::chrono::high_resolution_clock::now();
 
     if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
         return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
@@ -783,7 +795,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                 {rst_id, segment_ids[i], vers[i]},
                 roaring::Roaring::readSafe(delete_bitmaps[i].data(), delete_bitmaps[i].length()));
     }
-    int64_t latency = cntl.latency_us();
+    int64_t latency = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     if (latency > 100 * 1000) { // 100ms
         LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
                   << ", delete_bitmaps.size()=" << delete_bitmaps.size() << ", latency=" << latency

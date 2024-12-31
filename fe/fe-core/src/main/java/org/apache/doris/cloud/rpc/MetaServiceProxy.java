@@ -88,7 +88,7 @@ public class MetaServiceProxy {
         lock.lock();
         try {
             long now = System.currentTimeMillis();
-            return (now - lastConnTimeMs.element() > Config.ms_rpc_reconn_interval_ms);
+            return (now - lastConnTimeMs.element() > Config.meta_service_rpc_reconn_interval_ms);
         } finally {
             lock.unlock();
         }

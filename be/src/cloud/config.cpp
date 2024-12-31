@@ -80,6 +80,6 @@ DEFINE_mBool(enable_cloud_tablet_report, "true");
 
 DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 
-DEFINE_mInt64(ms_rpc_reconn_interval_ms, "20000");
+DEFINE_mInt64(meta_service_rpc_reconn_interval_ms, "5000");
 #include "common/compile_check_end.h"
 } // namespace doris::config
