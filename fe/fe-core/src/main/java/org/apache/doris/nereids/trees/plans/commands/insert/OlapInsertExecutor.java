@@ -101,6 +101,12 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
+
+        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+        if (state == null) {
+            throw new AnalysisException("txn does not exist: " + txnId);
+        }
+        state.cancelOrWaitForSchemaChange();
     }
 
     @Override
@@ -167,7 +173,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             addTableIndexes(state);
             if (physicalOlapTableSink.isPartialUpdate()) {
                 state.setSchemaForPartialUpdate((OlapTable) table);
-                state.cancelOrWaitForSchemaChange();
             }
         }
     }
