@@ -138,7 +138,7 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalCTEProducer<>(cteId, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
     }

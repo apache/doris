@@ -236,7 +236,7 @@ public class PhysicalNestedLoopJoin<
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
                 newLogicalProperties, physicalProperties, statistics, left(), right());

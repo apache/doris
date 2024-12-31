@@ -121,7 +121,7 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     @Override
     public PhysicalQuickSort<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child());
     }

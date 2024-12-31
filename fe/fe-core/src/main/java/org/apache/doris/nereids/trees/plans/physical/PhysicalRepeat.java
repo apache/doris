@@ -189,7 +189,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalRepeat<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalRepeat<>(groupingSets, outputExpressions, groupExpression,
                 newLogicalProperties, physicalProperties, statistics, child());
     }

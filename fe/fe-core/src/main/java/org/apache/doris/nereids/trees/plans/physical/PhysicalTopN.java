@@ -160,7 +160,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public PhysicalTopN<Plan> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
                 newLogicalProperties, physicalProperties, statistics, child());
     }

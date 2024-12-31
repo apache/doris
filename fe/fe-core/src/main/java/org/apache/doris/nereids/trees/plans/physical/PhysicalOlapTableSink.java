@@ -256,7 +256,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     @Override
     public PhysicalOlapTableSink<Plan> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
                 singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, newLogicalProperties, physicalProperties,

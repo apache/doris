@@ -160,7 +160,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     @Override
     public PhysicalFileSink<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression, newLogicalProperties,
                 physicalProperties, statistics, child());
     }

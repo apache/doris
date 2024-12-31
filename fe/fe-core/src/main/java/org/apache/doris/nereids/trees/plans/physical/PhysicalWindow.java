@@ -188,7 +188,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalWindow<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
                 newLogicalProperties, physicalProperties, statistics, child());
     }

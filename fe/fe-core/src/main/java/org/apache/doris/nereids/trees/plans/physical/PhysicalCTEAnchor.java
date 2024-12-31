@@ -141,7 +141,7 @@ public class PhysicalCTEAnchor<
     @Override
     public PhysicalCTEAnchor<Plan, Plan> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalCTEAnchor<>(cteId, groupExpression, newLogicalProperties, physicalProperties,
                 statistics, child(0), child(1));
     }

@@ -314,7 +314,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, groupExpression, newLogicalProperties,
                 requireProperties, physicalProperties, statistics,

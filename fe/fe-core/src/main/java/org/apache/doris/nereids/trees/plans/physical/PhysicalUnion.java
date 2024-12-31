@@ -126,7 +126,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     @Override
     public PhysicalUnion reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
                 Optional.empty(), newLogicalProperties, physicalProperties, statistics, children);
     }

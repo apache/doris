@@ -108,7 +108,7 @@ public class PhysicalExcept extends PhysicalSetOperation {
     @Override
     public PhysicalExcept reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, Optional.empty(),
                 newLogicalProperties, physicalProperties, statistics, children);
     }

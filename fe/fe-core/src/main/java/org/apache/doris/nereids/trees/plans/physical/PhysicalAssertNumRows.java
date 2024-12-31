@@ -133,7 +133,7 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalAssertNumRows<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
                 newLogicalProperties, physicalProperties, statistics, child());
     }

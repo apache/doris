@@ -162,7 +162,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalGenerate<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalGenerate<>(generators, generatorOutput,
                 Optional.empty(), newLogicalProperties, physicalProperties,
                 statistics, child());

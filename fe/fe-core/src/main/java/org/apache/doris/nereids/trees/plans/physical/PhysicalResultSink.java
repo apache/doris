@@ -126,7 +126,7 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     @Override
     public PhysicalResultSink<CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalResultSink<>(outputExprs, groupExpression,
                 newLogicalProperties, physicalProperties, statistics, child());
     }

@@ -107,7 +107,7 @@ public class PhysicalIntersect extends PhysicalSetOperation {
     @Override
     public PhysicalIntersect reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
                 Optional.empty(), newLogicalProperties, physicalProperties, statistics, children);
     }

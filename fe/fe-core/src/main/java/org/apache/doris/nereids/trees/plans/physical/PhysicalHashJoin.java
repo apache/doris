@@ -222,7 +222,7 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
                 markJoinConjuncts, hint, markJoinSlotReference, groupExpression, newLogicalProperties,
                 physicalProperties, statistics, left(), right());

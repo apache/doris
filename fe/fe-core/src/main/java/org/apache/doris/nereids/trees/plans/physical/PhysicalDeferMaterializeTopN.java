@@ -143,7 +143,7 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
     @Override
     public PhysicalDeferMaterializeTopN<? extends Plan> reComputeOutput() {
         DataTrait dataTrait = getLogicalProperties().getTrait();
-        LogicalProperties newLogicalProperties = new LogicalProperties(() -> computeOutput(), () -> dataTrait );
+        LogicalProperties newLogicalProperties = new LogicalProperties(this::computeOutput, () -> dataTrait);
         return new PhysicalDeferMaterializeTopN<>(physicalTopN, deferMaterializeSlotIds, columnIdSlot,
                 groupExpression, newLogicalProperties, physicalProperties, statistics, child());
     }
