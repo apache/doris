@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -31,6 +32,7 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
+#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
@@ -46,6 +48,7 @@ namespace doris {
 
 namespace pipeline {
 class PipelineFragmentContext;
+class PipelineTask;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -75,7 +78,7 @@ const std::string toString(QuerySource query_source);
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
-class QueryContext {
+class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
@@ -116,6 +119,8 @@ public:
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
     void set_execution_dependency_ready();
+
+    void set_memory_sufficient(bool sufficient);
 
     void set_ready_to_execute_only();
 
@@ -171,6 +176,10 @@ public:
                        : false;
     }
 
+    bool enable_force_spill() const {
+        return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
+    }
+
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
     // the runtime filter should do the local merge work
@@ -186,6 +195,10 @@ public:
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
+    std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
+
+    Status revoke_memory();
+
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
 
     std::shared_ptr<QueryStatistics> get_query_statistics();
@@ -199,8 +212,6 @@ public:
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
     ThreadPool* get_memtable_flush_pool();
-
-    int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -221,8 +232,39 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
-    int64_t spill_threshold() { return _spill_threshold; }
+    void increase_revoking_tasks_count() { _revoking_tasks_count.fetch_add(1); }
+
+    void decrease_revoking_tasks_count();
+
+    int get_revoking_tasks_count() const { return _revoking_tasks_count.load(); }
+
+    void get_revocable_info(size_t* revocable_size, size_t* memory_usage,
+                            bool* has_running_task) const;
+    size_t get_revocable_size() const;
+
+    // This method is called by workload group manager to set query's memlimit using slot
+    // If user set query limit explicitly, then should use less one
+    void set_mem_limit(int64_t new_mem_limit) { query_mem_tracker->set_limit(new_mem_limit); }
+
+    int64_t get_mem_limit() const { return query_mem_tracker->limit(); }
+
+    void set_expected_mem_limit(int64_t new_mem_limit) {
+        _expected_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
+    }
+
+    // Expected mem limit is the limit when workload group reached limit.
+    int64_t expected_mem_limit() { return _expected_mem_limit; }
+
+    std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
+
+    int32_t get_slot_count() const {
+        return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
+    }
+
+    bool enable_mem_overcommit() const {
+        return _query_options.__isset.enable_mem_overcommit ? _query_options.enable_mem_overcommit
+                                                            : false;
+    }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -266,14 +308,49 @@ public:
         return _using_brpc_stubs;
     }
 
+    void set_low_memory_mode() { _low_memory_mode = true; }
+
+    bool low_memory_mode() { return _low_memory_mode; }
+
+    void update_paused_reason(const Status& st) {
+        std::lock_guard l(_paused_mutex);
+        if (_paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
+            return;
+        } else if (_paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
+            if (st.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
+                _paused_reason = st;
+                return;
+            } else {
+                return;
+            }
+        } else {
+            _paused_reason = st;
+        }
+    }
+
+    Status paused_reason() {
+        std::lock_guard l(_paused_mutex);
+        return _paused_reason;
+    }
+
+    bool is_pure_load_task() {
+        return _query_source == QuerySource::STREAM_LOAD ||
+               _query_source == QuerySource::ROUTINE_LOAD ||
+               _query_source == QuerySource::GROUP_COMMIT_LOAD;
+    }
+
+    std::string debug_string();
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
-    int64_t _bytes_limit = 0;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
+
+    std::mutex _revoking_tasks_mutex;
+    std::atomic<int> _revoking_tasks_count = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -301,6 +378,8 @@ private:
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
+    std::vector<std::weak_ptr<pipeline::PipelineTask>> _pipeline_tasks;
+
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
@@ -309,7 +388,14 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
-    std::atomic<int64_t> _spill_threshold {0};
+    std::mutex _paused_mutex;
+    Status _paused_reason;
+    std::atomic<int64_t> _paused_count = 0;
+    MonotonicStopWatch _paused_timer;
+    std::atomic<int64_t> _paused_period_secs = 0;
+    std::atomic<bool> _low_memory_mode = false;
+    int64_t _user_set_mem_limit = 0;
+    std::atomic<int64_t> _expected_mem_limit = 0;
 
     std::mutex _profile_mutex;
     timespec _query_arrival_timestamp;

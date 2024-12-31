@@ -60,9 +60,20 @@ std::string FileScanLocalState::name_suffix() const {
 
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
+    auto wg_ptr = state->get_query_ctx()->workload_group();
     _max_scanners =
             config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
-    _max_scanners = std::max(std::max(_max_scanners, state->parallel_scan_max_scanners_count()), 1);
+    if (wg_ptr && !state->get_query_ctx()->enable_mem_overcommit()) {
+        const auto total_slots = wg_ptr->total_query_slot_count();
+        const auto query_slots = state->get_query_ctx()->get_slot_count();
+        _max_scanners = _max_scanners * query_slots / total_slots;
+    }
+
+    const auto parallel_scan_max_scanners_count = state->parallel_scan_max_scanners_count();
+    if (parallel_scan_max_scanners_count > 0) {
+        _max_scanners =
+                std::max(std::min(_max_scanners, state->parallel_scan_max_scanners_count()), 1);
+    }
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
         _max_scanners = 1;
@@ -82,7 +93,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                 std::make_shared<vectorized::LocalSplitSourceConnector>(scan_ranges, _max_scanners);
     }
     _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
-    if (scan_ranges.size() > 0 &&
+    if (!scan_ranges.empty() &&
         scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
         // for compatibility.
         // in new implement, the tuple id is set in prepare phase

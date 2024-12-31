@@ -179,7 +179,7 @@ void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
     std::lock_guard<std::mutex> lock(_finished_channels_mutex);
 
     if (_finished_channels.contains(channel_id)) {
-        LOG(WARNING) << "query: " << print_id(_state->query_id())
+        LOG(WARNING) << "Query: " << print_id(_state->query_id())
                      << ", on_channel_finished on already finished channel: " << channel_id;
         return;
     } else {
@@ -355,6 +355,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
+    // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
+    if (state->get_query_ctx()->low_memory_mode() && local_state._sink_buffer != nullptr) {
+        local_state._sink_buffer->set_low_memory_mode();
+    }
+
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
@@ -393,6 +398,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block_holder->reset_block();
                     }
 
+                    if (state->get_query_ctx()->low_memory_mode()) {
+                        local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
+                    }
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;
@@ -558,8 +566,8 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    auto sink_buffer =
-            std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state(), sender_ins_ids);
+    auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, _node_id, state(),
+                                                            sender_ins_ids);
     for (const auto& _dest : _dests) {
         sink_buffer->construct_request(_dest.fragment_instance_id);
     }

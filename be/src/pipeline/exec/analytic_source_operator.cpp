@@ -524,6 +524,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                                           bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
@@ -551,8 +552,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         }
     }
     RETURN_IF_ERROR(local_state.output_current_block(block));
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     local_state.reached_limit(block, eos);
     return Status::OK();
 }

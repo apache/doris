@@ -131,6 +131,9 @@ namespace ErrorCode {
     E(BAD_CAST, -254, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -255, false);              \
     E(PERMISSION_DENIED, -256, false);                       \
+    E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
+    E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
+    E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -381,6 +384,11 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
+        } else {
+            // If rhs error msg is empty, then should also clear current error msg
+            // For example, if rhs is OK and current status is error, then copy to current
+            // status, should clear current error message.
+            _err_msg.reset();
         }
         return *this;
     }
@@ -390,6 +398,8 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::move(rhs._err_msg);
+        } else {
+            _err_msg.reset();
         }
         return *this;
     }

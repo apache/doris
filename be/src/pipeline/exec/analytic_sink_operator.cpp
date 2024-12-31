@@ -21,6 +21,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "runtime/runtime_state.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
@@ -266,6 +267,10 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
+
+    local_state._reserve_mem_size = 0;
+    SCOPED_PEAK_MEM(&local_state._reserve_mem_size);
+
     local_state._shared_state->input_eos = eos;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
         local_state._dependency->set_ready_to_read();
@@ -333,6 +338,11 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     }
     local_state._refresh_need_more_input();
     return Status::OK();
+}
+
+size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._reserve_mem_size;
 }
 
 Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,

@@ -129,6 +129,8 @@ public:
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
 
+    virtual size_t estimate_memory(const size_t rows);
+
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,

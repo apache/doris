@@ -53,9 +53,10 @@ public:
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
-    bool has_enough_space_to_push();
-    bool has_data_or_finished(int child_idx = 0);
+    // This function is not thread safe, should be called in Operator::get_block()
     bool remaining_has_data();
+
+    bool has_more_data() const { return _cur_blocks_total_nums.load() > 0; }
 
     int64_t max_bytes_in_queue() const { return _max_bytes_in_queue; }
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
@@ -72,6 +73,8 @@ public:
     void set_source_block();
 
     void set_max_blocks_in_sub_queue(int64_t max_blocks) { _max_blocks_in_sub_queue = max_blocks; }
+
+    void set_low_memory_mode() { _max_blocks_in_sub_queue = 1; }
 
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
@@ -101,7 +104,7 @@ private:
     //this only use to record the queue[0] for profile
     int64_t _max_bytes_in_queue = 0;
     int64_t _max_size_of_queue = 0;
-    static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
+    static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024L * 1024 * 1024 / 10;
 
     // data queue is multi sink one source
     std::shared_ptr<Dependency> _source_dependency = nullptr;

@@ -100,7 +100,8 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 #else
-#define SCOPED_PEAK_MEM() auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
+#define SCOPED_PEAK_MEM(peak_mem) \
+    auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
 #endif
@@ -250,13 +251,22 @@ public:
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
 
+    doris::Status try_reserve_process_memory(const int64_t size) const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        return thread_mem_tracker_mgr->try_reserve(size, true);
+    }
+
     doris::Status try_reserve_memory(const int64_t size) const {
 #ifdef USE_MEM_TRACKER
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
 #endif
-        return thread_mem_tracker_mgr->try_reserve(size);
+        return thread_mem_tracker_mgr->try_reserve(size, false);
     }
 
     void release_reserved_memory() const {

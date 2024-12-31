@@ -69,6 +69,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     uint32_t probe_rows = cast_set<uint32_t>(in_block->rows());
     if (probe_rows > 0) {
@@ -200,6 +201,12 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
     } else {
         local_state._dependency->set_ready_to_read();
     }
+}
+
+template <bool is_intersect>
+size_t SetProbeSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._estimate_memory_usage;
 }
 
 template <bool is_intersect>

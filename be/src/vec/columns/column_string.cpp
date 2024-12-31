@@ -439,8 +439,7 @@ size_t ColumnStr<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                                 size_t max_row_byte_size) const {
+void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Use uint32 instead of size_t to reduce agg key's length.
         auto offset(static_cast<uint32_t>(offset_at(i)));
@@ -454,7 +453,7 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnStr<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                                const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
 
@@ -495,7 +494,7 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnStr<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto original_ptr = keys[i].data;
         keys[i].data = deserialize_and_insert_from_arena(original_ptr);
@@ -504,8 +503,8 @@ void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t nu
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                 const size_t num_rows, const uint8_t* null_map) {
+void ColumnStr<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
+                                                 const uint8_t* null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         if (null_map[i] == 0) {
             auto original_ptr = keys[i].data;

@@ -178,8 +178,7 @@ public:
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override {
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override {
         data->serialize_vec(keys, num_rows, max_row_byte_size);
     }
 
@@ -198,7 +197,7 @@ public:
         get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override {
         data->serialize_vec_with_null_map(keys, num_rows, null_map);
     }

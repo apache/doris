@@ -91,6 +91,8 @@ public:
 
     virtual std::string data_queue_debug_string(int i) = 0;
 
+    void set_low_memory_mode();
+
 protected:
     friend struct LocalExchangeSharedState;
     friend struct BlockWrapper;
@@ -102,7 +104,7 @@ protected:
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;
-    const int _free_block_limit = 0;
+    int _free_block_limit = 0;
     moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
 };
 
@@ -219,10 +221,9 @@ struct BlockWrapper {
         if (ref_count.fetch_sub(1) == 1 && shared_state != nullptr) {
             DCHECK_GT(allocated_bytes, 0);
             shared_state->sub_total_mem_usage(allocated_bytes, channel_id);
-            if (shared_state->exchanger->_free_block_limit == 0 ||
-                shared_state->exchanger->_free_blocks.size_approx() <
-                        shared_state->exchanger->_free_block_limit *
-                                shared_state->exchanger->_num_sources) {
+            if (shared_state->exchanger->_free_blocks.size_approx() <
+                shared_state->exchanger->_free_block_limit *
+                        shared_state->exchanger->_num_sources) {
                 data_block.clear_column_data();
                 // Free blocks is used to improve memory efficiency. Failure during pushing back
                 // free block will not incur any bad result so just ignore the return value.

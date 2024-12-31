@@ -333,6 +333,13 @@ int64_t MemoryProfile::other_current_usage() {
     return memory_other_trackers_sum_bytes.get_value();
 }
 
+std::string MemoryProfile::process_memory_detail_str() const {
+    return fmt::format("Process Memory Summary: {}\n, {}\n, {}\n, {}",
+                       GlobalMemoryArbitrator::process_mem_log_str(),
+                       print_memory_overview_profile(), print_global_memory_profile(),
+                       print_top_memory_tasks_profile());
+}
+
 void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
@@ -342,6 +349,7 @@ void MemoryProfile::print_log_process_usage() {
         LOG(WARNING) << "\n" << print_metadata_memory_profile();
         LOG(WARNING) << "\n" << print_cache_memory_profile();
         LOG(WARNING) << "\n" << print_top_memory_tasks_profile();
+        LOG(WARNING) << process_memory_detail_str();
     }
 }
 

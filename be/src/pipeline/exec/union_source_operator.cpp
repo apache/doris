@@ -91,7 +91,7 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     if (_shared_state) {
         fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
                        _shared_state->data_queue.is_all_finish(),
-                       _shared_state->data_queue.remaining_has_data());
+                       _shared_state->data_queue.has_more_data());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -131,7 +131,10 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         }
         block->swap(*output_block);
         output_block->clear_column_data(_row_descriptor.num_materialized_slots());
-        local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
+        if (!state->get_query_ctx()->low_memory_mode()) {
+            local_state._shared_state->data_queue.push_free_block(std::move(output_block),
+                                                                  child_idx);
+        }
     }
     local_state.reached_limit(block, eos);
     return Status::OK();
@@ -141,6 +144,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
+
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);

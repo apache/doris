@@ -143,7 +143,8 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _query_thread_context.query_mem_tracker->write_tracker());
     if (_is_flush_success) {
         // If the memtable is flush success, then its memtracker's consumption should be 0
         if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
@@ -182,6 +183,8 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 
 Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _query_thread_context.query_mem_tracker->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     if (_is_first_insertion) {
@@ -579,6 +582,8 @@ void MemTable::_aggregate() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _query_thread_context.query_mem_tracker->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
@@ -606,6 +611,20 @@ bool MemTable::need_agg() const {
         return memory_usage() >= max_size;
     }
     return false;
+}
+
+size_t MemTable::get_flush_reserve_memory_size() const {
+    size_t reserve_size = 0;
+    if (_keys_type == KeysType::DUP_KEYS) {
+        if (_tablet_schema->num_key_columns() == 0) {
+            // no need to reserve
+        } else {
+            reserve_size = _input_mutable_block.allocated_bytes();
+        }
+    } else {
+        reserve_size = _input_mutable_block.allocated_bytes();
+    }
+    return reserve_size;
 }
 
 Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {

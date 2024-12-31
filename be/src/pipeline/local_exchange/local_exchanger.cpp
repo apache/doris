@@ -47,10 +47,13 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         block->ref(1);
         allocated_bytes = block->data_block.allocated_bytes();
     }
+
     std::unique_lock l(*_m[channel_id]);
+
     local_state->_shared_state->add_mem_usage(channel_id, allocated_bytes,
                                               !std::is_same_v<PartitionedBlock, BlockType> &&
                                                       !std::is_same_v<BroadcastBlock, BlockType>);
+
     if (_data_queue[channel_id].enqueue(std::move(block))) {
         local_state->_shared_state->set_ready_to_read(channel_id);
     } else {
@@ -85,10 +88,10 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
             local_state->_shared_state->sub_mem_usage(channel_id,
                                                       block.first->data_block.allocated_bytes());
         } else {
-            local_state->_shared_state->sub_mem_usage(channel_id,
-                                                      block->data_block.allocated_bytes());
+            const auto allocated_bytes = block->data_block.allocated_bytes();
+            local_state->_shared_state->sub_mem_usage(channel_id, allocated_bytes);
             data_block->swap(block->data_block);
-            block->unref(local_state->_shared_state, data_block->allocated_bytes(), channel_id);
+            block->unref(local_state->_shared_state, allocated_bytes, channel_id);
             DCHECK_EQ(block->ref_value(), 0);
         }
         return true;
@@ -162,6 +165,9 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
         RETURN_IF_ERROR(_split_rows(state, sink_info.partitioner->get_channel_ids().get<uint32_t>(),
                                     in_block, *sink_info.channel_id, sink_info.local_state));
     }
+
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
 
     return Status::OK();
 }
@@ -245,6 +251,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     if (new_block_wrapper->data_block.empty()) {
         return Status::OK();
     }
+
     local_state->_shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes(),
                                                     channel_id);
     auto bucket_seq_to_instance_idx =
@@ -349,6 +356,9 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     auto channel_id = ((*sink_info.channel_id)++) % _num_partitions;
     _enqueue_data_and_set_ready(channel_id, sink_info.local_state, std::move(wrapper));
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
+
     return Status::OK();
 }
 
@@ -395,6 +405,9 @@ Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     BlockWrapperSPtr wrapper = BlockWrapper::create_shared(std::move(new_block));
     _enqueue_data_and_set_ready(0, sink_info.local_state, std::move(wrapper));
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
+
     return Status::OK();
 }
 
@@ -426,11 +439,23 @@ Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_
         sink_info.local_state->_shared_state->source_deps[*sink_info.channel_id]
                 ->set_always_ready();
     }
+
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
     return Status::OK();
 }
 
 void ExchangerBase::finalize() {
     DCHECK(_running_source_operators == 0);
+    vectorized::Block block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+}
+
+void ExchangerBase::set_low_memory_mode() {
+    _free_block_limit = 0;
+
     vectorized::Block block;
     while (_free_blocks.try_dequeue(block)) {
         // do nothing
@@ -567,6 +592,8 @@ Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
     _enqueue_data_and_set_ready(channel_id, sink_info.local_state,
                                 BlockWrapper::create_shared(std::move(new_block)));
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
     return Status::OK();
 }
 
@@ -586,7 +613,11 @@ Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectoriz
             std::iota(channel_ids.begin() + i, channel_ids.end(), 0);
         }
     }
-    return _split_rows(state, channel_ids.data(), block, std::move(sink_info));
+
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
+    RETURN_IF_ERROR(_split_rows(state, channel_ids.data(), block, std::move(sink_info)));
+    return Status::OK();
 }
 
 Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,

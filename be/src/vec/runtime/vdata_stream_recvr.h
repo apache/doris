@@ -117,6 +117,8 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
+    void set_low_memory_mode() { _sender_queue_mem_limit = 1012 * 1024; }
+
 private:
     friend struct BlockSupplierSortCursorImpl;
 
@@ -142,7 +144,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
-    size_t _sender_queue_mem_limit;
+    std::atomic<size_t> _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 

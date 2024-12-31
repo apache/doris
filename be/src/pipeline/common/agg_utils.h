@@ -250,6 +250,28 @@ public:
     ConstIterator cend() const { return end(); }
     Iterator end() { return {this, _total_count}; }
 
+    [[nodiscard]] uint32_t total_count() const { return _total_count; }
+
+    size_t estimate_memory(size_t rows) const {
+        bool need_to_expand = false;
+        if (_total_count == 0) {
+            need_to_expand = true;
+        } else if ((_index_in_sub_container + rows) > SUB_CONTAINER_CAPACITY) {
+            need_to_expand = true;
+            rows -= (SUB_CONTAINER_CAPACITY - _index_in_sub_container);
+        }
+
+        if (!need_to_expand) {
+            return 0;
+        }
+
+        size_t count = (rows + SUB_CONTAINER_CAPACITY - 1) / SUB_CONTAINER_CAPACITY;
+        size_t size = _size_of_key * SUB_CONTAINER_CAPACITY;
+        size += _size_of_aggregate_states * SUB_CONTAINER_CAPACITY;
+        size *= count;
+        return size;
+    }
+
     void init_once() {
         if (_inited) {
             return;
