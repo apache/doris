@@ -563,6 +563,7 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     std::string download_content;
     CHECK_STATUS_OK(fs->direct_download(direct_remote_file, &download_content));
     ASSERT_EQ("abc", download_content);
+    ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
 }
 
 } // namespace doris

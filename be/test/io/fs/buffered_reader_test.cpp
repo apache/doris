@@ -47,7 +47,9 @@ public:
 
 protected:
     virtual void SetUp() {}
-    virtual void TearDown() {}
+    void TearDown() override {
+        ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool.reset();
+    }
 };
 
 class SyncLocalFileReader : public io::FileReader {
