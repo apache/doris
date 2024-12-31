@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -77,6 +78,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class).then(SimplifyComparisonPredicate::simplify)
+                        .toRule(ExpressionRuleType.SIMPLIFY_COMPARISON_PREDICATE)
         );
     }
 
