@@ -127,7 +127,7 @@ suite("insert_group_commit_with_prepare_stmt") {
         return serverStatementIds
     }
 
-    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
+    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb, false)
     logger.info("url: " + url)
 
     def result1 = connect(user, password, url + "&sessionVariables=group_commit=async_mode") {
