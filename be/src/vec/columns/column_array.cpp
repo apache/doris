@@ -1038,8 +1038,6 @@ ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offse
         size_t size_to_replicate = replicate_offsets[i] - prev_offset;
         prev_offset = replicate_offsets[i];
 
-        std::cout << "replicate_generic: " << i << " " << i << " with prev:" << prev_offset
-                  << " with size_to_replicate: " << size_to_replicate << std::endl;
         for (size_t j = 0; j < size_to_replicate; ++j) {
             res_concrete.insert_from(*this, i);
         }

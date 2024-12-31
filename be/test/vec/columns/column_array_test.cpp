@@ -278,7 +278,7 @@ protected:
             auto& data_file = data_files[i];
             // first is array type
             auto& type = desc[0].data_type;
-            std::cout << "type: " << type->get_name() << " with file: " << data_file << std::endl;
+            LOG(INFO) << "type: " << type->get_name() << " with file: " << data_file;
             MutableColumns columns;
             columns.push_back(type->create_column());
             auto serde = type->get_serde(1);
@@ -293,7 +293,7 @@ protected:
             auto& data_file = data_files[i + array_typeIndex.size()];
             // first is array type
             auto& type = desc[0].data_type;
-            std::cout << "type: " << type->get_name() << " with file: " << data_file << std::endl;
+            LOG(INFO) << "type: " << type->get_name() << " with file: " << data_file;
             MutableColumns columns;
             columns.push_back(type->create_column());
             auto serde = type->get_serde(1);
@@ -308,7 +308,7 @@ protected:
             auto& data_file = data_files[i + array_typeIndex.size() + array_array_typeIndex.size()];
             // first is array type
             auto& type = desc[0].data_type;
-            std::cout << "type: " << type->get_name() << " with file: " << data_file << std::endl;
+            LOG(INFO) << "type: " << type->get_name() << " with file: " << data_file;
             MutableColumns columns;
             columns.push_back(type->create_column());
             auto serde = type->get_serde(1);
@@ -325,7 +325,7 @@ protected:
                                          array_map_typeIndex.size()];
             // first is array type
             auto& type = desc[0].data_type;
-            std::cout << "type: " << type->get_name() << " with file: " << data_file << std::endl;
+            LOG(INFO) << "type: " << type->get_name() << " with file: " << data_file;
             MutableColumns columns;
             columns.push_back(type->create_column());
             auto serde = type->get_serde(1);
@@ -438,13 +438,18 @@ TEST_F(ColumnArrayTest, ReplicateTest) {
     // just skip array_array_char use vector copy
     for (int i = 0; i < array_columns.size(); i++) {
         if (i == 31) {
-            std::cout << array_columns[i]->get_name() << " is skipped" << std::endl;
             continue;
         }
         array_columns_copy.push_back(array_columns[i]->assume_mutable());
         serdes_copy.push_back(serdes[i]);
     }
     assert_replicate_callback(array_columns_copy, serdes_copy);
+    // expect error columns
+    MutableColumns error_columns;
+    error_columns.push_back(array_columns[31]->assume_mutable());
+    DataTypeSerDeSPtrs error_serdes;
+    error_serdes.push_back(serdes[31]);
+    EXPECT_ANY_THROW(assert_replicate_callback(error_columns, error_serdes));
 }
 
 TEST_F(ColumnArrayTest, ReplaceColumnTest) {
@@ -462,7 +467,7 @@ TEST_F(ColumnArrayTest, PermutationAndSortTest) {
         auto& column = array_columns[i];
         auto& type = array_types[i];
         auto column_type = type->get_name();
-        std::cout << "column_type: " << column_type << std::endl;
+        LOG(INFO) << "column_type: " << column_type;
         // permutation
         EXPECT_ANY_THROW(assert_column_permutations(column->assume_mutable_ref(), type));
     }
@@ -505,12 +510,14 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
         auto& type = array_types[i];
         auto column_size = column->size();
         auto column_type = type->get_name();
-        std::cout << "column_type: " << column_type << std::endl;
+        LOG(INFO) << "column_type: " << column_type;
         // test create_array
         auto last_offset = column->get_offsets().back();
         EXPECT_ANY_THROW(
                 { auto const_col = ColumnConst::create(column->get_data_ptr(), last_offset); });
         auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
+        Field assert_field;
+        column->get(0, assert_field);
         auto const_col = ColumnConst::create(tmp_data_col->assume_mutable(), last_offset);
         EXPECT_ANY_THROW({
             // const_col is not empty
@@ -522,6 +529,12 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
                 << "array_column size is not equal to column size";
         EXPECT_EQ(new_array_column->get_data_ptr()->size(), column->get_data_ptr()->size());
         EXPECT_EQ(new_array_column->get_offsets_ptr()->size(), column->get_offsets_ptr()->size());
+        // check column data
+        for (size_t j = 0; j < column_size; j++) {
+            Field f1;
+            new_array_column->get(j, f1);
+            EXPECT_EQ(f1, assert_field) << "array_column data is not equal to column data";
+        }
     }
 }
 
@@ -543,18 +556,24 @@ TEST_F(ColumnArrayTest, ConvertIfOverflowAndInsertTest) {
         auto type = array_types[i];
         auto nested_type =
                 assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
-        if (!is_string(nested_type)) {
-            // check ptr is itself
-            auto ptr = column->convert_column_if_overflow();
-            EXPECT_EQ(ptr.get(), column.get());
-            auto arr_col = check_and_get_column<ColumnArray>(
-                    remove_nullable(column->assume_mutable()).get());
-            auto nested_col = arr_col->get_data_ptr();
-            auto array_col1 = check_and_get_column<ColumnArray>(remove_nullable(ptr).get());
-            auto nested_col1 = array_col1->get_data_ptr();
-            EXPECT_EQ(nested_col.get(), nested_col1.get());
-        } else {
-            auto ptr = column->convert_column_if_overflow();
+        // check ptr is itself
+        auto ptr = column->convert_column_if_overflow();
+        EXPECT_EQ(ptr.get(), column.get());
+        auto arr_col =
+                check_and_get_column<ColumnArray>(remove_nullable(column->assume_mutable()).get());
+        auto nested_col = arr_col->get_data_ptr();
+        auto array_col1 = check_and_get_column<ColumnArray>(remove_nullable(ptr).get());
+        auto nested_col1 = array_col1->get_data_ptr();
+        EXPECT_EQ(nested_col.get(), nested_col1.get());
+        // check column data
+        auto column_size = column->size();
+        LOG(INFO) << "column_size: " << column_size;
+        for (size_t j = 0; j < column_size; j++) {
+            Field f1;
+            column->get(j, f1);
+            Field f2;
+            ptr->get(j, f2);
+            EXPECT_EQ(f1, f2) << "array_column data is not equal to column data";
         }
     }
 }
