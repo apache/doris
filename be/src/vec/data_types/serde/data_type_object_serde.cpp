@@ -47,10 +47,6 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
                                                    int64_t row_idx, bool col_const,
                                                    const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
-    if (!variant.is_finalized()) {
-        const_cast<ColumnObject&>(variant).finalize();
-    }
-    RETURN_IF_ERROR(variant.sanitize());
     if (variant.is_scalar_variant()) {
         // Serialize scalar types, like int, string, array, faster path
         const auto& root = variant.get_subcolumn({});
@@ -90,9 +86,6 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
                                                   Arena* mem_pool, int32_t col_id,
                                                   int64_t row_num) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
-    if (!variant.is_finalized()) {
-        const_cast<ColumnObject&>(variant).finalize();
-    }
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
     if (!variant.serialize_one_row_to_string(row_num, &value_str)) {

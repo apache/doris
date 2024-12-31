@@ -352,7 +352,7 @@ void get_field_info(const Field& field, FieldInfo* info) {
 }
 
 #ifdef NDEBUG
-#define ENABLE_CHECK_CONSISTENCY (void) /* Nothing */
+#define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
 #else
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
