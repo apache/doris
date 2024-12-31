@@ -124,7 +124,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                                                                   _build_indexs.data() + size);
                 }
             } else {
-                mcol[i + _right_col_idx]->insert_many_defaults(size);
+                mcol[i + _right_col_idx] = MutableColumnPtr();
             }
         }
     }
@@ -146,7 +146,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
                                              _probe_indexs.data() + size);
             }
         } else {
-            mcol[i]->insert_many_defaults(size);
+            mcol[i] = MutableColumnPtr();
         }
     }
 
