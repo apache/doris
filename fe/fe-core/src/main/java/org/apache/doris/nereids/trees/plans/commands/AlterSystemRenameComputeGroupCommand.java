@@ -22,6 +22,8 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -43,6 +45,13 @@ public class AlterSystemRenameComputeGroupCommand extends Command implements For
     }
 
     private void validate() throws AnalysisException {
+        // check admin or root auth, can rename
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN_OR_NODE)) {
+            String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.ADMIN_OR_NODE.getPrivs().toString());
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+        }
         if (Strings.isNullOrEmpty(originalName) || Strings.isNullOrEmpty(newName)) {
             throw new AnalysisException("rename group requires non-empty or non-empty name");
         }
