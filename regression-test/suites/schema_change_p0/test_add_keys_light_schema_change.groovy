@@ -97,7 +97,7 @@ suite ("test_add_keys_light_schema_change") {
                     `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                     `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
                 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 4
+                BUCKETS 1
                 PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
             """
         sql """ 
@@ -111,7 +111,7 @@ suite ("test_add_keys_light_schema_change") {
         def jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
         assertNotEquals(jobStateResult[0][8], "-1")
 
-        qt_sc """ select * from add_keys_light_schema_change order by user_id """
+        qt_sc_11 """ select * from add_keys_light_schema_change order by user_id """
 
         sql """
             ALTER TABLE add_keys_light_schema_change ADD COLUMN new_mv_key2 INT default "2"
@@ -120,7 +120,7 @@ suite ("test_add_keys_light_schema_change") {
         jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
         assertEquals(jobStateResult[0][8], "-1")
 
-        // case 1.3: light schema change type check: add key column with enable_unique_key_merge_on_write
+        // case 1.2: light schema change type check: add key column with enable_unique_key_merge_on_write
         sql """ DROP TABLE IF EXISTS add_keys_light_schema_change """
         sql """
                 CREATE TABLE IF NOT EXISTS add_keys_light_schema_change (
@@ -132,7 +132,7 @@ suite ("test_add_keys_light_schema_change") {
 
                     `cost` BIGINT DEFAULT "0" COMMENT "用户总消费")
                 UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 4
+                BUCKETS 1
                 PROPERTIES ( 
                     "replication_num" = "1", 
                     "light_schema_change" = "true", 
@@ -142,7 +142,7 @@ suite ("test_add_keys_light_schema_change") {
                 INSERT INTO add_keys_light_schema_change VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, 20)
             """
-        qt_sc """ select * from add_keys_light_schema_change order by user_id """
+        qt_sc_12 """ select * from add_keys_light_schema_change order by user_id """
 
         sql """
             ALTER TABLE add_keys_light_schema_change ADD COLUMN new_mv_key1 INT KEY default "2"
@@ -165,8 +165,8 @@ suite ("test_add_keys_light_schema_change") {
                     `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                     `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
                 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 4
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
+                BUCKETS 1
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true");
             """
         sql """ 
                 INSERT INTO add_keys_light_schema_change VALUES
@@ -187,19 +187,19 @@ suite ("test_add_keys_light_schema_change") {
             """
         table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change ORDER BY RowCount DESC LIMIT 1 """
 
-        qt_21_agg_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_21_agg_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_21_agg_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+        qt_21_agg_multi_1 """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_21_agg_multi_2 """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_21_agg_multi_3 """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
 
         (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
 
-        qt_21_agg_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_21_agg_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_21_agg_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+        qt_21_agg_multi_1_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_21_agg_multi_2_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_21_agg_multi_3_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
 
-        // case 2.2: light schema change aggreage : with drop
+        // case 2.2: light schema change aggreage : with rollup and multi version rowset and compaction
         sql """ DROP TABLE IF EXISTS add_keys_light_schema_change """
         sql """
                 CREATE TABLE IF NOT EXISTS add_keys_light_schema_change (
@@ -214,61 +214,8 @@ suite ("test_add_keys_light_schema_change") {
                     `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                     `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
                 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 4
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
-            """
-        sql """ 
-                INSERT INTO add_keys_light_schema_change VALUES
-                (1, '2017-10-01', 'Beijing', 10, 1, 1, 20, hll_hash(1), to_bitmap(1))
-            """
-        sql """
-            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column INT default "2" AFTER sex PROPERTIES ("timeout"="604800");
-            """
-        jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
-        assertEquals(jobStateResult[0][8], "-1")
-        sql """ 
-                INSERT INTO add_keys_light_schema_change (user_id,date,city,age,sex,cost,max_dwell_time,hll_col,bitmap_col) VALUES
-                (1, '2017-10-01', 'Beijing', 10, 1, 1, 30, hll_hash(2), to_bitmap(2))
-            """
-        sql """ 
-                INSERT INTO add_keys_light_schema_change (user_id,date,city,age,sex,new_key_column,cost,max_dwell_time,hll_col,bitmap_col) VALUES
-                (1, '2017-10-01', 'Beijing', 10, 1, 1, 1, 40, hll_hash(3), to_bitmap(3))
-            """
-        sql """
-                ALTER TABLE add_keys_light_schema_change DROP COLUMN sex;
-            """
-        jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
-        assertNotEquals(jobStateResult[0][8], "-1")
-
-        qt_22_agg_drop_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_22_agg_drop_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_22_agg_drop_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
-    
-        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-
-        qt_22_agg_drop_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_22_agg_drop_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_22_agg_drop_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
-
-        // case 2.3: light schema change aggreage : with rollup and multi version rowset and compaction
-        sql """ DROP TABLE IF EXISTS add_keys_light_schema_change """
-        sql """
-                CREATE TABLE IF NOT EXISTS add_keys_light_schema_change (
-                    `user_id` LARGEINT NOT NULL COMMENT "用户id",
-                    `date` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
-                    `city` VARCHAR(20) COMMENT "用户所在城市",
-                    `age` SMALLINT COMMENT "用户年龄",
-                    `sex` TINYINT COMMENT "用户性别",
-
-                    `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
-                    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
-                    `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
-                    `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
-                AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 4
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
+                BUCKETS 1
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true");
             """
         sql """ 
                 INSERT INTO add_keys_light_schema_change VALUES
@@ -295,32 +242,135 @@ suite ("test_add_keys_light_schema_change") {
             """
         table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change WHERE IndexName = "add_keys_light_schema_change" ORDER BY RowCount DESC LIMIT 1 """
 
-        qt_23_base_table_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_23_base_table_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_23_base_table_multi_rowset """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+        qt_23_base_table_multi_1 """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_base_table_multi_2 """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_23_base_table_multi_3 """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
 
         (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
 
-        qt_23_base_table_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_23_base_table_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_23_base_table_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
-
+        qt_23_base_table_multi_1_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_base_table_multi_2_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_23_base_table_multi_3_compaction """ SELECT user_id,sum(cost),max(max_dwell_time),hll_union_agg(hll_col),bitmap_union_count(bitmap_col) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
 
         table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change WHERE IndexName = "first_idx" ORDER BY RowCount DESC LIMIT 1 """
 
-        qt_23_rollup_multi_rowset """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_23_rollup_multi_rowset """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_23_rollup_multi_rowset """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+        qt_23_rollup_multi_1 """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_rollup_multi_2 """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_23_rollup_multi_3 """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
 
         (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
 
-        qt_23_agg_rollup_compaction """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change GROUP BY user_id; """
-        qt_23_agg_rollup_compaction """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
-        qt_23_agg_rollup_compaction """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+        qt_23_rollup_multi_1_compaction """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_rollup_multi_2_compaction """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_23_rollup_multi_3_compaction """ SELECT user_id,sum(cost) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+
+        // case 2.3: light schema change aggreage : with drop & condition delete & repicate key
+        sql """ DROP TABLE IF EXISTS add_keys_light_schema_change """
+        sql """
+                CREATE TABLE IF NOT EXISTS add_keys_light_schema_change (
+                    `user_id` LARGEINT NOT NULL COMMENT "用户id",
+                    `date` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
+                    `city` VARCHAR(20) COMMENT "用户所在城市",
+                    `age` SMALLINT COMMENT "用户年龄",
+                    `sex`  VARCHAR(20) COMMENT "用户性别",
+
+                    `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
+                    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间")
+                AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+                BUCKETS 1
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true");
+            """
+        sql """ 
+                INSERT INTO add_keys_light_schema_change VALUES
+                (1, '2017-10-01', 'Beijing', 10, 'man', 1, 20)
+            """
+        sql """
+            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column INT default "2" AFTER sex PROPERTIES ("timeout"="604800");
+            """
+        jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
+        assertEquals(jobStateResult[0][8], "-1")
+
+        // drop
+        sql """ 
+                INSERT INTO add_keys_light_schema_change (user_id,date,city,age,sex,cost,max_dwell_time) VALUES
+                (1, '2017-10-01', 'Beijing', 10, 'man', 1, 30)
+            """
+        sql """ 
+                INSERT INTO add_keys_light_schema_change (user_id,date,city,age,sex,new_key_column,cost,max_dwell_time) VALUES
+                (1, '2017-10-01', 'Beijing', 10, 'man', 1, 1, 40)
+            """
+        sql """
+                ALTER TABLE add_keys_light_schema_change DROP COLUMN sex;
+            """
+        jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
+        assertNotEquals(jobStateResult[0][8], "-1")
+
+        qt_23_agg_drop_1 """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_agg_drop_2 """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_23_agg_drop_3 """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+    
+        table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change ORDER BY RowCount DESC LIMIT 1 """
+        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+
+        qt_23_agg_drop_1_compaction """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_agg_drop_2_compaction """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change WHERE new_key_column = 2 GROUP BY user_id; """
+        qt_23_agg_drop_3_compaction """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change WHERE new_key_column = 1 GROUP BY user_id; """
+
+        // condition delete
+        sql """
+            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column1 INT default "3" AFTER new_key_column PROPERTIES ("timeout"="604800");
+        """
+        sql """
+            DELETE FROM add_keys_light_schema_change WHERE new_key_column = 2;
+        """
+        qt_23_agg_condition_del_1 """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id; """
+
+        table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change ORDER BY RowCount DESC LIMIT 1 """
+        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+
+        qt_23_agg_condition_del_1_compaction """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id; """
+
+        // condition delete & drop & add same name column
+        sql """ 
+            INSERT INTO add_keys_light_schema_change VALUES (1, '2017-10-01', 'Beijing', 10, 5, 1, 1, 40)
+        """
+        sql """
+            DELETE FROM add_keys_light_schema_change WHERE new_key_column = 5;
+        """
+        sql """
+            ALTER TABLE add_keys_light_schema_change DROP COLUMN new_key_column;
+        """
+
+        jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
+        assertNotEquals(jobStateResult[0][8], "-1")
+
+        sql """ 
+            INSERT INTO add_keys_light_schema_change VALUES (1, '2017-10-01', 'Beijing', 10, 1, 1, 15)
+        """
+        sql """
+            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column VARCHAR(20) default "new_key" AFTER age PROPERTIES ("timeout"="604800");
+        """
+
+        qt_23_agg_drop_and_add_1 """ SELECT * FROM add_keys_light_schema_change ORDER BY new_key_column,new_key_column1; """
+        qt_23_agg_drop_and_add_2 """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_agg_drop_and_add_3 """ SELECT user_id,new_key_column,new_key_column1,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id,new_key_column,new_key_column1 ORDER BY user_id,new_key_column,new_key_column1; """
+
+        table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change ORDER BY RowCount DESC LIMIT 1 """
+        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
+        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+
+        qt_23_agg_drop_and_add_1_compaction """ SELECT * FROM add_keys_light_schema_change ORDER BY new_key_column,new_key_column1; """
+        qt_23_agg_drop_and_add_2_compaction """ SELECT user_id,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id; """
+        qt_23_agg_drop_and_add_3_compaction """ SELECT user_id,new_key_column,new_key_column1,sum(cost),max(max_dwell_time) FROM add_keys_light_schema_change GROUP BY user_id,new_key_column,new_key_column1 ORDER BY user_id,new_key_column,new_key_column1; """
 
         // case 3.1: light schema change duplicate : with multi version rowset and compaction
         sql """ DROP TABLE IF EXISTS add_keys_light_schema_change """
@@ -333,15 +383,15 @@ suite ("test_add_keys_light_schema_change") {
                     `op_id` BIGINT COMMENT "负责人id",
                     `op_time` DATETIME COMMENT "处理时间")
                 DUPLICATE KEY(`timestamp`, `type`, `error_code`) DISTRIBUTED BY HASH(`type`)
-                BUCKETS 4
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
+                BUCKETS 1
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true");
             """
         sql """ 
                 INSERT INTO add_keys_light_schema_change VALUES
                 ('2017-10-01 10:00:00', '1', 0, '', 10, '2017-10-01 12:00:00')
             """
         sql """
-            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column INT default "2" AFTER error_code PROPERTIES ("timeout"="604800");
+            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column INT KEY default "2" AFTER error_code PROPERTIES ("timeout"="604800");
             """
         jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
         assertEquals(jobStateResult[0][8], "-1")
@@ -355,17 +405,17 @@ suite ("test_add_keys_light_schema_change") {
             """
         table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change ORDER BY RowCount DESC LIMIT 1 """
 
-        qt_31_duplicate_multi_rowset """ SELECT * FROM add_keys_light_schema_change; """
-        qt_31_duplicate_multi_rowset """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2; """
-        qt_31_duplicate_multi_rowset """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1; """
+        qt_31_duplicate_multi_1 """ SELECT * FROM add_keys_light_schema_change ORDER BY timestamp,type,error_code,new_key_column,error_msg; """
+        qt_31_duplicate_multi_2 """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2 ORDER BY timestamp,type,error_code,new_key_column,error_msg; """
+        qt_31_duplicate_multi_3 """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1 ORDER BY timestamp,type,error_code,new_key_column,error_msg; """
 
         (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
 
-        qt_31_duplicate_compaction """ SELECT * FROM add_keys_light_schema_change; """
-        qt_31_duplicate_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2; """
-        qt_31_duplicate_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1; """
+        qt_31_duplicate_multi_1_compaction """ SELECT * FROM add_keys_light_schema_change ORDER BY timestamp,type,error_code,new_key_column,error_msg; """
+        qt_31_duplicate_multi_2_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2 ORDER BY timestamp,type,error_code,new_key_column,error_msg; """
+        qt_31_duplicate_multi_3_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1 ORDER BY timestamp,type,error_code,new_key_column,error_msg; """
 
         // case 4.1: light schema change unique : with multi version rowset and compaction
         sql """ DROP TABLE IF EXISTS add_keys_light_schema_change """
@@ -381,15 +431,15 @@ suite ("test_add_keys_light_schema_change") {
                     `register_time` DATETIME COMMENT "用户注册时间")
                 UNIQUE KEY(`user_id`, `username`, `city`)
                 DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 4
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
+                BUCKETS 1
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true", "enable_unique_key_merge_on_write" = "false");
             """
         sql """ 
                 INSERT INTO add_keys_light_schema_change VALUES
                 (1, 'Jone', 'Beijing', 10, 1, 10010, 'Haidian', '2017-10-01 12:00:00')
             """
         sql """
-            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column INT default "2" AFTER city PROPERTIES ("timeout"="604800");
+            ALTER TABLE add_keys_light_schema_change ADD COLUMN new_key_column INT Key default "2" AFTER city PROPERTIES ("timeout"="604800");
             """
         jobStateResult = waitJobFinish(""" SHOW ALTER TABLE COLUMN WHERE IndexName='add_keys_light_schema_change' ORDER BY createtime DESC LIMIT 1 """, 9)
         assertEquals(jobStateResult[0][8], "-1")
@@ -403,17 +453,17 @@ suite ("test_add_keys_light_schema_change") {
             """
         table_tablets = sql """ SHOW TABLETS FROM add_keys_light_schema_change ORDER BY RowCount DESC LIMIT 1 """
 
-        qt_41_unique_multi_rowset """ SELECT * FROM add_keys_light_schema_change; """
-        qt_41_unique_multi_rowset """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2; """
-        qt_41_unique_multi_rowset """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1; """
+        qt_41_unique_multi_1 """ SELECT * FROM add_keys_light_schema_change ORDER BY user_id,username,city; """
+        qt_41_unique_multi_2 """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2 ORDER BY user_id,username,city; """
+        qt_41_unique_multi_3 """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1 ORDER BY user_id,username,city; """
 
         (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_tablets[0][0])
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
 
-        qt_41_unique_compaction """ SELECT * FROM add_keys_light_schema_change; """
-        qt_41_unique_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2; """
-        qt_41_unique_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1; """
+        qt_41_unique_multi_1_compaction """ SELECT * FROM add_keys_light_schema_change ORDER BY user_id,username,city; """
+        qt_41_unique_multi_2_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 2 ORDER BY user_id,username,city; """
+        qt_41_unique_multi_3_compaction """ SELECT * FROM add_keys_light_schema_change WHERE new_key_column = 1 ORDER BY user_id,username,city; """
 
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${tableName}")

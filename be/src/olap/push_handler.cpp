@@ -139,29 +139,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // not call validate request here, because realtime load does not
     // contain version info
 
-    Status res;
-    // check delete condition if push for delete
-    std::queue<DeletePredicatePB> del_preds;
-    if (push_type == PushType::PUSH_FOR_DELETE) {
-        DeletePredicatePB del_pred;
-        TabletSchema tablet_schema;
-        tablet_schema.copy_from(*tablet->tablet_schema());
-        if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
-            tablet_schema.clear_columns();
-            for (const auto& column_desc : request.columns_desc) {
-                tablet_schema.append_column(TabletColumn(column_desc));
-            }
-        }
-        res = DeleteHandler::generate_delete_predicate(tablet_schema, request.delete_conditions,
-                                                       &del_pred);
-        del_preds.push(del_pred);
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to generate delete condition. res=" << res
-                         << ", tablet=" << tablet->tablet_id();
-            return res;
-        }
-    }
-
     // check if version number exceed limit
     if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
@@ -182,6 +159,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 config::tablet_meta_serialize_size_limit, tablet->tablet_id());
     }
 
+    // set tablet schema
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
@@ -190,7 +168,28 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         for (const auto& column_desc : request.columns_desc) {
             tablet_schema->append_column(TabletColumn(column_desc));
         }
+        if (!request.__isset.schema_version) {
+            return Status::InternalError("No valid schema version in request, tablet_id={}",
+                                         tablet->tablet_id());
+        }
+        tablet_schema->set_schema_version(request.schema_version);
     }
+
+    Status res;
+    // check delete condition if push for delete
+    std::queue<DeletePredicatePB> del_preds;
+    if (push_type == PushType::PUSH_FOR_DELETE) {
+        DeletePredicatePB del_pred;
+        res = DeleteHandler::generate_delete_predicate(*tablet_schema, request.delete_conditions,
+                                                       &del_pred);
+        del_preds.push(del_pred);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to generate delete condition. res=" << res
+                         << ", tablet=" << tablet->tablet_id();
+            return res;
+        }
+    }
+
     RowsetSharedPtr rowset_to_add;
     // writes
     res = _convert_v2(tablet, &rowset_to_add, tablet_schema, push_type);
