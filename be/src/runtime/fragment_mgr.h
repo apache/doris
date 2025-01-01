@@ -77,7 +77,15 @@ public:
     void insert(const Key& query_id, std::shared_ptr<ValueType>);
     void clear();
     void erase(const Key& query_id);
-    size_t num_items() const;
+    size_t num_items() const {
+        size_t n = 0;
+        for (auto& pair : _internal_map) {
+            std::shared_lock lock(*pair.first);
+            auto& map = pair.second;
+            n += map.size();
+        }
+        return n;
+    }
     void apply(ApplyFunction&& function) {
         for (auto& pair : _internal_map) {
             // TODO: Now only the cancel worker do the GC the _query_ctx_map. each query must

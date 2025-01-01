@@ -305,17 +305,6 @@ void ConcurrentContextMap<Key, Value, ValueType>::clear() {
     }
 }
 
-template <typename Key, typename Value, typename ValueType>
-size_t ConcurrentContextMap<Key, Value, ValueType>::num_items() const {
-    size_t n = 0;
-    for (auto& pair : _internal_map) {
-        std::shared_lock lock(*pair.first);
-        auto& map = pair.second;
-        n += map.size();
-    }
-    return n;
-}
-
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
