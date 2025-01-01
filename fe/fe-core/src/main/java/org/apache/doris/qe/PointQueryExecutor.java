@@ -31,9 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
@@ -61,12 +59,12 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 public class PointQueryExecutor implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExecutor.class);
@@ -144,45 +142,33 @@ public class PointQueryExecutor implements CoordInterface {
         Preconditions.checkNotNull(preparedStmtCtx.shortCircuitQueryContext);
         ShortCircuitQueryContext shortCircuitQueryContext = preparedStmtCtx.shortCircuitQueryContext.get();
         // update conjuncts
-        Map<String, Expr> colNameToConjunct = Maps.newHashMap();
-        for (Entry<PlaceholderId, SlotReference> entry : statementContext.getIdToComparisonSlot().entrySet()) {
-            String colName = entry.getValue().getColumn().get().getName();
-            Expr conjunctVal = ((Literal)  statementContext.getIdToPlaceholderRealExpr()
-                    .get(entry.getKey())).toLegacyLiteral();
-            colNameToConjunct.put(colName, conjunctVal);
-        }
-        if (colNameToConjunct.size() != preparedStmtCtx.command.placeholderCount()) {
+        List<Expr> conjunctVals = statementContext.getIdToPlaceholderRealExpr().values().stream().map(
+                        expression -> (
+                                (Literal) expression).toLegacyLiteral())
+                .collect(Collectors.toList());
+        if (conjunctVals.size() != preparedStmtCtx.command.placeholderCount()) {
             throw new AnalysisException("Mismatched conjuncts values size with prepared"
                     + "statement parameters size, expected "
                     + preparedStmtCtx.command.placeholderCount()
-                    + ", but meet " + colNameToConjunct.size());
+                    + ", but meet " + conjunctVals.size());
         }
-        updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, colNameToConjunct);
+        updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, conjunctVals);
         // short circuit plan and execution
         executor.executeAndSendResult(false, false,
                 shortCircuitQueryContext.analzyedQuery, executor.getContext()
                         .getMysqlChannel(), null, null);
     }
 
-    private static void updateScanNodeConjuncts(OlapScanNode scanNode,
-                Map<String, Expr> colNameToConjunct) {
-        for (Expr conjunct : scanNode.getConjuncts()) {
-            BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
-            SlotRef slot = null;
-            int updateChildIdx = 0;
+    private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
+        for (int i = 0; i < conjunctVals.size(); ++i) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) scanNode.getConjuncts().get(i);
             if (binaryPredicate.getChild(0) instanceof LiteralExpr) {
-                slot = (SlotRef) binaryPredicate.getChildWithoutCast(1);
+                binaryPredicate.setChild(0, conjunctVals.get(i));
             } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
-                slot = (SlotRef) binaryPredicate.getChildWithoutCast(0);
-                updateChildIdx = 1;
+                binaryPredicate.setChild(1, conjunctVals.get(i));
             } else {
                 Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
             }
-            // not a placeholder to replace
-            if (!colNameToConjunct.containsKey(slot.getColumnName())) {
-                continue;
-            }
-            binaryPredicate.setChild(updateChildIdx, colNameToConjunct.get(slot.getColumnName()));
         }
     }
 
