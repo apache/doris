@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -38,6 +39,7 @@ public class NormalizeBinaryPredicatesRule implements ExpressionPatternRuleFacto
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class).then(NormalizeBinaryPredicatesRule::normalize)
+                        .toRule(ExpressionRuleType.NORMALIZE_BINARY_PREDICATES)
         );
     }
 

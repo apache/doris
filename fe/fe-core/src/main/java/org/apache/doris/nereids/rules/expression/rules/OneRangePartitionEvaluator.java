@@ -828,7 +828,7 @@ public class OneRangePartitionEvaluator<K>
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
                 expressionRewriteContext) : null;
-        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+        if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
             return result;
         }
         if (!func.isPositive()) {
@@ -857,5 +857,17 @@ public class OneRangePartitionEvaluator<K>
             newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
         }
+    }
+
+    // only allow literal(except NullLiteral) and null
+    private boolean checkFoldConstantValueIsValid(Expression lowerValue, Expression upperValue) {
+        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+            return false;
+        }
+        if (lowerValue != null && !(lowerValue instanceof Literal)
+                || upperValue != null && !(upperValue instanceof Literal)) {
+            return false;
+        }
+        return true;
     }
 }

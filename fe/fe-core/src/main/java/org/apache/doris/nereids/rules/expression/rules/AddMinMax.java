@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
@@ -69,6 +70,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
+                        .toRule(ExpressionRuleType.ADD_MIN_MAX)
         );
     }
 

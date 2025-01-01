@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -76,6 +78,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class).then(SimplifyComparisonPredicate::simplify)
+                        .toRule(ExpressionRuleType.SIMPLIFY_COMPARISON_PREDICATE)
         );
     }
 
@@ -171,8 +174,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             if (cast.child().getDataType() instanceof DateTimeType
                     || cast.child().getDataType() instanceof DateTimeV2Type) {
                 if (right instanceof DateTimeV2Literal) {
-                    return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
-                            cp, cast.child(), (DateTimeV2Literal) right);
+                    try {
+                        return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
+                                cp, cast.child(), (DateTimeV2Literal) right);
+                    } catch (AnalysisException e) {
+                        // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                        return cp;
+                    }
                 }
             }
 
@@ -188,6 +196,10 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                         } else if (cp instanceof NullSafeEqual) {
                             return BooleanLiteral.FALSE;
                         } else if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
+                            // '9999-12-31' + 1 will overflow
+                            if (DateLiteral.isDateOutOfRange(((DateV2Literal) right).toJavaDateType().plusDays(1))) {
+                                return cp;
+                            }
                             right = ((DateV2Literal) right).plusDays(1);
                         }
                     }
@@ -233,9 +245,17 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
+                Optional<Expression> toSmallerDecimalDataTypeExpr = convertDecimalToSmallerDecimalV3Type(
+                        comparisonPredicate, cast, literal);
+                if (toSmallerDecimalDataTypeExpr.isPresent()) {
+                    return toSmallerDecimalDataTypeExpr.get();
+                }
+
                 DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
                 DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
-                if (leftType.getScale() < literalType.getScale()) {
+                if (cast.getDataType().isDecimalV3Type()
+                        && ((DecimalV3Type) cast.getDataType()).getScale() >= leftType.getScale()
+                        && leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
@@ -398,6 +418,44 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             }
         }
         return cp;
+    }
+
+    private static Optional<Expression> convertDecimalToSmallerDecimalV3Type(ComparisonPredicate comparisonPredicate,
+            Cast castLeft, DecimalV3Literal right) {
+        Expression left = castLeft.child();
+        if (!castLeft.getDataType().isDecimalV3Type() || !left.getDataType().isDecimalV3Type()
+                || ((DecimalV3Type) castLeft.getDataType()).getScale()
+                        < ((DecimalV3Type) left.getDataType()).getScale()) {
+            return Optional.empty();
+        }
+        DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+        try {
+            BigDecimal trailingZerosValue = right.getValue().stripTrailingZeros();
+            int literalScale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
+            int literalPrecision = org.apache.doris.analysis.DecimalLiteral
+                    .getBigDecimalPrecision(trailingZerosValue);
+
+            // we have a column named col1 with type decimalv3(15, 2)
+            // and we have a comparison like col1 > 0.5 + 0.1
+            // suppose the result type of 0.5 + 0.1 is decimalv3(27, 9)
+            // then the col1 need to convert to decimalv3(27, 9) to match the precision of right hand
+            // then will have cast(col1 as decimalv3(27,9)) > 0.5 + 0.1,
+            // after fold constant, we have cast(col1 as decimalv3(27, 9)) > 0.6 (0.6 is decimalv3(27, 9))
+            // but 0.6 can be represented using decimalv3(15, 2)
+            // then simplify it from 'cast(col1 as decimalv3(27, 9)) > 0.6' (0.6 is decimalv3(27, 9))
+            // to 'col1 > 0.6' (0.6 is decimalv3(15, 2))
+            if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
+                trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
+                Expression newLiteral = new DecimalV3Literal(
+                        DecimalV3Type.createDecimalV3TypeLooseCheck(leftType.getPrecision(), leftType.getScale()),
+                        trailingZerosValue);
+                return Optional.of(comparisonPredicate.withChildren(left, newLiteral));
+            }
+        } catch (ArithmeticException e) {
+            // stripTrailingZeros and setScale may cause exception if overflow
+        }
+
+        return Optional.empty();
     }
 
     private static IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {

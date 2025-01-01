@@ -813,11 +813,11 @@ class Suite implements GroovyInterceptable {
         return randomBoolean ? "true" : "false"
     }
 
-    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+    void expectExceptionLike(Closure userFunction, String errMsg = null) {
         try {
             userFunction()
         } catch (Exception e) {
-            if (!e.getMessage().contains(errorMessage)) {
+            if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
                 throw e
             }
         }
@@ -885,6 +885,11 @@ class Suite implements GroovyInterceptable {
         def localFile = file.canonicalPath
         log.info("Set stream load input: ${file.canonicalPath}".toString())
         return localFile;
+    }
+
+    boolean enableJdbcTest() {
+        String enable = context.config.otherConfigs.get("enableJdbcTest")
+        return enable != null && enable.equalsIgnoreCase("true")
     }
 
     boolean enableBrokerLoad() {
@@ -2276,6 +2281,20 @@ class Suite implements GroovyInterceptable {
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
         mv_rewrite_fail(query_sql, mv_name, true)
+    }
+
+    def async_create_mv = { db, mv_sql, mv_name ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
     }
 
     def token = context.config.metaServiceToken

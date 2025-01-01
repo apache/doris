@@ -34,6 +34,7 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -332,6 +333,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
+    public static final String DISABLE_NEREIDS_EXPRESSION_RULES = "disable_nereids_expression_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
@@ -576,6 +578,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
+    public static final String FUZZY_DISABLE_RUNTIME_FILTER_IN_BE = "fuzzy_disable_runtime_filter_in_be";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -703,6 +707,8 @@ public class SessionVariable implements Serializable, Writable {
      * datas which cannot find partition to overwrite.
      */
     public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
+
+    public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1433,6 +1439,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
+
+    @VariableMgr.VarAttr(name = DISABLE_NEREIDS_EXPRESSION_RULES, needForward = true,
+            setter = "setDisableNereidsExpressionRules")
+    private String disableNereidsExpressionRules = "";
+
+    private BitSet disableNereidsExpressionRuleSet = new BitSet();
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
@@ -2263,6 +2275,13 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, fuzzy = true)
     public long dataQueueMaxBlocks = 1;
 
+    @VariableMgr.VarAttr(
+            name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
+            description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
+                    "Disable the runtime filter on the BE for testing purposes."},
+            needForward = true, fuzzy = false)
+    public boolean fuzzyDisableRuntimeFilterInBE = false;
+
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M
     public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 2097152;
@@ -2375,6 +2394,13 @@ public class SessionVariable implements Serializable, Writable {
                 + " by default."
     })
     public boolean enableAutoCreateWhenOverwrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_TEXT_VALIDATE_UTF8, needForward = true, description = {
+            "对于 text 类型的文件读取，是否开启utf8编码检查。非utf8字符会显示成乱码。",
+            "For text type file reading, whether to enable utf8 encoding check."
+                    + "non-utf8 characters will be displayed as garbled characters."
+    })
+    public boolean enableTextValidateUtf8 = true;
 
     @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
             "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
@@ -2524,6 +2550,8 @@ public class SessionVariable implements Serializable, Writable {
                     this.batchSize = 1024;
                     this.enableFoldConstantByBe = false;
                 }
+
+                this.fuzzyDisableRuntimeFilterInBE = true;
             }
         }
 
@@ -3633,6 +3661,10 @@ public class SessionVariable implements Serializable, Writable {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    public BitSet getDisableNereidsExpressionRules() {
+        return disableNereidsExpressionRuleSet;
+    }
+
     public void setEnableNewCostModel(boolean enable) {
         this.enableNewCostModel = enable;
     }
@@ -3643,6 +3675,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDisableNereidsRules(String disableNereidsRules) {
         this.disableNereidsRules = disableNereidsRules;
+    }
+
+    public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {
+        BitSet bitSet = new BitSet();
+        for (String ruleName : disableNereidsExpressionRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
+            if (ruleName.isEmpty()) {
+                continue;
+            }
+            ExpressionRuleType ruleType = ExpressionRuleType.valueOf(ruleName);
+            bitSet.set(ruleType.type());
+        }
+        this.disableNereidsExpressionRuleSet = bitSet;
+        this.disableNereidsExpressionRules = disableNereidsExpressionRules;
     }
 
     public double getNereidsCboPenaltyFactor() {
@@ -4010,6 +4056,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);

@@ -186,7 +186,8 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
-            sql """use `${catalog_name}`.`default`"""
+            sql """switch ${catalog_name}"""
+            sql """use `default`"""
 
             sql """set enable_fallback_to_original_planner=false;"""
 

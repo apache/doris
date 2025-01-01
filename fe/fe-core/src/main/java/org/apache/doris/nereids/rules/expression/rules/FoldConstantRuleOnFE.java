@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -481,7 +482,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
             } catch (AnalysisException t) {
                 if (cast.isExplicitType()) {
-                    return new NullLiteral(dataType);
+                    return cast;
                 } else {
                     // If cast is from type coercion, we don't use NULL literal and will throw exception.
                     throw t;
@@ -764,6 +765,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
                         .isDebugSkipFoldConstant())
                 .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
-                .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext));
+                .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext))
+                .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_FE);
     }
 }
