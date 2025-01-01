@@ -248,4 +248,17 @@ Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& fl
         return Status::InternalError<false>("unknown rowset type.");
     }
 }
+
+Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& flush_token,
+                                                 std::shared_ptr<RowsetWriter> rowset_writer,
+                                                 ThreadPool* wg_flush_pool_ptr) {
+    if (rowset_writer->type() == BETA_ROWSET) {
+        flush_token = FlushToken::create_shared(wg_flush_pool_ptr);
+    } else {
+        return Status::InternalError<false>("not support alpha rowset load now.");
+    }
+    flush_token->set_rowset_writer(rowset_writer);
+    return Status::OK();
+}
+
 } // namespace doris
