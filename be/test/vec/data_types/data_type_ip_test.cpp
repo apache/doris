@@ -111,7 +111,7 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta6.get(),
-            .default_field = Int128(0)
+            .default_field = IPv6(0)
             //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
     };
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
