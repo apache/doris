@@ -17,7 +17,9 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
@@ -318,8 +320,9 @@ public class FlightSqlSchemaHelper {
 
         Set<String> catalogsSet = new LinkedHashSet<>();
         catalogsSet.add("internal"); // An ordered Set with "internal" first.
-        TGetDbsResult getDbsResult = getDbNames();
-        catalogsSet.addAll(getDbsResult.getCatalogs());
+        for (CatalogIf catalog : Env.getCurrentEnv().getCatalogMgr().listCatalogs()) {
+            catalogsSet.add(catalog.getName());
+        }
 
         int catalogIndex = 0;
         for (String catalog : catalogsSet) {
