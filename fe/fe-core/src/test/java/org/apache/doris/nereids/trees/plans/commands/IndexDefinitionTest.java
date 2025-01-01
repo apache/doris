@@ -56,7 +56,7 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "3");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         def.checkColumn(
                 new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
@@ -69,7 +69,7 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "3");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
                 def.checkColumn(
@@ -84,7 +84,7 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "256");
         properties.put("bf_size", "10000");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
                 def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null,
@@ -98,7 +98,7 @@ public class IndexDefinitionTest {
         properties.put("gram_size", "3");
         properties.put("bf_size", "65536");
 
-        IndexDefinition def = new IndexDefinition("ngram_bf_index", false, Lists.newArrayList("col1"), "NGRAM_BF",
+        IndexDefinition def = new IndexDefinition("ngram_bf_index", Lists.newArrayList("col1"), "NGRAM_BF",
                                                   properties, "comment");
         Assertions.assertThrows(AnalysisException.class, () ->
                 def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null,
