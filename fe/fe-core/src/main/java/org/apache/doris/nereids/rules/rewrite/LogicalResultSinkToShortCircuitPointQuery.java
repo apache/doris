@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -53,7 +54,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
         return filter.getConjuncts().stream().allMatch(
                 // all conjuncts match with pattern `key = ?`
-                expression -> (expression instanceof EqualTo)
+                expression -> ((expression instanceof EqualTo) || expression instanceof InPredicate)
                         && (removeCast(expression.child(0)).isKeyColumnFromTable()
                         || (expression.child(0) instanceof SlotReference
                         && ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)))

@@ -39,5 +39,6 @@ suite("test_rowstore", "p0") {
     sql """insert into ${tableName} values (1, 'abc', 1111919.12345678919)"""
     qt_sql """select * from ${tableName}"""
     sql """insert into ${tableName} values (2, 'def', 1111919.12345678919)"""
-    qt_sql """select * from ${tableName} where k1 = 2"""
+    qt_point_sql """select * from ${tableName} where k1 = 2"""
+    qt_point_in_sql """select * from ${tableName} where k1 in (1, 2, 3, 4, 5)"""
 }

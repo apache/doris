@@ -1355,9 +1355,9 @@ class Suite implements GroovyInterceptable {
         quickRunTest(tag, sql, isOrder)
     }
 
-    void quickExecute(String tag, PreparedStatement stmt) {
+    void quickExecute(String tag, PreparedStatement stmt, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
-        quickRunTest(tag, stmt)
+        quickRunTest(tag, stmt, isOrder)
     }
 
     @Override
@@ -1369,6 +1369,8 @@ class Suite implements GroovyInterceptable {
             return quickTest(name.substring("order_qt_".length()), (args as Object[])[0] as String, true)
         } else if (name.startsWith("qe_")) {
             return quickExecute(name.substring("qe_".length()), (args as Object[])[0] as PreparedStatement)
+        } else if (name.startsWith("order_qe_")) {
+            return quickExecute(name.substring("order_qe_".length()), (args as Object[])[0] as PreparedStatement, true)
         } else if (name.startsWith("assert") && name.length() > "assert".length()) {
             // delegate to junit Assertions dynamically
             return Assertions."$name"(*args) // *args: spread-dot

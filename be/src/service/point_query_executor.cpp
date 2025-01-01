@@ -262,6 +262,11 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
+
+    if (_tablet->tablet_meta()->replica_id() != request->replica_id()) {
+        return Status::OK();
+    }
+
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;

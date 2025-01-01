@@ -226,6 +226,11 @@ public:
                            PTabletKeyLookupResponse* response,
                            google::protobuf::Closure* done) override;
 
+    void tablet_batch_fetch_data(google::protobuf::RpcController* controller,
+                                 const PTabletBatchKeyLookupRequest* batchRequest,
+                                 PTabletBatchKeyLookupResponse* batchResponse,
+                                 google::protobuf::Closure* done) override;
+
     void test_jdbc_connection(google::protobuf::RpcController* controller,
                               const PJdbcTestConnectionRequest* request,
                               PJdbcTestConnectionResult* result,

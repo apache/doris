@@ -114,6 +114,24 @@ suite("test_point_query_partition") {
         qe_point_select stmt
     }
 
+    // IN query
+    def result2 = connect(user=user, password=password, url=prepare_url) {
+        def stmt = prepareStatement "SELECT * FROM ${tableName} WHERE k1 IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt.setInt(1, 1)
+        stmt.setInt(2, 2)
+        stmt.setInt(3, 11)
+        stmt.setInt(4, -1)
+        stmt.setInt(5, 12)
+        stmt.setInt(6, 34)
+        stmt.setInt(7, 33)
+        stmt.setInt(8, 45)
+        stmt.setInt(9, 666)
+        stmt.setInt(10, 999)
+        stmt.setInt(11, 1000)
+        order_qe_point_in_select stmt
+    }
+
     sql "DROP TABLE IF EXISTS regression_test_serving_p0.customer";
     sql """
         CREATE TABLE regression_test_serving_p0.customer (
@@ -135,8 +153,8 @@ suite("test_point_query_partition") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "store_row_column" = "true"
-        ); 
-    """  
+        );
+    """
     sql """insert into regression_test_serving_p0.customer(customer_key, customer_value_0, customer_value_1) values(686612, "686612", "686612")"""
     sql """insert into regression_test_serving_p0.customer(customer_key, customer_value_0, customer_value_1) values(686613, "686613", "686613")"""
     def result3 = connect(user, password, prepare_url) {
@@ -148,5 +166,16 @@ suite("test_point_query_partition") {
         stmt.setInt(1, 686613)
         qe_point_selectmmm stmt 
         qe_point_selecteee stmt 
+    }
+
+    // IN query
+    def result4 = connect(user=user, password=password, url=prepare_url) {
+        def stmt = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM regression_test_serving_p0.customer WHERE customer_key IN (?, ?)"
+        stmt.setInt(1, 686612)
+        stmt.setInt(2, 686613)
+        order_qe_point_in_selectxxx stmt 
+        order_qe_point_in_selectyyy stmt 
+        order_qe_point_in_selectmmm stmt 
+        order_qe_point_in_selecteee stmt 
     }
 } 

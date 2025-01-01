@@ -58,6 +58,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
@@ -77,6 +78,24 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         keys = Lists.newArrayList();
         originHiveKeys = Lists.newArrayList();
         types = Lists.newArrayList();
+    }
+
+    private PartitionKey(PartitionKey other) {
+        this.keys = new ArrayList<>(other.keys.size());
+        for (LiteralExpr expr : other.keys) {
+            try {
+                String value = expr.getStringValue();
+                if ("null".equalsIgnoreCase(value)) {
+                    this.keys.add(NullLiteral.create(expr.getType()));
+                } else {
+                    this.keys.add(LiteralExpr.create(value, expr.getType()));
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Create partition key failed: " + e.getMessage());
+            }
+        }
+        this.originHiveKeys = new ArrayList<>(other.originHiveKeys);
+        this.types = new ArrayList<>(other.types);
     }
 
     public void setDefaultListPartition(boolean isDefaultListPartitionKey) {
@@ -203,6 +222,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         List<Type> types = columns.stream().map(c -> c.getType()).collect(Collectors.toList());
         return createListPartitionKeyWithTypes(values, types, false);
+    }
+
+    public static PartitionKey clone(PartitionKey other) {
+        return new PartitionKey(other);
     }
 
     public void pushColumn(LiteralExpr keyValue, PrimitiveType keyType) {

@@ -948,6 +948,35 @@ void PInternalService::tablet_fetch_data(google::protobuf::RpcController* contro
     }
 }
 
+void PInternalService::tablet_batch_fetch_data(google::protobuf::RpcController* controller,
+                                               const PTabletBatchKeyLookupRequest* batchRequest,
+                                               PTabletBatchKeyLookupResponse* batchResponse,
+                                               google::protobuf::Closure* done) {
+    int request_count = batchRequest->sub_key_lookup_req_size();
+    batchResponse->mutable_sub_key_lookup_res()->Reserve(request_count);
+    [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
+    bool ret =
+            _light_work_pool.try_offer([this, batchRequest, batchResponse, done, request_count]() {
+                Status st = Status::OK();
+                brpc::ClosureGuard guard(done);
+                for (int i = 0; i < request_count; ++i) {
+                    batchResponse->add_sub_key_lookup_res();
+                    const PTabletKeyLookupRequest* request = &batchRequest->sub_key_lookup_req(i);
+                    PTabletKeyLookupResponse* response =
+                            batchResponse->mutable_sub_key_lookup_res(i);
+                    Status status = _tablet_fetch_data(request, response);
+                    status.to_protobuf(response->mutable_status());
+                    if (!status.ok()) {
+                        st = status;
+                    }
+                }
+                st.to_protobuf(batchResponse->mutable_status());
+            });
+    if (!ret) {
+        offer_failed(batchResponse, done, _light_work_pool);
+    }
+}
+
 void PInternalService::test_jdbc_connection(google::protobuf::RpcController* controller,
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,

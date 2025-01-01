@@ -307,6 +307,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PTabletBatchKeyLookupResponse> batchFetchTabletDataAsync(
+            TNetworkAddress address, InternalService.PTabletBatchKeyLookupRequest batchRequest) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.batchFetchTabletDataAsync(batchRequest);
+        } catch (Throwable e) {
+            LOG.warn("batch fetch tablet data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public InternalService.PFetchDataResult fetchDataSync(
             TNetworkAddress address, InternalService.PFetchDataRequest request) throws RpcException {
         try {

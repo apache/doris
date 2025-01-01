@@ -190,5 +190,44 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
         stmt_read10.setString(4, '5022-01-01 11:30:38')
         stmt_read10.setString(5, '6022-01-01 11:30:38')
         qe_stmt_read10_2 stmt_read10
+
+        table_name = "tbl_prepared_stmt_in_list2"
+        sql """DROP TABLE IF EXISTS ${tableName} """
+        sql """
+             CREATE TABLE IF NOT EXISTS ${tableName} (
+                     `k1` tinyint NULL COMMENT "",
+                     `k2` smallint NULL COMMENT "",
+                     `k3` int NULL COMMENT ""
+                   ) ENGINE=OLAP
+                   UNIQUE KEY(`k1`, `k2`)
+                   DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 16
+                   PROPERTIES (
+                   "replication_allocation" = "tag.location.default: 1",
+                   "light_schema_change" = "true",
+                   "storage_format" = "V2",
+                   "store_row_column" = "true"
+                   )
+               """
+
+        sql """ INSERT INTO ${tableName} VALUES(1, 1300, 55356821) """
+        sql """ INSERT INTO ${tableName} VALUES(2, 1301, 56052706) """
+        sql """ INSERT INTO ${tableName} VALUES(3, 1302, 55702967) """
+        sql """ INSERT INTO ${tableName} VALUES(4, 1303, 56054326) """
+        sql """ INSERT INTO ${tableName} VALUES(5, 1304, 36548425) """
+        sql """ INSERT INTO ${tableName} VALUES(6, 1305, 56054803) """
+        sql """ INSERT INTO ${tableName} VALUES(7, 1306, 56055112) """
+        sql """sync"""
+
+        def stmt_read11 = prepareStatement "select * from ${tableName} WHERE `k1` IN (?, ?, ?, ?, ?) AND `k2` IN (?, ?, ?, ?)"
+        stmt_read11.setByte(1, (byte) 1)
+        stmt_read11.setByte(2, (byte) 2)
+        stmt_read11.setByte(3, (byte) 3)
+        stmt_read11.setByte(4, (byte) 4)
+        stmt_read11.setByte(5, (byte) 5)
+        stmt_read11.setShort(6, (short) 1300)
+        stmt_read11.setShort(7, (short) 1301)
+        stmt_read11.setShort(8, (short) 1302)
+        stmt_read11.setShort(9, (short) 1303)
+        order_qe_stmt_read11_1 stmt_read11
    }
 }

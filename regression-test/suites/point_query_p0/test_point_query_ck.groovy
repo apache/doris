@@ -182,6 +182,32 @@ suite("test_point_query_ck") {
                 stmt.setString(3, "dd")
                 qe_point_select stmt
 
+                // IN query
+                def stmt_in = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 IN (?, ?, ?, ?) AND k2 IN (?, ?, ?) AND k3 IN (?, ?, ?, ?)"
+                assertEquals(stmt_in.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+                stmt_in.setInt(1, 1231)
+                stmt_in.setInt(2, 1237)
+                stmt_in.setInt(3, 251)
+                stmt_in.setInt(4, 252)
+                stmt_in.setBigDecimal(5, new BigDecimal("119291.11"))
+                stmt_in.setBigDecimal(6, new BigDecimal("120939.11130"))
+                stmt_in.setBigDecimal(7, new BigDecimal("12222.99121135"))
+                stmt_in.setString(8, "ddd")
+                stmt_in.setString(9, 'xxx')
+                stmt_in.setString(10, generateString(251))
+                stmt_in.setString(11, generateString(252))
+                order_qe_point_in_select stmt_in
+                stmt_in.close()
+
+                stmt_in = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ * FROM ${tableName} WHERE k1 = ? AND k2 IN (?, ?) AND k3 IN (?, ?)"
+                assertEquals(stmt_in.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+                stmt_in.setInt(1, 1235)
+                stmt_in.setBigDecimal(2, new BigDecimal("991129292901.11138"))
+                stmt_in.setBigDecimal(3, new BigDecimal("120939.11130"))
+                stmt_in.setString(4, "dd")
+                stmt_in.setString(5, "a    ddd")
+                order_qe_point_in_select stmt_in
+
                 def stmt_fn = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4) from ${tableName} where k1 = ? and k2 =? and k3 = ?"
                 assertEquals(stmt_fn.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt_fn.setInt(1, 1231)
@@ -190,6 +216,19 @@ suite("test_point_query_ck") {
                 qe_point_select stmt_fn
                 qe_point_select stmt_fn
                 qe_point_select stmt_fn
+
+                // IN query
+                def stmt_fn_in = prepareStatement "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4) FROM ${tableName} WHERE k1 IN (?, ?) AND k2 IN (?, ?) AND k3 IN (?, ?)"
+                assertEquals(stmt_fn_in.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+                stmt_fn_in.setInt(1, 1235)
+                stmt_fn_in.setInt(2, 1231)
+                stmt_fn_in.setBigDecimal(3, new BigDecimal("119291.11"))
+                stmt_fn_in.setBigDecimal(4, new BigDecimal("991129292901.11138"))
+                stmt_fn_in.setString(5, "dd")
+                stmt_fn_in.setString(6, "ddd")
+                order_qe_point_in_select stmt_fn_in
+                order_qe_point_in_select stmt_fn_in
+                order_qe_point_in_select stmt_fn_in
 
                 nprep_sql """
                 ALTER table ${tableName} ADD COLUMN new_column0 INT default "0";
@@ -201,34 +240,53 @@ suite("test_point_query_ck") {
                 stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
+                order_qe_point_in_select stmt_in
+                order_qe_point_in_select stmt_in
                 // invalidate cache
                 // sql "sync"
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
                 qe_point_select stmt
                 qe_point_select stmt
                 qe_point_select stmt
+                order_qe_point_in_select stmt_in
+                order_qe_point_in_select stmt_in
+                order_qe_point_in_select stmt_in
                 nprep_sql """
-                ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
+                    ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
                 qe_point_select stmt
                 qe_point_select stmt
+                order_qe_point_in_select stmt_in
+                order_qe_point_in_select stmt_in
                 nprep_sql """
-                ALTER table ${tableName} DROP COLUMN new_column1;
+                    ALTER table ${tableName} DROP COLUMN new_column1;
                 """
                 qe_point_select stmt
                 qe_point_select stmt
-
-                nprep_sql """
-                  ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
+                order_qe_point_in_select stmt_in
+                order_qe_point_in_select stmt_in
+                sql """
+                    ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
-                sql "select 1"
-                qe_point_select stmt
+                qe_point_select stmt        
+                order_qe_point_in_select stmt_in
             }
+
             // disable useServerPrepStmts
             def result2 = connect(user, password, context.config.jdbcUrl) {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
+                order_qt_in_sql """
+                        SELECT 
+                            /*+ SET_VAR(enable_nereids_planner=true) */ * 
+                        FROM 
+                            ${tableName} 
+                        WHERE 
+                            k1 IN (1231, 1237) AND 
+                            k2 IN (119291.11, 120939.11130) AND 
+                            k3 IN ('ddd', 'a    ddd')
+                """
                 // prepared text
                 // sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """
                 // qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
@@ -257,8 +315,14 @@ suite("test_point_query_ck") {
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "false"
                     );"""
-                sql """insert into ${tableName} values (0, "1", "2", "3")"""
+                sql """
+                    insert into ${tableName} values (0, "1", "2", "3");
+                    insert into ${tableName} values (1, "2", "3", "4");
+                    insert into ${tableName} values (2, "3", "4", "5");
+                    insert into ${tableName} values (3, "4", "5", "6");
+                    """
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where customer_key = 0"""
+                order_qt_in_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where customer_key in (0, 1, 2, 3, 4, 5, 6)"""
             }
         }
         tableName = "test_ODS_EBA_LLREPORT_ck"

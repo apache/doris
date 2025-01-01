@@ -339,12 +339,22 @@ message PTabletKeyLookupRequest {
     optional int64 version = 7;
     // serilized from TQueryOptions 
     optional bytes query_options = 8;
+    optional int64 replica_id = 9;
+}
+
+message PTabletBatchKeyLookupRequest {
+    repeated PTabletKeyLookupRequest sub_key_lookup_req = 1;
 }
 
 message PTabletKeyLookupResponse {
     required PStatus status = 1;
     optional bytes row_batch = 2;
     optional bool empty_batch = 3;
+}
+
+message PTabletBatchKeyLookupResponse {
+    optional PStatus status = 1;
+    repeated PTabletKeyLookupResponse sub_key_lookup_res = 2;
 }
 
 //Add message definition to fetch and update cache
@@ -1030,6 +1040,7 @@ service PBackendService {
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
+    rpc tablet_batch_fetch_data(PTabletBatchKeyLookupRequest) returns (PTabletBatchKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
