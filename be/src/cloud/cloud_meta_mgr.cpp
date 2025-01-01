@@ -155,7 +155,7 @@ public:
 
     bool need_reconn(long now) {
         return maybe_unhealthy &&
-               ((now - last_reconn_time_ms.front()) > config::meta_service_rpc_reconn_interval_ms);
+               ((now - last_reconn_time_ms.front()) > config::meta_service_rpc_reconnect_interval_ms);
     }
 
     Status get(std::shared_ptr<MetaService_Stub>* stub) {
