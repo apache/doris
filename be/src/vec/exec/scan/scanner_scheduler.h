@@ -114,7 +114,7 @@ struct SimplifiedScanTask {
 
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string sched_name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
+    SimplifiedScanScheduler(std::string sched_name, CgroupCpuCtl* cgroup_cpu_ctl,
                             std::string workload_group = "")
             : _is_stop(false),
               _cgroup_cpu_ctl(cgroup_cpu_ctl),
