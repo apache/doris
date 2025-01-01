@@ -163,14 +163,13 @@ std::string get_local_ip(const std::string& priority_networks) {
     std::string localhost_str = butil::my_ip_cstr();
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&localhost_str](int*) {
         // Check if ip eq 127.0.0.1, ms/recycler exit
-        if (config::enable_check_loopback_address_for_ms && "127.0.0.1" == localhost_str) {
-            LOG(WARNING) << "enable check prohibit use loopback addr, but localhost="
-                         << localhost_str
-                         << ", so exit(-1), please use priority network CIDR to set non-loopback "
-                            "address";
-            exit(-1);
-        }
-        LOG(INFO) << "at last, localhost=" << localhost_str;
+        LOG(INFO) << "get the IP for ms is " << localhost_str;
+        if (config::enable_loopback_address_for_ms || localhost_str != "127.0.0.1") return;
+        LOG(WARNING) << "localhost IP is loopback address (127.0.0.1), "
+                     << "there may be multiple NICs for use, "
+                     << "please set priority_network with a CIDR expression in doris_cloud.conf "
+                     << "to choose a non-loopback address accordingly";
+        exit(-1);
     });
     if (priority_networks == "") {
         LOG(INFO) << "use butil::my_ip_cstr(), local host ip=" << localhost_str;
