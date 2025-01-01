@@ -147,43 +147,51 @@ Status VFileScanner::prepare(
     _colname_to_value_range = colname_to_value_range;
     _col_name_to_slot_id = colname_to_slot_id;
     if (get_parent() != nullptr) {
-        _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
-        _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
-        _cast_to_input_block_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
-        _fill_path_columns_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
-        _fill_missing_columns_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
-        _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
-        _convert_to_output_block_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
-        _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
-        _not_found_file_counter =
-                ADD_COUNTER(_parent->_scanner_profile, "NotFoundFileNum", TUnit::UNIT);
-        _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
-        _has_fully_rf_file_counter =
-                ADD_COUNTER(_parent->_scanner_profile, "HasFullyRfFileNumber", TUnit::UNIT);
-    } else {
-        _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
+        _get_block_timer =
+                ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile, "FileScannerGetBlockTime", 1);
         _open_reader_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
+                ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile, "FileScannerOpenReaderTime", 1);
         _cast_to_input_block_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
+                ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile, "FileScannerCastInputBlockTime", 1);
         _fill_path_columns_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
-        _fill_missing_columns_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
-        _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
-        _convert_to_output_block_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
+                ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile, "FileScannerFillPathColumnTime", 1);
+        _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile,
+                                                           "FileScannerFillMissingColumnTime", 1);
+        _pre_filter_timer =
+                ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile, "FileScannerPreFilterTimer", 1);
+        _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(
+                _parent->_scanner_profile, "FileScannerConvertOuputBlockTime", 1);
         _empty_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
-        _not_found_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
-        _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
-        _has_fully_rf_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
+                ADD_COUNTER_WITH_LEVEL(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT, 1);
+        _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_parent->_scanner_profile,
+                                                         "NotFoundFileNum", TUnit::UNIT, 1);
+        _file_counter =
+                ADD_COUNTER_WITH_LEVEL(_parent->_scanner_profile, "FileNumber", TUnit::UNIT, 1);
+        _has_fully_rf_file_counter = ADD_COUNTER_WITH_LEVEL(_parent->_scanner_profile,
+                                                            "HasFullyRfFileNumber", TUnit::UNIT, 1);
+    } else {
+        _get_block_timer =
+                ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
+        _open_reader_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                  "FileScannerOpenReaderTime", 1);
+        _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                          "FileScannerCastInputBlockTime", 1);
+        _fill_path_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                        "FileScannerFillPathColumnTime", 1);
+        _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                           "FileScannerFillMissingColumnTime", 1);
+        _pre_filter_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                 "FileScannerPreFilterTimer", 1);
+        _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(
+                _local_state->scanner_profile(), "FileScannerConvertOuputBlockTime", 1);
+        _empty_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                     "EmptyFileNum", TUnit::UNIT, 1);
+        _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                         "NotFoundFileNum", TUnit::UNIT, 1);
+        _file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber",
+                                               TUnit::UNIT, 1);
+        _has_fully_rf_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                            "HasFullyRfFileNumber", TUnit::UNIT, 1);
     }
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
