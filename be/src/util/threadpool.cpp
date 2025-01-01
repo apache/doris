@@ -270,7 +270,6 @@ ThreadPool::~ThreadPool() {
     // There should only be one live token: the one used in tokenless submission.
     CHECK_EQ(1, _tokens.size()) << strings::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens", _name, _tokens.size());
-    std::cout << "Thread pool {} deconstruct" << _name << std::endl;
     shutdown();
 }
 
@@ -324,7 +323,6 @@ Status ThreadPool::init() {
 }
 
 void ThreadPool::shutdown() {
-    std::cout << "Thread pool {} shutdown" << _name << std::endl;
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
