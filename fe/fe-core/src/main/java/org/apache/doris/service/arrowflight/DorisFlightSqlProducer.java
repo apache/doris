@@ -72,12 +72,10 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.util.AutoCloseables;
-import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.arrow.vector.util.Text;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -451,20 +449,20 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamCatalogs(final CallContext context, final ServerStreamListener listener) {
-        try (final VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(Schemas.GET_CATALOGS_SCHEMA,
-                rootAllocator)) {
-            listener.start(vectorSchemaRoot);
-            vectorSchemaRoot.allocateNew();
-            VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
-            // Only show Internal Catalog, which is consistent with `jdbc:mysql`.
-            // Otherwise, if the configured ExternalCatalog cannot be connected,
-            // `catalog.getAllDbs()` will be stuck and wait until the timeout period ends.
-            catalogNameVector.setSafe(0, new Text("internal"));
-            vectorSchemaRoot.setRowCount(1);
-            listener.putNext();
-            listener.completed();
-        } catch (final Exception ex) {
-            handleStreamException(ex, "", listener);
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
+            final Schema schema = Schemas.GET_CATALOGS_SCHEMA;
+
+            try (final VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(schema, rootAllocator)) {
+                listener.start(vectorSchemaRoot);
+                vectorSchemaRoot.allocateNew();
+                flightSqlSchemaHelper.getCatalogs(vectorSchemaRoot);
+                listener.putNext();
+                listener.completed();
+            }
+        } catch (final Exception e) {
+            handleStreamException(e, "", listener);
         }
     }
 
@@ -547,7 +545,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamPrimaryKeys(final CommandGetPrimaryKeys command, final CallContext context,
             final ServerStreamListener listener) {
-
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamPrimaryKeys unimplemented").toRuntimeException();
     }
 
