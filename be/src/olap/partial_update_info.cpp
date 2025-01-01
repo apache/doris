@@ -366,7 +366,7 @@ Status FixedReadPlan::fill_missing_columns(
                 } else if (tablet_column.is_nullable()) {
                     auto* nullable_column =
                             assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    nullable_column->insert_null_elements(1);
+                    nullable_column->insert_default();
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
                     const auto& column =
                             *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
@@ -551,7 +551,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_null_elements(1);
+                            ->insert_default();
                 } else {
                     new_col->insert_default();
                 }
@@ -625,7 +625,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_null_elements(1);
+                            ->insert_default();
                 } else {
                     new_col->insert_default();
                 }
