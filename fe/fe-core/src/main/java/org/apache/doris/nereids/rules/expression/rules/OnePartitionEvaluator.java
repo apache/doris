@@ -25,8 +25,8 @@ import java.util.List;
 import java.util.Map;
 
 /** the evaluator of the partition which represent one partition */
-public interface OnePartitionEvaluator {
-    long getPartitionId();
+public interface OnePartitionEvaluator<K> {
+    K getPartitionIdent();
 
     /**
      * return a slot to expression mapping to replace the input.

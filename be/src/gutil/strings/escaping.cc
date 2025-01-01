@@ -10,6 +10,8 @@
 #include <limits>
 #include <ostream>
 
+#include "common/exception.h"
+
 using std::numeric_limits;
 #include <vector>
 
@@ -1084,7 +1086,8 @@ int Base64UnescapeInternal(const char* src, int szsrc, char* dest, int szdest,
 
     default:
         // state should have no other values at this point.
-        LOG(FATAL) << "This can't happen; base64 decoder state = " << state;
+        throw doris::Exception(
+                doris::Status::FatalError("This can't happen; base64 decoder state = {}", state));
     }
 
     // The remainder of the string should be all whitespace, mixed with

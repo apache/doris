@@ -53,12 +53,12 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
 class DataTypeJsonb;
-class DataTypeTime;
 class TableFunction;
 template <typename T>
 class DataTypeDecimal;
@@ -69,7 +69,7 @@ using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<AnyType>;
 
-// FIXME: should use exception or expected to deal null value.w
+// FIXME: should use exception or expected to deal null value.
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
@@ -271,7 +271,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTime>) {
+                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
@@ -315,7 +315,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    EXPECT_TRUE(column != nullptr);
+    EXPECT_TRUE(column);
 
     for (int i = 0; i < row_size; ++i) {
         // update current line
@@ -358,7 +358,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                             << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
-                                     std::is_same_v<ReturnType, DataTypeTime>) {
+                                     std::is_same_v<ReturnType, DataTypeTimeV2>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {

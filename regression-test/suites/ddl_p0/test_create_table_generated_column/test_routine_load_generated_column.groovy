@@ -32,7 +32,7 @@ suite("test_routine_load_generated_column") {
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         def producer = new KafkaProducer<>(props)
-        filepath = getLoalFilePath "gen_col_data.csv"
+        def filepath = getLoalFilePath "gen_col_data.csv"
         def txt = new File("${filepath}").text
         def lines = txt.readLines();
         lines.each { line ->

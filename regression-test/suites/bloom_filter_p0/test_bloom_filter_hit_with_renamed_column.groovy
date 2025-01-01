@@ -112,25 +112,57 @@ suite("test_bloom_filter_hit_with_renamed_column") {
 
     sql """ SET enable_profile = true """
     sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
-    sql """ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK' """
+    sql "sync"
+    //sql """ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK' """
 
-    // get and check profile
-    def profileUrl = '/rest/v1/query_profile/'
-    def profiles = httpGet(profileUrl)
-    log.debug("profiles:{}", profiles);
-    profiles = new JsonSlurper().parseText(profiles)
-    assertEquals(0, profiles.code)
+    // get and check profile with retry logic
+    def getProfileIdWithRetry = { query, maxRetries, waitSeconds ->
+        def profileUrl = '/rest/v1/query_profile/'
+        def profiles = null
+        def profileId = null
+        int attempt = 0
 
-    def profileId = null;
-    for (def profile in profiles["data"]["rows"]) {
-        if (profile["Sql Statement"].contains("""select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'""")) {
-            profileId = profile["Profile ID"]
-            break;
+        while (attempt < maxRetries) {
+            sql "sync"
+            sql """ ${query} """
+            profiles = httpGet(profileUrl)
+            log.info("profiles attempt ${attempt + 1}: {}", profiles)
+            if (profiles == null) {
+                log.warn("Failed to fetch profiles on attempt ${attempt + 1}")
+            } else {
+                def jsonProfiles = new JsonSlurper().parseText(profiles)
+                if (jsonProfiles.code == 0) {
+                    for (def profile in jsonProfiles["data"]["rows"]) {
+                        if (profile["Sql Statement"].contains(query)) {
+                            profileId = profile["Profile ID"]
+                            break
+                        }
+                    }
+                } else {
+                    log.warn("Profile response code is not 0 on attempt ${attempt + 1}")
+                }
+            }
+
+            if (profileId != null) {
+                break
+            } else {
+                attempt++
+                if (attempt < maxRetries) {
+                    log.info("profileId is null, retrying after ${waitSeconds} second(s)... (Attempt ${attempt + 1}/${maxRetries})")
+                    sleep(waitSeconds * 1000)
+                }
+            }
         }
+
+        assertTrue(profileId != null, "Failed to retrieve profileId after ${maxRetries} attempts")
+        return profileId
     }
-    log.info("profileId:{}", profileId);
+
+    def query = """select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'"""
+    def profileId = getProfileIdWithRetry(query, 3, 30)
+    log.info("profileId:{}", profileId)
     def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
-    log.info("profileDetail:{}", profileDetail);
+    log.info("profileDetail:{}", profileDetail)
     assertTrue(profileDetail.contains("BloomFilterFiltered:&nbsp;&nbsp;15.0K&nbsp;&nbsp;(15000)"))
 
     //———————— clean table and disable profile ————————

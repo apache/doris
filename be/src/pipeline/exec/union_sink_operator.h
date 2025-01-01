@@ -26,6 +26,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -55,6 +56,7 @@ private:
 
     /// Index of current row in child_row_block_.
     int _child_row_idx;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
 class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
@@ -88,6 +90,12 @@ public:
             return ss;
         }
     }
+
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
@@ -130,6 +138,7 @@ private:
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
         auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state._expr_timer);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {
@@ -144,4 +153,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

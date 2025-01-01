@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/process_profile.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -76,7 +76,7 @@ public:
     static inline int64_t sys_mem_available() {
         return MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed) -
                refresh_interval_memory_growth.load(std::memory_order_relaxed) -
-               process_reserved_memory();
+               process_reserved_memory() + static_cast<int64_t>(MemInfo::allocator_cache_mem());
     }
 
     static inline std::string sys_mem_available_str() {
@@ -91,12 +91,14 @@ public:
     static inline std::string sys_mem_available_details_str() {
         auto msg = fmt::format(
                 "sys available memory {}(= {}[proc/available] - {}[reserved] - "
-                "{}B[waiting_refresh])",
+                "{}B[waiting_refresh] + {}[tc/jemalloc_cache])",
                 PrettyPrinter::print(sys_mem_available(), TUnit::BYTES),
                 PrettyPrinter::print(MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed),
                                      TUnit::BYTES),
                 PrettyPrinter::print(process_reserved_memory(), TUnit::BYTES),
-                refresh_interval_memory_growth);
+                refresh_interval_memory_growth,
+                PrettyPrinter::print(static_cast<uint64_t>(MemInfo::allocator_cache_mem()),
+                                     TUnit::BYTES));
 #ifdef ADDRESS_SANITIZER
         msg = "[ASAN]" + msg;
 #endif
@@ -107,7 +109,7 @@ public:
     static void release_process_reserved_memory(int64_t bytes);
 
     static inline int64_t process_reserved_memory() {
-        return _s_process_reserved_memory.load(std::memory_order_relaxed);
+        return _process_reserved_memory.load(std::memory_order_relaxed);
     }
 
     // `process_memory_usage` includes all reserved memory. if a thread has `reserved_memory`,
@@ -122,8 +124,12 @@ public:
         if (bytes <= 0) {
             return false;
         }
-        return process_memory_usage() + bytes >= MemInfo::soft_mem_limit() ||
-               sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark();
+        auto rt = process_memory_usage() + bytes >= MemInfo::soft_mem_limit() ||
+                  sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark();
+        if (rt) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
+        }
+        return rt;
     }
 
     static bool is_exceed_hard_mem_limit(int64_t bytes = 0) {
@@ -139,8 +145,12 @@ public:
         // tcmalloc/jemalloc allocator cache does not participate in the mem check as part of the process physical memory.
         // because `new/malloc` will trigger mem hook when using tcmalloc/jemalloc allocator cache,
         // but it may not actually alloc physical memory, which is not expected in mem hook fail.
-        return process_memory_usage() + bytes >= MemInfo::mem_limit() ||
-               sys_mem_available() - bytes < MemInfo::sys_mem_available_low_water_mark();
+        auto rt = process_memory_usage() + bytes >= MemInfo::mem_limit() ||
+                  sys_mem_available() - bytes < MemInfo::sys_mem_available_low_water_mark();
+        if (rt) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
+        }
+        return rt;
     }
 
     static std::string process_mem_log_str() {
@@ -192,7 +202,7 @@ public:
     }
 
 private:
-    static std::atomic<int64_t> _s_process_reserved_memory;
+    static std::atomic<int64_t> _process_reserved_memory;
 };
 
 } // namespace doris

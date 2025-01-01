@@ -41,6 +41,7 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
@@ -116,7 +117,8 @@ public:
             DCHECK(const_column_ptr != nullptr);
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
-                auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
+                const auto* null_col =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(col.get());
                 if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
@@ -128,7 +130,7 @@ public:
         }
         ColumnPtr column_ptr = std::move(args_column_ptr);
         // make collection ref into set
-        int col_size = column_ptr->size();
+        auto col_size = column_ptr->size();
         for (size_t i = 0; i < col_size; i++) {
             state->args_set.insert({column_ptr, i});
         }
@@ -137,7 +139,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto in_state = reinterpret_cast<CollectionInState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
@@ -160,7 +162,7 @@ public:
         if (materialized_column_not_null->is_nullable()) {
             materialized_column_not_null = assert_cast<ColumnPtr>(
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                            materialized_column_not_null)
+                            materialized_column_not_null.get())
                             ->get_nested_column_ptr());
         }
 
@@ -191,3 +193,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

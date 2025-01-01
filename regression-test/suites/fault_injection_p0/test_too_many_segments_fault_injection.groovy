@@ -65,9 +65,6 @@ suite("test_too_many_segments", "nonConcurrent,p2") { // the epic -238 case
                 "AWS_REGION" = "$region",
                 "provider" = "${getS3Provider()}"
             )
-            properties(
-                "use_new_load_scan_node" = "true"
-            )
             """
 
             Thread.sleep(2000)

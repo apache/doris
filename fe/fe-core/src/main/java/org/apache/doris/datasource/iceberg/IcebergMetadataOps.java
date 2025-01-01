@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -35,6 +36,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
@@ -45,26 +47,40 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
     protected Catalog catalog;
-    protected IcebergExternalCatalog dorisCatalog;
+    protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
+    private PreExecutionAuthenticator preExecutionAuthenticator;
+    // Generally, there should be only two levels under the catalog, namely <database>.<table>,
+    // but the REST type catalog is obtained from an external server,
+    // and the level provided by the external server may be three levels, <catalog>.<database>.<table>.
+    // Therefore, if the external server provides a catalog,
+    // the catalog needs to be recorded here to ensure semantic consistency.
+    private Optional<String> externalCatalogName = Optional.empty();
 
-    public IcebergMetadataOps(IcebergExternalCatalog dorisCatalog, Catalog catalog) {
+    public IcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
         nsCatalog = (SupportsNamespaces) catalog;
+        this.preExecutionAuthenticator = dorisCatalog.getPreExecutionAuthenticator();
+
+        if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
+            externalCatalogName =
+                Optional.of(dorisCatalog.getProperties().get(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME));
+        }
     }
 
     public Catalog getCatalog() {
         return catalog;
     }
 
-    public IcebergExternalCatalog getExternalCatalog() {
+    public ExternalCatalog getExternalCatalog() {
         return dorisCatalog;
     }
 
@@ -74,28 +90,46 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
-        return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+        return catalog.tableExists(getTableIdentifier(dbName, tblName));
     }
 
     public boolean databaseExist(String dbName) {
-        return nsCatalog.namespaceExists(Namespace.of(dbName));
+        return nsCatalog.namespaceExists(getNamespace(dbName));
     }
 
     public List<String> listDatabaseNames() {
-        return nsCatalog.listNamespaces().stream()
-                .map(e -> e.toString())
-                .collect(Collectors.toList());
+        try {
+            return preExecutionAuthenticator.execute(() -> nsCatalog.listNamespaces(getNamespace())
+                   .stream()
+                   .map(n -> n.level(n.length() - 1))
+                   .collect(Collectors.toList()));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
+        }
     }
 
 
     @Override
     public List<String> listTableNames(String dbName) {
-        List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.of(dbName));
+        List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
         return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
     }
 
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                performCreateDb(stmt);
+                return null;
+
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to create database: "
+                    + stmt.getFullDbName() + ", error message is:" + e.getMessage(), e);
+        }
+    }
+
+    private void performCreateDb(CreateDbStmt stmt) throws DdlException {
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         String dbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
@@ -107,17 +141,31 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
         }
-        String icebergCatalogType = dorisCatalog.getIcebergCatalogType();
-        if (!properties.isEmpty() && !IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
-            throw new DdlException(
-                "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
+        if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
+            String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
+            if (!IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
+                throw new DdlException(
+                    "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
+            }
         }
-        nsCatalog.createNamespace(Namespace.of(dbName), properties);
+        nsCatalog.createNamespace(getNamespace(dbName), properties);
         dorisCatalog.onRefreshCache(true);
     }
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                preformDropDb(stmt);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException(
+                "Failed to drop database: " + stmt.getDbName() + ", error message is:" + e.getMessage(), e);
+        }
+    }
+
+    private void preformDropDb(DropDbStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         if (!databaseExist(dbName)) {
             if (stmt.isSetIfExists()) {
@@ -127,13 +175,22 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
             }
         }
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-        nsCatalog.dropNamespace(Namespace.of(dbName));
+        nsCatalog.dropNamespace(getNamespace(dbName));
         dorisCatalog.onRefreshCache(true);
     }
 
     @Override
     public boolean createTable(CreateTableStmt stmt) throws UserException {
+        try {
+            preExecutionAuthenticator.execute(() -> performCreateTable(stmt));
+        } catch (Exception e) {
+            throw new DdlException(
+                "Failed to create table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
+        }
+        return false;
+    }
+
+    public boolean performCreateTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -159,13 +216,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Map<String, String> properties = stmt.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
-        catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
+        catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
         db.setUnInitialized(true);
         return false;
     }
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                performDropTable(stmt);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException(
+                "Failed to drop table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
+        }
+    }
+
+    private void performDropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
@@ -186,12 +255,37 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         }
-        catalog.dropTable(TableIdentifier.of(dbName, tableName));
+        catalog.dropTable(getTableIdentifier(dbName, tableName), true);
         db.setUnInitialized(true);
     }
 
     @Override
     public void truncateTable(String dbName, String tblName, List<String> partitions) {
         throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
+    }
+
+    @Override
+    public Table loadTable(String dbName, String tblName) {
+        return catalog.loadTable(getTableIdentifier(dbName, tblName));
+    }
+
+    private TableIdentifier getTableIdentifier(String dbName, String tblName) {
+        return externalCatalogName
+            .map(s -> TableIdentifier.of(s, dbName, tblName))
+            .orElseGet(() -> TableIdentifier.of(dbName, tblName));
+    }
+
+    private Namespace getNamespace(String dbName) {
+        return externalCatalogName
+            .map(s -> Namespace.of(s, dbName))
+            .orElseGet(() -> Namespace.of(dbName));
+    }
+
+    private Namespace getNamespace() {
+        return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
     }
 }

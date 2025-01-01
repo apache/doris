@@ -43,6 +43,7 @@ namespace vectorized {
 template <typename T>
 class ColumnDecimal;
 class Arena;
+#include "common/compile_check_begin.h"
 
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
@@ -76,10 +77,10 @@ public:
               precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
@@ -89,30 +90,30 @@ public:
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int row_num) const override;
+                                 int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
+                               int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
@@ -124,7 +125,8 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const;
 
     int scale;
     int precision;
@@ -134,8 +136,8 @@ private:
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
-                                                   int start, int end) const {
-    int row_count = end - start;
+                                                   int64_t start, int64_t end) const {
+    auto row_count = cast_set<int>(end - start);
     const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
     auto* ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
@@ -179,9 +181,9 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
 template <typename T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                       Arena* mem_pool, int32_t col_id,
-                                                      int row_num) const {
+                                                      int64_t row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
-    result.writeKey(col_id);
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         Decimal128V2::NativeType val =
                 *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
@@ -229,5 +231,6 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                "read_one_cell_from_jsonb with type " + column.get_name());
     }
 }
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

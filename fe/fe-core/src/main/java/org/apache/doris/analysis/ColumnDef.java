@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.SessionVariable;
 
@@ -106,6 +107,7 @@ public class ColumnDef {
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
         public static String HLL_EMPTY = "HLL_EMPTY";
+        public static String BITMAP_EMPTY = "BITMAP_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
@@ -115,7 +117,7 @@ public class ColumnDef {
         // default "value", "0" means empty hll
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, HLL_EMPTY);
         // default "value", "0" means empty bitmap
-        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, BITMAP_EMPTY);
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 
@@ -133,7 +135,8 @@ public class ColumnDef {
         }
 
         public boolean isCurrentTimeStamp() {
-            return "CURRENT_TIMESTAMP".equals(value) && NOW.equals(defaultValueExprDef.getExprName());
+            return "CURRENT_TIMESTAMP".equals(value) && defaultValueExprDef != null
+                    && NOW.equals(defaultValueExprDef.getExprName());
         }
 
         public boolean isCurrentTimeStampWithPrecision() {
@@ -177,17 +180,6 @@ public class ColumnDef {
                         .format(DateTimeFormatter.ofPattern(format));
             }
             return value;
-        }
-
-        public String toSql() {
-            StringBuilder sb = new StringBuilder();
-            sb.append("DEFAULT ");
-            if (value != null) {
-                sb.append('"').append(value).append('"');
-            } else {
-                sb.append("NULL");
-            }
-            return sb.toString();
         }
     }
 
@@ -317,6 +309,12 @@ public class ColumnDef {
                 "doris version hidden column", false, Optional.empty());
     }
 
+    public static ColumnDef newSkipBitmapColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE,
+                "doris skip bitmap hidden column", false, Optional.empty());
+    }
+
     public boolean isAllowNull() {
         return isAllowNull;
     }
@@ -431,7 +429,7 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.HLL) {
-            if (defaultValue.isSet) {
+            if (defaultValue != null && defaultValue.isSet) {
                 throw new AnalysisException("Hll type column can not set default value");
             }
             defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
@@ -644,6 +642,12 @@ public class ColumnDef {
             case BOOLEAN:
                 new BoolLiteral(defaultValue);
                 break;
+            case IPV4:
+                new IPv4Literal(defaultValue);
+                break;
+            case IPV6:
+                new IPv6Literal(defaultValue);
+                break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
         }
@@ -654,7 +658,7 @@ public class ColumnDef {
         sb.append("`").append(name).append("` ");
         sb.append(typeDef.toSql()).append(" ");
 
-        if (aggregateType != null) {
+        if (aggregateType != null && aggregateType != AggregateType.NONE) {
             sb.append(aggregateType.name()).append(" ");
         }
 
@@ -673,9 +677,23 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet) {
-            sb.append(defaultValue.toSql()).append(" ");
+            if (defaultValue.value != null) {
+                if (typeDef.getType().getPrimitiveType() != PrimitiveType.BITMAP
+                        && typeDef.getType().getPrimitiveType() != PrimitiveType.HLL) {
+                    if (defaultValue.defaultValueExprDef != null) {
+                        sb.append("DEFAULT ").append(defaultValue.value).append(" ");
+                    } else {
+                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(defaultValue.value)).append("\"")
+                                .append(" ");
+                    }
+                } else if (typeDef.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
+                    sb.append("DEFAULT ").append(defaultValue.defaultValueExprDef.getExprName()).append(" ");
+                }
+            } else {
+                sb.append("DEFAULT ").append("NULL").append(" ");
+            }
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
 
         return sb.toString();
     }

@@ -65,6 +65,8 @@ public:
     // force clear all current data in the cache
     virtual Status clear(std::string& msg) = 0;
     virtual FileCacheStorageType get_type() = 0;
+    // get local cached file
+    virtual std::string get_local_file(const FileCacheKey& key) = 0;
 };
 
 } // namespace doris::io

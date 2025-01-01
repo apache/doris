@@ -197,7 +197,7 @@ suite("test_rowstore", "p0,nonConcurrent") {
         """
 
     // set server side prepared statement url
-    connect(user = user, password = password, url = prepare_url) {
+    connect(user, password, prepare_url) {
         def prep_sql = { sql_str, k ->
             def stmt = prepareStatement sql_str
             stmt.setInt(1, k)

@@ -28,6 +28,8 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -152,6 +154,113 @@ public class MetadataViewer {
         return result;
     }
 
+    /**
+     * Used for Nereids
+     */
+    public static List<List<String>> getTabletStatus(String dbName, String tblName, List<String> partitions,
+                                                      ReplicaStatus statusFilter, Expression op) throws DdlException {
+        List<List<String>> result = Lists.newArrayList();
+
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+
+        olapTable.readLock();
+        try {
+            if (partitions.isEmpty()) {
+                partitions.addAll(olapTable.getPartitionNames());
+            } else {
+                // check partition
+                for (String partName : partitions) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new DdlException("Partition does not exist: " + partName);
+                    }
+                }
+            }
+
+            for (String partName : partitions) {
+                Partition partition = olapTable.getPartition(partName);
+                long visibleVersion = partition.getVisibleVersion();
+                short replicationNum = olapTable.getPartitionInfo()
+                        .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+                    for (Tablet tablet : index.getTablets()) {
+                        long tabletId = tablet.getId();
+                        int count = replicationNum;
+                        for (Replica replica : tablet.getReplicas()) {
+                            --count;
+                            List<String> row = Lists.newArrayList();
+
+                            ReplicaStatus status = ReplicaStatus.OK;
+                            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+                            if (be == null || !be.isAlive() || replica.isBad()) {
+                                status = ReplicaStatus.DEAD;
+                            } else if (replica.getVersion() < visibleVersion
+                                    || replica.getLastFailedVersion() > 0) {
+                                status = ReplicaStatus.VERSION_ERROR;
+
+                            } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
+                                status = ReplicaStatus.SCHEMA_ERROR;
+                            } else if (replica.isUserDrop()) {
+                                status = ReplicaStatus.DROP;
+                            }
+
+                            if (filterReplica(status, statusFilter, op)) {
+                                continue;
+                            }
+
+                            row.add(String.valueOf(tabletId));
+                            row.add(String.valueOf(replica.getId()));
+                            row.add(String.valueOf(replica.getBackendIdWithoutException()));
+                            row.add(String.valueOf(replica.getVersion()));
+                            row.add(String.valueOf(replica.getLastFailedVersion()));
+                            row.add(String.valueOf(replica.getLastSuccessVersion()));
+                            row.add(String.valueOf(visibleVersion));
+                            row.add(String.valueOf(replica.getSchemaHash()));
+                            row.add(String.valueOf(replica.getTotalVersionCount()));
+                            row.add(String.valueOf(replica.isBad()));
+                            row.add(String.valueOf(replica.isUserDrop()));
+                            row.add(replica.getState().name());
+                            row.add(status.name());
+                            result.add(row);
+                        }
+
+                        if (filterReplica(ReplicaStatus.MISSING, statusFilter, op)) {
+                            continue;
+                        }
+
+                        // get missing replicas
+                        for (int i = 0; i < count; ++i) {
+                            List<String> row = Lists.newArrayList();
+                            row.add(String.valueOf(tabletId));
+                            row.add("-1");
+                            row.add("-1");
+                            row.add("-1");
+                            row.add("-1");
+                            row.add("-1");
+                            row.add("-1");
+                            row.add("-1");
+                            row.add(FeConstants.null_string);
+                            row.add(FeConstants.null_string);
+                            row.add(FeConstants.null_string);
+                            row.add(ReplicaStatus.MISSING.name());
+                            result.add(row);
+                        }
+                    }
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        return result;
+    }
+
     private static boolean filterReplica(ReplicaStatus status, ReplicaStatus statusFilter, Operator op) {
         if (statusFilter == null) {
             return false;
@@ -163,11 +272,25 @@ public class MetadataViewer {
         }
     }
 
+    /**
+     * Used for Nereids
+     */
+    private static boolean filterReplica(ReplicaStatus status, ReplicaStatus statusFilter, Expression op) {
+        if (statusFilter == null) {
+            return false;
+        }
+        if (op instanceof EqualTo) {
+            return status != statusFilter;
+        } else {
+            return status == statusFilter;
+        }
+    }
+
     public static List<List<String>> getTabletDistribution(ShowReplicaDistributionStmt stmt) throws DdlException {
         return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
-    private static List<List<String>> getTabletDistribution(
+    public static List<List<String>> getTabletDistribution(
             String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
@@ -278,7 +401,7 @@ public class MetadataViewer {
         return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
-    private static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
+    public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
 

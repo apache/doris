@@ -291,8 +291,7 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
         return true;
     };
     LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
-              << " version: " << version << " removed keys size: " << remove_keys.size();
-    ;
+              << " version: " << version << ", removed keys size: " << remove_keys.size();
     RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, get_remove_keys_func));
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }

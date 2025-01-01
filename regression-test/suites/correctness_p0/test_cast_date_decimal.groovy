@@ -43,4 +43,8 @@ suite("test_cast_date_decimal") {
     qt_sql7 """
         select /*+SET_VAR(debug_skip_fold_constant=true)*/ cast('0000-02-29' as date), cast('0000-02-29' as datetime), cast('00000229' as date), cast('0000-02-29 12:12:12.123' as datetime);
     """
+
+    qt_sql8 """
+        select cast('123.123' as datetimev2), cast('123-01-01' as datetimev2), cast('123.1212.235959' as datetimev2);
+    """
 }

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -59,12 +60,13 @@ public class OrToIn implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(Or.class).then(OrToIn.INSTANCE::rewrite)
+                        .toRule(ExpressionRuleType.OR_TO_IN)
         );
     }
 
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
         if (expr instanceof CompoundPredicate) {
-            expr = SimplifyRange.rewrite((CompoundPredicate) expr);
+            expr = SimplifyRange.rewrite((CompoundPredicate) expr, context);
         }
         ExpressionBottomUpRewriter bottomUpRewriter = ExpressionRewrite.bottomUp(this);
         return bottomUpRewriter.rewrite(expr, context);

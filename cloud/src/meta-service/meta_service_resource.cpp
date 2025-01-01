@@ -203,6 +203,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                                          GetObjStoreInfoResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_obj_store_info);
+    TEST_SYNC_POINT_CALLBACK("obj-store-info_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("obj-store-info_sk_response_return");
     // Prepare data
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
@@ -521,9 +523,18 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
-static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static bool vault_exist(const InstanceInfoPB& instance, const std::string& new_vault_name) {
+    for (auto& name : instance.storage_vault_names()) {
+        if (new_vault_name == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
                                     const StorageVaultPB& vault, MetaServiceCode& code,
-                                    std::string& msg) {
+                                    std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -570,6 +581,15 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+
+    if (!new_vault.has_hdfs_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not hdfs storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
@@ -580,6 +600,13 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
             msg = ss.str();
             return -1;
         }
+
+        if (vault_exist(instance, vault.alter_name())) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already existed", vault.alter_name());
+            return -1;
+        }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
@@ -612,19 +639,15 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
+    DCHECK_EQ(new_vault.id(), vault_id);
+    response->set_storage_vault_id(new_vault.id());
     return 0;
 }
 
-static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
                                   const StorageVaultPB& vault, MetaServiceCode& code,
-                                  std::string& msg) {
+                                  std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_obj_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -637,10 +660,19 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         obj_info.has_provider()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
-        ss << "Only ak, sk can be altered";
+        ss << "Bucket, endpoint, prefix and provider can not be altered";
         msg = ss.str();
         return -1;
     }
+
+    if (obj_info.has_ak() ^ obj_info.has_sk()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Accesskey and secretkey must be alter together";
+        msg = ss.str();
+        return -1;
+    }
+
     const auto& name = vault.name();
     // Here we try to get mutable iter since we might need to alter the vault name
     auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
@@ -671,6 +703,14 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+    if (!new_vault.has_obj_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not s3 storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -680,27 +720,40 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
             msg = ss.str();
             return -1;
         }
+
+        if (vault_exist(instance, vault.alter_name())) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already existed", vault.alter_name());
+            return -1;
+        }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
     auto origin_vault_info = new_vault.DebugString();
-    AkSkPair pre {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
-    const auto& plain_ak = obj_info.has_ak() ? obj_info.ak() : new_vault.obj_info().ak();
-    const auto& plain_sk = obj_info.has_ak() ? obj_info.sk() : new_vault.obj_info().sk();
-    AkSkPair plain_ak_sk_pair {plain_ak, plain_sk};
-    AkSkPair cipher_ak_sk_pair;
-    EncryptionInfoPB encryption_info;
-    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                    msg);
-    if (ret != 0) {
-        msg = "failed to encrypt";
-        code = MetaServiceCode::ERR_ENCRYPT;
-        LOG(WARNING) << msg;
-        return -1;
+
+    // For ak or sk is not altered.
+    EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
+    AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+
+    if (obj_info.has_ak()) {
+        // ak and sk must be altered together, there is check before.
+        auto ret = encrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), &encryption_info,
+                                        &new_ak_sk_pair, code, msg);
+        if (ret != 0) {
+            msg = "failed to encrypt";
+            code = MetaServiceCode::ERR_ENCRYPT;
+            LOG(WARNING) << msg;
+            return -1;
+        }
     }
-    new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
-    new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
+
+    new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
+    new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_use_path_style()) {
+        new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
@@ -713,13 +766,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
+    DCHECK_EQ(new_vault.id(), vault_id);
+    response->set_storage_vault_id(new_vault.id());
     return 0;
 }
 
@@ -731,6 +780,7 @@ struct ObjectStorageDesc {
     std::string& endpoint;
     std::string& external_endpoint;
     std::string& region;
+    bool& use_path_style;
 };
 
 static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
@@ -743,7 +793,7 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         msg = "s3 obj info err " + proto_to_json(*request);
         return -1;
     }
-    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region] = obj_desc;
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style] = obj_desc;
     const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
     // Prepare data
     if (!obj.has_ak() || !obj.has_sk()) {
@@ -769,6 +819,7 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     endpoint = obj.has_endpoint() ? obj.endpoint() : "";
     external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
     region = obj.has_region() ? obj.region() : "";
+    use_path_style = obj.use_path_style();
     //  obj size > 1k, refuse
     if (obj.ByteSizeLong() > 1024) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -778,13 +829,13 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     return 0;
 }
 
-static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_info,
+static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
                                                 const ObjectStoreInfoPB& obj,
                                                 InstanceInfoPB& instance,
                                                 EncryptionInfoPB& encryption_info,
                                                 AkSkPair& cipher_ak_sk_pair) {
     ObjectStoreInfoPB last_item;
-    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region] = obj_info;
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style] = obj_desc;
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
@@ -806,6 +857,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_info,
     last_item.set_region(region);
     last_item.set_provider(obj.provider());
     last_item.set_sse_enabled(instance.sse_enabled());
+    last_item.set_use_path_style(use_path_style);
     return last_item;
 }
 
@@ -814,14 +866,15 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                                           AlterObjStoreInfoResponse* response,
                                           ::google::protobuf::Closure* done) {
     std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
     RPC_PREPROCESS(alter_storage_vault);
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::DROP_S3_VAULT: {
-        auto tmp_desc =
-                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        auto tmp_desc = ObjectStorageDesc {
+                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
         if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
                                              cipher_ak_sk_pair)) {
             return;
@@ -960,8 +1013,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             }
         }
         // calc id
-        auto tmp_tuple =
-                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        auto tmp_tuple = ObjectStorageDesc {
+                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
         if (instance.storage_vault_names().end() !=
@@ -989,6 +1042,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(vault.id());
             instance.set_default_storage_vault_name(vault.name());
         }
+        response->set_storage_vault_id(vault.id());
         LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
                  vault.name(), hex(vault_key));
     } break;
@@ -1006,6 +1060,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
             instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
+        response->set_storage_vault_id(request->vault().id());
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
@@ -1060,12 +1115,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response);
+        break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
-        alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        alter_hdfs_storage_vault(instance, txn, request->vault(), code, msg, response);
+        break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
         [[fallthrough]];
@@ -1102,6 +1157,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                                            AlterObjStoreInfoResponse* response,
                                            ::google::protobuf::Closure* done) {
     std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
     RPC_PREPROCESS(alter_obj_store_info);
@@ -1109,8 +1165,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
-        auto tmp_desc =
-                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        auto tmp_desc = ObjectStorageDesc {
+                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
         if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
                                              cipher_ak_sk_pair)) {
             return;
@@ -1249,8 +1305,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
         // calc id
-        auto tmp_tuple =
-                ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
+        auto tmp_tuple = ObjectStorageDesc {
+                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
         instance.add_obj_info()->CopyFrom(last_item);
@@ -1921,6 +1977,16 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (!cloud_unique_id.empty() && instance_id.empty()) {
+        auto [is_degraded_format, id] =
+                ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (config::enable_check_instance_id && is_degraded_format &&
+            !resource_mgr_->is_instance_id_registered(id)) {
+            msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
+                  cloud_unique_id;
+            LOG(WARNING) << msg;
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            return;
+        }
         instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
         if (instance_id.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1970,7 +2036,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::ADD_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
         std::vector<NodeInfo> to_add;
@@ -1994,7 +2060,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::DROP_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
         std::vector<NodeInfo> to_add;
@@ -2017,7 +2083,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::DECOMMISSION_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
 
@@ -2079,7 +2145,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::NOTIFY_DECOMMISSIONED: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
 
@@ -2568,6 +2634,8 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                                 const GetStageRequest* request, GetStageResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_stage);
+    TEST_SYNC_POINT_CALLBACK("stage_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("stage_sk_response_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

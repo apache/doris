@@ -79,7 +79,7 @@ public class MetaServiceClient {
         if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
             long now = System.currentTimeMillis();
-            long rand = random.nextLong(base);
+            long rand = random.nextLong() % base;
             return now + base + rand;
         }
         return Long.MAX_VALUE;
@@ -343,6 +343,17 @@ public class MetaServiceClient {
             return blockingStub.getDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.getDeleteBitmapUpdateLock(request);
+    }
+
+    public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.RemoveDeleteBitmapUpdateLockRequest.Builder builder = Cloud.RemoveDeleteBitmapUpdateLockRequest
+                    .newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.removeDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.removeDeleteBitmapUpdateLock(request);
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request) {

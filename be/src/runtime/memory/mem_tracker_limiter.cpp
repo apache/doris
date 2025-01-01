@@ -33,26 +33,14 @@
 #include "runtime/workload_group/workload_group.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"
-#include "util/perf_counters.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 static bvar::Adder<int64_t> memory_memtrackerlimiter_cnt("memory_memtrackerlimiter_cnt");
-static bvar::Adder<int64_t> memory_all_trackers_sum_bytes("memory_all_trackers_sum_bytes");
-static bvar::Adder<int64_t> memory_global_trackers_sum_bytes("memory_global_trackers_sum_bytes");
-static bvar::Adder<int64_t> memory_query_trackers_sum_bytes("memory_query_trackers_sum_bytes");
-static bvar::Adder<int64_t> memory_load_trackers_sum_bytes("memory_load_trackers_sum_bytes");
-static bvar::Adder<int64_t> memory_compaction_trackers_sum_bytes(
-        "memory_compaction_trackers_sum_bytes");
-static bvar::Adder<int64_t> memory_schema_change_trackers_sum_bytes(
-        "memory_schema_change_trackers_sum_bytes");
-static bvar::Adder<int64_t> memory_other_trackers_sum_bytes("memory_other_trackers_sum_bytes");
 
 std::atomic<long> mem_tracker_limiter_group_counter(0);
 constexpr auto GC_MAX_SEEK_TRACKER = 1000;
-
-std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
 
 // Reset before each free
 static std::unique_ptr<RuntimeProfile> free_top_memory_task_profile {
@@ -75,11 +63,16 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
     _type = type;
     _label = label;
     _limit = byte_limit;
+    _uid = UniqueId::gen_uid();
     if (_type == Type::GLOBAL) {
         _group_num = 0;
+    } else if (_type == Type::METADATA) {
+        _group_num = 1;
+    } else if (_type == Type::CACHE) {
+        _group_num = 2;
     } else {
         _group_num =
-                mem_tracker_limiter_group_counter.fetch_add(1) % (MEM_TRACKER_GROUP_NUM - 1) + 1;
+                mem_tracker_limiter_group_counter.fetch_add(1) % (MEM_TRACKER_GROUP_NUM - 3) + 3;
     }
 
     // currently only select/load need runtime query statistics
@@ -216,87 +209,34 @@ std::string MemTrackerLimiter::print_address_sanitizers() {
     return detail;
 }
 
-MemTrackerLimiter::Snapshot MemTrackerLimiter::make_snapshot() const {
-    Snapshot snapshot;
-    snapshot.type = type_string(_type);
-    snapshot.label = _label;
-    snapshot.limit = _limit;
-    snapshot.cur_consumption = consumption();
-    snapshot.peak_consumption = peak_consumption();
-    return snapshot;
+RuntimeProfile* MemTrackerLimiter::make_profile(RuntimeProfile* profile) const {
+    RuntimeProfile* profile_snapshot = profile->create_child(
+            fmt::format("{}@{}@id={}", _label, type_string(_type), _uid.to_string()), true, false);
+    RuntimeProfile::HighWaterMarkCounter* usage_counter =
+            profile_snapshot->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    COUNTER_SET(usage_counter, peak_consumption());
+    COUNTER_SET(usage_counter, consumption());
+    if (has_limit()) {
+        RuntimeProfile::Counter* limit_counter =
+                ADD_COUNTER(profile_snapshot, "Limit", TUnit::BYTES);
+        COUNTER_SET(limit_counter, _limit);
+    }
+    if (reserved_peak_consumption() != 0) {
+        RuntimeProfile::HighWaterMarkCounter* reserved_counter =
+                profile_snapshot->AddHighWaterMarkCounter("ReservedMemory", TUnit::BYTES);
+        COUNTER_SET(reserved_counter, reserved_peak_consumption());
+        COUNTER_SET(reserved_counter, reserved_consumption());
+    }
+    return profile_snapshot;
 }
 
-MemTrackerLimiter::Snapshot MemTrackerLimiter::make_reserved_trackers_snapshot() const {
-    Snapshot snapshot;
-    snapshot.type = "reserved_memory";
-    snapshot.label = _label;
-    snapshot.limit = -1;
-    snapshot.cur_consumption = reserved_consumption();
-    snapshot.peak_consumption = reserved_peak_consumption();
-    return snapshot;
-}
-
-void MemTrackerLimiter::make_all_reserved_trackers_snapshots(std::vector<Snapshot>* snapshots) {
-    for (auto& i : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(i.group_lock);
-        for (auto trackerWptr : i.trackers) {
-            auto tracker = trackerWptr.lock();
-            if (tracker != nullptr && tracker->reserved_consumption() != 0) {
-                (*snapshots).emplace_back(tracker->make_reserved_trackers_snapshot());
-            }
-        }
-    }
-}
-
-void MemTrackerLimiter::refresh_global_counter() {
-    std::unordered_map<Type, int64_t> type_mem_sum = {
-            {Type::GLOBAL, 0},     {Type::QUERY, 0},         {Type::LOAD, 0},
-            {Type::COMPACTION, 0}, {Type::SCHEMA_CHANGE, 0}, {Type::OTHER, 0}};
-    // always ExecEnv::ready(), because Daemon::_stop_background_threads_latch
-    for (auto& group : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(group.group_lock);
-        for (auto trackerWptr : group.trackers) {
-            auto tracker = trackerWptr.lock();
-            if (tracker != nullptr) {
-                type_mem_sum[tracker->type()] += tracker->consumption();
-            }
-        }
-    }
-    int64_t all_trackers_mem_sum = 0;
-    for (auto it : type_mem_sum) {
-        MemTrackerLimiter::TypeMemSum[it.first].set(it.second);
-
-        all_trackers_mem_sum += it.second;
-        switch (it.first) {
-        case Type::GLOBAL:
-            memory_global_trackers_sum_bytes
-                    << it.second - memory_global_trackers_sum_bytes.get_value();
-            break;
-        case Type::QUERY:
-            memory_query_trackers_sum_bytes
-                    << it.second - memory_query_trackers_sum_bytes.get_value();
-            break;
-        case Type::LOAD:
-            memory_load_trackers_sum_bytes
-                    << it.second - memory_load_trackers_sum_bytes.get_value();
-            break;
-        case Type::COMPACTION:
-            memory_compaction_trackers_sum_bytes
-                    << it.second - memory_compaction_trackers_sum_bytes.get_value();
-            break;
-        case Type::SCHEMA_CHANGE:
-            memory_schema_change_trackers_sum_bytes
-                    << it.second - memory_schema_change_trackers_sum_bytes.get_value();
-            break;
-        case Type::OTHER:
-            memory_other_trackers_sum_bytes
-                    << it.second - memory_other_trackers_sum_bytes.get_value();
-        }
-    }
-    all_trackers_mem_sum += MemInfo::allocator_cache_mem();
-    all_trackers_mem_sum += MemInfo::allocator_metadata_mem();
-    memory_all_trackers_sum_bytes << all_trackers_mem_sum -
-                                             memory_all_trackers_sum_bytes.get_value();
+std::string MemTrackerLimiter::make_profile_str() const {
+    std::unique_ptr<RuntimeProfile> profile_snapshot =
+            std::make_unique<RuntimeProfile>("MemTrackerSnapshot");
+    make_profile(profile_snapshot.get());
+    std::stringstream ss;
+    profile_snapshot->pretty_print(&ss);
+    return ss.str();
 }
 
 void MemTrackerLimiter::clean_tracker_limiter_group() {
@@ -317,203 +257,119 @@ void MemTrackerLimiter::clean_tracker_limiter_group() {
 #endif
 }
 
-void MemTrackerLimiter::make_process_snapshots(std::vector<Snapshot>* snapshots) {
-    MemTrackerLimiter::refresh_global_counter();
-    int64_t all_trackers_mem_sum = 0;
-    Snapshot snapshot;
-    for (const auto& it : MemTrackerLimiter::TypeMemSum) {
-        snapshot.type = "overview";
-        snapshot.label = type_string(it.first);
-        snapshot.limit = -1;
-        snapshot.cur_consumption = it.second.current_value();
-        snapshot.peak_consumption = it.second.peak_value();
-        (*snapshots).emplace_back(snapshot);
-        all_trackers_mem_sum += it.second.current_value();
-    }
-
-    snapshot.type = "overview";
-    snapshot.label = "tc/jemalloc_cache";
-    snapshot.limit = -1;
-    snapshot.cur_consumption = MemInfo::allocator_cache_mem();
-    snapshot.peak_consumption = -1;
-    (*snapshots).emplace_back(snapshot);
-    all_trackers_mem_sum += MemInfo::allocator_cache_mem();
-
-    snapshot.type = "overview";
-    snapshot.label = "tc/jemalloc_metadata";
-    snapshot.limit = -1;
-    snapshot.cur_consumption = MemInfo::allocator_metadata_mem();
-    snapshot.peak_consumption = -1;
-    (*snapshots).emplace_back(snapshot);
-    all_trackers_mem_sum += MemInfo::allocator_metadata_mem();
-
-    snapshot.type = "overview";
-    snapshot.label = "reserved_memory";
-    snapshot.limit = -1;
-    snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
-    snapshot.peak_consumption = -1;
-    (*snapshots).emplace_back(snapshot);
-
-    snapshot.type = "overview";
-    snapshot.label = "sum_of_all_trackers"; // is virtual memory
-    snapshot.limit = -1;
-    snapshot.cur_consumption = all_trackers_mem_sum;
-    snapshot.peak_consumption = -1;
-    (*snapshots).emplace_back(snapshot);
-
-    snapshot.type = "overview";
-#ifdef ADDRESS_SANITIZER
-    snapshot.label = "[ASAN]VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
-#else
-    snapshot.label = "VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
-#endif
-    snapshot.limit = -1;
-    snapshot.cur_consumption = PerfCounters::get_vm_rss();
-    snapshot.peak_consumption = PerfCounters::get_vm_hwm();
-    (*snapshots).emplace_back(snapshot);
-
-    snapshot.type = "overview";
-    snapshot.label = "VmSize(process virtual memory)"; // from /proc VmSize VmPeak
-    snapshot.limit = -1;
-    snapshot.cur_consumption = PerfCounters::get_vm_size();
-    snapshot.peak_consumption = PerfCounters::get_vm_peak();
-    (*snapshots).emplace_back(snapshot);
-}
-
-void MemTrackerLimiter::make_type_snapshots(std::vector<Snapshot>* snapshots,
-                                            MemTrackerLimiter::Type type) {
+void MemTrackerLimiter::make_type_trackers_profile(RuntimeProfile* profile,
+                                                   MemTrackerLimiter::Type type) {
     if (type == Type::GLOBAL) {
         std::lock_guard<std::mutex> l(
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[0].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[0].trackers) {
             auto tracker = trackerWptr.lock();
             if (tracker != nullptr) {
-                (*snapshots).emplace_back(tracker->make_snapshot());
+                tracker->make_profile(profile);
+            }
+        }
+    } else if (type == Type::METADATA) {
+        std::lock_guard<std::mutex> l(
+                ExecEnv::GetInstance()->mem_tracker_limiter_pool[1].group_lock);
+        for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[1].trackers) {
+            auto tracker = trackerWptr.lock();
+            if (tracker != nullptr) {
+                tracker->make_profile(profile);
+            }
+        }
+    } else if (type == Type::CACHE) {
+        std::lock_guard<std::mutex> l(
+                ExecEnv::GetInstance()->mem_tracker_limiter_pool[2].group_lock);
+        for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[2].trackers) {
+            auto tracker = trackerWptr.lock();
+            if (tracker != nullptr) {
+                tracker->make_profile(profile);
             }
         }
     } else {
-        for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+        for (unsigned i = 3; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
             std::lock_guard<std::mutex> l(
                     ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
             for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
                 auto tracker = trackerWptr.lock();
                 if (tracker != nullptr && tracker->type() == type) {
-                    (*snapshots).emplace_back(tracker->make_snapshot());
+                    tracker->make_profile(profile);
                 }
             }
         }
     }
 }
 
-void MemTrackerLimiter::make_top_consumption_snapshots(std::vector<Snapshot>* snapshots,
-                                                       int top_num) {
-    std::priority_queue<Snapshot> max_pq;
-    // not include global type.
-    for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+std::string MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type type) {
+    std::unique_ptr<RuntimeProfile> profile_snapshot =
+            std::make_unique<RuntimeProfile>("TypeMemTrackersSnapshot");
+    make_type_trackers_profile(profile_snapshot.get(), type);
+    std::stringstream ss;
+    profile_snapshot->pretty_print(&ss);
+    return ss.str();
+}
+
+void MemTrackerLimiter::make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile,
+                                                                   int top_num) {
+    std::unique_ptr<RuntimeProfile> tmp_profile_snapshot =
+            std::make_unique<RuntimeProfile>("tmpSnapshot");
+    std::priority_queue<std::pair<int64_t, RuntimeProfile*>> max_pq;
+    // start from 3, not include global/metadata/cache type.
+    for (unsigned i = 3; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
             auto tracker = trackerWptr.lock();
             if (tracker != nullptr) {
-                max_pq.emplace(tracker->make_snapshot());
+                auto* profile_snapshot = tracker->make_profile(tmp_profile_snapshot.get());
+                max_pq.emplace(tracker->consumption(), profile_snapshot);
             }
         }
     }
 
     while (!max_pq.empty() && top_num > 0) {
-        (*snapshots).emplace_back(max_pq.top());
+        RuntimeProfile* profile_snapshot =
+                profile->create_child(max_pq.top().second->name(), true, false);
+        profile_snapshot->merge(max_pq.top().second);
         top_num--;
         max_pq.pop();
     }
 }
 
-void MemTrackerLimiter::make_all_trackers_snapshots(std::vector<Snapshot>* snapshots) {
-    for (auto& i : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(i.group_lock);
-        for (auto trackerWptr : i.trackers) {
-            auto tracker = trackerWptr.lock();
-            if (tracker != nullptr) {
-                (*snapshots).emplace_back(tracker->make_snapshot());
-            }
-        }
-    }
-}
+void MemTrackerLimiter::make_all_tasks_tracker_profile(RuntimeProfile* profile) {
+    std::unordered_map<Type, RuntimeProfile*> types_profile;
+    types_profile[Type::QUERY] = profile->create_child("QueryTasks", true, false);
+    types_profile[Type::LOAD] = profile->create_child("LoadTasks", true, false);
+    types_profile[Type::COMPACTION] = profile->create_child("CompactionTasks", true, false);
+    types_profile[Type::SCHEMA_CHANGE] = profile->create_child("SchemaChangeTasks", true, false);
+    types_profile[Type::OTHER] = profile->create_child("OtherTasks", true, false);
 
-void MemTrackerLimiter::make_all_memory_state_snapshots(std::vector<Snapshot>* snapshots) {
-    make_process_snapshots(snapshots);
-    make_all_trackers_snapshots(snapshots);
-    make_all_reserved_trackers_snapshots(snapshots);
-}
-
-std::string MemTrackerLimiter::log_usage(Snapshot snapshot) {
-    return fmt::format("MemTracker Label={}, Type={}, Limit={}({} B), Used={}({} B), Peak={}({} B)",
-                       snapshot.label, snapshot.type, MemCounter::print_bytes(snapshot.limit),
-                       snapshot.limit, MemCounter::print_bytes(snapshot.cur_consumption),
-                       snapshot.cur_consumption, MemCounter::print_bytes(snapshot.peak_consumption),
-                       snapshot.peak_consumption);
-}
-
-std::string MemTrackerLimiter::type_log_usage(Snapshot snapshot) {
-    return fmt::format("Type={}, Used={}({} B), Peak={}({} B)", snapshot.type,
-                       MemCounter::print_bytes(snapshot.cur_consumption), snapshot.cur_consumption,
-                       MemCounter::print_bytes(snapshot.peak_consumption),
-                       snapshot.peak_consumption);
-}
-
-std::string MemTrackerLimiter::type_detail_usage(const std::string& msg, Type type) {
-    std::string detail = fmt::format("{}, Type:{}, Memory Tracker Summary", msg, type_string(type));
-    for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+    // start from 3, not include global/metadata/cache type.
+    for (unsigned i = 3; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
             auto tracker = trackerWptr.lock();
-            if (tracker != nullptr && tracker->type() == type) {
-                detail += "\n    " + MemTrackerLimiter::log_usage(tracker->make_snapshot());
+            if (tracker != nullptr) {
+                // BufferControlBlock will continue to exist for 5 minutes after the query ends, even if the
+                // result buffer is empty, and will not be shown in the profile. of course, this code is tricky.
+                if (tracker->consumption() == 0 &&
+                    tracker->label().starts_with("BufferControlBlock")) {
+                    continue;
+                }
+                tracker->make_profile(types_profile[tracker->type()]);
             }
         }
     }
-    return detail;
 }
 
 void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;
         std::string detail = msg;
-        detail += "\nProcess Memory Summary:\n    " + GlobalMemoryArbitrator::process_mem_log_str();
-        detail += "\nMemory Tracker Summary:    " + log_usage();
+        detail += "\nProcess Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
+        detail += "\n" + make_profile_str();
         LOG(WARNING) << detail;
-    }
-}
-
-std::string MemTrackerLimiter::log_process_usage_str() {
-    std::string detail;
-    detail += "\nProcess Memory Summary:\n    " + GlobalMemoryArbitrator::process_mem_log_str();
-    std::vector<Snapshot> snapshots;
-    MemTrackerLimiter::make_process_snapshots(&snapshots);
-    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
-    MemTrackerLimiter::make_top_consumption_snapshots(&snapshots, 15);
-    MemTrackerLimiter::make_all_reserved_trackers_snapshots(&snapshots);
-
-    detail += "\nMemory Tracker Summary:";
-    for (const auto& snapshot : snapshots) {
-        if (snapshot.label.empty()) {
-            detail += "\n    " + MemTrackerLimiter::type_log_usage(snapshot);
-        } else {
-            detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
-        }
-    }
-
-    // Add additional tracker printed when memory exceeds limit.
-    detail += "\n    " +
-              ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->log_usage();
-    return detail;
-}
-
-void MemTrackerLimiter::print_log_process_usage() {
-    // The default interval between two prints is 100ms (config::memory_maintenance_sleep_time_ms).
-    if (MemTrackerLimiter::_enable_print_log_process_usage) {
-        MemTrackerLimiter::_enable_print_log_process_usage = false;
-        LOG(WARNING) << log_process_usage_str();
     }
 }
 

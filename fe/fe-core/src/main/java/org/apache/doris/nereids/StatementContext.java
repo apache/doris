@@ -19,12 +19,18 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -38,37 +44,40 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
-import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.sparkproject.guava.base.Throwables;
 
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeMap;
@@ -80,6 +89,18 @@ import javax.annotation.concurrent.GuardedBy;
  */
 public class StatementContext implements Closeable {
     private static final Logger LOG = LogManager.getLogger(StatementContext.class);
+
+    /**
+     * indicate where the table come from.
+     * QUERY: in query sql directly
+     * INSERT_TARGET: the insert target table
+     * MTMV: mtmv itself and its related tables witch do not belong to this sql, but maybe used in rewrite by mtmv.
+     */
+    public enum TableFrom {
+        QUERY,
+        INSERT_TARGET,
+        MTMV
+    }
 
     private ConnectContext connectContext;
 
@@ -98,6 +119,8 @@ public class StatementContext implements Closeable {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
+
+    private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
     // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
@@ -132,10 +155,6 @@ public class StatementContext implements Closeable {
 
     private final List<Hint> hints = new ArrayList<>();
 
-    // Map slot to its relation, currently used in SlotReference to find its original
-    // Relation for example LogicalOlapScan
-    private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
-
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
     private BitSet disableRules;
@@ -145,6 +164,18 @@ public class StatementContext implements Closeable {
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders;
+
+    // all tables in query
+    private boolean needLockTables = true;
+
+    // tables in this query directly
+    private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // tables maybe used by mtmv rewritten in this query
+    private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    // insert into target tables
+    private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
+    // save view's def and sql mode to avoid them change before lock
+    private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -167,7 +198,15 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private List<PlannerHook> plannerHooks = new ArrayList<>();
+    private final List<PlannerHook> plannerHooks = new ArrayList<>();
+
+    private String disableJoinReorderReason;
+
+    private Backend groupCommitMergeBackend;
+
+    private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+
+    private boolean privChecked;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -201,8 +240,79 @@ public class StatementContext implements Closeable {
         }
     }
 
+    public void setNeedLockTables(boolean needLockTables) {
+        this.needLockTables = needLockTables;
+    }
+
+    /**
+     * cache view info to avoid view's def and sql mode changed before lock it.
+     *
+     * @param qualifiedViewName full qualified name of the view
+     * @param view view need to cache info
+     *
+     * @return view info, first is view's def sql, second is view's sql mode
+     */
+    public Pair<String, Long> getAndCacheViewInfo(List<String> qualifiedViewName, View view) {
+        return viewInfos.computeIfAbsent(qualifiedViewName, k -> {
+            String viewDef;
+            long sqlMode;
+            view.readLock();
+            try {
+                viewDef = view.getInlineViewDef();
+                sqlMode = view.getSqlMode();
+            } finally {
+                view.readUnlock();
+            }
+            return Pair.of(viewDef, sqlMode);
+        });
+    }
+
+    public Map<List<String>, TableIf> getInsertTargetTables() {
+        return insertTargetTables;
+    }
+
+    public Map<List<String>, TableIf> getMtmvRelatedTables() {
+        return mtmvRelatedTables;
+    }
+
+    public Map<List<String>, TableIf> getTables() {
+        return tables;
+    }
+
+    public void setTables(Map<List<String>, TableIf> tables) {
+        this.tables.clear();
+        this.tables.putAll(tables);
+    }
+
+    /** get table by table name, try to get from information from dumpfile first */
+    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom) {
+        Map<List<String>, TableIf> tables;
+        switch (tableFrom) {
+            case QUERY:
+                tables = this.tables;
+                break;
+            case INSERT_TARGET:
+                tables = this.insertTargetTables;
+                break;
+            case MTMV:
+                tables = this.mtmvRelatedTables;
+                break;
+            default:
+                throw new AnalysisException("Unknown table from " + tableFrom);
+        }
+        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv()));
+    }
+
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+    }
+
+    public void setHasNondeterministic(boolean hasNondeterministic) {
+        this.hasNondeterministic = hasNondeterministic;
+    }
+
+    public boolean hasNondeterministic() {
+        return hasNondeterministic;
     }
 
     public ConnectContext getConnectContext() {
@@ -258,10 +368,6 @@ public class StatementContext implements Closeable {
 
     public Optional<SqlCacheContext> getSqlCacheContext() {
         return Optional.ofNullable(sqlCacheContext);
-    }
-
-    public void addSlotToRelation(Slot slot, Relation relation) {
-        slotToRelation.put(slot, relation);
     }
 
     public boolean isDpHyp() {
@@ -416,6 +522,23 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * get used mv hint by hint name
+     * @param useMvName hint name, can either be USE_MV or NO_USE_MV
+     * @return optional of useMvHint
+     */
+    public Optional<UseMvHint> getUseMvHint(String useMvName) {
+        for (Hint hint : getHints()) {
+            if (hint.isSyntaxError()) {
+                continue;
+            }
+            if (hint.getHintName().equalsIgnoreCase(useMvName)) {
+                return Optional.of((UseMvHint) hint);
+            }
+        }
+        return Optional.empty();
+    }
+
     public Optional<Statistics> getStatistics(Id id) {
         if (id instanceof RelationId) {
             return Optional.ofNullable(this.relationIdToStatisticsMap.get((RelationId) id));
@@ -428,20 +551,36 @@ public class StatementContext implements Closeable {
         return relationIdToStatisticsMap;
     }
 
-    /** addTableReadLock */
-    public synchronized void addTableReadLock(TableIf tableIf) {
-        if (!tableIf.needReadLockWhenPlan()) {
+    /**
+     * lock all table collect by TableCollector
+     */
+    public synchronized void lock() {
+        if (!needLockTables
+                || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty())
+                || !plannerResources.isEmpty()) {
             return;
         }
-        if (!tableIf.tryReadLock(1, TimeUnit.MINUTES)) {
-            close();
-            throw new RuntimeException(String.format("Failed to get read lock on table: %s", tableIf.getName()));
+        PriorityQueue<TableIf> tableIfs = new PriorityQueue<>(
+                tables.size() + mtmvRelatedTables.size() + insertTargetTables.size(),
+                Comparator.comparing(TableIf::getId));
+        tableIfs.addAll(tables.values());
+        tableIfs.addAll(mtmvRelatedTables.values());
+        tableIfs.addAll(insertTargetTables.values());
+        while (!tableIfs.isEmpty()) {
+            TableIf tableIf = tableIfs.poll();
+            if (!tableIf.needReadLockWhenPlan()) {
+                continue;
+            }
+            if (!tableIf.tryReadLock(1, TimeUnit.MINUTES)) {
+                close();
+                throw new RuntimeException("Failed to get read lock on table:" + tableIf.getName());
+            }
+            String fullTableName = tableIf.getNameWithFullQualifiers();
+            String resourceName = "tableReadLock(" + fullTableName + ")";
+            plannerResources.push(new CloseableResource(
+                    resourceName, Thread.currentThread().getName(),
+                    originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
         }
-
-        String fullTableName = tableIf.getNameWithFullQualifiers();
-        String resourceName = "tableReadLock(" + fullTableName + ")";
-        plannerResources.push(new CloseableResource(
-                resourceName, Thread.currentThread().getName(), originStatement.originStmt, tableIf::readUnlock));
     }
 
     /** releasePlannerResources */
@@ -457,7 +596,7 @@ public class StatementContext implements Closeable {
             }
         }
         if (throwable != null) {
-            Throwables.propagateIfInstanceOf(throwable, RuntimeException.class);
+            Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
             throw new IllegalStateException("Release resource failed", throwable);
         }
     }
@@ -502,6 +641,45 @@ public class StatementContext implements Closeable {
         this.plannerHooks.add(plannerHook);
     }
 
+    /**
+     * Load snapshot information of mvcc
+     */
+    public void loadSnapshots() {
+        for (TableIf tableIf : tables.values()) {
+            if (tableIf instanceof MvccTable) {
+                MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+                // may be set by MTMV, we can not load again
+                if (!snapshots.containsKey(mvccTableInfo)) {
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                }
+            }
+        }
+    }
+
+    /**
+     * Obtain snapshot information of mvcc
+     *
+     * @param tableIf tableIf
+     * @return MvccSnapshot
+     */
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+        return Optional.ofNullable(snapshots.get(mvccTableInfo));
+    }
+
+    /**
+     * Obtain snapshot information of mvcc
+     *
+     * @param mvccTableInfo mvccTableInfo
+     * @param snapshot snapshot
+     */
+    public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        snapshots.put(mvccTableInfo, snapshot);
+    }
+
     private static class CloseableResource implements Closeable {
         public final String resourceName;
         public final String threadName;
@@ -524,7 +702,7 @@ public class StatementContext implements Closeable {
                 try {
                     resource.close();
                 } catch (Throwable t) {
-                    Throwables.propagateIfInstanceOf(t, RuntimeException.class);
+                    Throwables.throwIfInstanceOf(t, RuntimeException.class);
                     throw new IllegalStateException("Close resource failed: " + t.getMessage(), t);
                 }
                 closed = true;
@@ -556,5 +734,30 @@ public class StatementContext implements Closeable {
         tableId = StatementScopeIdGenerator.newTableId();
         this.tableIdMapping.put(tableIdentifier, tableId);
         return tableId;
+    }
+
+    public Optional<String> getDisableJoinReorderReason() {
+        return Optional.ofNullable(disableJoinReorderReason);
+    }
+
+    public void setDisableJoinReorderReason(String disableJoinReorderReason) {
+        this.disableJoinReorderReason = disableJoinReorderReason;
+    }
+
+    public Backend getGroupCommitMergeBackend() {
+        return groupCommitMergeBackend;
+    }
+
+    public void setGroupCommitMergeBackend(
+            Backend groupCommitMergeBackend) {
+        this.groupCommitMergeBackend = groupCommitMergeBackend;
+    }
+
+    public boolean isPrivChecked() {
+        return privChecked;
+    }
+
+    public void setPrivChecked(boolean privChecked) {
+        this.privChecked = privChecked;
     }
 }

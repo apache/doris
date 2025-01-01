@@ -72,6 +72,12 @@ public:
 
     static int get_remote_scan_thread_queue_size();
 
+    SimplifiedScanScheduler* get_local_scan_thread_pool() { return _local_scan_thread_pool.get(); }
+
+    SimplifiedScanScheduler* get_remote_scan_thread_pool() {
+        return _remote_scan_thread_pool.get();
+    }
+
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
@@ -108,11 +114,12 @@ struct SimplifiedScanTask {
 
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string sched_name, CgroupCpuCtl* cgroup_cpu_ctl) {
-        _is_stop.store(false);
-        _cgroup_cpu_ctl = cgroup_cpu_ctl;
-        _sched_name = sched_name;
-    }
+    SimplifiedScanScheduler(std::string sched_name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
+                            std::string workload_group = "system")
+            : _is_stop(false),
+              _cgroup_cpu_ctl(cgroup_cpu_ctl),
+              _sched_name(sched_name),
+              _workload_group(workload_group) {}
 
     ~SimplifiedScanScheduler() {
         stop();
@@ -126,7 +133,7 @@ public:
     }
 
     Status start(int max_thread_num, int min_thread_num, int queue_size) {
-        RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name)
+        RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name, _workload_group)
                                 .set_min_threads(min_thread_num)
                                 .set_max_threads(max_thread_num)
                                 .set_max_queue_size(queue_size)
@@ -137,13 +144,7 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) {
         if (!_is_stop) {
-            DorisMetrics::instance()->scanner_task_queued->increment(1);
-            auto st = _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
-            if (!st.ok()) {
-                DorisMetrics::instance()->scanner_task_queued->increment(-1);
-                DorisMetrics::instance()->scanner_task_submit_failed->increment(1);
-            }
-            return st;
+            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }
@@ -211,8 +212,9 @@ public:
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
-    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
+    std::string _workload_group;
 };
 
 } // namespace doris::vectorized

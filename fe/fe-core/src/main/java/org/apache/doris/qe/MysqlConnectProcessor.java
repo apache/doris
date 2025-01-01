@@ -151,6 +151,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor.execute();
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
+                stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
         } catch (Throwable e) {
             // Catch all throwable.
@@ -260,6 +261,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             case COM_STMT_CLOSE:
                 handleStmtClose();
                 break;
+            case COM_SET_OPTION:
+                handleSetOption();
+                break;
+            case COM_RESET_CONNECTION:
+                handleResetConnection();
+                break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
@@ -366,6 +373,15 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 return;
             }
         }
+        ctx.getState().setOk();
+    }
+
+    private void handleSetOption() {
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_set_option.html
+        int optionOperation = MysqlProto.readInt2(packetBuf);
+        LOG.debug("option_operation {}", optionOperation);
+        // Do nothing for now.
+        // https://dev.mysql.com/doc/c-api/8.0/en/mysql-set-server-option.html
         ctx.getState().setOk();
     }
 

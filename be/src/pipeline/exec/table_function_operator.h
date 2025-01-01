@@ -24,6 +24,7 @@
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -37,6 +38,7 @@ public:
     TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent);
     ~TableFunctionLocalState() override = default;
 
+    Status init(RuntimeState* state, LocalStateInfo& infos) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override {
         for (auto* fn : _fns) {
@@ -67,6 +69,12 @@ private:
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;
+
+    RuntimeProfile::Counter* _init_function_timer = nullptr;
+    RuntimeProfile::Counter* _process_rows_timer = nullptr;
+    RuntimeProfile::Counter* _copy_data_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
+    RuntimeProfile::Counter* _repeat_data_timer = nullptr;
 };
 
 class TableFunctionOperatorX final : public StatefulOperatorX<TableFunctionLocalState> {
@@ -93,6 +101,7 @@ public:
         }
 
         for (auto* fn : local_state._fns) {
+            SCOPED_TIMER(local_state._init_function_timer);
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
         local_state.process_next_child_row();
@@ -146,4 +155,5 @@ private:
     std::vector<int> _child_slot_sizes;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

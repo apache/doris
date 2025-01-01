@@ -128,7 +128,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
             """
 
         // 1. insert into
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = sync_mode; """
 
             group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10),(5, 'q', 50); """, 2
@@ -209,7 +209,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
             """
 
         // 1. insert into
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = sync_mode; """
 
             group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10),(5, 'q', 50); """, 2
@@ -293,7 +293,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
             """
 
         // 1. insert into
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = sync_mode; """
 
             group_commit_insert """ insert into ${dbTableName}(id, name, score, __DORIS_SEQUENCE_COL__) values (1, 'a', 10, 100),(5, 'q', 50, 500); """, 2

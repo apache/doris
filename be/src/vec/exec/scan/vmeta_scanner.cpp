@@ -96,7 +96,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
+                columns[i] = block->get_by_position(i).column->assume_mutable();
             } else {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
@@ -148,7 +148,7 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
                 if (slot_desc->is_nullable()) {
                     auto& null_col = reinterpret_cast<ColumnNullable&>(*col_ptr);
                     null_col.get_null_map_data().push_back(0);
-                    col_ptr = null_col.get_nested_column_ptr();
+                    col_ptr = null_col.get_nested_column_ptr().get();
                 }
                 switch (slot_desc->type().type) {
                 case TYPE_BOOLEAN: {
@@ -278,7 +278,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
 
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -400,6 +400,7 @@ Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

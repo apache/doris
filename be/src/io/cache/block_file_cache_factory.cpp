@@ -21,6 +21,9 @@
 #include "io/cache/block_file_cache_factory.h"
 
 #include <glog/logging.h>
+
+#include <string>
+#include <vector>
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -32,9 +35,12 @@
 #include <utility>
 
 #include "common/config.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
+#include "vec/core/block.h"
 
 namespace doris {
 class TUniqueId;
@@ -115,6 +121,20 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     return Status::OK();
 }
 
+std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128Wrapper& hash) {
+    io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    auto blocks = cache->get_blocks_by_key(hash);
+    std::vector<std::string> ret;
+    if (blocks.empty()) {
+        return ret;
+    } else {
+        for (auto& [_, fb] : blocks) {
+            ret.emplace_back(fb->get_cache_file());
+        }
+    }
+    return ret;
+}
+
 BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
     // dont need lock mutex because _caches is immutable after create_file_cache
     return _caches[KeyHash()(key) % _caches.size()].get();
@@ -167,6 +187,24 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
         }
     }
     return "Unknown the cache path " + path;
+}
+
+void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+    // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    TBackend be = BackendOptions::get_local_backend();
+    int64_t be_id = be.id;
+    std::string be_ip = be.host;
+    for (auto& cache : _caches) {
+        std::map<std::string, double> stats = cache->get_stats();
+        for (auto& [k, v] : stats) {
+            SchemaScannerHelper::insert_int64_value(0, be_id, block);  // be id
+            SchemaScannerHelper::insert_string_value(1, be_ip, block); // be ip
+            SchemaScannerHelper::insert_string_value(2, cache->get_base_path(),
+                                                     block);                       // cache path
+            SchemaScannerHelper::insert_string_value(3, k, block);                 // metric name
+            SchemaScannerHelper::insert_string_value(4, std::to_string(v), block); // metric value
+        }
+    }
 }
 
 } // namespace io

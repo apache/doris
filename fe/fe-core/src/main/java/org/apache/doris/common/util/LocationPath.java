@@ -90,7 +90,7 @@ public class LocationPath {
     private LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
         isBindBroker = props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME);
         String tmpLocation = originLocation;
-        if (!originLocation.contains(SCHEME_DELIM)) {
+        if (!(originLocation.contains(SCHEME_DELIM) || originLocation.contains(NONSTANDARD_SCHEME_DELIM))) {
             // Sometimes the file path does not contain scheme, need to add default fs
             // eg, /path/to/file.parquet -> hdfs://nn/path/to/file.parquet
             // the default fs is from the catalog properties
@@ -131,7 +131,19 @@ public class LocationPath {
                 tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
                 break;
             case FeConstants.FS_PREFIX_OSS:
-                if (isHdfsOnOssEndpoint(tmpLocation)) {
+                String endpoint = "";
+                if (props.containsKey(OssProperties.ENDPOINT)) {
+                    endpoint = props.get(OssProperties.ENDPOINT);
+                    if (endpoint.startsWith(OssProperties.OSS_PREFIX)) {
+                        // may use oss.oss-cn-beijing.aliyuncs.com
+                        endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
+                    }
+                } else if (props.containsKey(S3Properties.ENDPOINT)) {
+                    endpoint = props.get(S3Properties.ENDPOINT);
+                } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
+                    endpoint = props.get(S3Properties.Env.ENDPOINT);
+                }
+                if (isHdfsOnOssEndpoint(endpoint)) {
                     this.scheme = Scheme.OSS_HDFS;
                 } else {
                     if (useS3EndPoint(props)) {
@@ -398,7 +410,7 @@ public class LocationPath {
         }
     }
 
-    private FileSystemType getFileSystemType() {
+    public FileSystemType getFileSystemType() {
         FileSystemType fsType;
         switch (scheme) {
             case S3:

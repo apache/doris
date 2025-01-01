@@ -161,7 +161,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
                 && targetTable.getSequenceCol() == null
-                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
+                && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
 
         List<String> partialUpdateColNames = new ArrayList<>();
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();

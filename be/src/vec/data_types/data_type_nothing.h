@@ -66,7 +66,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return false; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }
@@ -76,7 +75,8 @@ public:
         return 0;
     }
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
 
     [[noreturn]] Field get_default() const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

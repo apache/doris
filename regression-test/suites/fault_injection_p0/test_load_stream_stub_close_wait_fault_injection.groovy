@@ -74,6 +74,7 @@ suite("test_load_stream_stub_close_wait_fault_injection", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("LoadStreamStub::close_wait.long_wait")
         def res = sql "insert into test select * from baseall where k1 <= 3"
         logger.info(res.toString())
+        assertTrue(false, "Expected Exception to be thrown")
     } catch(Exception e) {
         logger.info(e.getMessage())
         assertTrue(e.getMessage().contains("cancel"))

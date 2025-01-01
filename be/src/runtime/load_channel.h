@@ -91,7 +91,6 @@ private:
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile = nullptr;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
-    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_times = nullptr;
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
@@ -104,7 +103,7 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
     // index id -> (received rows, filtered rows)
     std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
-    SpinLock _tablets_channels_lock;
+    std::mutex _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
@@ -127,7 +126,6 @@ private:
     int64_t _backend_id;
 
     bool _enable_profile;
-    bool _need_release_memtracker = false;
 };
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {

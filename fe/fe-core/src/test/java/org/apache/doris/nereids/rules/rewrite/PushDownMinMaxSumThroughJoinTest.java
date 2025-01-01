@@ -323,11 +323,11 @@ class PushDownMinMaxSumThroughJoinTest implements MemoPatternMatchSupported {
                 .applyTopDown(new PushDownAggThroughJoinOneSide())
                 .printlnTree()
                 .matches(
-                        logicalAggregate(
-                                logicalJoin(
-                                        logicalOlapScan(),
+                        logicalJoin(
+                                logicalAggregate(
                                         logicalOlapScan()
-                                )
+                                ),
+                                logicalOlapScan()
                         )
                 );
     }
@@ -346,11 +346,9 @@ class PushDownMinMaxSumThroughJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushDownAggThroughJoinOneSide())
                 .matches(
-                        logicalAggregate(
-                                logicalJoin(
-                                        logicalOlapScan(),
-                                        logicalOlapScan()
-                                )
+                        logicalJoin(
+                                logicalAggregate(logicalOlapScan()),
+                                logicalAggregate(logicalOlapScan())
                         )
                 );
     }

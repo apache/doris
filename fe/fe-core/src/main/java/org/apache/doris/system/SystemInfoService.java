@@ -34,8 +34,6 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TNodeInfo;
-import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -160,16 +158,6 @@ public class SystemInfoService {
             }
         }
     };
-
-    public static TPaloNodesInfo createAliveNodesInfo() {
-        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(true /*need alive*/)) {
-            Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
-        return nodesInfo;
-    }
 
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
@@ -363,9 +351,20 @@ public class SystemInfoService {
     public int getBackendsNumber(boolean needAlive) {
         int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
-            beNumber = getAllBackendIds(needAlive).size();
+            beNumber = getAllBackendByCurrentCluster(needAlive).size();
         }
         return beNumber;
+    }
+
+    public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
+        try {
+            return getBackendsByCurrentCluster()
+                .values().stream().filter(be -> !needAlive || be.isAlive())
+                .map(Backend::getId).collect(Collectors.toList());
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backends by Current Cluster", e);
+            return Lists.newArrayList();
+        }
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
@@ -543,13 +542,25 @@ public class SystemInfoService {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
                         + "replication tag and storage medium and avail capacity of backends "
-                        + "or maybe all be on same host.\n"
+                        + "or maybe all be on same host." + getDetailsForCreateReplica(replicaAlloc) + "\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
         return Pair.of(chosenBackendIds, storageMedium);
+    }
+
+    public String getDetailsForCreateReplica(ReplicaAllocation replicaAlloc) {
+        StringBuilder sb = new StringBuilder(" Backends details: ");
+        for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+            sb.append("backends with tag ").append(tag).append(" is ");
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag().equals(tag))
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList()));
+            sb.append(", ");
+        }
+        return sb.toString();
     }
 
     /**
@@ -1034,6 +1045,16 @@ public class SystemInfoService {
     // CloudSystemInfoService override
     public int getTabletNumByBackendId(long beId) {
         return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+    }
+
+    public List<Backend> getBackendsByPolicy(BeSelectionPolicy beSelectionPolicy) {
+        try {
+            return beSelectionPolicy.getCandidateBackends(Env.getCurrentSystemInfo()
+                    .getBackendsByCurrentCluster().values().asList());
+        } catch (Throwable t) {
+            LOG.warn("get backends by policy failed, policy: {}", beSelectionPolicy.toString());
+        }
+        return Lists.newArrayList();
     }
 
 }

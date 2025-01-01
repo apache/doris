@@ -53,12 +53,12 @@ public class DropDatabaseEvent extends MetastoreEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+            logInfo("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
-                    .unregisterExternalDatabase(dbName, catalogName, true);
+                    .unregisterExternalDatabase(dbName, catalogName);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 

@@ -20,6 +20,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -58,7 +59,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                 }
             }
             if (!output_block->empty()) {
-                COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
                 local_state._num_rows_returned += output_block->rows();
             }
             return Status::OK();
@@ -80,7 +80,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
     }
     if (!output_block->empty()) {
-        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
         local_state._num_rows_returned += output_block->rows();
     }
     return Status::OK();
@@ -107,4 +106,5 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
 }
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

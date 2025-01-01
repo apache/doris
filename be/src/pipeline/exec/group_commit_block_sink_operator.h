@@ -22,8 +22,9 @@
 #include "runtime/group_commit_mgr.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class OlapTableBlockConvertor;
-}
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
@@ -42,8 +43,8 @@ public:
 
     ~GroupCommitBlockSinkLocalState() override;
 
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     std::vector<Dependency*> dependencies() const override {
@@ -79,6 +80,11 @@ private:
     std::shared_ptr<Dependency> _finish_dependency;
     std::shared_ptr<Dependency> _create_plan_dependency = nullptr;
     std::shared_ptr<Dependency> _put_block_dependency = nullptr;
+
+    RuntimeProfile::Counter* _init_load_queue_timer = nullptr;
+    RuntimeProfile::Counter* _valid_and_convert_block_timer = nullptr;
+    RuntimeProfile::Counter* _find_partition_timer = nullptr;
+    RuntimeProfile::Counter* _append_blocks_timer = nullptr;
 };
 
 class GroupCommitBlockSinkOperatorX final
@@ -120,4 +126,5 @@ private:
     TGroupCommitMode::type _group_commit_mode;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -243,6 +243,13 @@ void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
+void ColumnStruct::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        columns[i]->insert_many_from(src_concrete.get_column(i), position, length);
+    }
+}
+
 void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -306,28 +313,10 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
-bool ColumnStruct::could_shrinked_column() {
-    const size_t tuple_size = columns.size();
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->could_shrinked_column()) {
-            return true;
-        }
+void ColumnStruct::shrink_padding_chars() {
+    for (auto& column : columns) {
+        column->shrink_padding_chars();
     }
-    return false;
-}
-
-MutableColumnPtr ColumnStruct::get_shrinked_column() {
-    const size_t tuple_size = columns.size();
-    MutableColumns new_columns(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->could_shrinked_column()) {
-            new_columns[i] = columns[i]->get_shrinked_column();
-        } else {
-            new_columns[i] = columns[i]->get_ptr();
-        }
-    }
-    return ColumnStruct::create(std::move(new_columns));
 }
 
 void ColumnStruct::reserve(size_t n) {

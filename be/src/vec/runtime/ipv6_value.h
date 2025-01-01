@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_number_base.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class IPv6Value {
 public:
@@ -98,3 +99,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

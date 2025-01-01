@@ -94,7 +94,7 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         String items = this.items.stream()
                 .map(Literal::toSql)
                 .collect(Collectors.joining(", "));

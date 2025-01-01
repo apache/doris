@@ -27,6 +27,8 @@ import org.apache.doris.nereids.types.DataType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
@@ -122,7 +124,7 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return compareExpr.toSql() + " IN " + options.stream()
             .map(Expression::toSql).sorted()
             .collect(Collectors.joining(", ", "(", ")"));
@@ -164,5 +166,14 @@ public class InPredicate extends Expression {
             }
         }
         return true;
+    }
+
+    //use for ut
+    public Expression sortOptions() {
+        if (isLiteralChildren()) {
+            List<Literal> values = options.stream().map(e -> (Literal) e).collect(Collectors.toList());
+            return new InPredicate(compareExpr, Lists.newArrayList(Sets.newTreeSet(values)));
+        }
+        return this;
     }
 }

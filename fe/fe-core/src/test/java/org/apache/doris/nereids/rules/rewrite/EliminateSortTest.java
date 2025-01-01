@@ -165,8 +165,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
         PlanChecker.from(connectContext).disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id) t limit 1")
                 .rewrite()
-                // there is no topn below agg
-                .matches(logicalTopN(logicalAggregate(logicalProject(logicalOlapScan()))));
+                .nonMatch(logicalTopN());
         PlanChecker.from(connectContext)
                 .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id limit 1) t")
@@ -184,8 +183,6 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .analyze("select count(*) from "
                         + "(select * from student order by id) t1 left join student t2 on t1.id = t2.id limit 1")
                 .rewrite()
-                .matches(logicalTopN(logicalAggregate(logicalProject(logicalJoin(
-                        logicalProject(logicalOlapScan()),
-                        logicalProject(logicalOlapScan()))))));
+                .nonMatch(logicalTopN());
     }
 }

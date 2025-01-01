@@ -93,8 +93,9 @@ public class MTMVRefreshSchedule {
         builder.append(" ");
         builder.append(timeUnit);
         if (!StringUtils.isEmpty(startTime)) {
-            builder.append(" STARTS ");
+            builder.append(" STARTS \"");
             builder.append(startTime);
+            builder.append("\"");
         }
         return builder.toString();
     }

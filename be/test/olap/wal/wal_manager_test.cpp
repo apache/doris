@@ -55,16 +55,16 @@ public:
     void SetUp() override {
         prepare();
         _env = ExecEnv::GetInstance();
-        _env->_master_info = new TMasterInfo();
-        _env->_master_info->network_address.hostname = "host name";
-        _env->_master_info->network_address.port = 1234;
-        _env->_master_info->backend_id = 1001;
-        _env->new_load_stream_mgr() = NewLoadStreamMgr::create_shared();
+        _env->_cluster_info = new ClusterInfo();
+        _env->_cluster_info->master_fe_addr.hostname = "host name";
+        _env->_cluster_info->master_fe_addr.port = 1234;
+        _env->_cluster_info->backend_id = 1001;
+        _env->set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-        _env->_stream_load_executor = StreamLoadExecutor::create_shared(_env);
+        _env->_stream_load_executor = StreamLoadExecutor::create_unique(_env);
         _env->_store_paths = {StorePath(std::filesystem::current_path(), 0)};
-        _env->_wal_manager = WalManager::create_shared(_env, wal_dir.string());
+        _env->set_wal_mgr(WalManager::create_unique(_env, wal_dir.string()));
         k_stream_load_begin_result = TLoadTxnBeginResult();
     }
     void TearDown() override {
@@ -77,7 +77,10 @@ public:
         SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_internal_client_cache);
-        SAFE_DELETE(_env->_master_info);
+        SAFE_DELETE(_env->_cluster_info);
+        _env->clear_new_load_stream_mgr();
+        _env->clear_stream_load_executor();
+        //_env->clear_wal_mgr();
     }
 
     void prepare() {
@@ -155,9 +158,9 @@ TEST_F(WalManagerTest, recovery_normal) {
 }
 
 TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
-    auto wal_mgr = WalManager::create_shared(_env, config::group_commit_wal_path);
+    auto wal_mgr = WalManager::create_unique(_env, config::group_commit_wal_path);
     static_cast<void>(wal_mgr->init());
-    _env->set_wal_mgr(wal_mgr);
+    _env->set_wal_mgr(std::move(wal_mgr));
 
     // 1T
     size_t available_bytes = 1099511627776;

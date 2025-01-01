@@ -38,6 +38,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
         options.sqlModeNodeMgr = true
         options.waitTimeout = 0
         options.feNum = 3
+        options.useFollowersMode = true
         options.feConfigs += ["resource_not_ready_sleep_seconds=1",
                 "heartbeat_interval_second=1",]
     }
@@ -121,6 +122,9 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
                 
                 // Check FE number
                 def frontendResult = sql_return_maparray """SHOW FRONTENDS;"""
+                // Check that all frontends are alive
+                def aliveCount = frontendResult.count { it['Alive'] == 'true' }
+                assert aliveCount == expectedFeNum, "Expected all $expectedFeNum frontends to be alive, but only ${aliveCount} are alive"
                 assert frontendResult.size() == expectedFeNum, "Expected ${expectedFeNum} frontends, but got ${frontendResult.size()}"
                 logger.info("FE number check passed: ${frontendResult.size()} FEs found")
 
@@ -272,28 +276,23 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             def feEditLogPort = feToDropMap['EditLogPort']
             def feRole = feToDropMap['Role']
 
-            logger.info("Dropping non-master frontend: {}:{}", feHost, feEditLogPort)
+            def dropFeInx = cluster.getFrontends().find { it.host == feHost }.index 
+            logger.info("Dropping non-master frontend: {}:{}, index: {}", feHost, feEditLogPort, dropFeInx)
 
             // Drop the selected non-master frontend
             sql """ ALTER SYSTEM DROP ${feRole} "${feHost}:${feEditLogPort}"; """
-
+            // After drop feHost container will exit
+            cluster.dropFrontends(true, dropFeInx)
+            sleep(3 * 1000)
+            logger.info("Dropping frontend index: {}, remove it from docker compose", dropFeInx)
             // Wait for the frontend to be fully dropped
-            maxWaitSeconds = 300
-            waited = 0
-            while (waited < maxWaitSeconds) {
+
+            dockerAwaitUntil(300) {
                 reconnectFe()
                 def currentFrontends = sql_return_maparray("SHOW FRONTENDS")
-                if (currentFrontends.size() == frontends.size() - 1) {
-                    logger.info("Non-master frontend successfully dropped")
-                    break
-                }
-                sleep(10000)
-                waited += 10
+                currentFrontends.size() == frontends.size() - 1
             }
 
-            if (waited >= maxWaitSeconds) {
-                throw new Exception("Timeout waiting for non-master frontend to be dropped")
-            }
 
             checkClusterStatus(2, 3, 4)
 
@@ -309,86 +308,72 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             }
             
             assert droppedFE != null, "Could not find the dropped frontend"
+            
+            // Up a new follower fe and add to docker compose
+            // ATTN: in addFrontend, sql node mode, will execute `ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}";`
+            boolean fuzzyUpFollower = (getRandomBoolean() == "true") ? true : false
+            logger.info("Want up a new role [{}] frontend", fuzzyUpFollower ? "FOLLOWER" : "OBSERVER")
+            def addList = cluster.addFrontend(1, fuzzyUpFollower)
+            logger.info("Up a new frontend, addList: {}", addList)
 
-            feHost = droppedFE['Host']
-            feEditLogPort = droppedFE['EditLogPort']
-
-            logger.info("Adding back frontend: {}:{}", feHost, feEditLogPort)
-
-            // Add the frontend back
-            sql """ ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}"; """
+            def addFE = cluster.getFeByIndex(addList[0])
+            feHost = addFE['Host']
+            feEditLogPort = addFE['EditLogPort']
+            def showFes = sql """SHOW FRONTENDS"""
+            logger.info("Adding back frontend: {}", showFes)
 
             // Wait for the frontend to be fully added back
-            maxWaitSeconds = 300
-            waited = 0
-            while (waited < maxWaitSeconds) {
+            dockerAwaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
-                if (updatedFrontends.size() == frontends.size()) {
-                    logger.info("Frontend successfully added back")
-                    break
-                }
-                sleep(10000)
-                waited += 10
+                updatedFrontends.size() == frontends.size()
             }
-
-            if (waited >= maxWaitSeconds) {
-                throw new Exception("Timeout waiting for frontend to be added back")
-            }
-
-            // Verify cluster status after adding the frontend back
+           
             checkClusterStatus(3, 3, 5)
 
             logger.info("Frontend successfully added back and cluster status verified")
 
             // CASE 6. Drop frontend and add back again
             logger.info("Dropping frontend and adding back again")
-
             // Get the frontend to be dropped
-            def frontendToDrop = frontends.find { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }
+            currentFrontends = sql_return_maparray("SHOW FRONTENDS")
+
+            int obServerCount = currentFrontends.count { it['Role'] == 'OBSERVER' } 
+            String fuzzyDropRole
+            if (obServerCount != 0) {
+                fuzzyDropRole = (getRandomBoolean() == "true") ? "FOLLOWER" : "OBSERVER"
+            } else {
+                fuzzyDropRole = "FOLLOWER"
+            }
+
+            def frontendToDrop = currentFrontends.find {it['IsMaster'] == "false" && it['Role'] == fuzzyDropRole}
+            logger.info("Find drop again frontend: {}, drop role [{}]", frontendToDrop, fuzzyDropRole)
             assert frontendToDrop != null, "Could not find the frontend to drop"
 
+            def role = frontendToDrop.Role
             // Drop the frontend
-            sql """ ALTER SYSTEM DROP FOLLOWER "${feHost}:${feEditLogPort}"; """
-            sleep(30000)
+            sql """ ALTER SYSTEM DROP $role "${frontendToDrop.Host}:${frontendToDrop.EditLogPort}"; """
+            dropFeInx = cluster.getFrontends().find { it.host == frontendToDrop.Host }.index 
+            // After drop frontendToDrop.Host container will exit
+            cluster.dropFrontends(true, dropFeInx)
+            logger.info("Dropping again frontend index: {}, remove it from docker compose", dropFeInx)
+            sleep(3 * 1000)
             reconnectFe()
 
             // Wait for the frontend to be fully dropped
-            maxWaitSeconds = 300
-            waited = 0
-            while (waited < maxWaitSeconds) {
+            dockerAwaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
-                if (!updatedFrontends.any { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }) {
-                    logger.info("Frontend successfully dropped")
-                    break
-                }
-                sleep(10000)
-                waited += 10
+                !updatedFrontends.any { it['Host'] == frontendToDrop.Host && it['EditLogPort'] == frontendToDrop.EditLogPort }
             }
 
-            if (waited >= maxWaitSeconds) {
-                throw new Exception("Timeout waiting for frontend to be dropped")
-            }
+            // Up a new follower fe and add to docker compose
+            // ATTN: in addFrontend, sql node mode, will execute `ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}";`
+            addList = cluster.addFrontend(1, true)
+            logger.info("Up a new frontend, addList: {}", addList)
 
-            // Add the frontend back
-            sql """ ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}"; """
-
-            // Wait for the frontend to be fully added back
-            maxWaitSeconds = 300
-            waited = 0
-            while (waited < maxWaitSeconds) {
+            dockerAwaitUntil(300, 5) {
                 def updatedFrontends = sql_return_maparray("SHOW FRONTENDS")
-                if (updatedFrontends.any { it['Host'] == feHost && it['EditLogPort'] == feEditLogPort }) {
-                    logger.info("Frontend successfully added back")
-                    break
-                }
-                sleep(10000)
-                waited += 10
+                updatedFrontends.size() == 3
             }
-
-            if (waited >= maxWaitSeconds) {
-                throw new Exception("Timeout waiting for frontend to be added back")
-            }
-
             // Verify cluster status after adding the frontend back
             checkClusterStatus(3, 3, 6)
 

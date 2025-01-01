@@ -17,20 +17,13 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
+import org.apache.doris.nereids.jobs.executor.TableCollector;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
@@ -46,7 +39,6 @@ import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -54,13 +46,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -83,8 +69,6 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.Stack;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -102,7 +86,7 @@ public class CascadesContext implements ScheduleContext {
     private Memo memo;
     private final StatementContext statementContext;
 
-    private final CTEContext cteContext;
+    private CTEContext cteContext;
     private final RuleSet ruleSet;
     private final JobPool jobPool;
     private final JobScheduler jobScheduler;
@@ -112,7 +96,6 @@ public class CascadesContext implements ScheduleContext {
     private final RuntimeFilterContext runtimeFilterContext;
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
-    private Map<List<String>, TableIf> tables = null;
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -122,6 +105,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CascadesContext> parent;
 
     private final Set<MaterializationContext> materializationContexts;
+    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -146,7 +130,7 @@ public class CascadesContext implements ScheduleContext {
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
-            CTEContext cteContext, PhysicalProperties requireProperties) {
+            CTEContext cteContext, PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         this.parent = Objects.requireNonNull(parent, "parent should not null");
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
@@ -167,9 +151,7 @@ public class CascadesContext implements ScheduleContext {
         } else {
             this.isEnableExprTrace = false;
         }
-        if (parent.isPresent()) {
-            this.tables = parent.get().tables;
-        }
+        this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
     }
 
     /**
@@ -178,7 +160,7 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext initContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return newContext(Optional.empty(), Optional.empty(), statementContext,
-                initPlan, new CTEContext(), requireProperties);
+                initPlan, new CTEContext(), requireProperties, false);
     }
 
     /**
@@ -187,14 +169,15 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
             Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
-                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY
+                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
+                cascadesContext.isLeadingDisableJoinReorder
         );
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
         return CascadesContext.newContext(context.getParent(), context.getCurrentTree(), context.getStatementContext(),
                 context.getRewritePlan(), context.getCteContext(),
-                context.getCurrentJobContext().getRequiredProperties());
+                context.getCurrentJobContext().getRequiredProperties(), context.isLeadingDisableJoinReorder);
     }
 
     /**
@@ -203,14 +186,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newSubtreeContext(Optional<CTEId> subtree, CascadesContext context,
             Plan plan, PhysicalProperties requireProperties) {
         return CascadesContext.newContext(Optional.of(context), subtree, context.getStatementContext(),
-                plan, context.getCteContext(), requireProperties);
+                plan, context.getCteContext(), requireProperties, context.isLeadingDisableJoinReorder);
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
-            PhysicalProperties requireProperties) {
+            PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
-            cteContext, requireProperties);
+            cteContext, requireProperties, isLeadingDisableJoinReorder);
     }
 
     public CascadesContext getRoot() {
@@ -241,12 +224,12 @@ public class CascadesContext implements ScheduleContext {
         this.memo = new Memo(getConnectContext(), plan);
     }
 
-    public Analyzer newAnalyzer() {
-        return newAnalyzer(Optional.empty());
+    public TableCollector newTableCollector() {
+        return new TableCollector(this);
     }
 
-    public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        return new Analyzer(this, customTableResolver);
+    public Analyzer newAnalyzer() {
+        return new Analyzer(this);
     }
 
     @Override
@@ -260,10 +243,6 @@ public class CascadesContext implements ScheduleContext {
 
     public void releaseMemo() {
         this.memo = null;
-    }
-
-    public void setTables(Map<List<String>, TableIf> tables) {
-        this.tables = tables;
     }
 
     public final ConnectContext getConnectContext() {
@@ -340,6 +319,10 @@ public class CascadesContext implements ScheduleContext {
         return cteContext;
     }
 
+    public void setCteContext(CTEContext cteContext) {
+        this.cteContext = cteContext;
+    }
+
     public void setIsRewriteRoot(boolean isRewriteRoot) {
         this.isRewriteRoot = isRewriteRoot;
     }
@@ -364,6 +347,14 @@ public class CascadesContext implements ScheduleContext {
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
         this.materializationContexts.add(materializationContext);
+    }
+
+    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
+        return materializationRewrittenSuccessSet;
+    }
+
+    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
+        this.materializationRewrittenSuccessSet.add(materializationQualifier);
     }
 
     /**
@@ -394,196 +385,6 @@ public class CascadesContext implements ScheduleContext {
         pushJob(job);
         jobScheduler.executeJobPool(this);
         return this;
-    }
-
-    /**
-     * Extract tables.
-     */
-    public void extractTables(LogicalPlan logicalPlan) {
-        Set<List<String>> tableNames = getTables(logicalPlan);
-        tables = Maps.newHashMap();
-        for (List<String> tableName : tableNames) {
-            try {
-                TableIf table = getTable(tableName);
-                tables.put(table.getFullQualifiers(), table);
-            } catch (Throwable e) {
-                // IGNORE
-            }
-        }
-
-    }
-
-    public Map<List<String>, TableIf> getTables() {
-        if (tables == null) {
-            return null;
-        } else {
-            return tables;
-        }
-    }
-
-    private Set<List<String>> getTables(LogicalPlan logicalPlan) {
-        final Set<List<String>> tableNames = new HashSet<>();
-        logicalPlan.foreach(p -> {
-            if (p instanceof LogicalFilter) {
-                tableNames.addAll(extractTableNamesFromFilter((LogicalFilter<?>) p));
-            } else if (p instanceof LogicalCTE) {
-                tableNames.addAll(extractTableNamesFromCTE((LogicalCTE<?>) p));
-            } else if (p instanceof LogicalProject) {
-                tableNames.addAll(extractTableNamesFromProject((LogicalProject<?>) p));
-            } else if (p instanceof LogicalHaving) {
-                tableNames.addAll(extractTableNamesFromHaving((LogicalHaving<?>) p));
-            } else if (p instanceof UnboundOneRowRelation) {
-                tableNames.addAll(extractTableNamesFromOneRowRelation((UnboundOneRowRelation) p));
-            } else {
-                Set<LogicalPlan> logicalPlans = p.collect(
-                        n -> (n instanceof UnboundRelation || n instanceof UnboundTableSink));
-                for (LogicalPlan plan : logicalPlans) {
-                    if (plan instanceof UnboundRelation) {
-                        tableNames.add(((UnboundRelation) plan).getNameParts());
-                    } else if (plan instanceof UnboundTableSink) {
-                        tableNames.add(((UnboundTableSink<?>) plan).getNameParts());
-                    } else {
-                        throw new AnalysisException("get tables from plan failed. meet unknown type node " + plan);
-                    }
-                }
-            }
-        });
-        return tableNames;
-    }
-
-    private Set<List<String>> extractTableNamesFromHaving(LogicalHaving<?> having) {
-        Set<SubqueryExpr> subqueryExprs = having.getPredicate()
-                .collect(SubqueryExpr.class::isInstance);
-        Set<List<String>> tableNames = new HashSet<>();
-        for (SubqueryExpr expr : subqueryExprs) {
-            LogicalPlan plan = expr.getQueryPlan();
-            tableNames.addAll(getTables(plan));
-        }
-        return tableNames;
-    }
-
-    private Set<List<String>> extractTableNamesFromOneRowRelation(UnboundOneRowRelation oneRowRelation) {
-        Set<SubqueryExpr> subqueryExprs = oneRowRelation.getProjects().stream()
-                .<Set<SubqueryExpr>>map(p -> p.collect(SubqueryExpr.class::isInstance))
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        Set<List<String>> tableNames = new HashSet<>();
-        for (SubqueryExpr expr : subqueryExprs) {
-            LogicalPlan plan = expr.getQueryPlan();
-            tableNames.addAll(getTables(plan));
-        }
-        return tableNames;
-    }
-
-    private Set<List<String>> extractTableNamesFromProject(LogicalProject<?> project) {
-        Set<SubqueryExpr> subqueryExprs = project.getProjects().stream()
-                .<Set<SubqueryExpr>>map(p -> p.collect(SubqueryExpr.class::isInstance))
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        Set<List<String>> tableNames = new HashSet<>();
-        for (SubqueryExpr expr : subqueryExprs) {
-            LogicalPlan plan = expr.getQueryPlan();
-            tableNames.addAll(getTables(plan));
-        }
-        return tableNames;
-    }
-
-    private Set<List<String>> extractTableNamesFromFilter(LogicalFilter<?> filter) {
-        Set<SubqueryExpr> subqueryExprs = filter.getPredicate()
-                .collect(SubqueryExpr.class::isInstance);
-        Set<List<String>> tableNames = new HashSet<>();
-        for (SubqueryExpr expr : subqueryExprs) {
-            LogicalPlan plan = expr.getQueryPlan();
-            tableNames.addAll(getTables(plan));
-        }
-        return tableNames;
-    }
-
-    private Set<List<String>> extractTableNamesFromCTE(LogicalCTE<?> cte) {
-        List<LogicalSubQueryAlias<Plan>> subQueryAliases = cte.getAliasQueries();
-        Set<List<String>> tableNames = new HashSet<>();
-        for (LogicalSubQueryAlias<Plan> subQueryAlias : subQueryAliases) {
-            tableNames.addAll(getTables(subQueryAlias));
-        }
-        return tableNames;
-    }
-
-    private TableIf getTable(List<String> nameParts) {
-        switch (nameParts.size()) {
-            case 1: { // table
-                String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
-                String dbName = getConnectContext().getDatabase();
-                return getTable(ctlName, dbName, nameParts.get(0), getConnectContext().getEnv());
-            }
-            case 2: { // db.table
-                String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
-                String dbName = nameParts.get(0);
-                return getTable(ctlName, dbName, nameParts.get(1), getConnectContext().getEnv());
-            }
-            case 3: { // catalog.db.table
-                return getTable(nameParts.get(0), nameParts.get(1), nameParts.get(2), getConnectContext().getEnv());
-            }
-            default:
-                throw new IllegalStateException("Table name [" + String.join(".", nameParts) + "] is invalid.");
-        }
-    }
-
-    /**
-     * Find table from catalog.
-     */
-    public TableIf getTable(String ctlName, String dbName, String tableName, Env env) {
-        CatalogIf catalog = env.getCatalogMgr().getCatalog(ctlName);
-        if (catalog == null) {
-            throw new RuntimeException("Catalog [" + ctlName + "] does not exist.");
-        }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new RuntimeException("Database [" + dbName + "] does not exist in catalog [" + ctlName + "].");
-        }
-
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
-        }
-        return table;
-
-    }
-
-    /**
-     * Used to lock table
-     */
-    public static class Lock implements AutoCloseable {
-
-        CascadesContext cascadesContext;
-        private final Stack<TableIf> locked = new Stack<>();
-
-        /**
-         * Try to acquire read locks on tables, throw runtime exception once the acquiring for read lock failed.
-         */
-        public Lock(LogicalPlan plan, CascadesContext cascadesContext) {
-            this.cascadesContext = cascadesContext;
-            // tables can also be load from dump file
-            if (cascadesContext.tables == null) {
-                cascadesContext.extractTables(plan);
-            }
-            for (TableIf table : cascadesContext.tables.values()) {
-                if (!table.needReadLockWhenPlan()) {
-                    continue;
-                }
-                if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
-                    close();
-                    throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));
-                }
-                locked.push(table);
-            }
-        }
-
-        @Override
-        public void close() {
-            while (!locked.empty()) {
-                locked.pop().readUnlock();
-            }
-        }
     }
 
     public void putCTEIdToConsumer(LogicalCTEConsumer cteConsumer) {
@@ -672,9 +473,16 @@ public class CascadesContext implements ScheduleContext {
         this.currentRootRewriteJobContext = Optional.ofNullable(currentRootRewriteJobContext);
     }
 
+    /** showPlanProcess */
     public boolean showPlanProcess() {
         Boolean show = showPlanProcess.get();
-        return show != null && show;
+        if (show != null && show) {
+            return true;
+        }
+        if (parent.isPresent()) {
+            return parent.get().showPlanProcess();
+        }
+        return false;
     }
 
     /** set showPlanProcess in task scope */

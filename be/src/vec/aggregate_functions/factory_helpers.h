@@ -25,6 +25,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 inline void assert_unary(const std::string& name, const DataTypes& argument_types) {
     CHECK_EQ(argument_types.size(), 1)
@@ -57,3 +58,5 @@ void assert_arity_at_most(const std::string& name, const DataTypes& argument_typ
 }
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

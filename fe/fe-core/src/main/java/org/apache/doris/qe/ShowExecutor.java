@@ -965,8 +965,7 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(),
-                    CaseSensibility.TABLE.getCaseSensibility());
+            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(), isShowTablesCaseSensitive());
         }
         for (TableIf tbl : db.getTables()) {
             if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
@@ -1005,6 +1004,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
     }
 
+    public boolean isShowTablesCaseSensitive() {
+        if (GlobalVariable.lowerCaseTableNames == 0) {
+            return CaseSensibility.TABLE.getCaseSensibility();
+        }
+        return false;
+    }
+
     // Show table status statement.
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
@@ -1015,8 +1021,7 @@ public class ShowExecutor {
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(), isShowTablesCaseSensitive());
             }
             for (TableIf table : db.getTables()) {
                 if (matcher != null && !matcher.match(table.getName())) {
@@ -1184,15 +1189,9 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showStmt.getDb());
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
-
-        mtmv.readLock();
-        try {
-            String mtmvDdl = Env.getMTMVDdl(mtmv);
-            rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-        } finally {
-            mtmv.readUnlock();
-        }
+        String mtmvDdl = Env.getMTMVDdl(mtmv);
+        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Describe statement
@@ -1263,17 +1262,20 @@ public class ShowExecutor {
                 .getCatalogOrAnalysisException(showStmt.getTableName().getCtl())
                 .getDbOrAnalysisException(showStmt.getDbName());
         if (db instanceof Database) {
-            OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
-            table.readLock();
-            try {
-                List<Index> indexes = table.getIndexes();
-                for (Index index : indexes) {
-                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                            "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+            TableIf table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                olapTable.readLock();
+                try {
+                    List<Index> indexes = olapTable.getIndexes();
+                    for (Index index : indexes) {
+                        rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
+                                "", String.join(",", index.getColumns()), "", "", "", "",
+                                "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                    }
+                } finally {
+                    olapTable.readUnlock();
                 }
-            } finally {
-                table.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1933,6 +1935,11 @@ public class ShowExecutor {
         Map<String, Expr> filterMap = showStmt.getFilterMap();
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
 
+        // catalog.getClient().listPartitionNames() returned string is the encoded string.
+        // example: insert into tmp partition(pt="1=3/3") values( xxx );
+        //          show partitions from tmp: pt=1%3D3%2F3
+        // Need to consider whether to call `HiveUtil.toPartitionColNameAndValues` method
+
         if (limit != null && limit.hasLimit() && limit.getOffset() == 0
                 && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
             // hmsClient returns unordered partition list, hence if offset > 0 cannot pass limit
@@ -2124,30 +2131,32 @@ public class ShowExecutor {
                         }
                     }
                 }
-                if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
+                if (showStmt.hasOffset() && showStmt.getOffset() >= tabletInfos.size()) {
                     tabletInfos.clear();
-                } else if (sizeLimit > -1) {
-                    tabletInfos = tabletInfos.subList((int) showStmt.getOffset(), (int) sizeLimit);
-                }
-
-                // order by
-                List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-                ListComparator<List<Comparable>> comparator = null;
-                if (orderByPairs != null) {
-                    OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                 } else {
-                    // order by tabletId, replicaId
-                    comparator = new ListComparator<>(0, 1);
-                }
-                Collections.sort(tabletInfos, comparator);
-
-                for (List<Comparable> tabletInfo : tabletInfos) {
-                    List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
-                    for (Comparable column : tabletInfo) {
-                        oneTablet.add(column.toString());
+                    // order by
+                    List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+                    ListComparator<List<Comparable>> comparator = null;
+                    if (orderByPairs != null) {
+                        OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+                        comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                    } else {
+                        // order by tabletId, replicaId
+                        comparator = new ListComparator<>(0, 1);
                     }
-                    rows.add(oneTablet);
+                    Collections.sort(tabletInfos, comparator);
+                    if (sizeLimit > -1) {
+                        tabletInfos = tabletInfos.subList((int) showStmt.getOffset(),
+                                Math.min((int) sizeLimit, tabletInfos.size()));
+                    }
+
+                    for (List<Comparable> tabletInfo : tabletInfos) {
+                        List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
+                        for (Comparable column : tabletInfo) {
+                            oneTablet.add(column.toString());
+                        }
+                        rows.add(oneTablet);
+                    }
                 }
             } finally {
                 olapTable.readUnlock();
@@ -2231,7 +2240,9 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        CatalogIf catalog = env.getCatalogMgr()
+                .getCatalogOrAnalysisException(showExportStmt.getCtlName());
+        DatabaseIf db = catalog.getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -3405,8 +3416,7 @@ public class ShowExecutor {
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
                     .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
-                            PrivPredicate.USAGE)
-                    )
+                            PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {

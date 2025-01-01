@@ -1354,27 +1354,9 @@ suite("nereids_scalar_fn_Array") {
     sql """ set enable_decimal256=true; """
     order_qt_sql_array_min_decimal256 "select array_min(c) from fn_test_array_with_large_decimal order by id"
     order_qt_sql_array_max_decimal256 "select array_max(c) from fn_test_array_with_large_decimal order by id"
-    test {
-        sql "select array_product(c) from fn_test_array_with_large_decimal order by id"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
-    test {
-        sql "select array_avg(c) from fn_test_array_with_large_decimal order by id"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
-    test {
-        sql "select array_sum(c) from fn_test_array_with_large_decimal order by id"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+    order_qt_sql_array_product_decimal256 "select array_product(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_avg_decimal256 "select array_avg(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_sum_decimal256 "select array_sum(c) from fn_test_array_with_large_decimal order by id"
     // array_overlap for type correctness
     order_qt_sql_array_overlaps_1 """select arrays_overlap(a, b) from fn_test_array_with_large_decimal order by id"""
     order_qt_sql_array_overlaps_2 """select arrays_overlap(b, a) from fn_test_array_with_large_decimal order by id"""
@@ -1424,5 +1406,22 @@ suite("nereids_scalar_fn_Array") {
 	qt_sql_array_match_all_17 "select array_match_all(x->x=2, array(1, null, 3))"
 	qt_sql_array_match_any_18 "select array_match_any(x->x=2, array())"
 	qt_sql_array_match_all_18 "select array_match_all(x->x=2, array())"
+
+
+    // tests for nereids array functions for number overflow cases
+    qt_sql """ SELECT array_position([1,258],257),array_position([2],258);"""
+    qt_sql """ select array_apply([258], '>' , 257), array_apply([1,2,3], '>', 258);"""
+    qt_sql """ select array_contains([258], 257), array_contains([1,2,3], 258);"""
+    // pushfront and pushback
+    qt_sql """ select array_pushfront([258], 257), array_pushfront([1,2,3], 258);"""
+    qt_sql """ select array_pushback([1,258], 257), array_pushback([1,2,3], 258);"""
+    // array_remove
+    qt_sql """ select array_remove([1,258], 257), array_remove([1,2,3], 258);"""
+    // countequal
+    qt_sql """ select countequal([1,258], 257), countequal([1,2,3], 258);"""
+    // map_contains_key
+    qt_sql """ select map_contains_key(map(1,258), 257), map_contains_key(map(2,1), 258);"""
+    // map_contains_value
+    qt_sql """ select map_contains_value(map(1,1), 257), map_contains_value(map(1,2), 258);"""
 
 }

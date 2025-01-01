@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -101,6 +103,16 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     throw new AnalysisException("Sequence load only supported in unique tables.");
                 }
+                if (alterFeature == EnableFeatureClause.Features.UPDATE_FLEXIBLE_COLUMNS) {
+                    if (!(table.getKeysType() == KeysType.UNIQUE_KEYS && table.getEnableUniqueKeyMergeOnWrite())) {
+                        throw new AnalysisException("Update flexible columns feature is only supported"
+                                + " on merge-on-write unique tables.");
+                    }
+                    if (table.hasSkipBitmapColumn()) {
+                        throw new AnalysisException("table " + table.getName()
+                                + " has enabled update flexible columns feature already.");
+                    }
+                }
                 // analyse sequence column
                 Type sequenceColType = null;
                 if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
@@ -145,6 +157,11 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                     } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                         addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
                                 null, null);
+                    } else if (alterFeature == EnableFeatureClause.Features.UPDATE_FLEXIBLE_COLUMNS) {
+                        ColumnDef skipBItmapCol = ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE);
+                        List<Column> fullSchema = table.getBaseSchema(true);
+                        String lastCol = fullSchema.get(fullSchema.size() - 1).getName();
+                        addColumnClause = new AddColumnClause(skipBItmapCol, new ColumnPosition(lastCol), null, null);
                     }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);
@@ -195,6 +212,10 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                     sb.append("DROP ROLLUP ");
                 }
                 sb.append(((AddRollupClause) op).getRollupName());
+            } else if (op instanceof CreateIndexClause) {
+                sb.append(((CreateIndexClause) op).toSql(true));
+            } else if (op instanceof DropIndexClause) {
+                sb.append(((DropIndexClause) op).toSql(true));
             } else {
                 sb.append(op.toSql());
             }

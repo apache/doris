@@ -52,16 +52,14 @@ suite("single_table_without_aggregate") {
     """
 
     sql "analyze table orders with sync;"
+    sql """alter table orders modify column o_comment set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     def check_rewrite = { mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON orders"""
         createMV("create materialized view ${mv_name} as ${mv_sql}")
-        explain {
-            sql("${query_sql}")
-            contains "(${mv_name})"
-        }
+        mv_rewrite_success(query_sql, mv_name)
         order_qt_query1_0 "${query_sql}"
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON orders"""
     }

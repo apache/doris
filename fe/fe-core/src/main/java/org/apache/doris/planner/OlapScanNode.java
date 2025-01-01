@@ -895,7 +895,7 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
-            if (Config.enable_cooldown_replica_affinity) {
+            if (isEnableCooldownReplicaAffinity()) {
                 final long coolDownReplicaId = tablet.getCooldownReplicaId();
                 // we prefer to query using cooldown replica to make sure the cache is fully utilized
                 // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
@@ -927,6 +927,21 @@ public class OlapScanNode extends ScanNode {
 
             int replicaInTablet = 0;
             long oneReplicaBytes = 0;
+
+
+            // when resource tag has no alive replica and allowResourceTagDowngrade = true,
+            // resource tag should be disabled, we should find at least one alive replica
+            boolean shouldSkipResourceTag = false;
+            boolean isAllowRgDowngrade = context.isAllowResourceTagDowngrade();
+            if (needCheckTags && isAllowRgDowngrade && !checkTagHasAvailReplica(allowedTags, replicas)) {
+                shouldSkipResourceTag = true;
+                if (ConnectContext.get() != null && LOG.isDebugEnabled()) {
+                    LOG.debug("query {} skip resource tag for table {}.",
+                            DebugUtil.printId(ConnectContext.get().queryId()),
+                            olapTable != null ? olapTable.getId() : -1);
+                }
+            }
+
             for (Replica replica : replicas) {
                 Backend backend = null;
                 long backendId = -1;
@@ -945,14 +960,15 @@ public class OlapScanNode extends ScanNode {
                                 replica.getId());
                     }
                     String err = "replica " + replica.getId() + "'s backend " + backendId
-                            + " does not exist or not alive";
+                            + " with tag " + backend.getLocationTag() + " does not exist or not alive";
                     errs.add(err);
                     continue;
                 }
                 if (!backend.isMixNode()) {
                     continue;
                 }
-                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                if (!shouldSkipResourceTag && needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(
+                        backend.getLocationTag())) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
                             backend.getId(), backend.getLocationTag(), allowedTags);
@@ -994,6 +1010,10 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException("tablet " + tabletId + " err: " + Joiner.on(", ").join(errs));
             }
             if (tabletIsNull) {
+                if (needCheckTags && !isAllowRgDowngrade) {
+                    errs.add("If user specified tag has no queryable replica, "
+                            + "you can set property 'allow_resource_tag_downgrade'='true' to skip resource tag.");
+                }
                 throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
                         + Joiner.on(", ").join(errs));
             }
@@ -1012,6 +1032,37 @@ public class OlapScanNode extends ScanNode {
         } else {
             desc.setCardinality(cardinality);
         }
+    }
+
+    private boolean checkTagHasAvailReplica(Set<Tag> allowedTags, List<Replica> replicas) {
+        try {
+            for (Replica replica : replicas) {
+                long backendId = replica.getBackendId();
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+
+                if (backend == null || !backend.isAlive()) {
+                    continue;
+                }
+                if (!backend.isMixNode()) {
+                    continue;
+                }
+                if (!allowedTags.isEmpty() && allowedTags.contains(backend.getLocationTag())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            LOG.warn("error happens when check resource tag has avail replica ", t);
+            return true;
+        }
+    }
+
+    private boolean isEnableCooldownReplicaAffinity() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            return connectContext.getSessionVariable().isEnableCooldownReplicaAffinity();
+        }
+        return true;
     }
 
     private void computePartitionInfo() throws AnalysisException {
@@ -1961,10 +2012,5 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
-    }
-
-    @Override
-    public int numScanBackends() {
-        return scanBackendIds.size();
     }
 }

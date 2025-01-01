@@ -17,6 +17,7 @@
 use doris_test;
 
 Insert into dbo.student values (1, 'doris', 18), (2, 'alice', 19), (3, 'bob', 20);
+UPDATE STATISTICS dbo.student;
 
 Insert into dbo.test_int values
 (1, 0, 1, 1), (2, 1, -1, -1),
@@ -99,3 +100,6 @@ Insert into dbo.all_type values
 (2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 insert into dbo.test_timestamp(id_col) values(1);
+
+Insert into dbo.TEST_LOWER values (1, 'doris');
+UPDATE STATISTICS dbo.TEST_LOWER;

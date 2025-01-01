@@ -84,7 +84,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         _file_format_transformer.reset(new VParquetTransformer(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
                 parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false, _iceberg_schema_json));
+                false, _iceberg_schema_json, &_schema));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {

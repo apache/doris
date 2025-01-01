@@ -28,21 +28,17 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-template <template <typename, bool> class AggregateFunctionTemplate,
-          template <typename> class NameData, template <typename, typename> class Data,
-          bool is_nullable = false>
+template <template <typename> class Function, template <typename> class Data>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
-                                                  const bool result_is_nullable,
-                                                  bool custom_nullable) {
+                                                  const bool result_is_nullable) {
     WhichDataType which(remove_nullable(argument_types[0]));
-#define DISPATCH(TYPE)                                                                         \
-    if (which.idx == TypeIndex::TYPE)                                                          \
-        return creator_without_type::create<                                                   \
-                AggregateFunctionTemplate<NameData<Data<TYPE, BaseData<TYPE>>>, is_nullable>>( \
-                custom_nullable ? remove_nullable(argument_types) : argument_types,            \
-                result_is_nullable);
+#define DISPATCH(TYPE)                                                            \
+    if (which.idx == TypeIndex::TYPE)                                             \
+        return creator_without_type::create<Function<Data<TYPE>>>(argument_types, \
+                                                                  result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
@@ -51,27 +47,20 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     return nullptr;
 }
 
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_covariance_samp_old(const std::string& name,
-                                                                   const DataTypes& argument_types,
-                                                                   const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp_OLDER, CovarSampName, SampData_OLDER,
-                                        is_nullable>(name, argument_types, result_is_nullable,
-                                                     NULLABLE);
-}
-
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
                                                                const DataTypes& argument_types,
-                                                               const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp, CovarSampName, SampData>(
-            name, argument_types, result_is_nullable, NOTNULLABLE);
+                                                               const bool result_is_nullable,
+                                                               const AggregateFunctionAttr& attr) {
+    return create_function_single_value<AggregateFunctionSampCovariance, SampData>(
+            name, argument_types, result_is_nullable);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
                                                               const DataTypes& argument_types,
-                                                              const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionPop, CovarName, PopData>(
-            name, argument_types, result_is_nullable, NOTNULLABLE);
+                                                              const bool result_is_nullable,
+                                                              const AggregateFunctionAttr& attr) {
+    return create_function_single_value<AggregateFunctionSampCovariance, PopData>(
+            name, argument_types, result_is_nullable);
 }
 
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory) {
@@ -80,12 +69,7 @@ void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& facto
 }
 
 void register_aggregate_function_covar_samp_old(AggregateFunctionSimpleFactory& factory) {
-    factory.register_alternative_function(
-            "covar_samp", create_aggregate_function_covariance_samp_old<NOTNULLABLE>, false,
-            AGG_FUNCTION_NULLABLE);
-    factory.register_alternative_function("covar_samp",
-                                          create_aggregate_function_covariance_samp_old<NULLABLE>,
-                                          true, AGG_FUNCTION_NULLABLE);
+    BeExecVersionManager::registe_restrict_function_compatibility("covar_samp");
 }
 
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory) {

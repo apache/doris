@@ -97,7 +97,8 @@ public:
         DataPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
-                                 num_shards) {}
+                                 num_shards, DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, true, true) {
+        }
     };
 
     class IndexPageCache : public LRUCachePolicy {
@@ -176,11 +177,9 @@ private:
             return _pk_index_page_cache.get();
         }
         default:
-            LOG(FATAL) << "get error type page cache";
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("get error type page cache"));
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 };
 

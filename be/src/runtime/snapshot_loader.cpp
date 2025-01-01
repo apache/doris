@@ -74,7 +74,7 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
-        LOG(FATAL) << "unknown fs type: " << static_cast<int>(fs.type());
+        throw Exception(Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
     }
     return Status::OK();
 }
@@ -765,50 +765,68 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(err_msg);
     }
 
-    if (overwrite) {
-        std::vector<std::string> snapshot_files;
-        RETURN_IF_ERROR(_get_existing_files_from_local(snapshot_path, &snapshot_files));
+    if (!overwrite) {
+        throw Exception(Status::FatalError("only support overwrite now"));
+    }
 
-        // 1. simply delete the old dir and replace it with the snapshot dir
-        try {
-            // This remove seems soft enough, because we already get
-            // tablet id and schema hash from this path, which
-            // means this path is a valid path.
-            std::filesystem::remove_all(tablet_path);
-            VLOG_CRITICAL << "remove dir: " << tablet_path;
-            std::filesystem::create_directory(tablet_path);
-            VLOG_CRITICAL << "re-create dir: " << tablet_path;
-        } catch (const std::filesystem::filesystem_error& e) {
-            std::stringstream ss;
-            ss << "failed to move tablet path: " << tablet_path << ". err: " << e.what();
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
+    // Medium migration/clone/checkpoint/compaction may change or check the
+    // files and tablet meta, so we need to take these locks.
+    std::unique_lock migration_lock(tablet->get_migration_lock(), std::try_to_lock);
+    std::unique_lock base_compact_lock(tablet->get_base_compaction_lock(), std::try_to_lock);
+    std::unique_lock cumu_compact_lock(tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    std::unique_lock cold_compact_lock(tablet->get_cold_compaction_lock(), std::try_to_lock);
+    std::unique_lock build_idx_lock(tablet->get_build_inverted_index_lock(), std::try_to_lock);
+    std::unique_lock meta_store_lock(tablet->get_meta_store_lock(), std::try_to_lock);
+    if (!migration_lock.owns_lock() || !base_compact_lock.owns_lock() ||
+        !cumu_compact_lock.owns_lock() || !cold_compact_lock.owns_lock() ||
+        !build_idx_lock.owns_lock() || !meta_store_lock.owns_lock()) {
+        // This error should be retryable
+        auto status = Status::ObtainLockFailed("failed to get tablet locks, tablet: {}", tablet_id);
+        LOG(WARNING) << status << ", snapshot path: " << snapshot_path
+                     << ", tablet path: " << tablet_path;
+        return status;
+    }
 
-        // link files one by one
-        // files in snapshot dir will be moved in snapshot clean process
-        std::vector<std::string> linked_files;
-        for (auto& file : snapshot_files) {
-            auto full_src_path = fmt::format("{}/{}", snapshot_path, file);
-            auto full_dest_path = fmt::format("{}/{}", tablet_path, file);
-            if (link(full_src_path.c_str(), full_dest_path.c_str()) != 0) {
-                LOG(WARNING) << "failed to link file from " << full_src_path << " to "
-                             << full_dest_path << ", err: " << std::strerror(errno);
+    std::vector<std::string> snapshot_files;
+    RETURN_IF_ERROR(_get_existing_files_from_local(snapshot_path, &snapshot_files));
 
-                // clean the already linked files
-                for (auto& linked_file : linked_files) {
-                    remove(linked_file.c_str());
-                }
+    // FIXME: the below logic will demage the tablet files if failed in the middle.
 
-                return Status::InternalError("move tablet failed");
+    // 1. simply delete the old dir and replace it with the snapshot dir
+    try {
+        // This remove seems soft enough, because we already get
+        // tablet id and schema hash from this path, which
+        // means this path is a valid path.
+        std::filesystem::remove_all(tablet_path);
+        VLOG_CRITICAL << "remove dir: " << tablet_path;
+        std::filesystem::create_directory(tablet_path);
+        VLOG_CRITICAL << "re-create dir: " << tablet_path;
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::stringstream ss;
+        ss << "failed to move tablet path: " << tablet_path << ". err: " << e.what();
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+
+    // link files one by one
+    // files in snapshot dir will be moved in snapshot clean process
+    std::vector<std::string> linked_files;
+    for (auto& file : snapshot_files) {
+        auto full_src_path = fmt::format("{}/{}", snapshot_path, file);
+        auto full_dest_path = fmt::format("{}/{}", tablet_path, file);
+        if (link(full_src_path.c_str(), full_dest_path.c_str()) != 0) {
+            LOG(WARNING) << "failed to link file from " << full_src_path << " to " << full_dest_path
+                         << ", err: " << std::strerror(errno);
+
+            // clean the already linked files
+            for (auto& linked_file : linked_files) {
+                remove(linked_file.c_str());
             }
-            linked_files.push_back(full_dest_path);
-            VLOG_CRITICAL << "link file from " << full_src_path << " to " << full_dest_path;
-        }
 
-    } else {
-        LOG(FATAL) << "only support overwrite now";
-        __builtin_unreachable();
+            return Status::InternalError("move tablet failed");
+        }
+        linked_files.push_back(full_dest_path);
+        VLOG_CRITICAL << "link file from " << full_src_path << " to " << full_dest_path;
     }
 
     // snapshot loader not need to change tablet uid
@@ -942,7 +960,7 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
     LOG(INFO) << "report to frontend. job id: " << _job_id << ", task id: " << _task_id
               << ", finished num: " << finished_num << ", total num:" << total_num;
 
-    TNetworkAddress master_addr = _env->master_info()->network_address;
+    TNetworkAddress master_addr = _env->cluster_info()->master_fe_addr;
 
     TSnapshotLoaderReportRequest request;
     request.job_id = _job_id;

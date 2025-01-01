@@ -22,16 +22,15 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -39,6 +38,7 @@ import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
@@ -57,10 +57,13 @@ import java.util.function.Supplier;
 public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapGroupCommitInsertExecutor.class);
 
+    private Backend groupCommitBackend;
+
     public OlapGroupCommitInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert) {
+            boolean emptyInsert, Backend backend) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+        this.groupCommitBackend = backend;
     }
 
     protected static void analyzeGroupCommit(ConnectContext ctx, TableIf table, LogicalPlan logicalQuery,
@@ -91,8 +94,11 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             conditions.add(Pair.of(() -> !(insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
                     && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
             conditions.add(Pair.of(
-                    () -> tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion,
-                    () -> "not one row relation or union, class: " + tableSink.child().getClass().getName()));
+                    () -> tableSink.child() instanceof OneRowRelation
+                            || tableSink.child() instanceof LogicalUnion
+                            || tableSink.child() instanceof InlineTable,
+                    () -> "not one row relation or union or inline table, class: "
+                            + tableSink.child().getClass().getName()));
             ctx.setGroupCommit(conditions.stream().allMatch(p -> p.first.getAsBoolean()));
             if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
@@ -118,12 +124,8 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             LOG.info(msg);
             throw new AnalysisException(msg);
         }
-        try {
-            this.coordinator.setGroupCommitBe(Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(table.getId(), ctx));
-        } catch (LoadException | DdlException e) {
-            throw new RuntimeException(e);
-        }
+        // this is used for old coordinator
+        this.coordinator.setGroupCommitBe(groupCommitBackend);
     }
 
     @Override
