@@ -295,6 +295,9 @@ public:
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
     void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
+    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+        _non_block_close_thread_pool = std::move(pool);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 

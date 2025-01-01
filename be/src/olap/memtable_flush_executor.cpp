@@ -37,9 +37,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_thread_num, MetricUnit::NOUNIT);
-
 bvar::Adder<int64_t> g_flush_task_num("memtable_flush_task_num");
 
 class MemtableFlushTask final : public Runnable {
@@ -230,7 +227,6 @@ void MemTableFlushExecutor::init(int num_disk) {
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_high_prio_flush_pool));
-    _register_metrics();
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
@@ -252,29 +248,4 @@ Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& fl
         return Status::InternalError<false>("unknown rowset type.");
     }
 }
-
-Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& flush_token,
-                                                 std::shared_ptr<RowsetWriter> rowset_writer,
-                                                 ThreadPool* wg_flush_pool_ptr) {
-    if (rowset_writer->type() == BETA_ROWSET) {
-        flush_token = FlushToken::create_shared(wg_flush_pool_ptr);
-    } else {
-        return Status::InternalError<false>("not support alpha rowset load now.");
-    }
-    flush_token->set_rowset_writer(rowset_writer);
-    return Status::OK();
-}
-
-void MemTableFlushExecutor::_register_metrics() {
-    REGISTER_HOOK_METRIC(flush_thread_pool_queue_size,
-                         [this]() { return _flush_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(flush_thread_pool_thread_num,
-                         [this]() { return _flush_pool->num_threads(); })
-}
-
-void MemTableFlushExecutor::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(flush_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(flush_thread_pool_thread_num);
-}
-
 } // namespace doris
