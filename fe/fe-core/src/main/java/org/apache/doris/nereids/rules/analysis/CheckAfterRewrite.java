@@ -208,4 +208,14 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             }
         }
     }
+
+    public void checkValidation(Plan plan) {
+        checkAllSlotReferenceFromChildren(plan);
+        checkUnexpectedExpression(plan);
+        checkMetricTypeIsUsedCorrectly(plan);
+        checkMatchIsUsedCorrectly(plan);
+        for (Plan child : plan.children()) {
+            checkValidation(child);
+        }
+    }
 }

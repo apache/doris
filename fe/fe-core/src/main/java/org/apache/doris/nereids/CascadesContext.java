@@ -53,6 +53,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -80,7 +81,7 @@ public class CascadesContext implements ScheduleContext {
     private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
 
     // in analyze/rewrite stage, the plan will storage in this field
-    private Plan plan;
+    public Plan plan;
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -122,6 +123,8 @@ public class CascadesContext implements ScheduleContext {
     private int distinctAggLevel;
     private final boolean isEnableExprTrace;
 
+    public Plan cteplan;
+    public Map<Plan, Memo> memos = new HashMap<>();
     /**
      * Constructor of OptimizerContext.
      *
@@ -222,6 +225,14 @@ public class CascadesContext implements ScheduleContext {
 
     public void toMemo() {
         this.memo = new Memo(getConnectContext(), plan);
+        // if (cteplan != null) {
+        //     List<Plan> plans = new ArrayList<>();
+        //     plans.add(cteplan);
+        //     plans.add(plan);
+        //     this.memo = new Memo(getConnectContext(), plans);
+        // } else {
+        //     this.memo = new Memo(getConnectContext(), plan);
+        // }
     }
 
     public TableCollector newTableCollector() {

@@ -559,7 +559,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * @param targetExpressionMapping target expression mapping, if finding the expression in key set of the mapping
      *         then use the corresponding value of mapping to replace it
      */
-    protected List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
+    public static List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
             ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping, BitSet sourcePlanBitSet) {
         // Firstly, rewrite the target expression using source with inverse mapping
         // then try to use the target expression to represent the query. if any of source expressions
@@ -607,7 +607,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * then we can add payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number')
      * to targetToTargetReplacementMappingQueryBased
      * */
-    private void extendMappingByVariant(Set<SlotReference> queryVariants,
+    public static void extendMappingByVariant(Set<SlotReference> queryVariants,
             Map<Expression, Expression> targetToTargetReplacementMappingQueryBased) {
         if (queryVariants.isEmpty()) {
             return;
@@ -709,7 +709,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * For another example as following:
      * predicate a = b in mv, and a = b and c = d in query, the compensatory predicate is c = d
      */
-    protected SplitPredicate predicatesCompensate(
+    public static SplitPredicate predicatesCompensate(
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
@@ -791,7 +791,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     /**
      * Check the queryPredicates contains the required nullable slot
      */
-    private boolean containsNullRejectSlot(Set<Set<Slot>> requireNoNullableViewSlot,
+    public static boolean containsNullRejectSlot(Set<Set<Slot>> requireNoNullableViewSlot,
             Set<Expression> queryPredicates,
             SlotMapping queryToViewMapping,
             StructInfo queryStructInfo,

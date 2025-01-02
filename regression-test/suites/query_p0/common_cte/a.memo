@@ -1,0 +1,512 @@
+Explain String(Nereids Planner)
+root:Group[@7]
+  logical expressions:
+    id:179#7 cost=null estRows=2 children=[@6 ] (plan=LogicalResultSink[180] ( outputExprs=[a#34] ))
+  physical expressions:
+    id:208#7 cost=0.0 [0/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalResultSink[209] ( outputExprs=[a#34] ))
+  enforcers:
+  chosen expression id: 208
+  chosen properties: GATHER
+  stats
+    rows=2.0
+    tupleSize=8.0
+    width=1
+    a#34 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    324951.10500000004 ANY
+     id:208#7 cost=0.0 [0/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalResultSink[209] ( outputExprs=[a#34] ))
+     [GATHER]
+
+    324951.10500000004 GATHER
+     id:208#7 cost=0.0 [0/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalResultSink[209] ( outputExprs=[a#34] ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@0]
+  logical expressions:
+    id:159#0 cost=null estRows=60,175 children=[ ] (plan=LogicalOlapScan[160] ( qualified=internal.regression_test_query_p0_common_cte.lineitem, indexName=<index_not_selected>, selectedIndexId=1596500, preAgg=ON ))
+  physical expressions:
+    id:251#0 cost=60175.0 [60175/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineitem]@0 ( stats=null ))
+  enforcers:
+  stats
+    rows=60175.0
+    tupleSize=16.0
+    width=1
+    orderkey#0 -> unknown(60175.0)
+    partkey#1 -> unknown(60175.0)
+    suppkey#2 -> unknown(60175.0)
+    linenumber#3 -> unknown(60175.0)
+    quantity#4 -> unknown(60175.0)
+    extendedprice#5 -> unknown(60175.0)
+    discount#6 -> unknown(60175.0)
+    tax#7 -> unknown(60175.0)
+    returnflag#8 -> unknown(60175.0)
+    linestatus#9 -> unknown(60175.0)
+    shipdate#10 -> unknown(60175.0)
+    commitdate#11 -> unknown(60175.0)
+    receiptdate#12 -> unknown(60175.0)
+    shipinstruct#13 -> unknown(60175.0)
+    shipmode#14 -> unknown(60175.0)
+    comment#15 -> unknown(60175.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    60175.0 ANY
+     id:251#0 cost=60175.0 [60175/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineitem]@0 ( stats=null ))
+     []
+
+    60175.0 DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+     id:251#0 cost=60175.0 [60175/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineitem]@0 ( stats=null ))
+     []
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@1]
+  logical expressions:
+    id:162#1 cost=null estRows=60,175 children=[@0 ] (plan=LogicalProject[163] ( distinct=false, projects=[1 AS `1`#41] ))
+    id:238#1 cost=null estRows=60,175 children=[@15 ] (plan=LogicalProject[239] ( distinct=false, projects=[1 AS `1`#41] ))
+  physical expressions:
+    id:243#1 cost=1.0 [1/0/0/] estRows=60,175 children=[@15 ] (plan=PhysicalProject[244]@1 ( stats=null, projects=[1 AS `1`#41] ))
+    id:248#1 cost=1.0 [1/0/0/] estRows=-1 children=[@0 ] (plan=PhysicalProject[249]@1 ( stats=null, projects=[1 AS `1`#41] ))
+  enforcers:
+  chosen expression id: 243
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+  stats
+    rows=60175.0
+    tupleSize=1.0
+    width=1
+    1#41 -> ndv=1.0000, min=1.000000(1), max=1.000000(1), count=0.0000, numNulls=0.0000, avgSizeByte=1.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    42123.5 ANY
+     id:243#1 cost=1.0 [1/0/0/] estRows=60,175 children=[@15 ] (plan=PhysicalProject[244]@1 ( stats=null, projects=[1 AS `1`#41] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])]
+
+    42123.5 DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+     id:243#1 cost=1.0 [1/0/0/] estRows=60,175 children=[@15 ] (plan=PhysicalProject[244]@1 ( stats=null, projects=[1 AS `1`#41] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@2]
+  logical expressions:
+    id:165#2 cost=null estRows=1 children=[@1 ] (plan=LogicalAggregate[166] ( groupByExpr=[], outputExpr=[count(*) AS `a`#32], hasRepeat=false ))
+  physical expressions:
+    id:229#2 cost=2.02 [1/1/0/] estRows=1 children=[@14 ] (plan=PhysicalHashAggregate[230]@2 ( stats=null, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#43) AS `a`#32], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+  enforcers:
+    id:340#2 cost=0.0015 [0/0/0/] estRows=-1 children=[@2 ] (plan=PhysicalDistribute[341]@2 ( stats=null, distributionSpec=DistributionSpecExecutionAny ))
+  chosen enforcer(id, requiredProperties):
+      (0)340,  DistributionSpecExecutionAny Order: ([])
+  chosen expression id: 229
+  chosen properties: GATHER
+  stats
+    rows=1.0
+    tupleSize=8.0
+    width=1
+    a#32 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    162475.53600000002 ANY
+     id:229#2 cost=2.02 [1/1/0/] estRows=1 children=[@14 ] (plan=PhysicalHashAggregate[230]@2 ( stats=null, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#43) AS `a`#32], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [GATHER]
+
+    162475.53600000002 GATHER
+     id:229#2 cost=2.02 [1/1/0/] estRows=1 children=[@14 ] (plan=PhysicalHashAggregate[230]@2 ( stats=null, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#43) AS `a`#32], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [GATHER]
+
+    162475.5375 DistributionSpecExecutionAny Order: ([])
+     id:340#2 cost=0.0015 [0/0/0/] estRows=-1 children=[@2 ] (plan=PhysicalDistribute[341]@2 ( stats=null, distributionSpec=DistributionSpecExecutionAny ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@3]
+  logical expressions:
+    id:167#3 cost=null estRows=60,175 children=[ ] (plan=LogicalOlapScan[168] ( qualified=internal.regression_test_query_p0_common_cte.lineitem, indexName=<index_not_selected>, selectedIndexId=1596500, preAgg=ON ))
+  physical expressions:
+    id:313#3 cost=60175.0 [60175/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineitem]@3 ( stats=null ))
+  enforcers:
+  stats
+    rows=60175.0
+    tupleSize=16.0
+    width=1
+    orderkey#16 -> unknown(60175.0)
+    partkey#17 -> unknown(60175.0)
+    suppkey#18 -> unknown(60175.0)
+    linenumber#19 -> unknown(60175.0)
+    quantity#20 -> unknown(60175.0)
+    extendedprice#21 -> unknown(60175.0)
+    discount#22 -> unknown(60175.0)
+    tax#23 -> unknown(60175.0)
+    returnflag#24 -> unknown(60175.0)
+    linestatus#25 -> unknown(60175.0)
+    shipdate#26 -> unknown(60175.0)
+    commitdate#27 -> unknown(60175.0)
+    receiptdate#28 -> unknown(60175.0)
+    shipinstruct#29 -> unknown(60175.0)
+    shipmode#30 -> unknown(60175.0)
+    comment#31 -> unknown(60175.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    60175.0 ANY
+     id:313#3 cost=60175.0 [60175/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineitem]@3 ( stats=null ))
+     []
+
+    60175.0 DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+     id:313#3 cost=60175.0 [60175/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineitem]@3 ( stats=null ))
+     []
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@4]
+  logical expressions:
+    id:170#4 cost=null estRows=60,175 children=[@3 ] (plan=LogicalProject[171] ( distinct=false, projects=[1 AS `1`#42] ))
+    id:300#4 cost=null estRows=60,175 children=[@17 ] (plan=LogicalProject[301] ( distinct=false, projects=[1 AS `1`#42] ))
+  physical expressions:
+    id:305#4 cost=1.0 [1/0/0/] estRows=60,175 children=[@17 ] (plan=PhysicalProject[306]@4 ( stats=null, projects=[1 AS `1`#42] ))
+    id:310#4 cost=1.0 [1/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalProject[311]@4 ( stats=null, projects=[1 AS `1`#42] ))
+  enforcers:
+  chosen expression id: 305
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+  stats
+    rows=60175.0
+    tupleSize=1.0
+    width=1
+    1#42 -> ndv=1.0000, min=1.000000(1), max=1.000000(1), count=0.0000, numNulls=0.0000, avgSizeByte=1.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    42123.5 ANY
+     id:305#4 cost=1.0 [1/0/0/] estRows=60,175 children=[@17 ] (plan=PhysicalProject[306]@4 ( stats=null, projects=[1 AS `1`#42] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])]
+
+    42123.5 DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+     id:305#4 cost=1.0 [1/0/0/] estRows=60,175 children=[@17 ] (plan=PhysicalProject[306]@4 ( stats=null, projects=[1 AS `1`#42] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@5]
+  logical expressions:
+    id:173#5 cost=null estRows=1 children=[@4 ] (plan=LogicalAggregate[174] ( groupByExpr=[], outputExpr=[count(*) AS `b`#33], hasRepeat=false ))
+  physical expressions:
+    id:291#5 cost=2.02 [1/1/0/] estRows=1 children=[@16 ] (plan=PhysicalHashAggregate[292]@5 ( stats=null, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#44) AS `b`#33], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+  enforcers:
+    id:343#5 cost=0.0015 [0/0/0/] estRows=-1 children=[@5 ] (plan=PhysicalDistribute[344]@5 ( stats=null, distributionSpec=DistributionSpecExecutionAny ))
+  chosen enforcer(id, requiredProperties):
+      (0)343,  DistributionSpecExecutionAny Order: ([])
+  chosen expression id: 291
+  chosen properties: GATHER
+  stats
+    rows=1.0
+    tupleSize=8.0
+    width=1
+    b#33 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    162475.53600000002 ANY
+     id:291#5 cost=2.02 [1/1/0/] estRows=1 children=[@16 ] (plan=PhysicalHashAggregate[292]@5 ( stats=null, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#44) AS `b`#33], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [GATHER]
+
+    162475.53600000002 GATHER
+     id:291#5 cost=2.02 [1/1/0/] estRows=1 children=[@16 ] (plan=PhysicalHashAggregate[292]@5 ( stats=null, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#44) AS `b`#33], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [GATHER]
+
+    162475.5375 DistributionSpecExecutionAny Order: ([])
+     id:343#5 cost=0.0015 [0/0/0/] estRows=-1 children=[@5 ] (plan=PhysicalDistribute[344]@5 ( stats=null, distributionSpec=DistributionSpecExecutionAny ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@6]
+  logical expressions:
+    id:176#6 cost=null estRows=2 children=[@2, @5 ] (plan=LogicalUnion ( qualifier=ALL, outputs=[a#34], regularChildrenOutputs=[[a#32], [b#33]], constantExprsList=[], hasPushedFilter=false ))
+  physical expressions:
+    id:213#6 cost=0.0 [0/0/0/] estRows=-1 children=[@2, @5 ] (plan=PhysicalUnion[214]@6 ( stats=null, qualifier=ALL, outputs=[a#34], regularChildrenOutputs=[[a#32], [b#33]], constantExprsList=[] ))
+  enforcers:
+    id:346#6 cost=0.03 [0/0/0/] estRows=2 children=[@6 ] (plan=PhysicalDistribute[347]@6 ( stats=null, distributionSpec=DistributionSpecGather ))
+  chosen enforcer(id, requiredProperties):
+      (0)346,  GATHER
+  chosen expression id: 213
+  chosen properties: DistributionSpecExecutionAny Order: ([])
+  stats
+    rows=2.0
+    tupleSize=8.0
+    width=1
+    a#34 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    324951.075 ANY
+     id:213#6 cost=0.0 [0/0/0/] estRows=-1 children=[@2, @5 ] (plan=PhysicalUnion[214]@6 ( stats=null, qualifier=ALL, outputs=[a#34], regularChildrenOutputs=[[a#32], [b#33]], constantExprsList=[] ))
+     [DistributionSpecExecutionAny Order: ([]), DistributionSpecExecutionAny Order: ([])]
+
+    324951.075 DistributionSpecExecutionAny Order: ([])
+     id:213#6 cost=0.0 [0/0/0/] estRows=-1 children=[@2, @5 ] (plan=PhysicalUnion[214]@6 ( stats=null, qualifier=ALL, outputs=[a#34], regularChildrenOutputs=[[a#32], [b#33]], constantExprsList=[] ))
+     [DistributionSpecExecutionAny Order: ([]), DistributionSpecExecutionAny Order: ([])]
+
+    324951.10500000004 GATHER
+     id:346#6 cost=0.03 [0/0/0/] estRows=2 children=[@6 ] (plan=PhysicalDistribute[347]@6 ( stats=null, distributionSpec=DistributionSpecGather ))
+     [DistributionSpecExecutionAny Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@7]
+  logical expressions:
+    id:179#7 cost=null estRows=2 children=[@6 ] (plan=LogicalResultSink[180] ( outputExprs=[a#34] ))
+  physical expressions:
+    id:208#7 cost=0.0 [0/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalResultSink[209] ( outputExprs=[a#34] ))
+  enforcers:
+  chosen expression id: 208
+  chosen properties: GATHER
+  stats
+    rows=2.0
+    tupleSize=8.0
+    width=1
+    a#34 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    324951.10500000004 ANY
+     id:208#7 cost=0.0 [0/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalResultSink[209] ( outputExprs=[a#34] ))
+     [GATHER]
+
+    324951.10500000004 GATHER
+     id:208#7 cost=0.0 [0/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalResultSink[209] ( outputExprs=[a#34] ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@8]
+  logical expressions:
+    id:190#8 cost=null estRows=-1 children=[@5 ] (plan=LogicalCteProducer[191] ( cteId=CTEId#0 ))
+  physical expressions:
+  enforcers:
+  stats
+  lowest Plan(cost, properties, plan, childrenRequires)
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@9]
+  logical expressions:
+    id:192#9 cost=null estRows=-1 children=[ ] (plan=LogicalCteConsumer[193] ( cteId=CTEId#0, relationId=RelationId#2, name=comm_cte_0, map={a#32=b#33} ))
+  physical expressions:
+  enforcers:
+  stats
+  lowest Plan(cost, properties, plan, childrenRequires)
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@10]
+  logical expressions:
+    id:194#10 cost=null estRows=-1 children=[ ] (plan=LogicalCteConsumer[195] ( cteId=CTEId#0, relationId=RelationId#3, name=comm_cte_0, map={b#33=b#33} ))
+  physical expressions:
+  enforcers:
+  stats
+  lowest Plan(cost, properties, plan, childrenRequires)
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@11]
+  logical expressions:
+    id:197#11 cost=null estRows=-1 children=[@9, @10 ] (plan=LogicalUnion ( qualifier=ALL, outputs=[a#34], regularChildrenOutputs=[[a#32], [b#33]], constantExprsList=[], hasPushedFilter=false ))
+  physical expressions:
+  enforcers:
+  stats
+  lowest Plan(cost, properties, plan, childrenRequires)
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@12]
+  logical expressions:
+    id:200#12 cost=null estRows=-1 children=[@11 ] (plan=LogicalResultSink[201] ( outputExprs=[a#34] ))
+  physical expressions:
+  enforcers:
+  stats
+  lowest Plan(cost, properties, plan, childrenRequires)
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@13]
+  logical expressions:
+    id:203#13 cost=null estRows=-1 children=[@8, @12 ] (plan=LogicalCteAnchor[204] ( cteId=CTEId#0 ))
+  physical expressions:
+  enforcers:
+  stats
+  lowest Plan(cost, properties, plan, childrenRequires)
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@14]
+  logical expressions:
+  physical expressions:
+    id:226#14 cost=120350.00099999999 [60175/60175/0/] estRows=1 children=[@1 ] (plan=PhysicalHashAggregate[227]@14 ( stats=null, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#43], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+  enforcers:
+    id:255#14 cost=0.015 [0/0/0/] estRows=1 children=[@14 ] (plan=PhysicalDistribute[256]@14 ( stats=null, distributionSpec=DistributionSpecGather ))
+  chosen enforcer(id, requiredProperties):
+      (0)255,  GATHER
+  chosen expression id: 226
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+  stats
+    rows=1.0
+    tupleSize=1.0
+    width=1
+    partial_count(*)#43 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    162473.501 ANY
+     id:226#14 cost=120350.00099999999 [60175/60175/0/] estRows=1 children=[@1 ] (plan=PhysicalHashAggregate[227]@14 ( stats=null, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#43], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])]
+
+    162473.501 DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+     id:226#14 cost=120350.00099999999 [60175/60175/0/] estRows=1 children=[@1 ] (plan=PhysicalHashAggregate[227]@14 ( stats=null, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#43], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])]
+
+    162473.516 GATHER
+     id:255#14 cost=0.015 [0/0/0/] estRows=1 children=[@14 ] (plan=PhysicalDistribute[256]@14 ( stats=null, distributionSpec=DistributionSpecGather ))
+     [DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@15]
+  logical expressions:
+  physical expressions:
+    id:235#15 cost=42122.5 [42122/0/0/] estRows=60,175 children=[ ] (plan=PhysicalStorageLayerAggregate[0]@15 ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=null ), stats=null ))
+  enforcers:
+  chosen expression id: 235
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+  stats
+    rows=60175.0
+    tupleSize=16.0
+    width=1
+    orderkey#0 -> unknown(60175.0)
+    partkey#1 -> unknown(60175.0)
+    suppkey#2 -> unknown(60175.0)
+    linenumber#3 -> unknown(60175.0)
+    quantity#4 -> unknown(60175.0)
+    extendedprice#5 -> unknown(60175.0)
+    discount#6 -> unknown(60175.0)
+    tax#7 -> unknown(60175.0)
+    returnflag#8 -> unknown(60175.0)
+    linestatus#9 -> unknown(60175.0)
+    shipdate#10 -> unknown(60175.0)
+    commitdate#11 -> unknown(60175.0)
+    receiptdate#12 -> unknown(60175.0)
+    shipinstruct#13 -> unknown(60175.0)
+    shipmode#14 -> unknown(60175.0)
+    comment#15 -> unknown(60175.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    42122.5 ANY
+     id:235#15 cost=42122.5 [42122/0/0/] estRows=60,175 children=[ ] (plan=PhysicalStorageLayerAggregate[0]@15 ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=null ), stats=null ))
+     []
+
+    42122.5 DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) Order: ([])
+     id:235#15 cost=42122.5 [42122/0/0/] estRows=60,175 children=[ ] (plan=PhysicalStorageLayerAggregate[0]@15 ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=null ), stats=null ))
+     []
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@16]
+  logical expressions:
+  physical expressions:
+    id:288#16 cost=120350.00099999999 [60175/60175/0/] estRows=1 children=[@4 ] (plan=PhysicalHashAggregate[289]@16 ( stats=null, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#44], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+  enforcers:
+    id:317#16 cost=0.015 [0/0/0/] estRows=1 children=[@16 ] (plan=PhysicalDistribute[318]@16 ( stats=null, distributionSpec=DistributionSpecGather ))
+  chosen enforcer(id, requiredProperties):
+      (0)317,  GATHER
+  chosen expression id: 288
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+  stats
+    rows=1.0
+    tupleSize=1.0
+    width=1
+    partial_count(*)#44 -> unknown(1.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    162473.501 ANY
+     id:288#16 cost=120350.00099999999 [60175/60175/0/] estRows=1 children=[@4 ] (plan=PhysicalHashAggregate[289]@16 ( stats=null, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#44], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])]
+
+    162473.501 DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+     id:288#16 cost=120350.00099999999 [60175/60175/0/] estRows=1 children=[@4 ] (plan=PhysicalHashAggregate[289]@16 ( stats=null, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#44], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ))
+     [DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])]
+
+    162473.516 GATHER
+     id:317#16 cost=0.015 [0/0/0/] estRows=1 children=[@16 ] (plan=PhysicalDistribute[318]@16 ( stats=null, distributionSpec=DistributionSpecGather ))
+     [DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@17]
+  logical expressions:
+  physical expressions:
+    id:297#17 cost=42122.5 [42122/0/0/] estRows=60,175 children=[ ] (plan=PhysicalStorageLayerAggregate[1]@17 ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=null ), stats=null ))
+  enforcers:
+  chosen expression id: 297
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+  stats
+    rows=60175.0
+    tupleSize=16.0
+    width=1
+    orderkey#16 -> unknown(60175.0)
+    partkey#17 -> unknown(60175.0)
+    suppkey#18 -> unknown(60175.0)
+    linenumber#19 -> unknown(60175.0)
+    quantity#20 -> unknown(60175.0)
+    extendedprice#21 -> unknown(60175.0)
+    discount#22 -> unknown(60175.0)
+    tax#23 -> unknown(60175.0)
+    returnflag#24 -> unknown(60175.0)
+    linestatus#25 -> unknown(60175.0)
+    shipdate#26 -> unknown(60175.0)
+    commitdate#27 -> unknown(60175.0)
+    receiptdate#28 -> unknown(60175.0)
+    shipinstruct#29 -> unknown(60175.0)
+    shipmode#30 -> unknown(60175.0)
+    comment#31 -> unknown(60175.0)
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    42122.5 ANY
+     id:297#17 cost=42122.5 [42122/0/0/] estRows=60,175 children=[ ] (plan=PhysicalStorageLayerAggregate[1]@17 ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=null ), stats=null ))
+     []
+
+    42122.5 DistributionSpecHash ( orderedShuffledColumns=[16], shuffleType=NATURAL, tableId=1596499, selectedIndexId=1596500, partitionIds=[1596498], equivalenceExprIds=[[16]], exprIdToEquivalenceSet={16=0} ) Order: ([])
+     id:297#17 cost=42122.5 [42122/0/0/] estRows=60,175 children=[ ] (plan=PhysicalStorageLayerAggregate[1]@17 ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=null ), stats=null ))
+     []
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+========== OPTIMIZED PLAN ==========
+PhysicalResultSink[461] ( outputExprs=[a#34] )
++--PhysicalDistribute[456]@6 ( stats=2, distributionSpec=DistributionSpecGather )
+   +--PhysicalUnion[451]@6 ( stats=2, qualifier=ALL, outputs=[a#34], regularChildrenOutputs=[[a#32], [b#33]], constantExprsList=[] )
+      |--PhysicalDistribute[419]@2 ( stats=1, distributionSpec=DistributionSpecExecutionAny )
+      |  +--PhysicalHashAggregate[414]@2 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#43) AS `a`#32], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )
+      |     +--PhysicalDistribute[409]@14 ( stats=1, distributionSpec=DistributionSpecGather )
+      |        +--PhysicalHashAggregate[404]@14 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#43], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )
+      |           +--PhysicalProject[399]@1 ( stats=60,175, projects=[1 AS `1`#41] )
+      |              +--PhysicalStorageLayerAggregate[0]@ ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=60,175 ), stats=null )
+      +--PhysicalDistribute[446]@5 ( stats=1, distributionSpec=DistributionSpecExecutionAny )
+         +--PhysicalHashAggregate[441]@5 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#44) AS `b`#33], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )
+            +--PhysicalDistribute[436]@16 ( stats=1, distributionSpec=DistributionSpecGather )
+               +--PhysicalHashAggregate[431]@16 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#44], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )
+                  +--PhysicalProject[426]@4 ( stats=60,175, projects=[1 AS `1`#42] )
+                     +--PhysicalStorageLayerAggregate[1]@ ( pushDownAggOp=COUNT, relation=PhysicalOlapScan[lineitem]@ ( stats=60,175 ), stats=null )
