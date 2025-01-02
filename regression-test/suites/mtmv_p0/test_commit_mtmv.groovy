@@ -64,13 +64,35 @@ suite("test_commit_mtmv") {
     order_qt_mv2 "SELECT * FROM ${mvName2}"
     order_qt_task2 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvName2}' order by CreateTime desc limit 1"
 
+    // PAUSE MTMV should not refresh
+    sql """
+        PAUSE MATERIALIZED VIEW JOB ON ${mvName1};
+        """
+     sql """
+         insert into ${tableName} values(4,"2017-01-15",4);
+     """
+    waitingMTMVTaskFinished(jobName1)
+    order_qt_mv1_pause "SELECT * FROM ${mvName1}"
+
+    // resume MTMV should refresh
+    sql """
+        RESUME MATERIALIZED VIEW JOB ON ${mvName1};
+        """
+     sql """
+         insert into ${tableName} values(5,"2017-01-15",5);
+     """
+    waitingMTMVTaskFinished(jobName1)
+    order_qt_mv1_resume "SELECT * FROM ${mvName1}"
+    waitingMTMVTaskFinished(jobName2)
+    order_qt_mv2_resume "SELECT * FROM ${mvName2}"
+
     // on manual can not trigger by commit
     sql """
             alter MATERIALIZED VIEW ${mvName2} REFRESH ON MANUAL;
         """
 
      sql """
-          insert into ${tableName} values(1,"2017-01-15",1);;
+          insert into ${tableName} values(6,"2017-01-15",6);;
       """
     waitingMTMVTaskFinished(jobName1)
     order_qt_mv1_2 "SELECT * FROM ${mvName1}"

@@ -254,7 +254,7 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             partitionInit = true;
         }
-        int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
+        int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
         return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
     }
 
