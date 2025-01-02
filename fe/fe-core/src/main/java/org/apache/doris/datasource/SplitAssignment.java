@@ -23,7 +23,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -40,6 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * `SplitGenerator` provides the file splits, and `FederationBackendPolicy` assigns these splits to backends.
  */
 public class SplitAssignment {
+    private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
@@ -54,6 +58,7 @@ public class SplitAssignment {
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
     private UserException exception = null;
+    private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -167,11 +172,26 @@ public class SplitAssignment {
     }
 
     public void stop() {
+        if (isStop()) {
+            return;
+        }
         isStop.set(true);
+        closeableResources.forEach((closeable) -> {
+            try {
+                closeable.close();
+            } catch (Exception e) {
+                LOG.warn("close resource error:{}", e.getMessage(), e);
+                // ignore
+            }
+        });
         notifyAssignment();
     }
 
     public boolean isStop() {
         return isStop.get();
+    }
+
+    public void addCloseable(Closeable resource) {
+        closeableResources.add(resource);
     }
 }
