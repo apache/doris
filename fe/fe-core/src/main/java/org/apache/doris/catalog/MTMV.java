@@ -34,6 +34,8 @@ import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionSyncConfig;
+import org.apache.doris.mtmv.MTMVPartitionSyncTimeUnit;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
@@ -264,6 +266,23 @@ public class MTMV extends OlapTable {
         } finally {
             readMvUnlock();
         }
+    }
+
+    public MTMVPartitionSyncConfig getPartitionSyncConfig(
+            Map<String, String> mvProperties) {
+        int historyLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_HISTORY_LIMIT)) ? -1
+                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_HISTORY_LIMIT));
+        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
+                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
+        MTMVPartitionSyncTimeUnit timeUnit =
+                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
+                        ? MTMVPartitionSyncTimeUnit.DAY : MTMVPartitionSyncTimeUnit
+                        .valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT).toUpperCase());
+        Optional<String> dateFormat =
+                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT))
+                        ? Optional.empty()
+                        : Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT));
+        return new MTMVPartitionSyncConfig(syncLimit, historyLimit, timeUnit, dateFormat);
     }
 
     public boolean isUseForRewrite() {

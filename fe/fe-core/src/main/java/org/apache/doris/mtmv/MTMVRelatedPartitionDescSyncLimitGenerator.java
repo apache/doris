@@ -19,7 +19,6 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
@@ -29,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Map.Entry;
@@ -68,17 +66,7 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
      */
     public MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
             Map<String, String> mvProperties) {
-        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
-                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
-        MTMVPartitionSyncTimeUnit timeUnit =
-                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
-                        ? MTMVPartitionSyncTimeUnit.DAY : MTMVPartitionSyncTimeUnit
-                        .valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT).toUpperCase());
-        Optional<String> dateFormat =
-                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT))
-                        ? Optional.empty()
-                        : Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT));
-        return new MTMVPartitionSyncConfig(syncLimit, timeUnit, dateFormat);
+        return MTMVPartitionUtil.getPartitionSyncConfig(mvProperties);
     }
 
     /**

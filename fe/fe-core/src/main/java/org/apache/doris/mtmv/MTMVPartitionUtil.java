@@ -32,6 +32,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
@@ -42,6 +43,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -116,10 +119,13 @@ public class MTMVPartitionUtil {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
                 mtmv.getMvProperties()).keySet();
+        MTMVPartitionSyncConfig partitionSyncConfig = getPartitionSyncConfig(mtmv.getMvProperties());
         // drop partition of mtmv
         for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
             if (!relatedPartitionDescs.contains(entry.getValue())) {
-                dropPartition(mtmv, entry.getKey());
+                if (!needKeep(entry.getValue(), partitionSyncConfig) || hasConflict(entry.getValue(), relatedPartitionDescs)) {
+                    dropPartition(mtmv, entry.getKey());
+                }
             }
         }
         // add partition for mtmv
@@ -129,6 +135,39 @@ public class MTMVPartitionUtil {
                 addPartition(mtmv, desc);
             }
         }
+    }
+
+    private static boolean needKeep(PartitionKeyDesc partitionKeyDesc, MTMVPartitionSyncConfig partitionSyncConfig) {
+        if (partitionSyncConfig.needKeepAllHistoryPartitions()) {
+            return true;
+        }
+        if (partitionSyncConfig.notKeepAnyHistoryPartitions()) {
+            return false;
+        }
+        // todo: check time
+        return true;
+    }
+
+    private static boolean hasConflict(PartitionKeyDesc partitionKeyDesc, Set<PartitionKeyDesc> relatedPartitionDescs) {
+        // TODO: 2025/1/2 dd
+        return true;
+    }
+
+    public static MTMVPartitionSyncConfig getPartitionSyncConfig(
+            Map<String, String> mvProperties) {
+        int historyLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_HISTORY_LIMIT)) ? -1
+                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_HISTORY_LIMIT));
+        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
+                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
+        MTMVPartitionSyncTimeUnit timeUnit =
+                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
+                        ? MTMVPartitionSyncTimeUnit.DAY : MTMVPartitionSyncTimeUnit
+                        .valueOf(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT).toUpperCase());
+        Optional<String> dateFormat =
+                StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT))
+                        ? Optional.empty()
+                        : Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT));
+        return new MTMVPartitionSyncConfig(syncLimit, historyLimit, timeUnit, dateFormat);
     }
 
     /**
