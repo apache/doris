@@ -23,12 +23,16 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
+import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
+import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -56,6 +60,21 @@ import java.util.regex.Pattern;
  * {@link org.apache.doris.common.proc.CurrentQueryInfoProvider}.
  */
 public class RuntimeProfile {
+    // TODO: 这里维护性太差了
+    // BE 上的 OperatorXBase::init 里面有 Operator 的命名规则
+    // 简而言之是把 XXX_NODE 平替为 XXX_OPERATOR
+    // 所以这里应该把 gensrc/thrift/PlanNodes.thrift 里面定义的 NodeType
+    // 手动转为了其对应 BE 上 operator 的名字
+    // 有一些 Node 比较特殊，它在 BE 上是作为 Pipeline breaker 的，比如 AGGREGATION_NODE,
+    // 也得手动把这类 operator 的名字添加到这里
+    public static final ImmutableSet<String> PLAN_NODE_TYPE_MAP =
+            ImmutableSet.<String>builder()
+                    .add("OLAP_SCAN_OPERATOR")
+                    .add("AGGREGATION_OPERATOR")
+                    .add("AGGREGATION_SINK_OPERATOR")
+                    .add("HASH_JOIN_OPERATOR")
+                    .add("HASH_JOIN_SINK_OPERATOR").build();
+
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     public static String ROOT_COUNTER = "";
     public static String MAX_TIME_PRE = "max ";
@@ -794,5 +813,100 @@ public class RuntimeProfile {
 
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    private TPlanNodeRuntimeStatsItem toTPlanNodeRuntimeStatsItem() {
+        TPlanNodeRuntimeStatsItem item = new TPlanNodeRuntimeStatsItem();
+        item.setNodeId(this.nodeId());
+        boolean isBuildSinkOperator = this.getName().startsWith("HASH_JOIN_SINK_OPERATOR");
+        for (Map.Entry<String, Counter> entry : this.counterMap.entrySet()) {
+            if (entry.getValue() instanceof AggCounter) {
+                AggCounter value = (AggCounter) entry.getValue();
+                String key = entry.getKey();
+                item.setInstanceNum(value.number);
+                switch (key) {
+                    case "RowsProduced":
+                        item.setOutputRows(value.sum.getValue());
+                        break;
+                    case "InputRows":
+                        item.setInputRows(value.sum.getValue());
+                        if (isBuildSinkOperator) {
+                            item.setJoinBuilderRows(value.sum.getValue());
+                            long avgBuildValue = value.sum.getValue() / value.number;
+                            item.setJoinBuilderSkewRatio((double) value.max.getValue() / avgBuildValue);
+                        }
+                        break;
+                    case "ProbeRows":
+                        item.setJoinProbeRows(value.sum.getValue());
+                        long avgProbeValue = value.sum.getValue() / value.number;
+                        item.setJoinProberSkewRatio((double) value.max.getValue() / avgProbeValue);
+                        break;
+                }
+            }
+        }
+        return item;
+    }
+
+    public static List<TPlanNodeRuntimeStatsItem> toTPlanNodeRuntimeStatsItem(RuntimeProfile profile, List<TPlanNodeRuntimeStatsItem> itemsFromParent) {
+        if (itemsFromParent == null) {
+            itemsFromParent = new ArrayList<>();
+        }
+
+        // Recurse on children
+        profile.childLock.readLock().lock();
+        try {
+            for (int i = 0; i < profile.childList.size(); i++) {
+                List<TPlanNodeRuntimeStatsItem> childItems = new ArrayList<>();
+                itemsFromParent.addAll(toTPlanNodeRuntimeStatsItem(profile.childList.get(i).first, childItems));
+            }
+        } finally {
+            profile.childLock.readLock().unlock();
+        }
+        
+        String name = profile.getName();
+        if (!name.contains("_OPERATOR")) {
+            return itemsFromParent;    
+        } else {
+            int index = name.indexOf('(');
+            name = name.substring(0, index).trim();
+        }
+
+        // Check if current node is valid for processing
+        if (!PLAN_NODE_TYPE_MAP.contains(name)) {
+            return itemsFromParent; // Skip current node
+        }
+        // Add stats for current node
+        itemsFromParent.add(profile.toTPlanNodeRuntimeStatsItem());
+
+        if (LOG.isDebugEnabled()) {
+            List<TPlanNodeRuntimeStatsItem> currentItem = new ArrayList<TPlanNodeRuntimeStatsItem>();
+            currentItem.add(profile.toTPlanNodeRuntimeStatsItem());
+            LOG.debug("Current node {}({}) hbo items\n{},\nparent\n{}",
+                    profile.getName(), profile.nodeid,
+                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(currentItem),
+                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(itemsFromParent));
+        }
+
+        return itemsFromParent;
+    }
+
+    public static List<TPlanNodeRuntimeStatsItem> mergeTPlanNodeRuntimeStatsItem(List<TPlanNodeRuntimeStatsItem> items) {
+        Map<Integer, TPlanNodeRuntimeStatsItem> itemMap = new HashMap<>();
+        for (TPlanNodeRuntimeStatsItem item : items) {
+            int nodeId = item.getNodeId();
+            if (itemMap.containsKey(nodeId)) {
+                TPlanNodeRuntimeStatsItem oldItem = itemMap.get(nodeId);
+                oldItem.setInputRows(oldItem.getInputRows() + item.getInputRows());
+                oldItem.setOutputRows(oldItem.getOutputRows() + item.getOutputRows());
+                oldItem.setJoinProbeRows(oldItem.getJoinProbeRows() + item.getJoinProbeRows());
+                oldItem.setJoinProberSkewRatio(oldItem.getJoinProberSkewRatio() + item.getJoinProberSkewRatio());
+                oldItem.setJoinBuilderRows(oldItem.getJoinBuilderRows() + item.getJoinBuilderRows());
+                oldItem.setJoinBuilderSkewRatio(oldItem.getJoinBuilderSkewRatio() + item.getJoinBuilderSkewRatio());
+                oldItem.setInstanceNum(oldItem.getInstanceNum() + item.getInstanceNum());
+            } else {
+                itemMap.put(nodeId, item);
+            }
+        }
+        return new ArrayList<>(itemMap.values());
     }
 }

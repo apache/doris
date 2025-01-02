@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -402,9 +403,14 @@ public class Profile {
         }
 
         if (this.executionProfiles.size() == 1) {
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
             builder.append("\nMergedProfile \n");
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
+                planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
+                planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
+                builder.append("\nHBOStatics \n");
+                builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
             } else {
                 builder.append("build merged simple profile failed");
             }
