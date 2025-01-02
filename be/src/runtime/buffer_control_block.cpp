@@ -170,7 +170,10 @@ BufferControlBlock::BufferControlBlock(TUniqueId id, int buffer_size, RuntimeSta
 }
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel(Status::Cancelled("Cancelled"));
+    cancel(Status::Cancelled(fmt::format(
+            "BufferControlBlock is destructed, this is not the expected path, the correct path is "
+            "ResultBufferMgr::cancel before the destructor, fragmentId: {}",
+            print_id(_fragment_id))));
 }
 
 Status BufferControlBlock::init() {
