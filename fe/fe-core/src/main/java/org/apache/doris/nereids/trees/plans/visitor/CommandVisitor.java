@@ -104,6 +104,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
@@ -708,6 +709,10 @@ public interface CommandVisitor<R, C> {
     default R visitShowTabletStorageFormatCommand(ShowTabletStorageFormatCommand showTabletStorageFormatCommand,
                                                   C context) {
         return visitCommand(showTabletStorageFormatCommand, context);
+    }
+
+    default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
+        return visitCommand(showTabletIdCommand, context);
     }
 
     default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,

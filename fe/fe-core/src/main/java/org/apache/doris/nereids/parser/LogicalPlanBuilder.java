@@ -326,6 +326,7 @@ import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.SpecifiedPartitionContext;
+import org.apache.doris.nereids.DorisParser.ShowTabletIdContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
@@ -493,6 +494,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -4910,6 +4912,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAdminDiagnoseTablet(AdminDiagnoseTabletContext ctx) {
         long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new ShowDiagnoseTabletCommand(tabletId);
+    }
+
+    @Override
+    public LogicalPlan visitShowTabletId(DorisParser.ShowTabletIdContext ctx) {
+        long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
+        return new ShowTabletIdCommand(tabletId);
     }
 
     @Override

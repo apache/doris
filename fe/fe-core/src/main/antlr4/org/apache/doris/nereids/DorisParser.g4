@@ -282,6 +282,7 @@ supportedShowStatement
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
+    | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
@@ -363,7 +364,6 @@ unsupportedShowStatement
         sortClause? propertyClause?                                                 #showData
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW PROPERTY (FOR user=identifierOrText)? wildWhere?                         #showUserProperties
