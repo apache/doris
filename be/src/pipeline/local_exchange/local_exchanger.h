@@ -183,9 +183,7 @@ protected:
     void _enqueue_data_and_set_ready(int channel_id, BlockType&& block);
     bool _dequeue_data(BlockType& block, bool* eos, vectorized::Block* data_block, int channel_id);
     std::vector<BlockQueue<BlockType>> _data_queue;
-
-private:
-    std::mutex _m;
+    std::vector<std::unique_ptr<std::shared_mutex>> _m;
 };
 
 class LocalExchangeSourceLocalState;
@@ -241,6 +239,10 @@ public:
         DCHECK_GT(num_sources, 0);
         _data_queue.resize(num_sources);
         _partition_rows_histogram.resize(running_sink_operators);
+        _m.resize(num_sources);
+        for (size_t i = 0; i < num_sources; i++) {
+            _m[i] = std::make_unique<std::shared_mutex>();
+        }
     }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -279,6 +281,10 @@ public:
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
                                           free_block_limit) {
         _data_queue.resize(num_partitions);
+        _m.resize(num_partitions);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _m[i] = std::make_unique<std::shared_mutex>();
+        }
     }
     ~PassthroughExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -297,6 +303,10 @@ public:
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
                                           free_block_limit) {
         _data_queue.resize(num_partitions);
+        _m.resize(num_partitions);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _m[i] = std::make_unique<std::shared_mutex>();
+        }
     }
     ~PassToOneExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -316,6 +326,10 @@ public:
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit),
               _sort_source(std::move(sort_source)) {
         _data_queue.resize(num_partitions);
+        _m.resize(num_partitions);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _m[i] = std::make_unique<std::shared_mutex>();
+        }
     }
     ~LocalMergeSortExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -342,6 +356,10 @@ public:
     BroadcastExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
             : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit) {
         _data_queue.resize(num_partitions);
+        _m.resize(num_partitions);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _m[i] = std::make_unique<std::shared_mutex>();
+        }
     }
     ~BroadcastExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -364,6 +382,10 @@ public:
                                           free_block_limit) {
         _data_queue.resize(num_partitions);
         _partition_rows_histogram.resize(running_sink_operators);
+        _m.resize(num_partitions);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _m[i] = std::make_unique<std::shared_mutex>();
+        }
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo&& sink_info) override;
