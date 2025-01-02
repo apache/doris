@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_explain_information_schema", "query,p0") {
-    def explainRes = sql """explain select * from user_privileges where IS_GRANTABLE='NO';"""
+    def explainRes = sql """explain select * from information_schema.user_privileges where IS_GRANTABLE='NO';"""
     logger.info("explainRes: " + explainRes.toString())
     assertFalse(explainRes.toString().contains("PREDICATES"))
     assertFalse(explainRes.toString().contains("IS_GRANTABLE"))
