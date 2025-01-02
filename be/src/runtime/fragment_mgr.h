@@ -69,6 +69,46 @@ class WorkloadQueryInfo;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
+template <typename Key, typename Value, typename ValueType>
+class ConcurrentContextMap {
+public:
+    using ApplyFunction = std::function<Status(phmap::flat_hash_map<Key, Value>&)>;
+    ConcurrentContextMap();
+    Value find(const Key& query_id);
+    void insert(const Key& query_id, std::shared_ptr<ValueType>);
+    void clear();
+    void erase(const Key& query_id);
+    size_t num_items() const {
+        size_t n = 0;
+        for (auto& pair : _internal_map) {
+            std::shared_lock lock(*pair.first);
+            auto& map = pair.second;
+            n += map.size();
+        }
+        return n;
+    }
+    void apply(ApplyFunction&& function) {
+        for (auto& pair : _internal_map) {
+            // TODO: Now only the cancel worker do the GC the _query_ctx_map. each query must
+            // do erase the finish query unless in _query_ctx_map. Rethink the logic is ok
+            std::unique_lock lock(*pair.first);
+            static_cast<void>(function(pair.second));
+        }
+    }
+
+    Status apply_if_not_exists(const Key& query_id, std::shared_ptr<ValueType>& query_ctx,
+                               ApplyFunction&& function);
+
+private:
+    // The lock should only be used to protect the structures in fragment manager. Has to be
+    // used in a very small scope because it may dead lock. For example, if the _lock is used
+    // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
+    // when allocate failed, allocator may call query_is_cancelled, query is callced will also
+    // call _lock, so that there is dead lock.
+    std::vector<std::pair<std::unique_ptr<std::shared_mutex>, phmap::flat_hash_map<Key, Value>>>
+            _internal_map;
+};
+
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
@@ -131,10 +171,7 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
-    int32_t running_query_num() {
-        std::shared_lock lock(_query_ctx_map_mutex);
-        return _query_ctx_map.size();
-    }
+    int32_t running_query_num() { return _query_ctx_map.num_items(); }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
@@ -164,21 +201,14 @@ private:
     // This is input params
     ExecEnv* _exec_env = nullptr;
 
-    // The lock protect the `_pipeline_map`
-    std::shared_mutex _pipeline_map_mutex;
     // (QueryID, FragmentID) -> PipelineFragmentContext
-    phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                         std::shared_ptr<pipeline::PipelineFragmentContext>>
+    ConcurrentContextMap<std::pair<TUniqueId, int>,
+                         std::shared_ptr<pipeline::PipelineFragmentContext>,
+                         pipeline::PipelineFragmentContext>
             _pipeline_map;
 
-    // The lock should only be used to protect the structures in fragment manager. Has to be
-    // used in a very small scope because it may dead lock. For example, if the _lock is used
-    // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
-    // when allocate failed, allocator may call query_is_cancelled, query is callced will also
-    // call _lock, so that there is dead lock.
-    std::shared_mutex _query_ctx_map_mutex;
     // query id -> QueryContext
-    phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
+    ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
