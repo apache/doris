@@ -41,7 +41,7 @@ if [[ -z "${txYunAk}" || -z "${txYunSk}" ]]; then echo "WARNING: env txYunAk or 
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
-echo "#### Run cloud_p0 test on Doris ####"
+echo "#### Run vault_p0 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 exit_flag=0
@@ -50,8 +50,29 @@ need_collect_log=false
 # monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
 
-# used to set up HDFS docker
-docker_compose_hdfs_yaml='
+# shellcheck disable=SC2317
+run() {
+    set -e
+    shopt -s inherit_errexit
+
+    cd "${teamcity_build_checkoutDir}" || return 1
+    {
+        echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
+        echo "ak='${s3SourceAk}'"
+        echo "sk='${s3SourceSk}'"
+        echo "hwYunAk='${hwYunAk:-}'"
+        echo "hwYunSk='${hwYunSk:-}'"
+        echo "txYunAk='${txYunAk:-}'"
+        echo "txYunSk='${txYunSk:-}'"
+    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy \
+        "${teamcity_build_checkoutDir}"/regression-test/conf/
+    # # start kafka docker to run case test_rountine_load
+    # sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
+    # if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
+    # if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
+    # used to set up HDFS docker
+    docker_compose_hdfs_yaml='
 version: "3"
 
 services:
@@ -85,28 +106,6 @@ services:
    retries: 120
   network_mode: "host"
 '
-
-# shellcheck disable=SC2317
-run() {
-    set -e
-    shopt -s inherit_errexit
-
-    cd "${teamcity_build_checkoutDir}" || return 1
-    {
-        echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
-        echo "ak='${s3SourceAk}'"
-        echo "sk='${s3SourceSk}'"
-        echo "hwYunAk='${hwYunAk:-}'"
-        echo "hwYunSk='${hwYunSk:-}'"
-        echo "txYunAk='${txYunAk:-}'"
-        echo "txYunSk='${txYunSk:-}'"
-    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy
-    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy \
-        "${teamcity_build_checkoutDir}"/regression-test/conf/
-    # start kafka docker to run case test_rountine_load
-    sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
-    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
-    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
     if echo "${docker_compose_hdfs_yaml}" >docker-compose.yaml && docker-compose up -d; then echo; else echo "ERROR: start hdfs docker failed"; fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
