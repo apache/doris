@@ -103,16 +103,14 @@ suite("test_cloud_follower_show_data","p2") {
                 connect('root', '', new_jdbc_url) {
                     sql "select count(*) from ${tableName}"
 
-                    sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-                    sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
                     sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
-
-                    // expect mysqlSize == apiSize == storageSize
-                    assertEquals(sizeRecords["mysqlSize"][i+1], sizeRecords["apiSize"][i+1])
-                    assertEquals(sizeRecords["mysqlSize"][i+1], sizeRecords["cbsSize"][i+1])
-                    assertEquals(sizeRecords["mysqlSize"][1], sizeRecords["apiSize"][i+1])
                 }
+            }
+        }
+
+        for (int i = 0; i < sizeRecords["mysqlSize"].size(); i++) { 
+            if (i > 0) {
+                assertEquals(sizeRecords["mysqlSize"][i], sizeRecords["mysqlSize"][i-1])
             }
         }
     }

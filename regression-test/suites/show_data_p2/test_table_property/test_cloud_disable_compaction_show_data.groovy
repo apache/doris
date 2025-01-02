@@ -66,8 +66,6 @@ suite("test_cloud_disable_compaction_show_data","p2") {
             repeate_stream_load_same_data(tableName, i, "regression/tpch/sf0.1/lineitem.tbl.gz")
             def rows = sql_return_maparray "select count(*) as count from ${tableName};"
             logger.info("table ${tableName} has ${rows[0]["count"]} rows")
-            // 加一下触发compaction的机制
-            trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
             sleep(60 * 1000)

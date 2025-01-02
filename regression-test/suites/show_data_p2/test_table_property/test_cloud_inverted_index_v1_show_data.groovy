@@ -57,6 +57,7 @@ suite("test_cloud_inverted_index_v1_show_data","p2") {
             UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
+              "inverted_index_storage_format" = "V1",
               "replication_num" = "1"
             )
         """

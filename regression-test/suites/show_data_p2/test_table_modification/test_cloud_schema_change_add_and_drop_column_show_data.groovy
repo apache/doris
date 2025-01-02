@@ -146,6 +146,8 @@ suite("test_cloud_schema_change_add_and_drop_column_show_data","p2") {
 
         schema_change_add_column(tableName)
 
+        tablets = get_tablets_from_table(tableName)
+
         // 加一下触发compaction的机制
         trigger_compaction(tablets)
 

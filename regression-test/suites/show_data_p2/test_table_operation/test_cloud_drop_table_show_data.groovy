@@ -91,46 +91,48 @@ suite("test_cloud_drop_and_recover_table_show_data","p2") {
 
         if(op == 1){
 
-        sql """drop table ${tableName}"""
+            sql """drop table ${tableName}"""
 
-        sleep(60 * 1000)
+            sleep(60 * 1000)
 
-        sql """recover table ${tableName}"""
-        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
+            sql """recover table ${tableName}"""
+            sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
+            sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
+            sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
 
-        // 加一下触发compaction的机制
-        trigger_compaction(tablets)
+            tablets = get_tablets_from_table(tableName)
+            // 加一下触发compaction的机制
+            trigger_compaction(tablets)
 
-        // 然后 sleep 1min， 等fe汇报完
-        sleep(60 * 1000)
-        sql "select count(*) from ${tableName}"
+            // 然后 sleep 1min， 等fe汇报完
+            sleep(60 * 1000)
+            sql "select count(*) from ${tableName}"
 
-        // expect mysqlSize == apiSize == storageSize
-        assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][1], sizeRecords["apiSize"][2])
+            // expect mysqlSize == apiSize == storageSize
+            assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
+            assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
+            assertEquals(sizeRecords["mysqlSize"][1], sizeRecords["apiSize"][2])
         }
 
         if(op == 2){
 
-        sql """drop table ${tableName} force"""
-        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
+            sql """drop table ${tableName} force"""
+            sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
+            sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
+            sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
 
-        // 加一下触发compaction的机制
-        trigger_compaction(tablets)
+            tablets = get_tablets_from_table(tableName)
+            // 加一下触发compaction的机制
+            trigger_compaction(tablets)
 
-        // 然后 sleep 1min， 等fe汇报完
-        sleep(60 * 1000)
-        sql "select count(*) from ${tableName}"
+            // 然后 sleep 1min， 等fe汇报完
+            sleep(60 * 1000)
+            sql "select count(*) from ${tableName}"
 
-        // expect mysqlSize == apiSize == storageSize
-        assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][2], 0)
+            // expect mysqlSize == apiSize == storageSize
+            assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
+            assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
+            assertEquals(sizeRecords["mysqlSize"][2], 0)
 
         }
     }

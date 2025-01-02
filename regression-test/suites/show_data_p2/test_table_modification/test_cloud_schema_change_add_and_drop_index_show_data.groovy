@@ -146,6 +146,8 @@ suite("test_cloud_schema_change_add_and_drop_index_show_data","p2") {
 
         schema_change_add_index(tableName)
 
+        tablets = get_tablets_from_table(tableName)
+
         // 加一下触发compaction的机制
         trigger_compaction(tablets)
 
@@ -164,6 +166,8 @@ suite("test_cloud_schema_change_add_and_drop_index_show_data","p2") {
         assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
 
         schema_change_drop_index(tableName)
+
+        tablets = get_tablets_from_table(tableName)
 
         // 加一下触发compaction的机制
         trigger_compaction(tablets)
