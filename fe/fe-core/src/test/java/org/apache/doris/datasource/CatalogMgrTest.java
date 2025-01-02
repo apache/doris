@@ -105,13 +105,6 @@ public class CatalogMgrTest extends TestWithFeService {
         // grant with no catalog is switched, internal catalog works.
         CreateRoleStmt createRole1 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role1;", rootCtx);
         auth.createRole(createRole1);
-        GrantStmt grantRole1 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on tpch.* to role 'role1';", rootCtx);
-        auth.grant(grantRole1);
-        // grant with ctl.db.tbl. grant can succeed even if the catalog does not exist
-        GrantStmt grantRole1WithCtl = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on testc.testdb.* to role 'role1';", rootCtx);
-        auth.grant(grantRole1WithCtl);
-        // user1 can't switch to hive
         auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
                 "create user 'user1'@'%' identified by 'pwd1' default role 'role1';", rootCtx));
         user1 = new UserIdentity("user1", "%");
@@ -170,15 +163,15 @@ public class CatalogMgrTest extends TestWithFeService {
         schema.add(new Column("k1", PrimitiveType.INT));
         if (catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-            HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hive_db1");
-            HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsCatalog);
+            HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hive_db1", "hive_db1");
+            HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsCatalog, db);
             tbl.setNewFullSchema(schema);
             db.addTableForTest(tbl);
             hmsCatalog.addDatabaseForTest(db);
         } else if (catalog instanceof EsExternalCatalog) {
             EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
-            EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
-            EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_tbl1", esCatalog);
+            EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1", "es_db1");
+            EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_tbl1", esCatalog, db);
             tbl.setNewFullSchema(schema);
             db.addTableForTest(tbl);
             esCatalog.addDatabaseForTest(db);

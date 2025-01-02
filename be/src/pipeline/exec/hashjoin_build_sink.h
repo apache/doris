@@ -96,21 +96,19 @@ protected:
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
-    RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
     RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
-
-    RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs, bool use_global_rf);
+                               const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -118,7 +116,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -133,9 +130,8 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child_x->ignore_data_distribution()
-                           ? DataDistribution(ExchangeType::PASS_TO_ONE)
-                           : DataDistribution(ExchangeType::NOOP);
+            return _child->is_serial_operator() ? DataDistribution(ExchangeType::PASS_TO_ONE)
+                                                : DataDistribution(ExchangeType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
@@ -143,10 +139,7 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    bool require_shuffled_data_distribution() const override {
-        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
-    }
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
@@ -173,8 +166,6 @@ private:
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
-
-    const bool _need_local_merge;
 };
 
 template <class HashTableContext>

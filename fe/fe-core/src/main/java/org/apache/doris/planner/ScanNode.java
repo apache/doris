@@ -68,6 +68,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,7 +90,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
     protected final TupleDescriptor desc;
     // for distribution prunner
-    protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+    protected Map<String, PartitionColumnFilter> columnFilters = new CaseInsensitiveMap();
     // Use this if partition_prune_algorithm_version is 2.
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
@@ -109,6 +110,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     protected TableSnapshot tableSnapshot;
+
+    // Save the id of backends which this scan node will be executed on.
+    // This is also important for local shuffle logic.
+    // Now only OlapScanNode and FileQueryScanNode implement this.
+    protected HashSet<Long> scanBackendIds = new HashSet<>();
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -731,7 +737,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     public int numScanBackends() {
-        return 0;
+        return scanBackendIds.size();
     }
 
     public int getScanRangeNum() {
@@ -739,8 +745,20 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     public boolean shouldUseOneInstance(ConnectContext ctx) {
-        long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
-        return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
+        int adaptivePipelineTaskSerialReadOnLimit = 10000;
+
+        if (ctx != null) {
+            if (ctx.getSessionVariable().enableAdaptivePipelineTaskSerialReadOnLimit) {
+                adaptivePipelineTaskSerialReadOnLimit = ctx.getSessionVariable().adaptivePipelineTaskSerialReadOnLimit;
+            } else {
+                return false;
+            }
+        } else {
+            // No connection context, typically for broker load.
+        }
+
+        // For UniqueKey table, we will use multiple instance.
+        return hasLimit() && getLimit() <= adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
     }
 
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
@@ -835,5 +853,17 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public long getSelectedSplitNum() {
         return selectedSplitNum;
+    }
+
+    @Override
+    public boolean isSerialOperator() {
+        return numScanBackends() <= 0 || getScanRangeNum()
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numScanBackends()
+                || (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle());
+    }
+
+    @Override
+    public boolean hasSerialScanChildren() {
+        return isSerialOperator();
     }
 }

@@ -198,7 +198,7 @@ public class InsertUtils {
         String label = txnEntry.getLabel();
         try {
             long txnId;
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
                 txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                         txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
@@ -279,9 +279,10 @@ public class InsertUtils {
                 // check the necessary conditions for partial updates
                 OlapTable olapTable = (OlapTable) table;
 
-                if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite() || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
                     // when enable_unique_key_partial_update = true,
-                    // only unique table with MOW insert with target columns can consider be a partial update,
+                    // only unique table with MOW (and without cluster keys)
+                    // insert with target columns can consider be a partial update,
                     // and unique table without MOW, insert will be like a normal insert.
                     ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                 } else {
@@ -289,7 +290,14 @@ public class InsertUtils {
                         if (unboundLogicalSink.getColNames().isEmpty()) {
                             ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                         } else {
+                            boolean hasSyncMaterializedView = olapTable.getFullSchema().stream()
+                                    .anyMatch(col -> col.isMaterializedViewColumn());
+                            if (hasSyncMaterializedView) {
+                                throw new AnalysisException("Can't do partial update on merge-on-write Unique table"
+                                        + " with sync materialized view.");
+                            }
                             boolean hasMissingColExceptAutoIncKey = false;
+                            boolean hasMissingAutoIncKey = false;
                             for (Column col : olapTable.getFullSchema()) {
                                 Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
                                         .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
@@ -306,9 +314,18 @@ public class InsertUtils {
                                 if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
                                     hasMissingColExceptAutoIncKey = true;
                                 }
+                                if (col.isAutoInc() && col.isKey() && !insertCol.isPresent()) {
+                                    hasMissingAutoIncKey = true;
+                                }
                             }
                             if (!hasMissingColExceptAutoIncKey) {
                                 ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                            } else {
+                                if (hasMissingAutoIncKey) {
+                                    // becuase of the uniqueness of genetaed value of auto-increment column,
+                                    // we convert this load to upsert when is misses auto-increment key column
+                                    ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                                }
                             }
                         }
                     }
@@ -408,6 +425,14 @@ public class InsertUtils {
      * get target table from names.
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
+        List<String> tableQualifier = getTargetTableQualified(plan, ctx);
+        return RelationUtil.getTable(tableQualifier, ctx.getEnv());
+    }
+
+    /**
+     * get target table from names.
+     */
+    public static List<String> getTargetTableQualified(Plan plan, ConnectContext ctx) {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
@@ -422,8 +447,7 @@ public class InsertUtils {
                     + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
                     + " but it is " + plan.getType());
         }
-        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
-        return RelationUtil.getDbAndTable(tableQualifier, ctx.getEnv()).second;
+        return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }
 
     private static NamedExpression generateDefaultExpression(Column column) {

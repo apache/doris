@@ -75,6 +75,18 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                             \
     }
 
+#define INIT_MEMORY_FOR_ORC_WRITER()                                                 \
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);                                     \
+    if (!ptr) {                                                                      \
+        return Status::InternalError(                                                \
+                "malloc memory error when write largeint column data to orc file."); \
+    }                                                                                \
+    StringRef bufferRef;                                                             \
+    bufferRef.data = ptr;                                                            \
+    bufferRef.size = BUFFER_UNIT_SIZE;                                               \
+    size_t offset = 0;                                                               \
+    buffer_list.emplace_back(bufferRef);
+
 #define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
     while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {                       \
         char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);                \
@@ -97,6 +109,10 @@ namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
+
+class DataTypeSerDe;
+using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
+using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
@@ -137,6 +153,10 @@ public:
         bool converted_from_string = false;
 
         char escape_char = 0;
+        /**
+         * flags for each byte to indicate if escape is needed.
+         */
+        bool need_escape[256] = {false};
 
         /**
          * only used for export data
@@ -148,8 +168,8 @@ public:
          *      NULL
          *      null
          */
-        const char* null_format;
-        int null_len;
+        const char* null_format = "\\N";
+        int null_len = 2;
 
         /**
          * The wrapper char for string type in nested type.
@@ -166,7 +186,7 @@ public:
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
                   hive_text_complex_type_delimiter_level <= 153);
 
-            char ans = '\002';
+            char ans;
             //https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/lazy/LazySerDeParameters.java#L250
             //use only control chars that are very unlikely to be part of the string
             // the following might/likely to be used in text files for strings
@@ -175,8 +195,9 @@ public:
             // 12 (form feed, FF, \f, ^L),
             // 13 (carriage return, CR, \r, ^M),
             // 27 (escape, ESC, \e [GCC only], ^[).
-
-            if (hive_text_complex_type_delimiter_level == 1) {
+            if (hive_text_complex_type_delimiter_level == 0) {
+                ans = field_delim[0];
+            } else if (hive_text_complex_type_delimiter_level == 1) {
                 ans = collection_delim;
             } else if (hive_text_complex_type_delimiter_level == 2) {
                 ans = map_key_delim;
@@ -192,7 +213,7 @@ public:
             } else if (hive_text_complex_type_delimiter_level <= 25) {
                 // [22, 25] -> [28, 31]
                 ans = hive_text_complex_type_delimiter_level + 6;
-            } else if (hive_text_complex_type_delimiter_level <= 153) {
+            } else {
                 // [26, 153] -> [-128, -1]
                 ans = hive_text_complex_type_delimiter_level + (-26 - 128);
             }
@@ -238,17 +259,26 @@ public:
     virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
                                                       int* num_deserialized,
                                                       const FormatOptions& options) const {
+        //In this function implementation, we need to consider the case where rows is 0, 1, and other larger integers.
+        if (rows < 1) [[unlikely]] {
+            return Status::OK();
+        }
         Status st = deserialize_one_cell_from_json(column, slice, options);
         if (!st.ok()) {
             *num_deserialized = 0;
             return st;
         }
-        insert_column_last_value_multiple_times(column, rows - 1);
+        if (rows > 1) [[likely]] {
+            insert_column_last_value_multiple_times(column, rows - 1);
+        }
         *num_deserialized = rows;
         return Status::OK();
     }
     // Insert the last value to the end of this column multiple times.
     virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+        if (times < 1) [[unlikely]] {
+            return;
+        }
         //If you try to simplify this operation by using `column.insert_many_from(column, column.size() - 1, rows - 1);`
         // you are likely to get incorrect data results.
         MutableColumnPtr dum_col = column.clone_empty();
@@ -266,14 +296,10 @@ public:
             const FormatOptions& options, int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };
-    virtual void serialize_one_cell_to_hive_text(
+    virtual Status serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const {
-        Status st = serialize_one_cell_to_json(column, row_num, bw, options);
-        if (!st.ok()) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "serialize_one_cell_to_json error: {}", st.to_string());
-        }
+        return serialize_one_cell_to_json(column, row_num, bw, options);
     }
 
     // Protobuf serializer and deserializer
@@ -322,6 +348,11 @@ public:
                                           Arena& mem_pool, int row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_nested_serdes is not supported for this serde");
+    }
+
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types
@@ -363,9 +394,6 @@ inline void checkArrowStatus(const arrow::Status& status, const std::string& col
                    << " with error msg: " << status.ToString();
     }
 }
-
-using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
-using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 
 DataTypeSerDeSPtrs create_data_type_serdes(
         const std::vector<std::shared_ptr<const IDataType>>& types);

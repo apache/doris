@@ -108,7 +108,9 @@ public class StreamLoadHandler {
             return;
         }
 
-        LOG.info("stream load put request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stream load put request: {}", request);
+        }
         // create connect context
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_predicate", "arrow_flight_sql") {
+suite("test_predicate") {
     sql """drop table if exists t1;"""
     sql """
             create table t1 (

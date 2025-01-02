@@ -28,14 +28,16 @@ import java.util.concurrent.CountDownLatch;
 public class MarkedCountDownLatch<K, V> extends CountDownLatch {
 
     private Multimap<K, V> marks;
+    private Multimap<K, V> failedMarks;
     private Status st = Status.OK;
 
     public MarkedCountDownLatch(int count) {
         super(count);
         marks = HashMultimap.create();
+        failedMarks = HashMultimap.create();
     }
 
-    public void addMark(K key, V value) {
+    public synchronized void addMark(K key, V value) {
         marks.put(key, value);
     }
 
@@ -47,11 +49,31 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
         return false;
     }
 
+    public synchronized boolean markedCountDownWithStatus(K key, V value, Status status) {
+        // update status first before countDown.
+        // so that the waiting thread will get the correct status.
+        if (st.ok()) {
+            st = status;
+        }
+
+        // Since marks are used to determine whether a task is completed, we should not remove
+        // a mark if the task has failed rather than finished. To maintain the idempotency of
+        // this method, we store failed marks in a separate map.
+        //
+        // Search `getLeftMarks` for details.
+        if (!failedMarks.containsEntry(key, value)) {
+            failedMarks.put(key, value);
+            super.countDown();
+            return true;
+        }
+        return false;
+    }
+
     public synchronized List<Entry<K, V>> getLeftMarks() {
         return Lists.newArrayList(marks.entries());
     }
 
-    public Status getStatus() {
+    public synchronized Status getStatus() {
         return st;
     }
 

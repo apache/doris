@@ -108,11 +108,6 @@ Status PartitionedAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState*
     return _agg_source_operator->init(tnode, state);
 }
 
-Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
-    return _agg_source_operator->prepare(state);
-}
-
 Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::open(state));
     return _agg_source_operator->open(state);
@@ -121,6 +116,10 @@ Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::close(state));
     return _agg_source_operator->close(state);
+}
+
+bool PartitionedAggSourceOperatorX::is_serial_operator() const {
+    return _agg_source_operator->is_serial_operator();
 }
 
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

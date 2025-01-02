@@ -19,6 +19,9 @@
 
 #include <rapidjson/stringbuffer.h>
 
+#include <cstdint>
+#include <string>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -26,6 +29,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
@@ -117,11 +121,11 @@ void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     Field field;
     if (arg->isBinary()) {
         const auto* blob = static_cast<const JsonbBlobVal*>(arg);
-        field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+        field = JsonbField(blob->getBlob(), blob->getBlobLen());
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
         const auto* str = static_cast<const JsonbStringVal*>(arg);
-        field.assign_string(str->getBlob(), str->getBlobLen());
+        field = Field(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
     }
@@ -188,6 +192,38 @@ Status DataTypeObjectSerDe::write_one_cell_to_json(const IColumn& column, rapidj
         }
         result.AddMember(key, val, allocator);
     }
+    return Status::OK();
+}
+
+Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                                const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    const auto* var = check_and_get_column<ColumnObject>(column);
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    INIT_MEMORY_FOR_ORC_WRITER()
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            auto serialized_value = std::make_unique<std::string>();
+            if (!var->serialize_one_row_to_string(row_id, serialized_value.get())) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                                       var->dump_structure());
+            }
+            auto len = serialized_value->length();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value->data(), len);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            cur_batch->length[row_id] = len;
+            offset += len;
+        }
+    }
+
+    cur_batch->numElements = end - start;
     return Status::OK();
 }
 

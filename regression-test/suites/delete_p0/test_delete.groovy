@@ -449,7 +449,6 @@ suite("test_delete") {
                 "replication_allocation" = "tag.location.default: 1"
             ); 
     """
-    sql "set experimental_enable_nereids_planner = false;"
     sql "delete from test3 where statistic_date >= date_sub('2024-01-16',INTERVAL 1 day);"
 
     sql "drop table if exists bi_acti_per_period_plan"
@@ -485,7 +484,6 @@ suite("test_delete") {
             INSERT INTO bi_acti_per_period_plan (proj_id,proj_name,proj_start_date,proj_end_date,last_data_date,data_date,data_batch_num,la_sum_base_proj_id,sum_base_proj_id,today_date,count,count_type,bl_count) VALUES
             (4508,'建筑工程项目A','2023-05-30 00:00:00','2024-03-07 00:00:00','2023-06-01 00:00:00','2023-08-15 00:00:00','2024-01-31 00:00:00','4509','4509','2023-08-27 00:00:00',5,'plan',4);
     """
-    sql "set experimental_enable_nereids_planner = false;"
     sql "set @data_batch_num='2024-01-31 00:00:00';"
     sql "delete  from bi_acti_per_period_plan where data_batch_num =@data_batch_num; "
 

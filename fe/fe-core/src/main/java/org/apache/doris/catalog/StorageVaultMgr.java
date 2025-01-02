@@ -26,6 +26,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -35,6 +36,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
@@ -51,8 +53,10 @@ public class StorageVaultMgr {
     private final SystemInfoService systemInfoService;
     // <VaultName, VaultId>
     private Pair<String, String> defaultVaultInfo;
+
     private Map<String, String> vaultNameToVaultId = new HashMap<>();
-    private ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+    private MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock();
 
     public StorageVaultMgr(SystemInfoService systemInfoService) {
         this.systemInfoService = systemInfoService;
@@ -80,12 +84,42 @@ public class StorageVaultMgr {
         rwLock.writeLock().unlock();
     }
 
-    public String getVaultIdByName(String name) {
-        String vaultId;
-        rwLock.readLock().lock();
-        vaultId = vaultNameToVaultId.getOrDefault(name, "");
-        rwLock.readLock().unlock();
-        return vaultId;
+    public String getVaultIdByName(String vaultName) {
+        try {
+            rwLock.readLock().lock();
+            return vaultNameToVaultId.getOrDefault(vaultName, "");
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public String getVaultNameById(String vaultId) {
+        try {
+            rwLock.readLock().lock();
+            for (Map.Entry<String, String> entry : vaultNameToVaultId.entrySet()) {
+                if (entry.getValue().equals(vaultId)) {
+                    return entry.getKey();
+                }
+            }
+            return "";
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    private void updateVaultNameToIdCache(String oldVaultName, String newVaultName, String vaultId) {
+        try {
+            rwLock.writeLock().lock();
+            String cachedVaultId = vaultNameToVaultId.get(oldVaultName);
+            vaultNameToVaultId.remove(oldVaultName);
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(cachedVaultId), cachedVaultId,
+                    "Cached vault id is null or empty");
+            Preconditions.checkArgument(cachedVaultId.equals(vaultId),
+                    "Cached vault id not equal to remote storage." + cachedVaultId + " - " + vaultId);
+            vaultNameToVaultId.put(newVaultName, vaultId);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
@@ -166,8 +200,15 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
-            LOG.info("Succeed to alter storage vault {}, id {}, origin default vault replaced {}",
-                    name, response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
+
+            if (request.hasVault() && request.getVault().hasAlterName()) {
+                updateVaultNameToIdCache(name, request.getVault().getAlterName(), response.getStorageVaultId());
+                LOG.info("Succeed to alter storage vault, old name:{} new name: {} id:{}", name,
+                        request.getVault().getAlterName(), response.getStorageVaultId());
+            }
+
+            // Make BE eagerly fetch the storage vault info from Meta Service
+            ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());

@@ -266,6 +266,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                 }
                 // clang-format on
             }
+            response->set_txn_status(cur_txn_info.status());
             code = MetaServiceCode::TXN_LABEL_ALREADY_USED;
             ss << "Label [" << label << "] has already been used, relate to txn ["
                << cur_txn_info.txn_id() << "], status=[" << TxnStatusPB_Name(cur_txn_info.status())
@@ -879,6 +880,12 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
             std::string num_segs_key;
             stats_tablet_num_segs_key(info, &num_segs_key);
             txn->atomic_add(num_segs_key, stats.num_segs);
+            std::string index_size_key;
+            stats_tablet_index_size_key(info, &index_size_key);
+            txn->atomic_add(index_size_key, stats.index_size);
+            std::string segment_size_key;
+            stats_tablet_segment_size_key(info, &segment_size_key);
+            txn->atomic_add(segment_size_key, stats.segment_size);
         }
         std::string num_rowsets_key;
         stats_tablet_num_rowsets_key(info, &num_rowsets_key);
@@ -905,6 +912,8 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
         stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
         stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
         stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
+        stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
+        stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
         stats_pb.SerializeToString(&val);
         txn->put(key, val);
         LOG(INFO) << "put stats_tablet_key key=" << hex(key);
@@ -1122,7 +1131,7 @@ void commit_txn_immediately(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
             last_pending_txn_id = 0;
@@ -1166,10 +1175,12 @@ void commit_txn_immediately(
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
+            stats.index_size += i.index_disk_size();
+            stats.segment_size += i.data_disk_size();
         } // for tmp_rowsets_meta
 
         // process mow table, check lock and remove pending key
@@ -1218,8 +1229,37 @@ void commit_txn_immediately(
             LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
                       << " txn_id=" << txn_id;
 
+            int64_t lock_id = lock_info.lock_id();
             for (auto tablet_id : table_id_tablet_ids[table_id]) {
                 std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+
+                // check that if the pending info's lock_id is correct
+                std::string pending_val;
+                err = txn->get(pending_key, &pending_val);
+                if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
+                       << " tablet_id=" << tablet_id << " key=" << hex(pending_key)
+                       << " err=" << err;
+                    msg = ss.str();
+                    code = cast_as<ErrCategory::READ>(err);
+                    return;
+                }
+                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) continue;
+                PendingDeleteBitmapPB pending_info;
+                if (!pending_info.ParseFromString(pending_val)) [[unlikely]] {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "failed to parse PendingDeleteBitmapPB";
+                    return;
+                }
+                if (pending_info.has_lock_id() && pending_info.lock_id() != lock_id) {
+                    code = MetaServiceCode::PENDING_DELETE_BITMAP_WRONG;
+                    msg = fmt::format(
+                            "wrong lock_id in pending delete bitmap infos, expect lock_id={}, but "
+                            "found {} tablet_id={} instance_id={}",
+                            lock_id, pending_info.lock_id(), tablet_id, instance_id);
+                    return;
+                }
+
                 txn->remove(pending_key);
                 LOG(INFO) << "xxx remove delete bitmap pending key, pending_key="
                           << hex(pending_key) << " txn_id=" << txn_id;
@@ -1654,7 +1694,7 @@ void commit_txn_eventually(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
 
@@ -1900,10 +1940,12 @@ void commit_txn_eventually(
         for (auto& [_, i] : tmp_rowsets_meta) {
             // Accumulate affected rows
             auto& stats = tablet_stats[i.tablet_id()];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
+            stats.index_size += i.index_disk_size();
+            stats.segment_size += i.data_disk_size();
         }
 
         // calculate table stats from tablets stats
@@ -2274,10 +2316,12 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
+            stats.index_size += i.index_disk_size();
+            stats.segment_size += i.data_disk_size();
         } // for tmp_rowsets_meta
     }
 
@@ -2381,6 +2425,12 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                 auto& num_segs_key = kv_pool.emplace_back();
                 stats_tablet_num_segs_key(info, &num_segs_key);
                 txn->atomic_add(num_segs_key, stats.num_segs);
+                auto& index_size_key = kv_pool.emplace_back();
+                stats_tablet_index_size_key(info, &index_size_key);
+                txn->atomic_add(index_size_key, stats.index_size);
+                auto& segment_size_key = kv_pool.emplace_back();
+                stats_tablet_segment_size_key(info, &segment_size_key);
+                txn->atomic_add(segment_size_key, stats.segment_size);
             }
             auto& num_rowsets_key = kv_pool.emplace_back();
             stats_tablet_num_rowsets_key(info, &num_rowsets_key);
@@ -2409,6 +2459,8 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
             stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
             stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
+            stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
+            stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
             stats_pb.SerializeToString(&val);
             txn->put(key, val);
             LOG(INFO) << "put stats_tablet_key, key=" << hex(key);

@@ -34,6 +34,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
@@ -177,8 +178,12 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
     if (_version != max_version + 1) {
-        LOG(WARNING) << "version not continuous, current max version=" << max_version
-                     << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
+                         max_version + config::publish_version_gap_logging_threshold >= _version);
+        if (need_log) {
+            LOG(WARNING) << "version not continuous, current max version=" << max_version
+                         << ", request_version=" << _version << " tablet_id=" << _tablet_id;
+        }
         auto error_st =
                 Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>("version not continuous");
         _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, error_st);
@@ -214,7 +219,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    auto update_delete_bitmap_time_us = 0;
+    int64_t update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         _version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
@@ -223,8 +228,13 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         // if version or compaction stats can't match, it means that this is a retry and there are
         // compaction or other loads finished successfully on the same tablet. So the previous publish
         // is stale and we should re-calculate the delete bitmap
-        LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
-                  << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
+
+        // we still need to update delete bitmap KVs to MS when we skip to calcalate delete bitmaps,
+        // because the pending delete bitmap KVs in MS we wrote before may have been removed and replaced by other txns
+        RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(_version, _transaction_id, delete_bitmap));
+
+        LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
+                  << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
     } else {
         status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
                                                    txn_expiration);
@@ -249,4 +259,5 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     return status;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

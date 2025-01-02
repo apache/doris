@@ -79,7 +79,7 @@ Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
     return Status::OK();
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
+Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -88,19 +88,20 @@ void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
 
     const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
     if (col_null.is_null_at(row_num)) {
-        bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
+        bw.write(options.null_format, options.null_len);
     } else {
-        nested_serde->serialize_one_cell_to_hive_text(col_null.get_nested_column(), row_num, bw,
-                                                      options,
-                                                      hive_text_complex_type_delimiter_level);
+        RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_hive_text(
+                col_null.get_nested_column(), row_num, bw, options,
+                hive_text_complex_type_delimiter_level));
     }
+    return Status::OK();
 }
 
 Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(
         IColumn& column, Slice& slice, const FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+    if (slice.compare(Slice(options.null_format, options.null_len)) == 0) {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }
@@ -130,12 +131,15 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
 Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, int rows, int* num_deserialized,
         const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
     auto& col = static_cast<ColumnNullable&>(column);
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
     }
-    if (rows - 1 != 0) {
+    if (rows > 1) {
         auto& null_map = col.get_null_map_data();
         auto& nested_column = col.get_nested_column();
 

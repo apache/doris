@@ -69,11 +69,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    config :host_resolve_ttl_sec, :validate => :number, :default => 120
 
-   config :retry_count, :validate => :number, :default => -1
+   config :max_retries, :validate => :number, :default => -1
 
-   config :log_request, :validate => :boolean, :default => false
+   config :log_request, :validate => :boolean, :default => true
 
-   config :log_speed_interval, :validate => :number, :default => 10
+   config :log_progress_interval, :validate => :number, :default => 10
 
 
    def print_plugin_info()
@@ -99,6 +99,12 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       @request_headers = make_request_headers
       @logger.info("request headers: ", @request_headers)
 
+      @group_commit = false
+      if http_headers.has_key?("group_commit") && http_headers["group_commit"] != "off_mode"
+         @group_commit = true
+      end
+      @logger.info("group_commit: ", @group_commit)
+
       @init_time = Time.now.to_i # seconds
       @total_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
       @total_rows = java.util.concurrent.atomic.AtomicLong.new(0)
@@ -107,9 +113,9 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          last_time = @init_time
          last_bytes = @total_bytes.get
          last_rows = @total_rows.get
-         @logger.info("will report speed every #{@log_speed_interval} seconds")
-         while @log_speed_interval > 0
-            sleep(@log_speed_interval)
+         @logger.info("will report speed every #{@log_progress_interval} seconds")
+         while @log_progress_interval > 0
+            sleep(@log_progress_interval)
 
             cur_time = Time.now.to_i # seconds
             cur_bytes = @total_bytes.get
@@ -188,9 +194,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       hosts = get_host_addresses()
 
       http_headers = @request_headers.dup
-      http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+      if !@group_commit
+         # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
+         http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+      end
 
-      # @request_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d%H%M%S_%L')
       req_count = 0
       sleep_for = 1
       while true
@@ -210,7 +218,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          else
             @logger.warn("FAILED doris stream load response:\n#{response}")
 
-            if @retry_count >= 0 && req_count > @retry_count
+            if @max_retries >= 0 && req_count > @max_retries
                @logger.warn("DROP this batch after failed #{req_count} times.")
                if @save_on_failure
                   @logger.warn("Try save to disk.Disk file path : #{save_dir}/#{table}_#{save_file}")

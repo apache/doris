@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <memory>
 #include <ostream>
+#include <string>
 #include <tuple>
 
 #include "common/exception.h"
@@ -129,12 +130,16 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
     _timestamp_ms = pschema.timestamp_ms();
+    if (pschema.has_nano_seconds()) {
+        _nano_seconds = pschema.nano_seconds();
+    }
     _timezone = pschema.timezone();
 
     for (const auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
     }
-    std::unordered_map<std::pair<std::string, FieldType>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::string, SlotDescriptor*> slots_map;
+
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
 
     for (const auto& p_slot_desc : pschema.slot_descs()) {
@@ -142,8 +147,10 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()),
-                                         TabletColumn::get_field_type_by_string(data_type)),
+        std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
+        std::string data_type_str =
+                std::to_string(int64_t(TabletColumn::get_field_type_by_string(data_type)));
+        slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
 
@@ -154,9 +161,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
-                auto it = slots_map.find(std::make_pair(
-                        to_lower(pcolumn_desc.name()),
-                        TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
+                std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
+                std::string data_type_str = std::to_string(
+                        int64_t(TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
+                auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
+                                         is_null_str);
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
@@ -203,12 +212,14 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
-    std::unordered_map<std::pair<std::string, PrimitiveType>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (const auto& t_slot_desc : tschema.slot_descs) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), slot_desc->col_type()),
+        std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
+        std::string data_type_str = std::to_string(int64_t(slot_desc->col_type()));
+        slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
 
@@ -220,9 +231,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
-                auto it = slots_map.find(
-                        std::make_pair(to_lower(tcolumn_desc.column_name),
-                                       thrift_to_type(tcolumn_desc.column_type.type)));
+                std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
+                std::string data_type_str =
+                        std::to_string(int64_t(thrift_to_type(tcolumn_desc.column_type.type)));
+                auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
+                                         is_null_str);
                 if (it == slots_map.end()) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
@@ -273,6 +286,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
     pschema->set_timestamp_ms(_timestamp_ms);
     pschema->set_timezone(_timezone);
+    pschema->set_nano_seconds(_nano_seconds);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
@@ -515,6 +529,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     }
     case TExprNodeType::NULL_LITERAL: {
         // insert a null literal
+        if (!column->is_nullable()) {
+            // https://github.com/apache/doris/pull/39449 have forbid this cause. always add this check as protective measures
+            return Status::InternalError("The column {} is not null, can't insert into NULL value.",
+                                         part_key->first->get_by_position(pos).name);
+        }
         column->insert_data(nullptr, 0);
         break;
     }
@@ -715,6 +734,7 @@ Status VOlapTablePartitionParam::replace_partitions(
 
         // add new partitions with new id.
         _partitions.emplace_back(part);
+        VLOG_NOTICE << "params add new partition " << part->id;
 
         // replace items in _partition_maps
         if (_is_in_partition) {

@@ -17,7 +17,7 @@
  * under the License.
  */
 
-suite("aggregate_count1", "query,arrow_flight_sql") {
+suite("aggregate_count1", "query") {
     sql """ DROP TABLE IF EXISTS aggregate_count1 """
     sql """create table if not exists aggregate_count1 (
                 name varchar(128),

@@ -86,7 +86,6 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
         Config.enable_query_hive_views = false;
         // create test internal table
         createDatabase(mockedDbName);
@@ -218,7 +217,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             @Mock
             public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
                 if (createdDbs.contains(dbName)) {
-                    return new HMSExternalDatabase(hmsExternalCatalog, RandomUtils.nextLong(), dbName);
+                    return new HMSExternalDatabase(hmsExternalCatalog, RandomUtils.nextLong(), dbName, dbName);
                 }
                 return null;
             }
@@ -229,7 +228,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
             HMSExternalTable getTableNullable(String tableName) {
                 for (Table table : createdTables) {
                     if (table.getTableName().equals(tableName)) {
-                        return new HMSExternalTable(0, tableName, mockedDbName, hmsExternalCatalog);
+                        return new HMSExternalTable(0, tableName, tableName, hmsExternalCatalog, (HMSExternalDatabase) hmsExternalCatalog.getDbNullable(mockedDbName));
                     }
                 }
                 return null;

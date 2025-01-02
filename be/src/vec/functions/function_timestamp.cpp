@@ -77,6 +77,8 @@ struct StrToDate {
 
     static bool is_variadic() { return false; }
 
+    static size_t get_number_of_arguments() { return 2; }
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
@@ -245,6 +247,8 @@ struct MakeDateImpl {
 
     static bool is_variadic() { return false; }
 
+    static size_t get_number_of_arguments() { return 2; }
+
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -408,6 +412,8 @@ struct DateTrunc {
     using ArgType = date_cast::ValueTypeOfColumnV<ColumnType>;
 
     static bool is_variadic() { return true; }
+
+    static size_t get_number_of_arguments() { return 2; }
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DateType>(), std::make_shared<DataTypeString>()};
@@ -1150,7 +1156,7 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override { return Impl::get_number_of_arguments(); }
 
     bool is_variadic() const override { return Impl::is_variadic(); }
 
@@ -1182,6 +1188,240 @@ public:
     }
 };
 
+struct FromIso8601DateV2 {
+    static constexpr auto name = "from_iso8601_date";
+
+    static size_t get_number_of_arguments() { return 1; }
+
+    static bool is_variadic() { return false; }
+
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeDateV2>());
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
+        auto& result_data = res->get_data();
+
+        static const std::tuple<std::vector<int>, int, std::string> ISO_STRING_FORMAT[] = {
+                {{
+                         8,
+                 },
+                 1,
+                 "%04d%02d%02d"},                         //YYYYMMDD
+                {{4, -1, 2, -1, 2}, 1, "%04d-%02d-%02d"}, //YYYY-MM-DD
+                {{4, -1, 2}, 2, "%04d-%02d"},             //YYYY-MM
+                {
+                        {
+                                4,
+                        },
+                        3,
+                        "%04d",
+                }, //YYYY
+                {
+                        {4, -1, 3},
+                        4,
+                        "%04d-%03d",
+                }, //YYYY-DDD
+                {
+                        {
+                                7,
+                        },
+                        4,
+                        "%04d%03d",
+                }, //YYYYDDD
+                {
+                        {4, -1, -2, 2},
+                        5,
+                        "%04d-W%02d",
+                }, //YYYY-Www
+                {
+                        {4, -2, 2},
+                        5,
+                        "%04dW%02d",
+                }, //YYYYWww
+                {
+                        {4, -1, -2, 2, -1, 1},
+                        6,
+                        "%04d-W%02d-%1d",
+                }, //YYYY-Www-D
+                {
+                        {4, -2, 3},
+                        6,
+                        "%04dW%02d%1d",
+                }, //YYYYWwwD
+        };
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            int year, month, day, week, day_of_year;
+            int weekday = 1; // YYYYWww  YYYY-Www  default D = 1
+            auto src_string = src_column_ptr->get_data_at(i).to_string_view();
+
+            int iso_string_format_value = 0;
+
+            vector<int> src_string_values;
+            src_string_values.reserve(10);
+
+            //The maximum length of the current iso8601 format is 10.
+            if (src_string.size() <= 10) {
+                // The calculation string corresponds to the iso8601 format.
+                // The integer represents the number of consecutive numbers.
+                // -1 represent char '-'.
+                // -2 represent char 'W'.
+                //  The calculated vector `src_string_values`  will be compared with `ISO_STRING_FORMAT[]` later.
+                for (int idx = 0; idx < src_string.size();) {
+                    char current = src_string[idx];
+                    if (current == '-') {
+                        src_string_values.emplace_back(-1);
+                        idx++;
+                        continue;
+                    } else if (current == 'W') {
+                        src_string_values.emplace_back(-2);
+                        idx++;
+                        continue;
+                    } else if (!isdigit(current)) {
+                        iso_string_format_value = -1;
+                        break;
+                    }
+                    int currLen = 0;
+                    for (; idx < src_string.size() && isdigit(src_string[idx]); ++idx) {
+                        ++currLen;
+                    }
+                    src_string_values.emplace_back(currLen);
+                }
+            } else {
+                iso_string_format_value = -1;
+            }
+
+            std::string_view iso_format_string;
+            if (iso_string_format_value != -1) {
+                for (const auto& j : ISO_STRING_FORMAT) {
+                    const auto& v = std::get<0>(j);
+                    if (v == src_string_values) {
+                        iso_string_format_value = std::get<1>(j);
+                        iso_format_string = std::get<2>(j);
+                        break;
+                    }
+                }
+            }
+
+            auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&result_data[i]);
+            if (iso_string_format_value == 1) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month, &day) != 3)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(month) &&
+                      ts_value.template set_time_unit<DAY>(day))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                }
+            } else if (iso_string_format_value == 2) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month) != 2)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(month))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                }
+                ts_value.template unchecked_set_time_unit<DAY>(1);
+            } else if (iso_string_format_value == 3) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (!ts_value.template set_time_unit<YEAR>(year)) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                }
+                ts_value.template unchecked_set_time_unit<MONTH>(1);
+                ts_value.template unchecked_set_time_unit<DAY>(1);
+
+            } else if (iso_string_format_value == 5 || iso_string_format_value == 6) {
+                if (iso_string_format_value == 5) {
+                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week) != 2)
+                            [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                        continue;
+                    }
+                } else {
+                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week,
+                               &weekday) != 3) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                        continue;
+                    }
+                }
+                // weekday [1,7]    week [1,53]
+                if (weekday < 1 || weekday > 7 || week < 1 || week > 53) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                auto first_day_of_week = getFirstDayOfISOWeek(year);
+                ts_value.template unchecked_set_time_unit<YEAR>(
+                        first_day_of_week.year().operator int());
+                ts_value.template unchecked_set_time_unit<MONTH>(
+                        first_day_of_week.month().operator unsigned int());
+                ts_value.template unchecked_set_time_unit<DAY>(
+                        first_day_of_week.day().operator unsigned int());
+
+                auto day_diff = (week - 1) * 7 + weekday - 1;
+                TimeInterval interval(DAY, day_diff, false);
+                ts_value.date_add_interval<DAY>(interval);
+            } else if (iso_string_format_value == 4) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (is_leap(year)) {
+                    if (day_of_year < 0 || day_of_year > 366) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                    }
+                } else {
+                    if (day_of_year < 0 || day_of_year > 365) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                    }
+                }
+                ts_value.template unchecked_set_time_unit<YEAR>(year);
+                ts_value.template unchecked_set_time_unit<MONTH>(1);
+                ts_value.template unchecked_set_time_unit<DAY>(1);
+                TimeInterval interval(DAY, day_of_year - 1, false);
+                ts_value.template date_add_interval<DAY>(interval);
+            } else {
+                null_map->get_data().data()[i] = true;
+            }
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+private:
+    //Get the date corresponding to Monday of the first week of the year according to the ISO8601 standard.
+    static std::chrono::year_month_day getFirstDayOfISOWeek(int year) {
+        using namespace std::chrono;
+        auto jan4 = year_month_day {std::chrono::year(year) / January / 4};
+        auto jan4_sys_days = sys_days {jan4};
+        auto weekday_of_jan4 = weekday {jan4_sys_days};
+        auto first_day_of_week = jan4_sys_days - days {(weekday_of_jan4.iso_encoding() - 1)};
+        return year_month_day {floor<days>(first_day_of_week)};
+    }
+};
+
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
 using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
 using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
@@ -1191,6 +1431,7 @@ using FunctionDateTruncDate = FunctionOtherTypesToDateType<DateTrunc<DataTypeDat
 using FunctionDateTruncDateV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateV2>>;
 using FunctionDateTruncDatetime = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTime>>;
 using FunctionDateTruncDatetimeV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTimeV2>>;
+using FunctionFromIso8601DateV2 = FunctionOtherTypesToDateType<FromIso8601DateV2>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
@@ -1203,6 +1444,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetime>();
     factory.register_function<FunctionDateTruncDatetimeV2>();
+    factory.register_function<FunctionFromIso8601DateV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();

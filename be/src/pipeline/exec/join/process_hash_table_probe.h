@@ -87,9 +87,8 @@ struct ProcessHashTableProbe {
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
-    Status process_data_in_hashtable(HashTableType& hash_table_ctx,
-                                     vectorized::MutableBlock& mutable_block,
-                                     vectorized::Block* output_block, bool* eos, bool is_mark_join);
+    Status finish_probing(HashTableType& hash_table_ctx, vectorized::MutableBlock& mutable_block,
+                          vectorized::Block* output_block, bool* eos, bool is_mark_join);
 
     /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
     /// we should make this row match with all rows in build side.
@@ -137,7 +136,7 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
     int _right_col_idx;
     int _right_col_len;

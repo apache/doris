@@ -8,6 +8,12 @@
 -- !sql --
 1
 
+-- !information_schema1 --
+internal	regression_test_view_p0	test_varchar_view	SELECT GROUP_CONCAT(cast( `internal`.`regression_test_view_p0`.`test_view_table`.`id` as varchar)) AS `id` from `internal`.`regression_test_view_p0`.`test_view_table`	NONE	NO	root@%	DEFINER	utf8	\N
+
+-- !information_schema2 --
+internal	regression_test_view_p0	test_view	select 1,to_base64(AES_ENCRYPT('doris','doris'))	NONE	NO	root@%	DEFINER	utf8	\N
+
 -- !sql --
 1	2023-08-01	DORID_FIELD1	DORID_FIELD2	["cat", "dog"]	cat
 1	2023-08-01	DORID_FIELD1	DORID_FIELD2	["cat", "dog"]	dog
@@ -17,4 +23,10 @@
 
 -- !sql2 --
 
+
+-- !select_aes --
+17777208882
+
+-- !show_aes --
+test_view_aes	CREATE VIEW `test_view_aes` AS SELECT aes_decrypt(from_base64("EXp7k7M9Zv1mIwPpno28Hg=="), '17IMZrGdwWf2Piy8', 'II2HLtihr5TQpQgR', 'AES_128_CBC');	utf8mb4	utf8mb4_0900_bin
 

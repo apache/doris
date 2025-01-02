@@ -60,7 +60,7 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
-    Field get_default() const override { return String(); }
+    Field get_default() const override { return Field(String()); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -71,14 +71,11 @@ public:
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int be_exec_version) const override {
-        return static_cast<const ColumnType&>(column).byte_size() + sizeof(uint32_t) +
-               sizeof(size_t);
-    }
+                                              int be_exec_version) const override;
 
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
     bool get_is_parametric() const override { return false; }

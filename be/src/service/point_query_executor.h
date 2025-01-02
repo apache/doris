@@ -126,9 +126,9 @@ private:
 };
 
 // RowCache is a LRU cache for row store
-class RowCache : public LRUCachePolicyTrackingManual {
+class RowCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     // The cache key for row lru cache
     struct RowCacheKey {
@@ -220,7 +220,7 @@ private:
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
-class LookupConnectionCache : public LRUCachePolicyTrackingManual {
+class LookupConnectionCache : public LRUCachePolicy {
 public:
     static LookupConnectionCache* instance() {
         return ExecEnv::GetInstance()->get_lookup_connection_cache();
@@ -231,9 +231,9 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE,
-                                           capacity, LRUCacheType::NUMBER,
-                                           config::tablet_lookup_cache_stale_sweep_time_sec) {}
+            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -246,8 +246,8 @@ private:
         auto* value = new CacheValue;
         value->item = item;
         LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_total_capacity()
-                  << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
+                  << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                  << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }
@@ -265,6 +265,7 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        ~CacheValue() override;
         std::shared_ptr<Reusable> item;
     };
 };
@@ -275,12 +276,16 @@ struct Metrics {
               init_key_ns(TUnit::TIME_NS),
               lookup_key_ns(TUnit::TIME_NS),
               lookup_data_ns(TUnit::TIME_NS),
-              output_data_ns(TUnit::TIME_NS) {}
+              output_data_ns(TUnit::TIME_NS),
+              load_segment_key_stage_ns(TUnit::TIME_NS),
+              load_segment_data_stage_ns(TUnit::TIME_NS) {}
     RuntimeProfile::Counter init_ns;
     RuntimeProfile::Counter init_key_ns;
     RuntimeProfile::Counter lookup_key_ns;
     RuntimeProfile::Counter lookup_data_ns;
     RuntimeProfile::Counter output_data_ns;
+    RuntimeProfile::Counter load_segment_key_stage_ns;
+    RuntimeProfile::Counter load_segment_data_stage_ns;
     OlapReaderStatistics read_stats;
     size_t row_cache_hits = 0;
     bool hit_lookup_cache = false;
@@ -296,7 +301,9 @@ public:
 
     Status lookup_up();
 
-    std::string print_profile();
+    void print_profile();
+
+    const OlapReaderStatistics& read_stats() const { return _read_stats; }
 
 private:
     Status _init_keys(const PTabletKeyLookupRequest* request);

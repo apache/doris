@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <string_view>
@@ -39,6 +40,7 @@
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
 #endif
+#include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
@@ -417,8 +419,12 @@ public:
             LOG(WARNING) << "malformed schema value, key=" << hex(schema_key);
             return -1;
         }
-        if (schema.index_size() > 0 && schema.has_inverted_index_storage_format()) {
-            res.first = schema.inverted_index_storage_format();
+        if (schema.index_size() > 0) {
+            InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
+            if (schema.has_inverted_index_storage_format()) {
+                index_format = schema.inverted_index_storage_format();
+            }
+            res.first = index_format;
             res.second.reserve(schema.index_size());
             for (auto& i : schema.index()) {
                 if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
@@ -571,11 +577,11 @@ int InstanceRecycler::init() {
 template <typename... Func>
 auto task_wrapper(Func... funcs) -> std::function<int()> {
     return [funcs...]() {
-        return [](std::initializer_list<int> numbers) {
+        return [](std::initializer_list<int> ret_vals) {
             int i = 0;
-            for (int num : numbers) {
-                if (num != 0) {
-                    i = num;
+            for (int ret : ret_vals) {
+                if (ret != 0) {
+                    i = ret;
                 }
             }
             return i;
@@ -592,11 +598,15 @@ int InstanceRecycler::do_recycle() {
                                         fmt::format("instance id {}", instance_id_),
                                         [](int r) { return r != 0; });
         sync_executor
-                .add(task_wrapper(
+                .add(task_wrapper( // dropped table and dropped partition need to be recycled in series
+                                   // becase they may both recycle the same set of tablets
+                        // recycle dropped table or idexes(mv, rollup)
                         [this]() -> int { return InstanceRecycler::recycle_indexes(); },
-                        [this]() -> int { return InstanceRecycler::recycle_partitions(); },
-                        [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); },
-                        [this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
+                        // recycle dropped partitions
+                        [this]() -> int { return InstanceRecycler::recycle_partitions(); }))
+                .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); }))
+                .add(task_wrapper([this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::abort_timeout_txn(); },
                         [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
@@ -620,6 +630,11 @@ int InstanceRecycler::do_recycle() {
     }
 }
 
+/**
+ * 1. delete all remote data
+ * 2. delete all kv
+ * 3. remove instance kv
+ */
 int InstanceRecycler::recycle_deleted_instance() {
     LOG_INFO("begin to recycle deleted instance").tag("instance_id", instance_id_);
 
@@ -633,6 +648,29 @@ int InstanceRecycler::recycle_deleted_instance() {
                   << "s, instance_id=" << instance_id_;
     });
 
+    // delete all remote data
+    for (auto& [_, accessor] : accessor_map_) {
+        if (stopped()) {
+            return ret;
+        }
+
+        LOG(INFO) << "begin to delete all objects in " << accessor->uri();
+        int del_ret = accessor->delete_all();
+        if (del_ret == 0) {
+            LOG(INFO) << "successfully delete all objects in " << accessor->uri();
+        } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
+            // If `del_ret == 1`, it can be considered that the object data has been recycled by cloud platform,
+            // so the recycling has been successful.
+            ret = -1;
+        }
+    }
+
+    if (ret != 0) {
+        LOG(WARNING) << "failed to delete all data of deleted instance=" << instance_id_;
+        return ret;
+    }
+
+    // delete all kv
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -676,22 +714,6 @@ int InstanceRecycler::recycle_deleted_instance() {
         ret = -1;
     }
 
-    for (auto& [_, accessor] : accessor_map_) {
-        if (stopped()) {
-            return ret;
-        }
-
-        LOG(INFO) << "begin to delete all objects in " << accessor->uri();
-        int del_ret = accessor->delete_all();
-        if (del_ret == 0) {
-            LOG(INFO) << "successfully delete all objects in " << accessor->uri();
-        } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
-            // If `del_ret == 1`, it can be considered that the object data has been recycled by cloud platform,
-            // so the recycling has been successful.
-            ret = -1;
-        }
-    }
-
     if (ret == 0) {
         // remove instance kv
         // ATTN: MUST ensure that cloud platform won't regenerate the same instance id
@@ -716,9 +738,9 @@ int InstanceRecycler::recycle_deleted_instance() {
 
 int InstanceRecycler::recycle_indexes() {
     const std::string task_name = "recycle_indexes";
-    int num_scanned = 0;
-    int num_expired = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_expired = 0;
+    int64_t num_recycled = 0;
 
     RecycleIndexKeyInfo index_key_info0 {instance_id_, 0};
     RecycleIndexKeyInfo index_key_info1 {instance_id_, INT64_MAX};
@@ -743,14 +765,24 @@ int InstanceRecycler::recycle_indexes() {
                 .tag("num_recycled", num_recycled);
     });
 
-    auto calc_expiration = [](const RecycleIndexPB& index) {
+    int64_t earlest_ts = std::numeric_limits<int64_t>::max();
+
+    auto calc_expiration = [&earlest_ts, this](const RecycleIndexPB& index) {
+        if (config::force_immediate_recycle) {
+            return 0L;
+        }
         int64_t expiration = index.expiration() > 0 ? index.expiration() : index.creation_time();
         int64_t retention_seconds = config::retention_seconds;
         if (index.state() == RecycleIndexPB::DROPPED) {
             retention_seconds =
                     std::min(config::dropped_index_retention_seconds, retention_seconds);
         }
-        return expiration + retention_seconds;
+        int64_t final_expiration = expiration + retention_seconds;
+        if (earlest_ts > final_expiration) {
+            earlest_ts = final_expiration;
+            g_bvar_recycler_recycle_index_earlest_ts.put(instance_id_, earlest_ts);
+        }
+        return final_expiration;
     };
 
     // Elements in `index_keys` has the same lifetime as `it` in `scan_and_recycle`
@@ -911,9 +943,9 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
 
 int InstanceRecycler::recycle_partitions() {
     const std::string task_name = "recycle_partitions";
-    int num_scanned = 0;
-    int num_expired = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_expired = 0;
+    int64_t num_recycled = 0;
 
     RecyclePartKeyInfo part_key_info0 {instance_id_, 0};
     RecyclePartKeyInfo part_key_info1 {instance_id_, INT64_MAX};
@@ -938,7 +970,12 @@ int InstanceRecycler::recycle_partitions() {
                 .tag("num_recycled", num_recycled);
     });
 
-    auto calc_expiration = [](const RecyclePartitionPB& partition) {
+    int64_t earlest_ts = std::numeric_limits<int64_t>::max();
+
+    auto calc_expiration = [&earlest_ts, this](const RecyclePartitionPB& partition) {
+        if (config::force_immediate_recycle) {
+            return 0L;
+        }
         int64_t expiration =
                 partition.expiration() > 0 ? partition.expiration() : partition.creation_time();
         int64_t retention_seconds = config::retention_seconds;
@@ -946,7 +983,12 @@ int InstanceRecycler::recycle_partitions() {
             retention_seconds =
                     std::min(config::dropped_partition_retention_seconds, retention_seconds);
         }
-        return expiration + retention_seconds;
+        int64_t final_expiration = expiration + retention_seconds;
+        if (earlest_ts > final_expiration) {
+            earlest_ts = final_expiration;
+            g_bvar_recycler_recycle_partition_earlest_ts.put(instance_id_, earlest_ts);
+        }
+        return final_expiration;
     };
 
     // Elements in `partition_keys` has the same lifetime as `it` in `scan_and_recycle`
@@ -1063,8 +1105,8 @@ int InstanceRecycler::recycle_partitions() {
 }
 
 int InstanceRecycler::recycle_versions() {
-    int num_scanned = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_recycled = 0;
 
     LOG_INFO("begin to recycle table and partition versions").tag("instance_id", instance_id_);
 
@@ -1141,13 +1183,14 @@ int InstanceRecycler::recycle_versions() {
 
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id,
                                       bool is_empty_tablet) {
-    int num_scanned = 0;
-    std::atomic_int num_recycled = 0;
+    int64_t num_scanned = 0;
+    std::atomic_long num_recycled = 0;
 
     std::string tablet_key_begin, tablet_key_end;
     std::string stats_key_begin, stats_key_end;
     std::string job_key_begin, job_key_end;
 
+    std::string tablet_belongs;
     if (partition_id > 0) {
         // recycle tablets in a partition belonging to the index
         meta_tablet_key({instance_id_, table_id, index_id, partition_id, 0}, &tablet_key_begin);
@@ -1156,6 +1199,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         stats_tablet_key({instance_id_, table_id, index_id, partition_id + 1, 0}, &stats_key_end);
         job_tablet_key({instance_id_, table_id, index_id, partition_id, 0}, &job_key_begin);
         job_tablet_key({instance_id_, table_id, index_id, partition_id + 1, 0}, &job_key_end);
+        tablet_belongs = "partition";
     } else {
         // recycle tablets in the index
         meta_tablet_key({instance_id_, table_id, index_id, 0, 0}, &tablet_key_begin);
@@ -1164,9 +1208,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         stats_tablet_key({instance_id_, table_id, index_id + 1, 0, 0}, &stats_key_end);
         job_tablet_key({instance_id_, table_id, index_id, 0, 0}, &job_key_begin);
         job_tablet_key({instance_id_, table_id, index_id + 1, 0, 0}, &job_key_end);
+        tablet_belongs = "index";
     }
 
-    LOG_INFO("begin to recycle tablets")
+    LOG_INFO("begin to recycle tablets of the " + tablet_belongs)
             .tag("table_id", table_id)
             .tag("index_id", index_id)
             .tag("partition_id", partition_id);
@@ -1175,7 +1220,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle tablets finished, cost={}s", cost)
+        LOG_INFO("recycle tablets of " + tablet_belongs + " finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("table_id", table_id)
                 .tag("index_id", index_id)
@@ -1267,7 +1312,6 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
             return -1;
         }
-        sync_executor.reset();
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
         // sort the vector using key's order
         std::sort(tablet_keys.begin(), tablet_keys.end(),
@@ -1382,17 +1426,19 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     }
     std::vector<std::string> file_paths;
     auto tablet_schema = rs_meta_pb.tablet_schema();
+    auto index_storage_format = InvertedIndexStorageFormatPB::V1;
     for (int64_t i = 0; i < num_segments; ++i) {
         file_paths.push_back(segment_path(tablet_id, rowset_id, i));
         if (tablet_schema.has_inverted_index_storage_format()) {
-            if (tablet_schema.inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-                for (const auto& index_id : index_ids) {
-                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
-                                                                index_id.first, index_id.second));
-                }
-            } else if (!index_ids.empty()) {
-                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            index_storage_format = tablet_schema.inverted_index_storage_format();
+        }
+        if (index_storage_format == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index_id : index_ids) {
+                file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                                            index_id.second));
             }
+        } else if (!index_ids.empty()) {
+            file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
         }
     }
     // TODO(AlexYue): seems could do do batch
@@ -1403,6 +1449,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
+    // (resource_id, tablet_id, rowset_id)
+    std::vector<std::tuple<std::string, int64_t, std::string>> rowsets_delete_by_prefix;
 
     for (const auto& rs : rowsets) {
         {
@@ -1429,8 +1477,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
-        // default format as v2.
-        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V2;
+        // default format as v1.
+        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
 
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {
@@ -1473,6 +1521,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             index_format = index_info.first;
             index_ids = std::move(index_info.second);
         }
+        if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+            // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
+            // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
+            rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
+            continue;
+        }
         for (int64_t i = 0; i < num_segments; ++i) {
             file_paths.push_back(segment_path(tablet_id, rowset_id, i));
             if (index_format == InvertedIndexStorageFormatPB::V1) {
@@ -1495,6 +1549,14 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor);
             return accessor->delete_files(*paths);
         });
+    }
+    for (const auto& [resource_id, tablet_id, rowset_id] : rowsets_delete_by_prefix) {
+        LOG_INFO(
+                "delete rowset {} by prefix because it's in BEGIN_PARTIAL_UPDATE state, "
+                "resource_id={}, tablet_id={}, instance_id={}",
+                rowset_id, resource_id, tablet_id, instance_id_);
+        concurrent_delete_executor.add(
+                [&]() -> int { return delete_rowset_data(resource_id, tablet_id, rowset_id); });
     }
     bool finished = true;
     std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
@@ -1600,12 +1662,15 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
 
 int InstanceRecycler::recycle_rowsets() {
     const std::string task_name = "recycle_rowsets";
-    int num_scanned = 0;
-    int num_expired = 0;
-    int num_prepare = 0;
-    size_t total_rowset_size = 0;
+    int64_t num_scanned = 0;
+    int64_t num_expired = 0;
+    int64_t num_prepare = 0;
+    int64_t num_compacted = 0;
+    int64_t num_empty_rowset = 0;
+    size_t total_rowset_key_size = 0;
+    size_t total_rowset_value_size = 0;
     size_t expired_rowset_size = 0;
-    std::atomic_int num_recycled = 0;
+    std::atomic_long num_recycled = 0;
 
     RecycleRowsetKeyInfo recyc_rs_key_info0 {instance_id_, 0, ""};
     RecycleRowsetKeyInfo recyc_rs_key_info1 {instance_id_, INT64_MAX, ""};
@@ -1628,8 +1693,11 @@ int InstanceRecycler::recycle_rowsets() {
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
                 .tag("num_recycled", num_recycled)
-                .tag("num_prepare", num_prepare)
-                .tag("total_rowset_meta_size", total_rowset_size)
+                .tag("num_recycled.prepare", num_prepare)
+                .tag("num_recycled.compacted", num_compacted)
+                .tag("num_recycled.empty_rowset", num_empty_rowset)
+                .tag("total_rowset_meta_key_size_scanned", total_rowset_key_size)
+                .tag("total_rowset_meta_value_size_scanned", total_rowset_value_size)
                 .tag("expired_rowset_meta_size", expired_rowset_size);
     });
 
@@ -1680,7 +1748,12 @@ int InstanceRecycler::recycle_rowsets() {
         return 0;
     };
 
-    auto calc_expiration = [](const RecycleRowsetPB& rs) {
+    int64_t earlest_ts = std::numeric_limits<int64_t>::max();
+
+    auto calc_expiration = [&earlest_ts, this](const RecycleRowsetPB& rs) {
+        if (config::force_immediate_recycle) {
+            return 0L;
+        }
         // RecycleRowsetPB created by compacted or dropped rowset has no expiration time, and will be recycled when exceed retention time
         int64_t expiration = rs.expiration() > 0 ? rs.expiration() : rs.creation_time();
         int64_t retention_seconds = config::retention_seconds;
@@ -1688,12 +1761,18 @@ int InstanceRecycler::recycle_rowsets() {
             retention_seconds =
                     std::min(config::compacted_rowset_retention_seconds, retention_seconds);
         }
-        return expiration + retention_seconds;
+        int64_t final_expiration = expiration + retention_seconds;
+        if (earlest_ts > final_expiration) {
+            earlest_ts = final_expiration;
+            g_bvar_recycler_recycle_rowset_earlest_ts.put(instance_id_, earlest_ts);
+        }
+        return final_expiration;
     };
 
     auto handle_rowset_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
-        total_rowset_size += v.size();
+        total_rowset_key_size += k.size();
+        total_rowset_value_size += v.size();
         RecycleRowsetPB rowset;
         if (!rowset.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed recycle rowset").tag("key", hex(k));
@@ -1765,9 +1844,12 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
+            num_compacted += rowset.type() == RecycleRowsetPB::COMPACT;
             rowset_keys.emplace_back(k);
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
+            } else {
+                ++num_empty_rowset;
             }
         }
         return 0;
@@ -1808,8 +1890,7 @@ int InstanceRecycler::recycle_rowsets() {
     return ret;
 }
 
-bool check_txn_abort(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                     int64_t txn_id) {
+bool is_txn_aborted(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, int64_t txn_id) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1868,11 +1949,12 @@ bool check_txn_abort(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_
 
 int InstanceRecycler::recycle_tmp_rowsets() {
     const std::string task_name = "recycle_tmp_rowsets";
-    int num_scanned = 0;
-    int num_expired = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_expired = 0;
+    int64_t num_recycled = 0;
     size_t expired_rowset_size = 0;
-    size_t total_rowset_size = 0;
+    size_t total_rowset_key_size = 0;
+    size_t total_rowset_value_size = 0;
 
     MetaRowsetTmpKeyInfo tmp_rs_key_info0 {instance_id_, 0, 0};
     MetaRowsetTmpKeyInfo tmp_rs_key_info1 {instance_id_, INT64_MAX, 0};
@@ -1895,40 +1977,54 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
                 .tag("num_recycled", num_recycled)
-                .tag("total_rowset_meta_size", total_rowset_size)
-                .tag("expired_rowset_meta_size", expired_rowset_size);
+                .tag("total_rowset_meta_key_size_scanned", total_rowset_key_size)
+                .tag("total_rowset_meta_value_size_scanned", total_rowset_value_size)
+                .tag("expired_rowset_meta_size_recycled", expired_rowset_size);
     });
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
     std::vector<std::string_view> tmp_rowset_keys;
     std::vector<doris::RowsetMetaCloudPB> tmp_rowsets;
 
-    auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
-                             &expired_rowset_size, &total_rowset_size,
-                             this](std::string_view k, std::string_view v) -> int {
-        ++num_scanned;
-        total_rowset_size += v.size();
-        doris::RowsetMetaCloudPB rowset;
-        if (!rowset.ParseFromArray(v.data(), v.size())) {
-            LOG_WARNING("malformed rowset meta").tag("key", hex(k));
-            return -1;
-        }
-        int64_t current_time = ::time(nullptr);
+    int64_t earlest_ts = std::numeric_limits<int64_t>::max();
+    auto calc_expiration = [&earlest_ts, this](const doris::RowsetMetaCloudPB& rowset) {
         // ATTN: `txn_expiration` should > 0, however we use `creation_time` + a large `retention_time` (> 1 day in production environment)
         //  when `txn_expiration` <= 0 in some unexpected situation (usually when there are bugs). This is usually safe, coz loading
         //  duration or timeout always < `retention_time` in practice.
         int64_t expiration =
                 rowset.txn_expiration() > 0 ? rowset.txn_expiration() : rowset.creation_time();
+        expiration = config::force_immediate_recycle ? 0 : expiration;
+        int64_t final_expiration = expiration + config::retention_seconds;
+        if (earlest_ts > final_expiration) {
+            earlest_ts = final_expiration;
+            g_bvar_recycler_recycle_tmp_rowset_earlest_ts.put(instance_id_, earlest_ts);
+        }
+        return final_expiration;
+    };
+
+    auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
+                             &expired_rowset_size, &total_rowset_key_size, &total_rowset_value_size,
+                             &calc_expiration,
+                             this](std::string_view k, std::string_view v) -> int {
+        ++num_scanned;
+        total_rowset_key_size += k.size();
+        total_rowset_value_size += v.size();
+        doris::RowsetMetaCloudPB rowset;
+        if (!rowset.ParseFromArray(v.data(), v.size())) {
+            LOG_WARNING("malformed rowset meta").tag("key", hex(k));
+            return -1;
+        }
+        int64_t expiration = calc_expiration(rowset);
         VLOG_DEBUG << "recycle tmp rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
                    << " num_expired=" << num_expired << " expiration=" << expiration
                    << " txn_expiration=" << rowset.txn_expiration()
                    << " rowset_creation_time=" << rowset.creation_time();
-        if (current_time < expiration + config::retention_seconds) {
-            // not expired
+        int64_t current_time = ::time(nullptr);
+        if (current_time < expiration) { // not expired
             return 0;
         }
 
-        if (!check_txn_abort(txn_kv_, instance_id_, rowset.txn_id())) {
+        if (!is_txn_aborted(txn_kv_, instance_id_, rowset.txn_id())) {
             return 0;
         }
 
@@ -1948,7 +2044,9 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                   << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset.rowset_id_v2()
                   << " version=[" << rowset.start_version() << '-' << rowset.end_version()
                   << "] txn_id=" << rowset.txn_id() << " rowset_meta_size=" << v.size()
-                  << " creation_time" << rowset.creation_time();
+                  << " creation_time=" << rowset.creation_time() << " num_scanned=" << num_scanned
+                  << " num_expired=" << num_expired;
+
         tmp_rowset_keys.push_back(k);
         if (rowset.num_segments() > 0) { // Skip empty rowset
             tmp_rowsets.push_back(std::move(rowset));
@@ -1981,31 +2079,57 @@ int InstanceRecycler::scan_and_recycle(
         std::string begin, std::string_view end,
         std::function<int(std::string_view k, std::string_view v)> recycle_func,
         std::function<int()> loop_done) {
+    LOG(INFO) << "begin scan_and_recycle key_range=[" << hex(begin) << "," << hex(end) << ")";
     int ret = 0;
+    int64_t cnt = 0;
+    int get_range_retried = 0;
+    std::string err;
+    std::unique_ptr<int, std::function<void(int*)>> defer_log(
+            (int*)0x01, [begin, end, &err, &ret, &cnt, &get_range_retried](int*) {
+                LOG(INFO) << "finish scan_and_recycle key_range=[" << hex(begin) << "," << hex(end)
+                          << ") num_scanned=" << cnt << " get_range_retried=" << get_range_retried
+                          << " ret=" << ret << " err=" << err;
+            });
+
     std::unique_ptr<RangeGetIterator> it;
     do {
-        int get_ret = txn_get(txn_kv_.get(), begin, end, it);
-        if (get_ret != 0) {
-            LOG(WARNING) << "failed to get kv, key=" << begin << " ret=" << get_ret;
+        if (get_range_retried > 1000) {
+            err = "txn_get exceeds max retry, may not scan all keys";
+            ret = -1;
             return -1;
         }
-        VLOG_DEBUG << "fetch " << it->size() << " kv";
+        int get_ret = txn_get(txn_kv_.get(), begin, end, it);
+        if (get_ret != 0) { // txn kv may complain "Request for future version"
+            LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
+                         << ") num_scanned=" << cnt << " txn_get_ret=" << get_ret
+                         << " get_range_retried=" << get_range_retried;
+            ++get_range_retried;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            continue; // try again
+        }
         if (!it->has_next()) {
-            VLOG_DEBUG << "no keys in the given range, begin=" << hex(begin) << " end=" << hex(end);
-            break;
+            LOG(INFO) << "no keys in the given range=[" << hex(begin) << "," << hex(end) << ")";
+            break; // scan finished
         }
         while (it->has_next()) {
+            ++cnt;
             // recycle corresponding resources
             auto [k, v] = it->next();
             if (!it->has_next()) {
                 begin = k;
                 VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
             }
-            if (recycle_func(k, v) != 0) ret = -1;
+            // if we want to continue scanning, the recycle_func should not return non-zero
+            if (recycle_func(k, v) != 0) {
+                err = "recycle_func error";
+                ret = -1;
+            }
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-        if (loop_done) {
-            if (loop_done() != 0) ret = -1;
+        // if we want to continue scanning, the recycle_func should not return non-zero
+        if (loop_done && loop_done() != 0) {
+            err = "loop_done error";
+            ret = -1;
         }
     } while (it->more() && !stopped());
     return ret;
@@ -2013,10 +2137,10 @@ int InstanceRecycler::scan_and_recycle(
 
 int InstanceRecycler::abort_timeout_txn() {
     const std::string task_name = "abort_timeout_txn";
-    int num_scanned = 0;
-    int num_timeout = 0;
-    int num_abort = 0;
-    int num_advance = 0;
+    int64_t num_scanned = 0;
+    int64_t num_timeout = 0;
+    int64_t num_abort = 0;
+    int64_t num_advance = 0;
 
     TxnRunningKeyInfo txn_running_key_info0 {instance_id_, 0, 0};
     TxnRunningKeyInfo txn_running_key_info1 {instance_id_, INT64_MAX, INT64_MAX};
@@ -2100,7 +2224,7 @@ int InstanceRecycler::abort_timeout_txn() {
                 LOG_WARNING("malformed txn_running_pb").tag("key", hex(k));
                 return -1;
             }
-            if (txn_running_pb.timeout_time() > current_time) {
+            if (!config::force_immediate_recycle && txn_running_pb.timeout_time() > current_time) {
                 return 0;
             }
             ++num_timeout;
@@ -2153,9 +2277,9 @@ int InstanceRecycler::abort_timeout_txn() {
 
 int InstanceRecycler::recycle_expired_txn_label() {
     const std::string task_name = "recycle_expired_txn_label";
-    int num_scanned = 0;
-    int num_expired = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_expired = 0;
+    int64_t num_recycled = 0;
 
     RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id_, 0, 0};
     RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id_, INT64_MAX, INT64_MAX};
@@ -2179,25 +2303,38 @@ int InstanceRecycler::recycle_expired_txn_label() {
                 .tag("num_recycled", num_recycled);
     });
 
-    int64_t current_time =
+    int64_t earlest_ts = std::numeric_limits<int64_t>::max();
+    auto calc_expiration = [&earlest_ts, this](const RecycleTxnPB& recycle_txn_pb) {
+        int64_t final_expiration =
+                recycle_txn_pb.creation_time() + config::label_keep_max_second * 1000L;
+        if (earlest_ts > final_expiration / 1000) {
+            earlest_ts = final_expiration / 1000;
+            g_bvar_recycler_recycle_expired_txn_label_earlest_ts.put(instance_id_, earlest_ts);
+        }
+        return final_expiration;
+    };
+
+    int64_t current_time_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    auto handle_recycle_txn_kv = [&num_scanned, &num_expired, &num_recycled, &current_time, this](
-                                         std::string_view k, std::string_view v) -> int {
+    auto handle_recycle_txn_kv = [&num_scanned, &num_expired, &num_recycled, &current_time_ms,
+                                  &calc_expiration,
+                                  this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         RecycleTxnPB recycle_txn_pb;
         if (!recycle_txn_pb.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed txn_running_pb").tag("key", hex(k));
             return -1;
         }
-        if ((recycle_txn_pb.has_immediate() && recycle_txn_pb.immediate()) ||
-            (recycle_txn_pb.creation_time() + config::label_keep_max_second * 1000L <=
-             current_time)) {
-            LOG_INFO("found recycle txn").tag("key", hex(k));
+        if ((config::force_immediate_recycle) ||
+            (recycle_txn_pb.has_immediate() && recycle_txn_pb.immediate()) ||
+            (calc_expiration(recycle_txn_pb) <= current_time_ms)) {
+            VLOG_DEBUG << "found recycle txn, key=" << hex(k);
             num_expired++;
         } else {
             return 0;
         }
+
         std::string_view k1 = k;
         //RecycleTxnKeyInfo 0:instance_id  1:db_id  2:txn_id
         k1.remove_prefix(1); // Remove key space
@@ -2397,10 +2534,10 @@ private:
 };
 
 int InstanceRecycler::recycle_copy_jobs() {
-    int num_scanned = 0;
-    int num_finished = 0;
-    int num_expired = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_finished = 0;
+    int64_t num_expired = 0;
+    int64_t num_recycled = 0;
     // Used for INTERNAL stage's copy jobs to tag each batch for log trace
     uint64_t batch_count = 0;
     const std::string task_name = "recycle_copy_jobs";
@@ -2486,14 +2623,16 @@ int InstanceRecycler::recycle_copy_jobs() {
                 int64_t current_time =
                         duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
                 if (copy_job.finish_time_ms() > 0) {
-                    if (current_time <
-                        copy_job.finish_time_ms() + config::copy_job_max_retention_second * 1000) {
+                    if (!config::force_immediate_recycle &&
+                        current_time < copy_job.finish_time_ms() +
+                                               config::copy_job_max_retention_second * 1000) {
                         return 0;
                     }
                 } else {
                     // For compatibility, copy job does not contain finish time before 2.2.2, use start time
-                    if (current_time <
-                        copy_job.start_time_ms() + config::copy_job_max_retention_second * 1000) {
+                    if (!config::force_immediate_recycle &&
+                        current_time < copy_job.start_time_ms() +
+                                               config::copy_job_max_retention_second * 1000) {
                         return 0;
                     }
                 }
@@ -2502,7 +2641,7 @@ int InstanceRecycler::recycle_copy_jobs() {
             int64_t current_time =
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             // if copy job is timeout: delete all copy file kvs and copy job kv
-            if (current_time <= copy_job.timeout_time_ms()) {
+            if (!config::force_immediate_recycle && current_time <= copy_job.timeout_time_ms()) {
                 return 0;
             }
             ++num_expired;
@@ -2640,8 +2779,8 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
 }
 
 int InstanceRecycler::recycle_stage() {
-    int num_scanned = 0;
-    int num_recycled = 0;
+    int64_t num_scanned = 0;
+    int64_t num_recycled = 0;
     const std::string task_name = "recycle_stage";
 
     LOG_INFO("begin to recycle stage").tag("instance_id", instance_id_);
@@ -2661,12 +2800,9 @@ int InstanceRecycler::recycle_stage() {
 
     RecycleStageKeyInfo key_info0 {instance_id_, ""};
     RecycleStageKeyInfo key_info1 {instance_id_, "\xff"};
-    std::string key0;
-    std::string key1;
-    recycle_stage_key(key_info0, &key0);
-    recycle_stage_key(key_info1, &key1);
+    std::string key0 = recycle_stage_key(key_info0);
+    std::string key1 = recycle_stage_key(key_info1);
 
-    // Elements in `tmp_rowset_keys` has the same lifetime as `it`
     std::vector<std::string_view> stage_keys;
     auto recycle_func = [&start_time, &num_scanned, &num_recycled, &stage_keys, this](
                                 std::string_view k, std::string_view v) -> int {
@@ -2756,6 +2892,12 @@ int InstanceRecycler::recycle_expired_stage_objects() {
     });
     int ret = 0;
     for (const auto& stage : instance_info_.stages()) {
+        std::stringstream ss;
+        ss << "instance_id=" << instance_id_ << ", stage_id=" << stage.stage_id()
+           << ", user_name=" << stage.mysql_user_name().at(0)
+           << ", user_id=" << stage.mysql_user_id().at(0)
+           << ", prefix=" << stage.obj_info().prefix();
+
         if (stopped()) break;
         if (stage.type() == StagePB::EXTERNAL) {
             continue;
@@ -2769,7 +2911,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         const auto& old_obj = instance_info_.obj_info()[idx - 1];
         auto s3_conf = S3Conf::from_obj_store_info(old_obj);
         if (!s3_conf) {
-            LOG(WARNING) << "failed to init accessor";
+            LOG(WARNING) << "failed to init s3_conf with obj_info=" << old_obj.DebugString();
             continue;
         }
 
@@ -2777,23 +2919,28 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         std::shared_ptr<S3Accessor> accessor;
         int ret1 = S3Accessor::create(std::move(*s3_conf), &accessor);
         if (ret1 != 0) {
-            LOG(WARNING) << "failed to init s3 accessor ret=" << ret1;
+            LOG(WARNING) << "failed to init s3 accessor ret=" << ret1 << " " << ss.str();
             ret = -1;
             continue;
         }
 
-        LOG(INFO) << "recycle expired stage objects, instance_id=" << instance_id_
-                  << ", stage_id=" << stage.stage_id()
-                  << ", user_name=" << stage.mysql_user_name().at(0)
-                  << ", user_id=" << stage.mysql_user_id().at(0)
-                  << ", prefix=" << stage.obj_info().prefix();
+        if (s3_conf->prefix.find("/stage/") == std::string::npos) {
+            LOG(WARNING) << "try to delete illegal prefix, which is catastrophic, " << ss.str();
+            ret = -1;
+            continue;
+        }
+
+        LOG(INFO) << "recycle expired stage objects, " << ss.str();
         int64_t expiration_time =
                 duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
                 config::internal_stage_objects_expire_time_second;
+        if (config::force_immediate_recycle) {
+            expiration_time = INT64_MAX;
+        }
         ret1 = accessor->delete_all(expiration_time);
         if (ret1 != 0) {
-            LOG(WARNING) << "failed to recycle expired stage objects, instance_id=" << instance_id_
-                         << ", stage_id=" << stage.stage_id() << ", ret=" << ret1;
+            LOG(WARNING) << "failed to recycle expired stage objects, ret=" << ret1 << " "
+                         << ss.str();
             ret = -1;
             continue;
         }

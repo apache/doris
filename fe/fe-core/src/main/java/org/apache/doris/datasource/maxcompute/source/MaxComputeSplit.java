@@ -17,26 +17,28 @@
 
 package org.apache.doris.datasource.maxcompute.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 
-import java.util.Optional;
+import lombok.Getter;
 
+import java.util.List;
+
+@Getter
 public class MaxComputeSplit extends FileSplit {
-    private final Optional<String> partitionSpec;
+    public String scanSerialize;
+    public String sessionId;
 
-    public MaxComputeSplit(FileSplit rangeSplit) {
-        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
-                rangeSplit.hosts, rangeSplit.partitionValues);
-        this.partitionSpec = Optional.empty();
+    public enum SplitType {
+        ROW_OFFSET,
+        BYTE_SIZE
     }
 
-    public MaxComputeSplit(String partitionSpec, FileSplit rangeSplit) {
-        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
-                rangeSplit.hosts, rangeSplit.partitionValues);
-        this.partitionSpec = Optional.of(partitionSpec);
+    public SplitType splitType;
+
+    public MaxComputeSplit(LocationPath path, long start, long length, long fileLength,
+            long modificationTime, String[] hosts, List<String> partitionValues) {
+        super(path, start, length, fileLength, modificationTime, hosts, partitionValues);
     }
 
-    public Optional<String> getPartitionSpec() {
-        return partitionSpec;
-    }
 }

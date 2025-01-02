@@ -51,8 +51,8 @@ class TRuntimeProfileTree;
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
 
 #define ADD_LABEL_COUNTER(profile, name) (profile)->add_counter(name, TUnit::NONE)
-#define ADD_LABEL_COUNTER_WITH_LEVEL(profile, name, type) \
-    (profile)->add_counter_with_level(name, TUnit::NONE, type)
+#define ADD_LABEL_COUNTER_WITH_LEVEL(profile, name, level) \
+    (profile)->add_counter_with_level(name, TUnit::NONE, level)
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_COUNTER_WITH_LEVEL(profile, name, type, level) \
     (profile)->add_counter_with_level(name, type, level)

@@ -46,6 +46,9 @@ private:
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
     //record build column type
     vectorized::DataTypes _left_table_data_types;
+
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 template <bool is_intersect>

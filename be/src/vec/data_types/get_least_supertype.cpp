@@ -41,6 +41,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
 
@@ -282,6 +283,14 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
         }
         if (which.is_variant_type()) {
             *type = std::make_shared<DataTypeObject>();
+            return;
+        }
+        if (which.is_date_v2()) {
+            *type = std::make_shared<DataTypeDateV2>();
+            return;
+        }
+        if (which.is_date_time_v2()) {
+            *type = std::make_shared<DataTypeDateTimeV2>();
             return;
         }
         *type = std::make_shared<DataTypeJsonb>();

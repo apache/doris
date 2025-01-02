@@ -213,9 +213,16 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         idToRecycleTime.put(id, recycleTime);
     }
 
+    public synchronized boolean isRecycleDatabase(long dbId) {
+        return idToDatabase.containsKey(dbId);
+    }
+
+    public synchronized boolean isRecycleTable(long dbId, long tableId) {
+        return isRecycleDatabase(dbId) || idToTable.containsKey(tableId);
+    }
+
     public synchronized boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
-        return idToDatabase.containsKey(dbId) || idToTable.containsKey(tableId)
-                || idToPartition.containsKey(partitionId);
+        return isRecycleTable(dbId, tableId) || idToPartition.containsKey(partitionId);
     }
 
     public synchronized void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
@@ -767,7 +774,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
                 LOG.info("replay recover table[{}]", table.getId());
             } else {
                 // log
-                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(), -1L, "", newTableName, "");
+                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(),
+                                                    -1L, "", table.getName(), newTableName, "", "");
                 Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
             }
             // Only olap table need recover dynamic partition, other table like jdbc odbc view.. do not need it
@@ -866,7 +874,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         idToRecycleTime.remove(partitionId);
 
         // log
-        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
+        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "",
+                                                    table.getName(), "", partitionName, newPartitionName);
         Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
         LOG.info("recover partition[{}]", partitionId);
     }

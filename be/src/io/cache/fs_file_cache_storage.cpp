@@ -160,30 +160,36 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
                 get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
                                         key.offset, key.meta.type);
         Status s = fs->open_file(file, &file_reader);
-        if (!s.ok()) {
-            if (!s.is<ErrorCode::NOT_FOUND>() || key.meta.type != FileCacheType::TTL) {
+
+        // handle the case that the file is not found but actually exists in other type format
+        // TODO(zhengyu): nasty! better eliminate the type encoding in file name in the future
+        if (!s.ok() && !s.is<ErrorCode::NOT_FOUND>()) {
+            LOG(WARNING) << "open file failed, file=" << file << ", error=" << s.to_string();
+            return s;                                         // return other error directly
+        } else if (!s.ok() && s.is<ErrorCode::NOT_FOUND>()) { // but handle NOT_FOUND error
+            auto candidates = get_path_in_local_cache_all_candidates(
+                    get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset);
+            for (auto& candidate : candidates) {
+                s = fs->open_file(candidate, &file_reader);
+                if (s.ok()) {
+                    break; // success with one of there candidates
+                }
+            }
+            if (!s.ok()) { // still not found, return error
+                LOG(WARNING) << "open file failed, file=" << file << ", error=" << s.to_string();
                 return s;
             }
-            std::string file_old_format = get_path_in_local_cache_old_ttl_format(
-                    get_path_in_local_cache(key.hash, key.meta.expiration_time), key.offset,
-                    key.meta.type);
-            if (config::translate_to_new_ttl_format_during_read) {
-                // try to rename the file with old ttl format to new and retry
-                VLOG(7) << "try to rename the file with old ttl format to new and retry"
-                        << " oldformat=" << file_old_format << " original=" << file;
-                RETURN_IF_ERROR(fs->rename(file_old_format, file));
-                RETURN_IF_ERROR(fs->open_file(file, &file_reader));
-            } else {
-                // try to open the file with old ttl format
-                VLOG(7) << "try to open the file with old ttl format"
-                        << " oldformat=" << file_old_format << " original=" << file;
-                RETURN_IF_ERROR(fs->open_file(file_old_format, &file_reader));
-            }
-        }
+        } // else, s.ok() means open file success
+
         FDCache::instance()->insert_file_reader(fd_key, file_reader);
     }
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader->read_at(value_offset, buffer, &bytes_read));
+    auto s = file_reader->read_at(value_offset, buffer, &bytes_read);
+    if (!s.ok()) {
+        LOG(WARNING) << "read file failed, file=" << file_reader->path()
+                     << ", error=" << s.to_string();
+        return s;
+    }
     DCHECK(bytes_read == buffer.get_size());
     return Status::OK();
 }
@@ -268,6 +274,17 @@ std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std
                                                                        bool is_tmp) {
     DCHECK(type == FileCacheType::TTL);
     return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+}
+
+std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candidates(
+        const std::string& dir, size_t offset) {
+    std::vector<std::string> candidates;
+    std::string base = get_path_in_local_cache(dir, offset, FileCacheType::NORMAL);
+    candidates.push_back(base);
+    candidates.push_back(base + "_idx");
+    candidates.push_back(base + "_ttl");
+    candidates.push_back(base + "_disposable");
+    return candidates;
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& value,
@@ -471,7 +488,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
-        std::lock_guard cache_lock(_mgr->_mutex);
+        SCOPED_CACHE_LOCK(_mgr->_mutex);
+
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
@@ -657,6 +675,11 @@ Status FSFileCacheStorage::clear(std::string& msg) {
         return Status::InternalError(ss.str());
     }
     return Status::OK();
+}
+
+std::string FSFileCacheStorage::get_local_file(const FileCacheKey& key) {
+    return get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
+                                   key.offset, key.meta.type, false);
 }
 
 FSFileCacheStorage::~FSFileCacheStorage() {

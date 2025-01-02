@@ -45,7 +45,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
@@ -101,7 +100,7 @@ public class StreamLoadPlanner {
         analyzer = new Analyzer(Env.getCurrentEnv(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
-        analyzer.setUDFAllowed(false);
+        analyzer.setUDFAllowed(Config.enable_udf_in_load);
         descTable = analyzer.getDescTbl();
     }
 
@@ -154,6 +153,18 @@ public class StreamLoadPlanner {
             isPartialUpdate = false;
         }
 
+        if (isPartialUpdate) {
+            boolean hasSyncMaterializedView = destTable.getFullSchema().stream()
+                    .anyMatch(col -> col.isMaterializedViewColumn());
+            if (hasSyncMaterializedView) {
+                throw new DdlException("Can't do partial update on merge-on-write Unique table"
+                        + " with sync materialized view.");
+            }
+            if (destTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
+                throw new UserException("Can't do partial update on merge-on-write Unique table with cluster keys");
+            }
+        }
+
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
@@ -195,7 +206,8 @@ public class StreamLoadPlanner {
                             + " by generated columns, missing: " + col.getName());
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
@@ -277,12 +289,6 @@ public class StreamLoadPlanner {
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
-        if (taskInfo instanceof RoutineLoadJob) {
-            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
-            // So that the execution won't be killed before consuming finished.
-            timeout *= 2;
-        }
-
         final boolean enableMemtableOnSinkNode =
                 destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode() : false;

@@ -97,11 +97,8 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
 
-    RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
-
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
-    RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
@@ -110,7 +107,6 @@ private:
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
     RuntimeProfile::Counter* _decompressor_timer = nullptr;
     RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
-    RuntimeProfile::Counter* _raw_rows_counter = nullptr;
 
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;
@@ -140,22 +136,18 @@ private:
     RuntimeProfile::Counter* _block_init_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_bf_timer = nullptr;
     RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
-    RuntimeProfile::Counter* _collect_iterator_normal_next_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
-    RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_timer = nullptr;
-    RuntimeProfile::Counter* _second_read_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
-    RuntimeProfile::Counter* _first_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_dict_timer = nullptr;
+    RuntimeProfile::Counter* _predicate_column_read_timer = nullptr;
+    RuntimeProfile::Counter* _non_predicate_column_read_timer = nullptr;
+    RuntimeProfile::Counter* _predicate_column_read_seek_timer = nullptr;
+    RuntimeProfile::Counter* _predicate_column_read_seek_counter = nullptr;
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
-
-    RuntimeProfile::Counter* _block_convert_timer = nullptr;
 
     // total pages read
     // used by segment v2
@@ -176,11 +168,11 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
-    RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
@@ -197,11 +189,13 @@ private:
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                      const DescriptorTbl& descs, int parallel_tasks);
+                      const DescriptorTbl& descs, int parallel_tasks,
+                      const TQueryCacheParam& cache_param);
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
+    TQueryCacheParam _cache_param;
 };
 
 } // namespace doris::pipeline

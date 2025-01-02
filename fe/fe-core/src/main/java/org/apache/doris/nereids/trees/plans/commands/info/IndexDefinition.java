@@ -93,7 +93,7 @@ public class IndexDefinition {
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite, boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -105,6 +105,14 @@ public class IndexDefinition {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
@@ -135,18 +143,12 @@ public class IndexDefinition {
                             "ngram_bf index should have gram_size and bf_size properties");
                 }
                 try {
-                    int ngramSize = Integer.parseInt(properties.get(IndexDef.NGRAM_SIZE_KEY));
-                    int bfSize = Integer.parseInt(properties.get(IndexDef.NGRAM_BF_SIZE_KEY));
-                    if (ngramSize > 256 || ngramSize < 1) {
-                        throw new AnalysisException(
-                                "gram_size should be integer and less than 256");
-                    }
-                    if (bfSize > 65536 || bfSize < 64) {
-                        throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65536");
-                    }
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE,
+                                                      IndexDef.MAX_NGRAM_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE,
+                                                      IndexDef.MAX_BF_SIZE);
+                } catch (Exception ex) {
+                    throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
             }
         } else {
@@ -207,6 +209,6 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment);
+                comment, null);
     }
 }

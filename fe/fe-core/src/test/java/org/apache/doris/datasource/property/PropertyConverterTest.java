@@ -34,8 +34,11 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
@@ -270,7 +273,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(13, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(22, hdProps.size());
+        Assertions.assertEquals(21, hdProps.size());
     }
 
     @Test
@@ -288,7 +291,8 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(12, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(21, hdProps.size());
+        Assertions.assertNull(hdProps.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals(20, hdProps.size());
     }
 
     @Test
@@ -402,10 +406,9 @@ public class PropertyConverterTest extends TestWithFeService {
         String queryDlf1 = "create catalog hms_mc properties (\n"
                 + "    'type'='max_compute',\n"
                 + "    'mc.default.project' = 'project0',\n"
-                + "    'mc.region' = 'cn-beijing',\n"
                 + "    'mc.access_key' = 'ak',\n"
                 + "    'mc.secret_key' = 'sk',\n"
-                + "    'mc.public_access' = 'true'\n"
+                + "    'mc.endpoint' = 'http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api' \n"
                 + ");";
         String catalogName = "hms_mc";
         CreateCatalogStmt analyzedStmt = createStmt(queryDlf1);
@@ -414,10 +417,10 @@ public class PropertyConverterTest extends TestWithFeService {
                 .getCatalogMgr().getCatalog(catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(properties.get("type"), "max_compute");
-        Assertions.assertEquals(properties.get("mc.region"), "cn-beijing");
         Assertions.assertEquals(properties.get("mc.access_key"), "ak");
         Assertions.assertEquals(properties.get("mc.secret_key"), "sk");
-        Assertions.assertEquals(properties.get("mc.public_access"), "true");
+        Assertions.assertEquals(properties.get("mc.endpoint"),
+                "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api");
         Assertions.assertEquals(properties.get("mc.default.project"), "project0");
     }
 
@@ -440,7 +443,8 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(30, hdProps.size());
+        Assertions.assertEquals(29, hdProps.size());
+        Assertions.assertNull(hdProps.get("fs.s3.impl.disable.cache"));
 
         String query = "create catalog hms_glue properties (\n"
                 + "    'type'='hms',\n"
@@ -458,7 +462,8 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(30, hdPropsNew.size());
+        Assertions.assertNull(hdPropsNew.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals(29, hdPropsNew.size());
     }
 
     @Test
@@ -472,7 +477,7 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'cos.secret_key' = 'skk'\n"
                     + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                "cos.ap-beijing.myqcloud.com", query0, 12, 18);
+                "cos.ap-beijing.myqcloud.com", query0, 12, 17);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
@@ -494,7 +499,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'minio.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
-                "http://127.0.0.1", query2, 12, 21);
+                "http://127.0.0.1", query2, 12, 20);
 
         String catalogName3 = "hms_obs";
         String query3 = "create catalog hms_obs properties (\n"
@@ -505,7 +510,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'obs.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName3, ObsProperties.OBS_PREFIX,
-                "obs.cn-north-4.myhuaweicloud.com", query3, 12, 17);
+                "obs.cn-north-4.myhuaweicloud.com", query3, 12, 16);
     }
 
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
@@ -519,6 +524,7 @@ public class PropertyConverterTest extends TestWithFeService {
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(bePropsSize, hdProps.size());
+        Assertions.assertNull(hdProps.get(String.format("fs.%s.impl.disable.cache", prefix)));
 
         Map<String, String> expectedMetaProperties = new HashMap<>();
         expectedMetaProperties.put("endpoint", endpoint);
@@ -777,5 +783,43 @@ public class PropertyConverterTest extends TestWithFeService {
         res = PropertyConverter.convertToMetaProperties(new HashMap<>(props4));
         Assertions.assertEquals(9, res.size());
         Assertions.assertEquals("north", res.get(S3Properties.Env.REGION));
+    }
+
+    @Test
+    public void testGluePropertiesConvertor() throws Exception {
+        Map<String, String> originProps = Maps.newHashMap();
+        originProps.put(GlueProperties.ACCESS_KEY, "ak");
+        originProps.put(GlueProperties.SECRET_KEY, "sk");
+        originProps.put(GlueProperties.ENDPOINT, "https://glue.us-east-1.amazonaws.com");
+        originProps.put("type", "iceberg");
+        originProps.put("iceberg.catalog.type", "glue");
+
+        Map<String, String> convertedProps = PropertyConverter.convertToMetaProperties(originProps);
+        System.out.println(convertedProps);
+        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x",
+                convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER));
+        Assertions.assertEquals("ak", convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK));
+        Assertions.assertEquals("sk", convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK));
+
+        String createIceGlue = "CREATE CATALOG iceglue PROPERTIES (\n"
+                + "    \"type\"=\"iceberg\",\n"
+                + "    \"iceberg.catalog.type\" = \"glue\",\n"
+                + "    \"glue.endpoint\" = \"https://glue.us-east-1.amazonaws.com/\",\n"
+                + "    \"glue.access_key\" = \"ak123\",\n"
+                + "    \"glue.secret_key\" = \"sk123\"\n"
+                + ");";
+        CreateCatalogStmt analyzedStmt = createStmt(createIceGlue);
+        IcebergExternalCatalog icebergExternalCatalog = createAndGetIcebergCatalog(analyzedStmt, "iceglue");
+        Assertions.assertTrue(icebergExternalCatalog instanceof IcebergGlueExternalCatalog);
+        IcebergGlueExternalCatalog glueCatalog = (IcebergGlueExternalCatalog) icebergExternalCatalog;
+
+        PrintableMap<String, String> printableMap = new PrintableMap<>(glueCatalog.getProperties(), "=", true, true,
+                true, true);
+        printableMap.setAdditionalHiddenKeys(ExternalCatalog.HIDDEN_PROPERTIES);
+        String result = printableMap.toString();
+        System.out.println(result);
+        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER));
+        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK));
+        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK));
     }
 }

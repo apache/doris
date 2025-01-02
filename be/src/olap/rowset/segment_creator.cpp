@@ -53,8 +53,8 @@ namespace doris {
 using namespace ErrorCode;
 
 SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
-                               InvertedIndexFilesInfo& idx_files_info)
-        : _context(context), _seg_files(seg_files), _idx_files_info(idx_files_info) {}
+                               InvertedIndexFileCollection& idx_files)
+        : _context(context), _seg_files(seg_files), _idx_files(idx_files) {}
 
 SegmentFlusher::~SegmentFlusher() = default;
 
@@ -69,8 +69,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         RETURN_IF_ERROR(_parse_variant_columns(flush_block));
     }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
-    if (config::enable_vertical_segment_writer &&
-        _context.tablet_schema->cluster_key_idxes().empty()) {
+    if (config::enable_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
@@ -84,7 +83,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     return Status::OK();
 }
 
-Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
+Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block) {
     size_t num_rows = block.rows();
     if (num_rows == 0) {
         return Status::OK();
@@ -141,13 +140,10 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
-    io::FileWriterPtr inverted_file_writer;
-    if (_context.tablet_schema->has_inverted_index() &&
-        _context.tablet_schema->get_inverted_index_storage_format() >=
-                InvertedIndexStorageFormatPB::V2 &&
-        _context.memtable_on_sink_support_index_v2) {
-        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_writer,
-                                                             FileType::INVERTED_INDEX_FILE));
+    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    if (_context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(
+                _context.file_writer_creator->create(segment_id, &inverted_index_file_writer));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -162,8 +158,11 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
 
     writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, std::move(inverted_file_writer));
+            _context.data_dir, writer_options, inverted_index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
+    if (_context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(inverted_index_file_writer)));
+    }
     auto s = writer->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
@@ -179,13 +178,10 @@ Status SegmentFlusher::_create_segment_writer(
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
-    io::FileWriterPtr inverted_file_writer;
-    if (_context.tablet_schema->has_inverted_index() &&
-        _context.tablet_schema->get_inverted_index_storage_format() >=
-                InvertedIndexStorageFormatPB::V2 &&
-        _context.memtable_on_sink_support_index_v2) {
-        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_writer,
-                                                             FileType::INVERTED_INDEX_FILE));
+    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    if (_context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(
+                _context.file_writer_creator->create(segment_id, &inverted_index_file_writer));
     }
 
     segment_v2::VerticalSegmentWriterOptions writer_options;
@@ -199,8 +195,11 @@ Status SegmentFlusher::_create_segment_writer(
 
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, std::move(inverted_file_writer));
+            _context.data_dir, writer_options, inverted_index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
+    if (_context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(inverted_index_file_writer)));
+    }
     auto s = writer->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
@@ -226,12 +225,16 @@ Status SegmentFlusher::_flush_segment_writer(
     if (row_num == 0) {
         return Status::OK();
     }
-    uint64_t segment_size;
-    uint64_t index_size;
-    Status s = writer->finalize(&segment_size, &index_size);
+    uint64_t segment_file_size;
+    uint64_t common_index_size;
+    Status s = writer->finalize(&segment_file_size, &common_index_size);
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
+
+    int64_t inverted_index_file_size = 0;
+    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing filename: " << writer->data_dir_path()
                << " rowset_id:" << _context.rowset_id;
@@ -246,17 +249,20 @@ Status SegmentFlusher::_flush_segment_writer(
     uint32_t segment_id = writer->segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + writer->get_inverted_index_total_size();
-    segstat.index_size = index_size + writer->get_inverted_index_total_size();
+    segstat.data_size = segment_file_size;
+    segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", index size:" << segstat.index_size;
 
-    _idx_files_info.add_file_info(segment_id, writer->get_inverted_index_file_info());
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
-        *flush_size = segment_size + index_size;
+        *flush_size = segment_file_size;
     }
     return Status::OK();
 }
@@ -272,12 +278,16 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     if (row_num == 0) {
         return Status::OK();
     }
-    uint64_t segment_size;
-    uint64_t index_size;
-    Status s = writer->finalize(&segment_size, &index_size);
+    uint64_t segment_file_size;
+    uint64_t common_index_size;
+    Status s = writer->finalize(&segment_file_size, &common_index_size);
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
+
+    int64_t inverted_index_file_size = 0;
+    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing rowset_dir: " << _context.tablet_path
                << " rowset_id:" << _context.rowset_id;
@@ -292,17 +302,20 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     uint32_t segment_id = writer->get_segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + writer->get_inverted_index_total_size();
-    segstat.index_size = index_size + writer->get_inverted_index_total_size();
+    segstat.data_size = segment_file_size;
+    segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", index size:" << segstat.index_size;
 
-    _idx_files_info.add_file_info(segment_id, writer->get_inverted_index_file_info());
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
-        *flush_size = segment_size + index_size;
+        *flush_size = segment_file_size;
     }
     return Status::OK();
 }
@@ -331,8 +344,8 @@ int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
-                               InvertedIndexFilesInfo& idx_files_info)
-        : _segment_flusher(context, seg_files, idx_files_info) {}
+                               InvertedIndexFileCollection& idx_files)
+        : _segment_flusher(context, seg_files, idx_files) {}
 
 Status SegmentCreator::add_block(const vectorized::Block* block) {
     if (block->rows() == 0) {

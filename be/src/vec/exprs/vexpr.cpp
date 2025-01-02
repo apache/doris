@@ -31,6 +31,8 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "pipeline/pipeline_task.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_array.h"
@@ -147,9 +149,17 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
+    case TYPE_IPV4: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
+        break;
+    }
+    case TYPE_IPV6: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
+        break;
+    }
     default:
-        DCHECK(false);
-        throw std::invalid_argument("Invalid type!");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
     }
     return node;
 }
@@ -553,7 +563,7 @@ void VExpr::register_function_context(RuntimeState* state, VExprContext* context
     _fn_context_index = context->register_function_context(state, _type, arg_types);
 }
 
-Status VExpr::init_function_context(VExprContext* context,
+Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
                                     FunctionContext::FunctionStateScope scope,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
@@ -565,6 +575,12 @@ Status VExpr::init_function_context(VExprContext* context,
             constant_cols.push_back(const_col);
         }
         fn_ctx->set_constant_cols(constant_cols);
+    } else {
+        if (function->is_udf_function()) {
+            auto* timer = ADD_TIMER(state->get_task()->get_task_profile(),
+                                    "UDF[" + function->get_name() + "]");
+            fn_ctx->set_udf_execute_timer(timer);
+        }
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -715,8 +731,6 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         for (int column_id : column_ids) {
             index_context->set_true_for_inverted_index_status(this, column_id);
         }
-        // set fast_execute when expr evaluated by inverted index correctly
-        _can_fast_execute = true;
     }
     return Status::OK();
 }

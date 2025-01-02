@@ -182,68 +182,6 @@ public:
     }
 };
 
-template <bool is_nullable>
-class AggregateFunctionPercentileApproxTwoParams_OLDER : public AggregateFunctionPercentileApprox {
-public:
-    AggregateFunctionPercentileApproxTwoParams_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        if constexpr (is_nullable) {
-            double column_data[2] = {0, 0};
-
-            for (int i = 0; i < 2; ++i) {
-                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
-                if (nullable_column == nullptr) { //Not Nullable column
-                    const auto& column =
-                            assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
-                                    *columns[i]);
-                    column_data[i] = column.get_element(row_num);
-                } else if (!nullable_column->is_null_at(
-                                   row_num)) { // Nullable column && Not null data
-                    const auto& column =
-                            assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
-                                    nullable_column->get_nested_column());
-                    column_data[i] = column.get_element(row_num);
-                } else { // Nullable column && null data
-                    if (i == 0) {
-                        return;
-                    }
-                }
-            }
-
-            this->data(place).init();
-            this->data(place).add(column_data[0], column_data[1]);
-
-        } else {
-            const auto& sources =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& quantile =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-
-            this->data(place).init();
-            this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
-        }
-    }
-
-    DataTypePtr get_return_type() const override {
-        return make_nullable(std::make_shared<DataTypeFloat64>());
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& nullable_column = assert_cast<ColumnNullable&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
-
-        if (std::isnan(result)) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(result);
-            nullable_column.get_null_map_data().push_back(0);
-        }
-    }
-};
-
 class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
@@ -268,71 +206,6 @@ public:
             col.insert_default();
         } else {
             col.get_data().push_back(result);
-        }
-    }
-};
-
-template <bool is_nullable>
-class AggregateFunctionPercentileApproxThreeParams_OLDER
-        : public AggregateFunctionPercentileApprox {
-public:
-    AggregateFunctionPercentileApproxThreeParams_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        if constexpr (is_nullable) {
-            double column_data[3] = {0, 0, 0};
-
-            for (int i = 0; i < 3; ++i) {
-                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
-                if (nullable_column == nullptr) { //Not Nullable column
-                    const auto& column =
-                            assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
-                                    *columns[i]);
-                    column_data[i] = column.get_element(row_num);
-                } else if (!nullable_column->is_null_at(
-                                   row_num)) { // Nullable column && Not null data
-                    const auto& column =
-                            assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
-                                    nullable_column->get_nested_column());
-                    column_data[i] = column.get_element(row_num);
-                } else { // Nullable column && null data
-                    if (i == 0) {
-                        return;
-                    }
-                }
-            }
-
-            this->data(place).init(column_data[2]);
-            this->data(place).add(column_data[0], column_data[1]);
-
-        } else {
-            const auto& sources =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& quantile =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-            const auto& compression =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
-
-            this->data(place).init(compression.get_element(row_num));
-            this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
-        }
-    }
-
-    DataTypePtr get_return_type() const override {
-        return make_nullable(std::make_shared<DataTypeFloat64>());
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& nullable_column = assert_cast<ColumnNullable&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
-
-        if (std::isnan(result)) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(result);
-            nullable_column.get_null_map_data().push_back(0);
         }
     }
 };
@@ -368,76 +241,6 @@ public:
     }
 };
 
-template <bool is_nullable>
-class AggregateFunctionPercentileApproxWeightedThreeParams_OLDER
-        : public AggregateFunctionPercentileApprox {
-public:
-    AggregateFunctionPercentileApproxWeightedThreeParams_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
-
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        if constexpr (is_nullable) {
-            // sources quantile weight
-            double column_data[3] = {0, 0, 0};
-            for (int i = 0; i < 3; ++i) {
-                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
-                if (nullable_column == nullptr) { //Not Nullable column
-                    const auto& column =
-                            assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                                    *columns[i]);
-                    column_data[i] = column.get_element(row_num);
-                } else if (!nullable_column->is_null_at(
-                                   row_num)) { // Nullable column && Not null data
-                    const auto& column =
-                            assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                                    nullable_column->get_nested_column());
-                    column_data[i] = column.get_element(row_num);
-                } else { // Nullable column && null data
-                    if (i == 0) {
-                        return;
-                    }
-                }
-            }
-            this->data(place).init();
-            this->data(place).add_with_weight(column_data[0], column_data[1], column_data[2]);
-
-        } else {
-            const auto& sources =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[0]);
-            const auto& weight =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[1]);
-            const auto& quantile =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[2]);
-
-            this->data(place).init();
-            this->data(place).add_with_weight(sources.get_element(row_num),
-                                              weight.get_element(row_num),
-                                              quantile.get_element(row_num));
-        }
-    }
-
-    DataTypePtr get_return_type() const override {
-        return make_nullable(std::make_shared<DataTypeFloat64>());
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& nullable_column = assert_cast<ColumnNullable&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
-
-        if (std::isnan(result)) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(result);
-            nullable_column.get_null_map_data().push_back(0);
-        }
-    }
-};
-
 class AggregateFunctionPercentileApproxWeightedThreeParams
         : public AggregateFunctionPercentileApprox {
 public:
@@ -468,79 +271,6 @@ public:
             col.insert_default();
         } else {
             col.get_data().push_back(result);
-        }
-    }
-};
-
-template <bool is_nullable>
-class AggregateFunctionPercentileApproxWeightedFourParams_OLDER
-        : public AggregateFunctionPercentileApprox {
-public:
-    AggregateFunctionPercentileApproxWeightedFourParams_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        if constexpr (is_nullable) {
-            double column_data[4] = {0, 0, 0, 0};
-
-            for (int i = 0; i < 4; ++i) {
-                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
-                if (nullable_column == nullptr) { //Not Nullable column
-                    const auto& column =
-                            assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                                    *columns[i]);
-                    column_data[i] = column.get_element(row_num);
-                } else if (!nullable_column->is_null_at(
-                                   row_num)) { // Nullable column && Not null data
-                    const auto& column =
-                            assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                                    nullable_column->get_nested_column());
-                    column_data[i] = column.get_element(row_num);
-                } else { // Nullable column && null data
-                    if (i == 0) {
-                        return;
-                    }
-                }
-            }
-
-            this->data(place).init(column_data[3]);
-            this->data(place).add_with_weight(column_data[0], column_data[1], column_data[2]);
-
-        } else {
-            const auto& sources =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[0]);
-            const auto& weight =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[1]);
-            const auto& quantile =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[2]);
-            const auto& compression =
-                    assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(
-                            *columns[3]);
-
-            this->data(place).init(compression.get_element(row_num));
-            this->data(place).add_with_weight(sources.get_element(row_num),
-                                              weight.get_element(row_num),
-                                              quantile.get_element(row_num));
-        }
-    }
-
-    DataTypePtr get_return_type() const override {
-        return make_nullable(std::make_shared<DataTypeFloat64>());
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& nullable_column = assert_cast<ColumnNullable&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
-
-        if (std::isnan(result)) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(result);
-            nullable_column.get_null_map_data().push_back(0);
         }
     }
 };
@@ -631,8 +361,18 @@ struct PercentileState {
             }
         }
         for (int i = 0; i < arg_size; ++i) {
-            vec_counts[i].increment(source, 1);
+            vec_counts[i].increment(source);
         }
+    }
+
+    void add_batch(const PaddedPODArray<T>& source, const Float64& q) {
+        if (!inited_flag) {
+            inited_flag = true;
+            vec_counts.resize(1);
+            vec_quantile.resize(1);
+            vec_quantile[0] = q;
+        }
+        vec_counts[0].increment_batch(source);
     }
 
     void merge(const PercentileState& rhs) {
@@ -690,6 +430,17 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
                                                      quantile.get_data(), 1);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena*) const override {
+        const auto& sources =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& quantile =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        DCHECK_EQ(sources.get_data().size(), batch_size);
+        AggregateFunctionPercentile::data(place).add_batch(sources.get_data(),
+                                                           quantile.get_data()[0]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {

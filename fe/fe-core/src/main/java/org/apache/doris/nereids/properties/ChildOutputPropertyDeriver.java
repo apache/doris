@@ -371,8 +371,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                             intersectGroupingKeys, Utils.fastToImmutableSet(groupingSets.get(i))
                     );
                 }
-                if (!intersectGroupingKeys.isEmpty()) {
-                    List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
+                List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
+                if (!intersectGroupingKeys.isEmpty() && intersectGroupingKeys.size()
+                        >= Sets.newHashSet(orderedShuffledColumns).size()) {
                     boolean hashColumnsChanged = false;
                     for (Expression intersectGroupingKey : intersectGroupingKeys) {
                         if (!(intersectGroupingKey instanceof SlotReference)) {

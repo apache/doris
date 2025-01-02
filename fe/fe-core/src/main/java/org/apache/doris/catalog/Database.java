@@ -29,9 +29,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
@@ -87,13 +87,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
 
-    private QueryableReentrantReadWriteLock rwLock;
+    private MonitoredReentrantReadWriteLock rwLock;
 
     // table family group map
     private final Map<Long, Table> idToTable;
     private ConcurrentMap<String, Table> nameToTable;
-    // table name lower cast -> table name
-    private final Map<String, String> lowerCaseToTableName;
+    // table name lower case -> table name
+    private final ConcurrentMap<String, String> lowerCaseToTableName;
 
     // user define function
     @SerializedName(value = "name2Function")
@@ -138,7 +138,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (this.fullQualifiedName == null) {
             this.fullQualifiedName = "";
         }
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.idToTable = Maps.newConcurrentMap();
         this.nameToTable = Maps.newConcurrentMap();
         this.lowerCaseToTableName = Maps.newConcurrentMap();
@@ -289,6 +289,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+        if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public long getUsedDataQuotaWithLock() {
@@ -494,6 +497,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return views;
     }
 
+    public List<Table> getViewsOnIdOrder() {
+        List<Table> tables = idToTable.values().stream()
+                .sorted(Comparator.comparing(Table::getId))
+                .collect(Collectors.toList());
+        List<Table> views = new ArrayList<>();
+        for (Table table : tables) {
+            if (table.getType() == TableType.VIEW) {
+                views.add(table);
+            }
+        }
+        return views;
+    }
+
     /**
      * this method is used for get existed table list by table id list, if table not exist, just ignore it.
      */
@@ -533,6 +549,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         } finally {
             readUnlock();
         }
+    }
+
+    public Set<String> getTableNames() {
+        return new HashSet<>(this.nameToTable.keySet());
     }
 
     /**

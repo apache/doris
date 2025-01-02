@@ -11,8 +11,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[t4]
 
 Hint log:
-Used: leading({ t1 t2 } { t3 t4 } )
-UnUsed: 
+Used: leading({ t1 broadcast t2 } broadcast { t3 broadcast t4 } ) 
+UnUsed:
 SyntaxError:
 
 -- !select2_1_1 --
@@ -261,7 +261,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[t6]
 
 Hint log:
-Used: leading(t1 { { t2 t3 } { t4 t5 } } t6 )
-UnUsed: 
+Used: leading(t1 broadcast { { t2 broadcast t3 } broadcast { t4 broadcast t5 } } broadcast t6 ) 
+UnUsed:
 SyntaxError:
 

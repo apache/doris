@@ -318,13 +318,15 @@ public class ColumnDefinition {
             }
             defaultValue = Optional.of(DefaultValue.HLL_EMPTY_DEFAULT_VALUE);
         } else if (type.isBitmapType()) {
-            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Bitmap type column can not set default value");
+            if (defaultValue.isPresent() && isOlap && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.get().getValue().equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.getValue())) {
+                throw new AnalysisException("Bitmap type column default value only support "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
         } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
                 && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
-                        .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
+                .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
             throw new AnalysisException("Array type column default value only support null or "
                     + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         } else if (type.isMapType()) {

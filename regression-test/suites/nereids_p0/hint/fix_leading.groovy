@@ -103,7 +103,7 @@ suite("fix_leading") {
     }
 
     // bug fix 1: {t1 t2}{t3 t4} miss levels
-    qt_select1 """explain shape plan select /*+ leading({t1 t2}{t3 t4}) */ * from t1 join t2 on c2 = c2 join t3 on c1 = c3 join t4 on c1 = c4;"""
+    qt_select1 """explain shape plan select /*+ leading({t1 broadcast t2} broadcast {t3 broadcast t4}) */ * from t1 join t2 on c2 = c2 join t3 on c1 = c3 join t4 on c1 = c4;"""
 
     // bug fix 2: fix left outer join without edge with other tables
     // left join + left join
@@ -196,7 +196,7 @@ suite("fix_leading") {
     // check left right join result
     qt_select4_1 """select count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_2 """select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
-    qt_select4_3 """explain shape plan select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+    qt_select4_3 """explain shape plan select /*+ leading(t1 broadcast t2 broadcast t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
 
     // check whether we have all tables
     explain {
@@ -205,7 +205,7 @@ suite("fix_leading") {
     }
 
     // check brace problem
-    qt_select6_1 """explain shape plan select /*+ leading(t1 {{t2 t3}{t4 t5}} t6) */ count(*) from t1 join t2 on c1 = c2 join t3 on c1 = c3 join t4 on c1 = c4 join t5 on c1 = c5 join t6 on c1 = c6;"""
+    qt_select6_1 """explain shape plan select /*+ leading(t1 broadcast {{t2 broadcast t3} broadcast {t4 broadcast t5}} broadcast t6) */ count(*) from t1 join t2 on c1 = c2 join t3 on c1 = c3 join t4 on c1 = c4 join t5 on c1 = c5 join t6 on c1 = c6;"""
 
     // check filter in duplicated aliasName
     explain {

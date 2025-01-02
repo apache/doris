@@ -16,13 +16,15 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_varchar_schema_change") {
     def getJobState = { tableName ->
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
-    
+
     def tableName = "varchar_schema_change_regression_test"
 
     try {
@@ -55,7 +57,7 @@ suite ("test_varchar_schema_change") {
                 """
             exception "Cannot shorten string length"
         }
-        
+
         // test {//为什么第一次改没发生Nothing is changed错误？查看branch-1.2-lts代码
         //     sql """ alter table ${tableName} modify column c2 varchar(20)
         //             """
@@ -63,19 +65,14 @@ suite ("test_varchar_schema_change") {
         // }
 
         sql """ alter table ${tableName} modify column c2 varchar(30) """
-
-        int max_try_time = 1200
-        while (max_try_time--){
+        int max_try_secs = 300
+        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getJobState(tableName)
             if (result == "FINISHED") {
-                break
-            } else {
-                sleep(100)
-                if (max_try_time < 1){
-                    assertEquals(1,2)
-                }
+                return true;
             }
-        }
+            return false;
+        });
 
         String[][] res = sql """ desc ${tableName} """
         logger.info(res[2][1])
@@ -92,19 +89,14 @@ suite ("test_varchar_schema_change") {
         sql """ insert into ${tableName} values(55,'2019-11-21',21474,'123aa') """
 
         sql """ alter table ${tableName} modify column c2 INT """
-        max_try_time = 1200
-        while (max_try_time--){
+        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getJobState(tableName)
             if (result == "CANCELLED" || result == "FINISHED") {
                 assertEquals(result, "CANCELLED")
-                break
-            } else {
-                sleep(100)
-                if (max_try_time < 1){
-                    assertEquals(1,2)
-                }
+                return true;
             }
-        }
+            return false;
+        });
 
         res = sql """ desc ${tableName} """
         logger.info(res[2][1])
@@ -116,52 +108,24 @@ suite ("test_varchar_schema_change") {
         sql """ insert into ${tableName} values(55,'2009-11-21','12d1d113','123aa') """
 
         // compaction
-        String[][] tablets = sql """ show tablets from ${tableName}; """
-        for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                logger.info("run compaction:" + tablet_id)
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        }
-
-        // wait for all compactions done
-        for (String[] tablet in tablets) {
-                boolean running = true
-                do {
-                    Thread.sleep(100)
-                    String tablet_id = tablet[0]
-                    backend_id = tablet[2]
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
-        }
+        trigger_and_wait_compaction(tableName, "cumulative")
 
         qt_sc " select * from ${tableName} order by 1,2; "
         qt_sc " select min(c2),max(c2) from ${tableName} order by 1,2; "
         qt_sc " select min(c2),max(c2) from ${tableName} group by c0 order by 1,2; "
 
         sleep(5000)
-        sql """ alter table ${tableName} 
-        modify column c2 varchar(40), 
+        sql """ alter table ${tableName}
+        modify column c2 varchar(40),
         modify column c3 varchar(6) DEFAULT '0'
         """
-        max_try_time = 1200
-        while (max_try_time--){
+        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getJobState(tableName)
             if (result == "FINISHED") {
-                break
-            } else {
-                sleep(100)
-                if (max_try_time < 1){
-                    assertEquals(1,2)
-                }
+                return true;
             }
-        }
+            return false;
+        });
 
         res = sql """ desc ${tableName} """
         logger.info(res[2][1])

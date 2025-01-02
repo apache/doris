@@ -281,7 +281,7 @@ public class CloudEnv extends Env {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("current instance does not have a cluster name :{}", clusterName);
             }
-            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+            throw new DdlException(String.format("Compute Group %s not exist", clusterName),
                 ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
         }
     }
@@ -415,7 +415,8 @@ public class CloudEnv extends Env {
 
         Frontend frontend = checkFeExist(host, port);
         if (frontend == null) {
-            throw new DdlException("Frontend does not exist.");
+            throw new DdlException("frontend does not exist[" + NetUtils
+                .getHostPortInAccessibleFormat(host, port) + "]");
         }
 
         if (frontend.getRole() != role) {

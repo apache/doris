@@ -66,6 +66,7 @@ public:
         _origin_block.clear();
         _common_expr_ctxs_push_down.clear();
         _stale_expr_ctxs.clear();
+        DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
     virtual Status init() { return Status::OK(); }
@@ -154,6 +155,8 @@ public:
     void set_query_statistics(QueryStatistics* query_statistics) {
         _query_statistics = query_statistics;
     }
+
+    int64_t limit() const { return _limit; }
 
 protected:
     void _discard_conjuncts() {

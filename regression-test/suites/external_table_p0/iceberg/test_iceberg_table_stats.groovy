@@ -40,6 +40,7 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
                 def retry = 0
                 def act = ""
                 while (retry < 10) {
+                    sql """ select * from ${table_name} """
                     def result = sql """ show table stats ${table_name} """
                     act = result[0][2]
                     if (act != "-1") {

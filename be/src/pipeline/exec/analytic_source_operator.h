@@ -96,17 +96,15 @@ private:
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::Counter* _execute_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _get_result_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
-    using vectorized_execute = std::function<void(int64_t peer_group_start, int64_t peer_group_end,
-                                                  int64_t frame_start, int64_t frame_end)>;
     using vectorized_get_next = std::function<Status(size_t rows)>;
-    using vectorized_get_result = std::function<void(int64_t current_block_rows)>;
 
     struct executor {
-        vectorized_execute execute;
         vectorized_get_next get_next;
-        vectorized_get_result insert_result;
     };
 
     executor _executor;
@@ -122,7 +120,6 @@ public:
     bool is_source() const override { return true; }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
 private:

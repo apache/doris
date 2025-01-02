@@ -55,7 +55,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.parser.PartitionTableInfo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -75,6 +74,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -131,7 +131,6 @@ public class CreateTableInfo {
     private boolean isExternal = false;
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
-    private List<Integer> clusterKeysColumnIds = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
 
     /**
@@ -308,6 +307,11 @@ public class CreateTableInfo {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
+            if (columnDef.getType().isVariantType() && columnNameUpperCase.indexOf('.') != -1) {
+                throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
+            }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -423,10 +427,12 @@ public class CreateTableInfo {
             }
 
             validateKeyColumns();
-            if (!clusterKeysColumnNames.isEmpty() && !isEnableMergeOnWrite) {
-                throw new AnalysisException(
-                        "Cluster keys only support unique keys table which enabled "
-                                + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!clusterKeysColumnNames.isEmpty()) {
+                if (!isEnableMergeOnWrite) {
+                    throw new AnalysisException(
+                            "Cluster keys only support unique keys table which enabled "
+                                    + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
@@ -577,6 +583,14 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
+            boolean disableInvertedIndexV1ForVariant = false;
+            try {
+                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+                                && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
@@ -588,7 +602,8 @@ public class CreateTableInfo {
                     boolean found = false;
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite);
+                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
+                                                                disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }
@@ -731,47 +746,6 @@ public class CreateTableInfo {
                     "The number of key columns should be less than the number of columns.");
         }
 
-        if (!clusterKeysColumnNames.isEmpty()) {
-            if (keysType != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
-                String name = clusterKeysColumnNames.get(i);
-                // check if key is duplicate
-                for (int j = 0; j < i; j++) {
-                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
-                    }
-                }
-                // check if key exists and generate key column ids
-                for (int j = 0; j < columns.size(); j++) {
-                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
-                        columns.get(j).setClusterKeyId(clusterKeysColumnIds.size());
-                        clusterKeysColumnIds.add(j);
-                        break;
-                    }
-                    if (j == columns.size() - 1) {
-                        throw new AnalysisException(
-                                "Key cluster column[" + name + "] doesn't exist.");
-                    }
-                }
-            }
-
-            int minKeySize = keys.size() < clusterKeysColumnNames.size() ? keys.size()
-                    : clusterKeysColumnNames.size();
-            boolean sameKey = true;
-            for (int i = 0; i < minKeySize; ++i) {
-                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
-                    sameKey = false;
-                    break;
-                }
-            }
-            if (sameKey) {
-                throw new AnalysisException("Unique keys and cluster keys should be different.");
-            }
-        }
-
         for (int i = 0; i < keys.size(); ++i) {
             String name = columns.get(i).getName();
             if (!keys.get(i).equalsIgnoreCase(name)) {
@@ -804,6 +778,54 @@ public class CreateTableInfo {
                     throw new AnalysisException(
                             keysType.name() + " table should not specify aggregate type for "
                                     + "non-key column[" + columns.get(i).getName() + "]");
+                }
+            }
+        }
+
+        if (!clusterKeysColumnNames.isEmpty()) {
+            // forbid cluster key in 3.0 temporarily
+            throw new AnalysisException("Cluster key is not supported");
+        }
+        if (!clusterKeysColumnNames.isEmpty()) {
+            // the same code as KeysDesc#analyzeClusterKeys
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("Cluster key is not supported in cloud mode");
+            }
+            if (keysType != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("Cluster keys only support unique keys table");
+            }
+            // check that cluster keys is not duplicated
+            for (int i = 0; i < clusterKeysColumnNames.size(); i++) {
+                String name = clusterKeysColumnNames.get(i);
+                for (int j = 0; j < i; j++) {
+                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
+                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
+                    }
+                }
+            }
+            // check that cluster keys is not equal to primary keys
+            int minKeySize = Math.min(keys.size(), clusterKeysColumnNames.size());
+            boolean sameKey = true;
+            for (int i = 0; i < minKeySize; ++i) {
+                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
+                    sameKey = false;
+                    break;
+                }
+            }
+            if (sameKey) {
+                throw new AnalysisException("Unique keys and cluster keys should be different.");
+            }
+            // check that cluster key column exists
+            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
+                String name = clusterKeysColumnNames.get(i);
+                for (int j = 0; j < columns.size(); j++) {
+                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
+                        columns.get(j).setClusterKeyId(i);
+                        break;
+                    }
+                    if (j == columns.size() - 1) {
+                        throw new AnalysisException("Cluster key column[" + name + "] doesn't exist.");
+                    }
                 }
             }
         }
@@ -850,7 +872,7 @@ public class CreateTableInfo {
         return new CreateTableStmt(ifNotExists, isExternal,
                 new TableName(ctlName, dbName, tableName),
                 catalogColumns, catalogIndexes, engineName,
-                new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
+                new KeysDesc(keysType, keys, clusterKeysColumnNames),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
                 comment, addRollups, null);
     }

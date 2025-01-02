@@ -55,7 +55,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -101,11 +100,16 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
+
+        if (((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(tbl.getStorageVaultId()),
+                    "Storage vault id is null or empty");
+        }
+
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
 
         LOG.info("begin create cloud partition");
@@ -128,9 +132,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         long version = partition.getVisibleVersion();
-
-        final String storageVaultName = tbl.getStorageVaultName();
-        boolean storageVaultIdSet = tbl.getStorageVaultId().isEmpty();
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -175,32 +176,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested());
+                        tbl.variantEnableFlattenNested(),
+                        tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
-            if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-                requestBuilder.setStorageVaultName(storageVaultName);
-            }
             requestBuilder.setDbId(dbId);
-
-            LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}, vault name: {}",
-                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
-            Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
-            // If the resp has no vault id set, it means the MS is running with enable_storage_vault false
-            if (resp.hasStorageVaultId() && !storageVaultIdSet) {
-                tbl.setStorageVaultId(resp.getStorageVaultId());
-                storageVaultIdSet = true;
-                if (storageVaultName.isEmpty()) {
-                    // If user doesn't specify the vault name for this table, we should set it
-                    // to make the show create table stmt return correct stmt
-                    // TODO(ByteYue): setDefaultStorageVault for vaultMgr might override user's
-                    // defualt vault, maybe we should set it using show default storage vault stmt
-                    tbl.setStorageVaultName(resp.getStorageVaultName());
-                    Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
-                            Pair.of(resp.getStorageVaultName(), resp.getStorageVaultId()));
-                }
-            }
+            LOG.info("create tablets dbId: {} tableId: {} tableName: {} partitionId: {} partitionName: {} "
+                    + "indexId: {} vaultId: {}",
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, tbl.getStorageVaultId());
+            sendCreateTabletsRpc(requestBuilder);
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
@@ -225,7 +209,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested) throws DdlException {
+            boolean variantEnableFlattenNested, long storagePageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -352,6 +336,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);
+        schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();

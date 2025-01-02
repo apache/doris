@@ -59,16 +59,15 @@ ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
           _io_ctx(io_ctx) {}
 
 Status ColumnChunkReader::init() {
-    size_t start_offset = _metadata.__isset.dictionary_page_offset
-                                  ? _metadata.dictionary_page_offset
-                                  : _metadata.data_page_offset;
+    size_t start_offset = has_dict_page(_metadata) ? _metadata.dictionary_page_offset
+                                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
     // create page reader
     _page_reader = create_page_reader(_stream_reader, _io_ctx, start_offset, chunk_size,
                                       _metadata.num_values, _offset_index);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
-    if (_metadata.__isset.dictionary_page_offset) {
+    if (has_dict_page(_metadata)) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
         // Parse dictionary data when reading
@@ -334,4 +333,24 @@ int32_t ColumnChunkReader::_get_type_length() {
         return -1;
     }
 }
+
+/**
+ * Checks if the given column has a dictionary page.
+ *
+ * This function determines the presence of a dictionary page by checking the
+ * dictionary_page_offset field in the column metadata. The dictionary_page_offset
+ * must be set and greater than 0, and it must be less than the data_page_offset.
+ *
+ * The reason for these checks is based on the implementation in the Java version
+ * of ORC, where dictionary_page_offset is used to indicate the absence of a dictionary.
+ * Additionally, Parquet may write an empty row group, in which case the dictionary page
+ * content would be empty, and thus the dictionary page should not be read.
+ *
+ * See https://github.com/apache/arrow/pull/2667/files
+ */
+bool has_dict_page(const tparquet::ColumnMetaData& column) {
+    return column.__isset.dictionary_page_offset && column.dictionary_page_offset > 0 &&
+           column.dictionary_page_offset < column.data_page_offset;
+}
+
 } // namespace doris::vectorized

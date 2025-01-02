@@ -206,6 +206,12 @@ void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
     }
 }
 
+void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
+    get_null_map_column().insert_many_from(nullable_col.get_null_map_column(), position, length);
+    get_nested_column().insert_many_from(*nullable_col.nested_column, position, length);
+}
+
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
     const auto& arr = get_null_map_data();

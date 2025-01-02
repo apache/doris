@@ -64,7 +64,7 @@ public:
     // Must be fast enough! Thread update_tracker may be called very frequently.
     bool push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
-    std::string last_consumer_tracker() {
+    std::string last_consumer_tracker_label() {
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
 
@@ -76,18 +76,6 @@ public:
 
     void reset_wg_wptr() { _wg_wptr.reset(); }
 
-    void start_count_scope_mem() {
-        CHECK(init());
-        _scope_mem = _reserved_mem; // consume in advance
-        _count_scope_mem = true;
-    }
-
-    int64_t stop_count_scope_mem() {
-        flush_untracked_mem();
-        _count_scope_mem = false;
-        return _scope_mem - _reserved_mem;
-    }
-
     // Note that, If call the memory allocation operation in Memory Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
@@ -95,7 +83,8 @@ public:
     void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
-    bool try_reserve(int64_t size);
+    doris::Status try_reserve(int64_t size);
+
     void release_reserved();
 
     bool is_attach_query() { return _query_id != TUniqueId(); }
@@ -108,10 +97,6 @@ public:
         CHECK(init());
         return _limiter_tracker;
     }
-    MemTrackerLimiter* limiter_mem_tracker_raw() {
-        CHECK(init());
-        return _limiter_tracker_raw;
-    }
 
     void enable_wait_gc() { _wait_gc = true; }
     void disable_wait_gc() { _wait_gc = false; }
@@ -121,12 +106,12 @@ public:
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
         for (const auto& v : _consumer_tracker_stack) {
-            fmt::format_to(consumer_tracker_buf, "{}, ", MemTracker::log_usage(v->make_snapshot()));
+            fmt::format_to(consumer_tracker_buf, "{}, ", v->log_usage());
         }
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), _limiter_tracker_raw->log_usage(),
+                std::to_string(_untracked_mem), _limiter_tracker->make_profile_str(),
                 fmt::to_string(consumer_tracker_buf));
     }
 
@@ -134,6 +119,11 @@ public:
     int64_t reserved_mem() const { return _reserved_mem; }
 
 private:
+    struct LastAttachSnapshot {
+        int64_t reserved_mem = 0;
+        std::vector<MemTracker*> consumer_tracker_stack;
+    };
+
     // is false: ExecEnv::ready() = false when thread local is initialized
     bool _init = false;
     // Cache untracked mem.
@@ -141,12 +131,10 @@ private:
     int64_t _old_untracked_mem = 0;
 
     int64_t _reserved_mem = 0;
+
     // SCOPED_ATTACH_TASK cannot be nested, but SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER can continue to be used,
     // so `attach_limiter_tracker` may be nested.
-    std::vector<int64_t> _reserved_mem_stack;
-
-    bool _count_scope_mem = false;
-    int64_t _scope_mem = 0;
+    std::vector<LastAttachSnapshot> _last_attach_snapshots_stack;
 
     std::string _failed_consume_msg = std::string();
     // If true, the Allocator will wait for the GC to free memory if it finds that the memory exceed limit.
@@ -154,7 +142,6 @@ private:
     bool _wait_gc = false;
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
-    MemTrackerLimiter* _limiter_tracker_raw = nullptr;
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 
@@ -170,7 +157,6 @@ inline bool ThreadMemTrackerMgr::init() {
     if (_init) return true;
     if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
         _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
-        _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
         _wait_gc = true;
         _init = true;
         return true;
@@ -184,20 +170,21 @@ inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
         return false;
     }
     _consumer_tracker_stack.push_back(tracker);
-    tracker->release(_untracked_mem);
-    tracker->consume(_reserved_mem); // consume in advance
     return true;
 }
 
 inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     DCHECK(!_consumer_tracker_stack.empty());
-    flush_untracked_mem();
-    _consumer_tracker_stack.back()->consume(_untracked_mem);
-    _consumer_tracker_stack.back()->release(_reserved_mem);
     _consumer_tracker_stack.pop_back();
 }
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
+    // `consumer_tracker` not support reserve memory and not require use `_untracked_mem` to batch consume,
+    // because `consumer_tracker` will not be bound by many threads, so there is no performance problem.
+    for (auto* tracker : _consumer_tracker_stack) {
+        tracker->consume(size);
+    }
+
     if (_reserved_mem != 0) {
         if (_reserved_mem > size) {
             // only need to subtract _reserved_mem, no need to consume MemTracker,
@@ -213,6 +200,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             // if _untracked_mem less than -SYNC_PROC_RESERVED_INTERVAL_BYTES, increase process reserved memory.
             if (std::abs(_untracked_mem) >= SYNC_PROC_RESERVED_INTERVAL_BYTES) {
                 doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
+                _limiter_tracker->release_reserved(_untracked_mem);
                 _untracked_mem = 0;
             }
             return;
@@ -224,6 +212,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
             size -= _reserved_mem;
             doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                            _untracked_mem);
+            _limiter_tracker->release_reserved(_reserved_mem + _untracked_mem);
             _reserved_mem = 0;
             _untracked_mem = 0;
         }
@@ -242,17 +231,29 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
         flush_untracked_mem();
     }
 
-    if (skip_large_memory_check == 0 && doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
-        size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
-        _stop_consume = true;
-        LOG(WARNING) << fmt::format(
-                "malloc or new large memory: {}, {}, this is just a warning, not prevent memory "
-                "alloc, stacktrace:\n{}",
-                size,
-                is_attach_query() ? "in query or load: " + print_id(_query_id)
-                                  : "not in query or load",
-                get_stack_trace());
-        _stop_consume = false;
+    if (skip_large_memory_check == 0) {
+        if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
+            size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
+            _stop_consume = true;
+            LOG(WARNING) << fmt::format(
+                    "alloc large memory: {}, {}, this is just a warning, not prevent memory alloc, "
+                    "stacktrace:\n{}",
+                    size,
+                    is_attach_query() ? "in query or load: " + print_id(_query_id)
+                                      : "not in query or load",
+                    get_stack_trace());
+            _stop_consume = false;
+        }
+        if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
+            size > doris::config::crash_in_alloc_large_memory_bytes) {
+            LOG(FATAL) << fmt::format(
+                    "alloc large memory: {}, {}, crash generate core dumpsto help analyze, "
+                    "stacktrace:\n{}",
+                    size,
+                    is_attach_query() ? "in query or load: " + print_id(_query_id)
+                                      : "not in query or load",
+                    get_stack_trace());
+        }
     }
 }
 
@@ -269,66 +270,61 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
         return;
     }
     _stop_consume = true;
-    DCHECK(_limiter_tracker_raw);
+    DCHECK(_limiter_tracker);
 
     _old_untracked_mem = _untracked_mem;
-    if (_count_scope_mem) {
-        _scope_mem += _untracked_mem;
-    }
-    _limiter_tracker_raw->consume(_old_untracked_mem);
-    for (auto* tracker : _consumer_tracker_stack) {
-        tracker->consume(_old_untracked_mem);
-    }
+    _limiter_tracker->consume(_old_untracked_mem);
     _untracked_mem -= _old_untracked_mem;
     _stop_consume = false;
 }
 
-inline bool ThreadMemTrackerMgr::try_reserve(int64_t size) {
-    DCHECK(_limiter_tracker_raw);
+inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
+    DCHECK(_limiter_tracker);
     DCHECK(size >= 0);
     CHECK(init());
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
-    if (!_limiter_tracker_raw->try_consume(size)) {
-        return false;
+    if (!_limiter_tracker->try_reserve(size)) {
+        auto err_msg = fmt::format(
+                "reserve memory failed, size: {}, because memory tracker consumption: {}, limit: "
+                "{}",
+                size, _limiter_tracker->consumption(), _limiter_tracker->limit());
+        return doris::Status::MemoryLimitExceeded(err_msg);
     }
     auto wg_ptr = _wg_wptr.lock();
     if (wg_ptr) {
         if (!wg_ptr->add_wg_refresh_interval_memory_growth(size)) {
-            _limiter_tracker_raw->release(size); // rollback
-            return false;
+            auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
+                                       wg_ptr->memory_debug_string());
+            _limiter_tracker->release(size);          // rollback
+            _limiter_tracker->release_reserved(size); // rollback
+            return doris::Status::MemoryLimitExceeded(err_msg);
         }
     }
     if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        _limiter_tracker_raw->release(size);                 // rollback
-        wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
-        return false;
-    }
-    if (_count_scope_mem) {
-        _scope_mem += size;
-    }
-    for (auto* tracker : _consumer_tracker_stack) {
-        tracker->consume(size);
+        auto err_msg = fmt::format("reserve memory failed, size: {}, because {}", size,
+                                   GlobalMemoryArbitrator::process_mem_log_str());
+        _limiter_tracker->release(size);          // rollback
+        _limiter_tracker->release_reserved(size); // rollback
+        if (wg_ptr) {
+            wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+        }
+        return doris::Status::MemoryLimitExceeded(err_msg);
     }
     _reserved_mem += size;
-    return true;
+    return doris::Status::OK();
 }
 
 inline void ThreadMemTrackerMgr::release_reserved() {
     if (_reserved_mem != 0) {
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_reserved_mem +
                                                                        _untracked_mem);
-        _limiter_tracker_raw->release(_reserved_mem);
+        _limiter_tracker->release_reserved(_reserved_mem + _untracked_mem);
+        _limiter_tracker->release(_reserved_mem);
         auto wg_ptr = _wg_wptr.lock();
-        if (!wg_ptr) {
+        if (wg_ptr) {
             wg_ptr->sub_wg_refresh_interval_memory_growth(_reserved_mem);
-        }
-        if (_count_scope_mem) {
-            _scope_mem -= _reserved_mem;
-        }
-        for (auto* tracker : _consumer_tracker_stack) {
-            tracker->release(_reserved_mem);
         }
         _untracked_mem = 0;
         _reserved_mem = 0;

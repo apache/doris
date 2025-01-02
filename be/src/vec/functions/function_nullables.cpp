@@ -96,7 +96,7 @@ public:
             if (col_null->has_null()) [[unlikely]] {
                 return Status::InvalidArgument(
                         "There's NULL value in column {} which is illegal for non_nullable",
-                        data.column->get_name());
+                        data.name);
             }
             const ColumnPtr& nest_col = col_null->get_nested_column_ptr();
             block.replace_by_position(result, nest_col->clone_resized(nest_col->size()));

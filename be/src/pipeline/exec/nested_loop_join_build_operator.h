@@ -59,7 +59,7 @@ class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
     NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, bool need_local_merge);
+                                     const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
                 "{} should not init with TDataSink",
@@ -68,7 +68,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -77,8 +76,8 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }
-        return _child_x->ignore_data_distribution() ? DataDistribution(ExchangeType::BROADCAST)
-                                                    : DataDistribution(ExchangeType::NOOP);
+        return _child->is_serial_operator() ? DataDistribution(ExchangeType::BROADCAST)
+                                            : DataDistribution(ExchangeType::NOOP);
     }
 
 private:
@@ -86,7 +85,6 @@ private:
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    bool _need_local_merge;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };

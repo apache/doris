@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.AnalysisException;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * get all related partition descs
@@ -29,6 +30,6 @@ public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartiti
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult) throws AnalysisException {
-        lastResult.setItems(mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems());
+        lastResult.setItems(mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems(Optional.empty()));
     }
 }

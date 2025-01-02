@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_string.h"
@@ -48,12 +49,57 @@ TEST(ColumnStringTest, TestConcat) {
     ColumnNumbers arguments = {0, 1};
 
     FunctionStringConcat func_concat;
-    auto status = func_concat.execute_impl(nullptr, block, arguments, 2, 3);
-    EXPECT_TRUE(status.ok());
+    auto fn_ctx = FunctionContext::create_context(nullptr, TypeDescriptor {}, {});
+    {
+        auto status =
+                func_concat.open(fn_ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
+        EXPECT_TRUE(status.ok());
+    }
+    {
+        auto status = func_concat.execute_impl(fn_ctx.get(), block, arguments, 2, 3);
+        EXPECT_TRUE(status.ok());
+    }
 
     auto actual_res_col = block.get_by_position(2).column;
     EXPECT_EQ(actual_res_col->size(), 3);
     auto actual_res_col_str = assert_cast<const ColumnString*>(actual_res_col.get());
     actual_res_col_str->sanity_check();
+}
+
+TEST(ColumnStringTest, TestStringInsert) {
+    {
+        auto str32_column = ColumnString::create();
+        std::vector<std::string> vals_tmp = {"x", "yy", "zzz", ""};
+        auto str32_column_tmp = ColumnString::create();
+        for (auto& v : vals_tmp) {
+            str32_column_tmp->insert_data(v.data(), v.size());
+        }
+        str32_column->insert_range_from(*str32_column_tmp, 0, vals_tmp.size());
+        str32_column->insert_range_from(*str32_column_tmp, 0, vals_tmp.size());
+        auto row_count = str32_column->size();
+        EXPECT_EQ(row_count, vals_tmp.size() * 2);
+        for (size_t i = 0; i < row_count; ++i) {
+            auto row_data = str32_column->get_data_at(i);
+            EXPECT_EQ(row_data.to_string(), vals_tmp[i % vals_tmp.size()]);
+        }
+    }
+
+    {
+        // test insert ColumnString64 to ColumnString
+        auto str32_column = ColumnString::create();
+        std::vector<std::string> vals_tmp = {"x", "yy", "zzz", ""};
+        auto str64_column_tmp = ColumnString64::create();
+        for (auto& v : vals_tmp) {
+            str64_column_tmp->insert_data(v.data(), v.size());
+        }
+        str32_column->insert_range_from(*str64_column_tmp, 0, vals_tmp.size());
+        str32_column->insert_range_from(*str64_column_tmp, 0, vals_tmp.size());
+        auto row_count = str32_column->size();
+        EXPECT_EQ(row_count, vals_tmp.size() * 2);
+        for (size_t i = 0; i < row_count; ++i) {
+            auto row_data = str32_column->get_data_at(i);
+            EXPECT_EQ(row_data.to_string(), vals_tmp[i % vals_tmp.size()]);
+        }
+    }
 }
 } // namespace doris::vectorized

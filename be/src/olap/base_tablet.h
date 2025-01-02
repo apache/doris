@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
-#include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
@@ -39,6 +38,8 @@ class RowsetWriter;
 class CalcDeleteBitmapToken;
 class SegmentCacheHandle;
 class RowIdConversion;
+struct PartialUpdateInfo;
+class PartialUpdateReadPlan;
 
 struct TabletWithVersion {
     BaseTabletSPtr tablet;
@@ -104,6 +105,10 @@ public:
 
     virtual size_t tablet_footprint() = 0;
 
+    // this method just return the compaction sum on each rowset
+    // note(tsy): we should unify the compaction score calculation finally
+    uint32_t get_real_compaction_score() const;
+
     // MUST hold shared meta lock
     Status capture_rs_readers_unlocked(const Versions& version_path,
                                        std::vector<RowSetSplits>* rs_splits) const;
@@ -148,10 +153,8 @@ public:
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true);
-
-    static void prepare_to_read(const RowLocation& row_location, size_t pos,
-                                PartialUpdateReadPlan* read_plan);
+                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
+                          OlapReaderStatistics* stats = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -188,6 +191,15 @@ public:
     Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
+
+    static const signed char* get_delete_sign_column_data(vectorized::Block& block,
+                                                          size_t rows_at_least = 0);
+
+    static Status generate_default_value_block(const TabletSchema& schema,
+                                               const std::vector<uint32_t>& cids,
+                                               const std::vector<std::string>& default_values,
+                                               const vectorized::Block& ref_block,
+                                               vectorized::Block& default_value_block);
 
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
@@ -251,10 +263,13 @@ public:
     // Find the first consecutive empty rowsets. output->size() >= limit
     void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                                        int limit);
+                                        int64_t limit);
 
     // Return the merged schema of all rowsets
-    virtual TabletSchemaSPtr merged_tablet_schema() const { return _max_version_schema; }
+    virtual TabletSchemaSPtr merged_tablet_schema() const {
+        std::shared_lock rlock(_meta_lock);
+        return _max_version_schema;
+    }
 
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
@@ -272,6 +287,9 @@ public:
                          int32_t* rowset_count, int64_t* file_count);
 
     Status show_nested_index_file(std::string* json_meta);
+
+    TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
+    TabletInfo get_tablet_info() const { return TabletInfo(tablet_id(), tablet_uid()); }
 
 protected:
     // Find the missed versions until the spec_version.

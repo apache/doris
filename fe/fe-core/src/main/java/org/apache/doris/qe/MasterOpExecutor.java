@@ -87,7 +87,7 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
-        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+        if (ctx.isTxnModel()) {
             if (result.isSetTxnLoadInfo()) {
                 ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
             } else {
@@ -218,7 +218,6 @@ public class MasterOpExecutor {
                 cluster = ctx.getCloudCluster(false);
             } catch (Exception e) {
                 LOG.warn("failed to get cloud compute group", e);
-                throw new AnalysisException("failed to get cloud compute group", e);
             }
             if (!Strings.isNullOrEmpty(cluster)) {
                 params.setCloudCluster(cluster);
@@ -358,7 +357,9 @@ public class MasterOpExecutor {
                         .put(TTransportException.UNKNOWN, "Unknown exception")
                         .put(TTransportException.NOT_OPEN, "Connection is not open")
                         .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
-                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.TIMED_OUT,
+                                "Connection timeout, please check network state or enlarge session variable:"
+                                        + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
                         .build();

@@ -184,10 +184,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Int128>>();
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::IPv4>>();
+        return std::make_unique<OlapColumnDataConvertorSimple<IPv4>>();
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::IPv6>>();
+        return std::make_unique<OlapColumnDataConvertorSimple<IPv6>>();
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Float32>>();
@@ -226,8 +226,11 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     size_t cid = 0;
     for (const auto& typed_column : *block) {
         if (typed_column.column->size() != block->rows()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "input invalid block, block={}",
-                            block->dump_structure());
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "input invalid block, column_size={} != block_rows_num={}, column={}, block={}",
+                    typed_column.column->size(), block->rows(), typed_column.dump_structure(),
+                    block->dump_structure());
         }
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;

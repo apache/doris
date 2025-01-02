@@ -72,9 +72,7 @@ import java.util.stream.Collectors;
  * Insert executor for olap table
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
-    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
-    protected long txnId = INVALID_TXN_ID;
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
@@ -83,11 +81,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     public OlapInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
-    }
-
-    @Override
-    public long getTxnId() {
-        return txnId;
     }
 
     @Override
@@ -163,14 +156,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
                 }
 
-                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
-                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
-                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.getOlapTableSchemaParam());
+                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.getOlapTablePartitionParam());
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
-                List<TOlapTableLocationParam> locationParams = olapTableSink
-                        .createLocation(database.getId(), olapTableSink.getDstTable());
+                List<TOlapTableLocationParam> locationParams = olapTableSink.getOlapTableLocationParams();
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
                 dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());

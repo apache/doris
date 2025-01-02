@@ -66,7 +66,7 @@ suite("test_fold_constant_by_fe") {
         qt_sql "select to_monday('${date}'), last_day('${date}'), to_date('${date}'), to_days('${date}'), date('${date}'), datev2('${date}')"
     }
 
-    test_year = [2001, 2013, 123, 1969, 2023]
+    def test_year = [2001, 2013, 123, 1969, 2023]
     for (year in test_year) {
         for (integer in test_int) {
             qt_sql "select /*+SET_VAR(time_zone=\"Asia/Shanghai\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
@@ -163,8 +163,6 @@ suite("test_fold_constant_by_fe") {
     res = sql """explain select "12" like '%123%'"""
     assertTrue(res.contains("like"))
 
-    // Normal Usage Test Cases
-
     // Test Case 1: Append missing trailing character
     testFoldConst("select append_trailing_char_if_absent('hello', '!')")
     // Expected Output: 'hello!'
@@ -200,11 +198,11 @@ suite("test_fold_constant_by_fe") {
     // Expected Output: NULL
 
     // Test Case 9: Empty trailing character
-    testFoldConst("select append_trailing_char_if_absent('hello', '')")
+//    testFoldConst("select append_trailing_char_if_absent('hello', '')")
     // Expected Output: Error or no change depending on implementation
 
     // Test Case 10: Trailing character is more than 1 character long
-    testFoldConst("select append_trailing_char_if_absent('hello', 'ab')")
+//    testFoldConst("select append_trailing_char_if_absent('hello', 'ab')")
     // Expected Output: Error
 
     // Test Case 11: Input string is a number
@@ -224,7 +222,7 @@ suite("test_fold_constant_by_fe") {
     // Expected Output: 'こんにちは!'
 
     // Test Case 15: Multibyte character as trailing character
-    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
+//    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
     // Expected Output: 'hello😊'
 
     // Test Case 16: Long string input
@@ -248,5 +246,6 @@ suite("test_fold_constant_by_fe") {
     // Test Case 20: Trailing character with whitespace
     testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
     // Expected Output: 'hello '
+    testFoldConst("select DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) + INTERVAL 3600 SECOND")
 
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_subquery2", "arrow_flight_sql") {
+suite("test_subquery2") {
     
     sql """DROP TABLE IF EXISTS subquerytest2"""
     

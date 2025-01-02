@@ -55,9 +55,9 @@ class BetaRowset;
 // Make sure that cache_handle is valid during the segment usage period.
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 
-class SegmentCache : public LRUCachePolicyTrackingManual {
+class SegmentCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
     // The cache key or segment lru cache
     struct CacheKey {
         CacheKey(RowsetId rowset_id_, int64_t segment_id_)
@@ -81,10 +81,9 @@ public:
     };
 
     SegmentCache(size_t memory_bytes_limit, size_t segment_num_limit)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SEGMENT_CACHE,
-                                           memory_bytes_limit, LRUCacheType::SIZE,
-                                           config::tablet_rowset_stale_sweep_time_sec,
-                                           DEFAULT_LRU_CACHE_NUM_SHARDS * 2, segment_num_limit) {}
+            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, memory_bytes_limit,
+                             LRUCacheType::SIZE, config::tablet_rowset_stale_sweep_time_sec,
+                             DEFAULT_LRU_CACHE_NUM_SHARDS * 2, segment_num_limit) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.
@@ -118,7 +117,8 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false, bool need_load_pk_index_and_bf = false);
+                         bool use_cache = false, bool need_load_pk_index_and_bf = false,
+                         OlapReaderStatistics* index_load_stats = nullptr);
 
     void erase_segment(const SegmentCache::CacheKey& key);
 
@@ -160,6 +160,18 @@ public:
     void set_inited() {
         DCHECK(!_init);
         _init = true;
+    }
+
+    segment_v2::SegmentSharedPtr pop_unhealthy_segment() {
+        if (segments.empty()) {
+            return nullptr;
+        }
+        segment_v2::SegmentSharedPtr last_segment = segments.back();
+        if (last_segment->healthy_status().ok()) {
+            return nullptr;
+        }
+        segments.pop_back();
+        return last_segment;
     }
 
 private:

@@ -22,6 +22,7 @@ import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -52,14 +53,17 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -192,6 +196,22 @@ public class ExpressionUtils {
 
     public static Expression or(Collection<Expression> expressions) {
         return combineAsLeftDeepTree(Or.class, expressions);
+    }
+
+    public static Expression falseOrNull(Expression expression) {
+        if (expression.nullable()) {
+            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
+        } else {
+            return BooleanLiteral.FALSE;
+        }
+    }
+
+    public static Expression trueOrNull(Expression expression) {
+        if (expression.nullable()) {
+            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
+        } else {
+            return BooleanLiteral.TRUE;
+        }
     }
 
     /**
@@ -467,6 +487,18 @@ public class ExpressionUtils {
         return true;
     }
 
+    /**
+     * return true if all children are literal but not null literal.
+     */
+    public static boolean isAllNonNullLiteral(List<Expression> children) {
+        for (Expression child : children) {
+            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** matchNumericType */
     public static boolean matchNumericType(List<Expression> children) {
         for (Expression child : children) {
@@ -711,15 +743,15 @@ public class ExpressionUtils {
     /**
      * extract uniform slot for the given predicate, such as a = 1 and b = 2
      */
-    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
-        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+    public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
+        ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.addAll(extractUniformSlot(expression.child(0)));
-            builder.addAll(extractUniformSlot(expression.child(1)));
+            builder.putAll(extractUniformSlot(expression.child(0)));
+            builder.putAll(extractUniformSlot(expression.child(1)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
-                builder.add((Slot) expression.child(0));
+                builder.put((Slot) expression.child(0), expression.child(1));
             }
         }
         return builder.build();
@@ -920,5 +952,31 @@ public class ExpressionUtils {
             }
         }
         return result.build();
+    }
+
+    /** test whether unionConstExprs satisfy conjuncts */
+    public static boolean unionConstExprsSatisfyConjuncts(LogicalUnion union, Set<Expression> conjuncts) {
+        CascadesContext tempCascadeContext = CascadesContext.initContext(
+                ConnectContext.get().getStatementContext(), union, PhysicalProperties.ANY);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(tempCascadeContext);
+        for (List<NamedExpression> constOutput : union.getConstantExprsList()) {
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            for (int i = 0; i < constOutput.size(); i++) {
+                Expression output = constOutput.get(i);
+                if (output instanceof Alias) {
+                    replaceMap.put(union.getOutput().get(i), ((Alias) output).child());
+                } else {
+                    replaceMap.put(union.getOutput().get(i), output);
+                }
+            }
+            for (Expression conjunct : conjuncts) {
+                Expression res = FoldConstantRule.evaluate(ExpressionUtils.replace(conjunct, replaceMap),
+                        rewriteContext);
+                if (!res.equals(BooleanLiteral.TRUE)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

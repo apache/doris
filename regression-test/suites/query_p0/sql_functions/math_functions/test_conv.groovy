@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_conv", "arrow_flight_sql") {
+suite("test_conv") {
     qt_select "SELECT CONV(15,10,2)"
 
     sql """ drop table if exists test_conv; """

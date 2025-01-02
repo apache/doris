@@ -121,6 +121,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     private MarkedCountDownLatch<Long, Long> countDownLatch;
 
+    private long timeoutS = 300L;
+
     public DeleteJob(long id, long transactionId, String label,
                      Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
         this.id = id;
@@ -251,14 +253,16 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         return tabletDeleteInfoMap.values();
     }
 
+    public void setTimeoutS(long timeoutS) {
+        this.timeoutS = timeoutS;
+    }
+
     public long getTimeoutMs() {
         if (FeConstants.runningUnitTest) {
             // for making unit test run fast
             return 1000;
         }
-        // timeout is between 30 seconds to 5 min
-        long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
-        return Math.min(timeout, Config.delete_job_max_timeout_second * 1000L);
+        return timeoutS * 1000L;
     }
 
     public void setTargetDb(Database targetDb) {
@@ -563,6 +567,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             deleteJob.setTargetDb(params.getDb());
             deleteJob.setTargetTbl(params.getTable());
             deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                deleteJob.setTimeoutS(connectContext.getExecTimeout());
+            }
             return deleteJob;
         }
 

@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <vector>
 
 #include "olap/hll.h"
@@ -129,13 +131,14 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
+        DCHECK_EQ(x.get_type(), Field::TypeToEnum<T>::value);
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
+        return Field(data[n]);
     }
 
     void get(size_t n, Field& res) const override {
@@ -169,6 +172,14 @@ public:
         for (uint32_t i = 0; i < new_size; ++i) {
             auto offset = *(indices_begin + i);
             data.emplace_back(src_vec.get_element(offset));
+        }
+    }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        auto val = src_vec.get_element(position);
+        for (uint32_t i = 0; i < length; ++i) {
+            data.emplace_back(val);
         }
     }
 

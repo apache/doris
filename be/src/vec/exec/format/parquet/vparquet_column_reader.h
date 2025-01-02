@@ -121,16 +121,11 @@ public:
             : _row_ranges(row_ranges), _ctz(ctz), _io_ctx(io_ctx) {}
     virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                    ColumnSelectVector& select_vector, size_t batch_size,
-                                    size_t* read_rows, bool* eof, bool is_dict_filter) = 0;
+                                    FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                                    bool* eof, bool is_dict_filter) = 0;
 
     virtual Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) {
         return Status::NotSupported("read_dict_values_to_column is not supported");
-    }
-
-    virtual Status get_dict_codes(const ColumnString* column_string,
-                                  std::vector<int32_t>* dict_codes) {
-        return Status::NotSupported("get_dict_codes is not supported");
     }
 
     virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
@@ -149,6 +144,8 @@ public:
     virtual Statistics statistics() = 0;
     virtual void close() = 0;
 
+    virtual void reset_filter_map_index() = 0;
+
 protected:
     void _generate_read_ranges(int64_t start_index, int64_t end_index,
                                std::list<RowRange>& read_ranges);
@@ -162,6 +159,8 @@ protected:
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
+
+    size_t _filter_map_index = 0;
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
@@ -176,12 +175,10 @@ public:
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof, bool is_dict_filter) override;
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+                            size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter) override;
     Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) override;
-    Status get_dict_codes(const ColumnString* column_string,
-                          std::vector<int32_t>* dict_codes) override;
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
@@ -191,6 +188,11 @@ public:
     }
     void close() override {}
 
+    void reset_filter_map_index() override {
+        _filter_map_index = 0; // nested
+        _orig_filter_map_index = 0;
+    }
+
 private:
     tparquet::ColumnChunk _chunk_meta;
     const tparquet::OffsetIndex* _offset_index;
@@ -199,13 +201,15 @@ private:
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
     std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
+    std::unique_ptr<std::vector<uint8_t>> _nested_filter_map_data = nullptr;
+    size_t _orig_filter_map_index = 0;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,
-                        ColumnSelectVector& select_vector, bool is_dict_filter);
-    Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
-                               ColumnSelectVector& select_vector, size_t batch_size,
-                               size_t* read_rows, bool* eof, bool is_dict_filter, bool align_rows);
+                        FilterMap& filter_map, bool is_dict_filter);
+    Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+                               size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
+                               bool align_rows);
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
@@ -217,9 +221,9 @@ public:
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof, bool is_dict_filter) override;
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+                            size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter) override;
     const std::vector<level_t>& get_rep_level() const override {
         return _element_reader->get_rep_level();
     }
@@ -228,6 +232,8 @@ public:
     }
     Statistics statistics() override { return _element_reader->statistics(); }
     void close() override {}
+
+    void reset_filter_map_index() override { _element_reader->reset_filter_map_index(); }
 
 private:
     std::unique_ptr<ParquetColumnReader> _element_reader;
@@ -243,9 +249,9 @@ public:
 
     Status init(std::unique_ptr<ParquetColumnReader> key_reader,
                 std::unique_ptr<ParquetColumnReader> value_reader, FieldSchema* field);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof, bool is_dict_filter) override;
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+                            size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         return _key_reader->get_rep_level();
@@ -263,6 +269,11 @@ public:
 
     void close() override {}
 
+    void reset_filter_map_index() override {
+        _key_reader->reset_filter_map_index();
+        _value_reader->reset_filter_map_index();
+    }
+
 private:
     std::unique_ptr<ParquetColumnReader> _key_reader;
     std::unique_ptr<ParquetColumnReader> _value_reader;
@@ -279,9 +290,9 @@ public:
     Status init(
             std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>&& child_readers,
             FieldSchema* field);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof, bool is_dict_filter) override;
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+                            size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         if (!_read_column_names.empty()) {
@@ -312,6 +323,12 @@ public:
     }
 
     void close() override {}
+
+    void reset_filter_map_index() override {
+        for (const auto& reader : _child_readers) {
+            reader.second->reset_filter_map_index();
+        }
+    }
 
 private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;

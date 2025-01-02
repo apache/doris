@@ -17,18 +17,18 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 
 @Data
 public class HudiSplit extends FileSplit {
-    public HudiSplit(Path file, long start, long length, long fileLength, String[] hosts,
+    public HudiSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
             List<String> partitionValues) {
-        super(file, start, length, fileLength, hosts, partitionValues);
+        super(file, start, length, fileLength, 0, hosts, partitionValues);
     }
 
     private String instantTime;
@@ -40,6 +40,5 @@ public class HudiSplit extends FileSplit {
     private List<String> hudiColumnNames;
     private List<String> hudiColumnTypes;
     private List<String> nestedFields;
+    private String hudiJniScanner;
 }
-
-

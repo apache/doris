@@ -21,54 +21,29 @@
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
-#include <math.h>
 #include <parquet/column_writer.h>
 #include <parquet/platform.h>
 #include <parquet/schema.h>
 #include <parquet/type_fwd.h>
 #include <parquet/types.h>
-#include <time.h>
 
-#include <algorithm>
-#include <cstdint>
+#include <ctime>
 #include <exception>
 #include <ostream>
 #include <string>
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/endian.h"
 #include "io/fs/file_writer.h"
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "util/arrow/utils.h"
-#include "util/binary_cast.hpp"
 #include "util/debug_util.h"
-#include "util/mysql_global.h"
-#include "util/types.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_complex.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/table/iceberg/arrow_schema_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -201,21 +176,20 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
     }
 }
 
-VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                         std::vector<std::string> column_names,
-                                         TParquetCompressionType::type compression_type,
-                                         bool parquet_disable_dictionary,
-                                         TParquetVersion::type parquet_version,
-                                         bool output_object_data,
-                                         const std::string* iceberg_schema_json)
+VParquetTransformer::VParquetTransformer(
+        RuntimeState* state, doris::io::FileWriter* file_writer,
+        const VExprContextSPtrs& output_vexpr_ctxs, std::vector<std::string> column_names,
+        TParquetCompressionType::type compression_type, bool parquet_disable_dictionary,
+        TParquetVersion::type parquet_version, bool output_object_data,
+        const std::string* iceberg_schema_json, const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
           _parquet_schemas(nullptr),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
           _parquet_version(parquet_version),
-          _iceberg_schema_json(iceberg_schema_json) {
+          _iceberg_schema_json(iceberg_schema_json),
+          _iceberg_schema(iceberg_schema) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -233,6 +207,7 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
           _parquet_disable_dictionary(parquet_disable_dictionary),
           _parquet_version(parquet_version),
           _iceberg_schema_json(iceberg_schema_json) {
+    _iceberg_schema = nullptr;
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -264,20 +239,27 @@ Status VParquetTransformer::_parse_properties() {
 
 Status VParquetTransformer::_parse_schema() {
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        std::shared_ptr<arrow::DataType> type;
-        RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type));
-        if (_parquet_schemas != nullptr) {
-            std::shared_ptr<arrow::Field> field =
-                    arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
-                                 _output_vexpr_ctxs[i]->root()->is_nullable());
-            fields.emplace_back(field);
-        } else {
-            std::shared_ptr<arrow::Field> field = arrow::field(
-                    _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
-            fields.emplace_back(field);
+    if (_iceberg_schema != nullptr) {
+        RETURN_IF_ERROR(
+                iceberg::ArrowSchemaUtil::convert(_iceberg_schema, _state->timezone(), fields));
+    } else {
+        for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+            std::shared_ptr<arrow::DataType> type;
+            RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type,
+                                                  _state->timezone()));
+            if (_parquet_schemas != nullptr) {
+                std::shared_ptr<arrow::Field> field =
+                        arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
+                                     _output_vexpr_ctxs[i]->root()->is_nullable());
+                fields.emplace_back(field);
+            } else {
+                std::shared_ptr<arrow::Field> field = arrow::field(
+                        _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
+                fields.emplace_back(field);
+            }
         }
     }
+
     if (_iceberg_schema_json != nullptr) {
         std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
                 arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});
@@ -298,11 +280,12 @@ Status VParquetTransformer::write(const Block& block) {
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema,
                                            ExecEnv::GetInstance()->arrow_memory_pool(), &result,
                                            _state->timezone_obj()));
-
+    if (_write_size == 0) {
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+    }
     RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
     _write_size += block.bytes();
     if (_write_size >= doris::config::min_row_group_size) {
-        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
         _write_size = 0;
     }
     return Status::OK();

@@ -77,6 +77,10 @@ public:
             if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
                 continue;
             }
+            if (!filter->need_sync_filter_size() &&
+                filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+                continue;
+            }
             if (has_in_filter.contains(filter->expr_order())) {
                 filter->set_ignored();
                 continue;
@@ -84,7 +88,7 @@ public:
             has_in_filter.insert(filter->expr_order());
         }
 
-        // process ignore filter when it has IN_FILTER on same expr, and init bloom filter size
+        // process ignore filter when it has IN_FILTER on same expr
         for (auto filter : _runtime_filters) {
             if (filter->get_ignored()) {
                 continue;
@@ -98,12 +102,16 @@ public:
         return Status::OK();
     }
 
+    Status ignore_all_filters() {
+        for (auto filter : _runtime_filters) {
+            filter->set_ignored();
+        }
+        return Status::OK();
+    }
+
     Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto filter : _runtime_filters) {
-            if (filter->get_ignored()) {
-                continue;
-            }
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                 get_real_size(filter.get(), local_hash_table_size) >
                         state->runtime_filter_max_in_num()) {
@@ -141,10 +149,10 @@ public:
     }
 
     // publish runtime filter
-    Status publish(bool publish_local = false) {
+    Status publish(RuntimeState* state, bool publish_local) {
         for (auto& pair : _runtime_filters_map) {
             for (auto& filter : pair.second) {
-                RETURN_IF_ERROR(filter->publish(publish_local));
+                RETURN_IF_ERROR(filter->publish(state, publish_local));
             }
         }
         return Status::OK();

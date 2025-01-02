@@ -512,6 +512,71 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 };
 
+template <>
+struct AggregateFunctionArrayAggData<void> {
+    using ElementType = StringRef;
+    using Self = AggregateFunctionArrayAggData<void>;
+    MutableColumnPtr column_data;
+
+    AggregateFunctionArrayAggData() {}
+
+    AggregateFunctionArrayAggData(const DataTypes& argument_types) {
+        DataTypePtr column_type = argument_types[0];
+        column_data = column_type->create_column();
+    }
+
+    void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
+
+    void deserialize_and_merge(const IColumn& column, size_t row_num) {
+        auto& to_arr = assert_cast<const ColumnArray&>(column);
+        auto& to_nested_col = to_arr.get_data();
+        auto start = to_arr.get_offsets()[row_num - 1];
+        auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
+        for (auto i = start; i < end; ++i) {
+            column_data->insert_from(to_nested_col, i);
+        }
+    }
+
+    void reset() { column_data->clear(); }
+
+    void insert_result_into(IColumn& to) const {
+        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_nested_col = to_arr.get_data();
+        size_t num_rows = column_data->size();
+        for (size_t i = 0; i < num_rows; ++i) {
+            to_nested_col.insert_from(*column_data, i);
+        }
+        to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = column_data->size();
+        write_binary(size, buf);
+        for (size_t i = 0; i < size; i++) {
+            write_string_binary(column_data->get_data_at(i), buf);
+        }
+    }
+
+    void read(BufferReadable& buf) {
+        size_t size = 0;
+        read_binary(size, buf);
+        column_data->reserve(size);
+
+        StringRef s;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            column_data->insert_data(s.data, s.size);
+        }
+    }
+
+    void merge(const Self& rhs) {
+        const auto size = rhs.column_data->size();
+        for (size_t i = 0; i < size; i++) {
+            column_data->insert_from(*rhs.column_data, i);
+        }
+    }
+};
+
 //ShowNull is just used to support array_agg because array_agg needs to display NULL
 //todo: Supports order by sorting for array_agg
 template <typename Data, typename HasLimit, typename ShowNull>
@@ -546,7 +611,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         if constexpr (ShowNull::value) {
-            if constexpr (IsDecimalNumber<typename Data::ElementType>) {
+            if constexpr (IsDecimalNumber<typename Data::ElementType> ||
+                          std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
                 new (place) Data(argument_types);
             } else {
                 new (place) Data();
@@ -717,13 +783,15 @@ public:
 
             for (size_t i = 0; i < num_rows; ++i) {
                 col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
-                if constexpr (std::is_same_v<StringRef, typename Data::ElementType>) {
+                if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<StringRef>>) {
                     auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
                             col_null->get_nested_column());
                     const auto& vec_src =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
+                } else if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
+                    to_nested_col.insert_from(col_src.get_nested_column(), i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
                     auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(

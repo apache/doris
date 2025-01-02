@@ -53,7 +53,7 @@ import java.util.Set;
  * expression of plan rewrite rule.
  */
 public class ExpressionRewrite implements RewriteRuleFactory {
-    private final ExpressionRuleExecutor rewriter;
+    protected final ExpressionRuleExecutor rewriter;
 
     public ExpressionRewrite(ExpressionRewriteRule... rules) {
         this.rewriter = new ExpressionRuleExecutor(ImmutableList.copyOf(rules));

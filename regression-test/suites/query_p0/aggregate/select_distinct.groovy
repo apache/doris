@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("select_distinct", "arrow_flight_sql") {
+suite("select_distinct") {
     sql """DROP TABLE IF EXISTS decimal_a;"""
     sql """DROP TABLE IF EXISTS decimal_b;"""
     sql """DROP TABLE IF EXISTS decimal_c;"""

@@ -86,6 +86,10 @@ public class MovesCacheMap {
         }
     }
 
+    public Map<Tag, Map<TStorageMedium, MovesCache>> getCacheMap() {
+        return cacheMap;
+    }
+
     public MovesCache getCache(Tag tag, TStorageMedium medium) {
         Map<TStorageMedium, MovesCache> mediumMoves = cacheMap.get(tag);
         if (mediumMoves != null) {

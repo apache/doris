@@ -37,11 +37,10 @@ import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Index;
@@ -79,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -89,7 +89,6 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -189,19 +188,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return le;
     }
 
-    private OlapTable getOlapTableFromSlotDesc(SlotDescriptor slotDesc) {
-        if (slotDesc != null && slotDesc.isScanSlot()) {
-            TupleDescriptor slotParent = slotDesc.getParent();
-            return (OlapTable) slotParent.getTable();
-        }
-        return null;
-    }
-
-    private OlapTable getOlapTableDirectly(SlotRef left) {
-        if (left.getTableDirect() instanceof OlapTable) {
-            return (OlapTable) left.getTableDirect();
-        }
-        return null;
+    private OlapTable getOlapTableDirectly(SlotReference slot) {
+        return slot.getTable()
+               .filter(OlapTable.class::isInstance)
+               .map(OlapTable.class::cast)
+               .orElse(null);
     }
 
     @Override
@@ -213,12 +204,20 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         Index invertedIndex = null;
         // Get the first slot from match's left expr
-        SlotRef left = (SlotRef) match.left().getInputSlots().stream().findFirst().get().accept(this, context);
-        OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
-                                    .orElse(getOlapTableDirectly(left));
+        SlotReference slot = match.getInputSlots().stream()
+                        .findFirst()
+                        .filter(SlotReference.class::isInstance)
+                        .map(SlotReference.class::cast)
+                        .orElseThrow(() -> new AnalysisException(
+                                    "No SlotReference found in Match, SQL is " + match.toSql()));
 
+        Column column = slot.getColumn()
+                        .orElseThrow(() -> new AnalysisException(
+                                    "SlotReference in Match failed to get Column, SQL is " + match.toSql()));
+
+        OlapTable olapTbl = getOlapTableDirectly(slot);
         if (olapTbl == null) {
-            throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
+            throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
         }
 
         List<Index> indexes = olapTbl.getIndexes();
@@ -226,7 +225,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             for (Index index : indexes) {
                 if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
                     List<String> columns = index.getColumns();
-                    if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
+                    if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
                         invertedIndex = index;
                         break;
                     }
@@ -508,11 +507,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         FunctionCallExpr functionCallExpr;
         // create catalog FunctionCallExpr without analyze again
-        if (function instanceof HighOrderFunction) {
-            functionCallExpr = new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        } else {
-            functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        }
+        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(function.nullable());
         return functionCallExpr;
     }
@@ -563,7 +558,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
         NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
-        if (binaryArithmetic instanceof AlwaysNullable) {
+        if (binaryArithmetic instanceof AlwaysNullable || binaryArithmetic instanceof PropagateNullLiteral) {
             nullableMode = NullableMode.ALWAYS_NULLABLE;
         } else if (binaryArithmetic instanceof AlwaysNotNullable) {
             nullableMode = NullableMode.ALWAYS_NOT_NULLABLE;

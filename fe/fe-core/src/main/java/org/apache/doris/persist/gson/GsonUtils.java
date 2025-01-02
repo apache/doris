@@ -47,6 +47,7 @@ import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MapLiteral;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.MaxLiteral;
@@ -125,6 +126,7 @@ import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -157,6 +159,7 @@ import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonDLFExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -244,8 +247,13 @@ import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -255,6 +263,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 /*
  * Some utilities about Gson.
@@ -309,6 +319,7 @@ public class GsonUtils {
             .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
             .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
             .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
+            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
             .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
             .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
             .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
@@ -408,7 +419,8 @@ public class GsonUtils {
                 .registerSubtype(
                             TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
-                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
+                .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName());
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -587,7 +599,8 @@ public class GsonUtils {
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .addSerializationExclusionStrategy(
-                    new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
+                    new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
+            .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
@@ -973,4 +986,26 @@ public class GsonUtils {
         }
     }
 
+    public static void toJsonCompressed(DataOutput out, Object src) throws IOException {
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
+            try (OutputStreamWriter writer = new OutputStreamWriter(gzipStream)) {
+                GsonUtils.GSON.toJson(src, writer);
+            }
+        }
+        Text text = new Text(byteStream.toByteArray());
+        text.write(out);
+    }
+
+    public static <T> T fromJsonCompressed(DataInput in, Class<T> clazz) throws IOException {
+        Text text = new Text();
+        text.readFields(in);
+
+        ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+        try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+            try (InputStreamReader reader = new InputStreamReader(gzipStream)) {
+                return GsonUtils.GSON.fromJson(reader, clazz);
+            }
+        }
+    }
 }

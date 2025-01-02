@@ -27,7 +27,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -58,7 +59,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -78,16 +78,17 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected long id;
     @SerializedName(value = "name")
     protected volatile String name;
+    @SerializedName(value = "qualifiedDbName")
     protected volatile String qualifiedDbName;
     @SerializedName(value = "type")
     protected TableType type;
     @SerializedName(value = "createTime")
     protected long createTime;
-    protected QueryableReentrantReadWriteLock rwLock;
+    protected MonitoredReentrantReadWriteLock rwLock;
     // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
-    protected ReentrantLock commitLock;
+    protected MonitoredReentrantLock commitLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -133,11 +134,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
-        this.commitLock = new ReentrantLock(true);
+        this.commitLock = new MonitoredReentrantLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -157,12 +158,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
-        this.commitLock = new ReentrantLock(true);
+        this.commitLock = new MonitoredReentrantLock(true);
     }
 
     public void markDropped() {
@@ -323,7 +324,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             boolean res = this.commitLock.tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
                 LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                        name, timeout, unit.name(), this.commitLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
@@ -444,6 +445,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public long getIndexLength() {
+        return 0;
+    }
 
     public TTableDescriptor toThrift() {
         return null;
@@ -622,7 +626,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -633,5 +637,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public long getCachedRowCount() {
         return getRowCount();
+    }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

@@ -17,6 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
@@ -60,12 +63,22 @@ public class IndexDefTest {
         } catch (AnalysisException e) {
             Assert.assertTrue(e instanceof AnalysisException);
         }
+        try {
+            def = new IndexDef("variant_index", false, Lists.newArrayList("col1"),
+                                    IndexDef.IndexType.INVERTED, null, "comment");
+            boolean isIndexFormatV1 = true;
+            def.checkColumn(new Column("col1", PrimitiveType.VARIANT), KeysType.UNIQUE_KEYS, true, isIndexFormatV1);
+            Assert.fail("No exception throws.");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e instanceof AnalysisException);
+            Assert.assertTrue(e.getMessage().contains("not supported in inverted index format V1"));
+        }
     }
 
     @Test
     public void toSql() {
-        Assert.assertEquals("INDEX index1 (`col1`) USING INVERTED COMMENT 'balabala'", def.toSql());
-        Assert.assertEquals("INDEX index1 ON table1 (`col1`) USING INVERTED COMMENT 'balabala'",
+        Assert.assertEquals("INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'", def.toSql());
+        Assert.assertEquals("INDEX `index1` ON table1 (`col1`) USING INVERTED COMMENT 'balabala'",
                 def.toSql("table1"));
     }
 }

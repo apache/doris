@@ -38,6 +38,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
@@ -50,6 +51,10 @@
 
 namespace doris {
 class IRuntimeFilter;
+
+inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
+    return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
+}
 
 namespace pipeline {
 class PipelineXLocalStateBase;
@@ -174,8 +179,13 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    bool enable_decima256() const {
+    bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
+    }
+
+    bool new_is_ip_address_in_range() const {
+        return _query_options.__isset.new_is_ip_address_in_range &&
+               _query_options.new_is_ip_address_in_range;
     }
 
     bool enable_common_expr_pushdown() const {
@@ -437,10 +447,6 @@ public:
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
-    // get mem limit for load channel
-    // if load mem limit is not set, or is zero, using query mem limit instead.
-    int64_t get_load_mem_limit();
-
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -453,6 +459,8 @@ public:
     }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
+
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -492,6 +500,18 @@ public:
         return _query_options.__isset.parallel_scan_max_scanners_count
                        ? _query_options.parallel_scan_max_scanners_count
                        : 0;
+    }
+
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
+                       : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 1000;
     }
 
     int64_t parallel_scan_min_rows_per_scanner() const {
@@ -546,7 +566,6 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
                                             std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 

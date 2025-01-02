@@ -66,8 +66,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
     Field get_default() const override;
@@ -75,7 +75,7 @@ public:
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
-        return node.string_literal.value;
+        return Field(node.string_literal.value);
     }
 
     bool equals(const IDataType& rhs) const override;

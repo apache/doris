@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_multi_string_search", "arrow_flight_sql") {
+suite("test_multi_string_search") {
     def table_name = "test_multi_string_search_strings"
 
     sql """ DROP TABLE IF EXISTS ${table_name} """

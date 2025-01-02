@@ -115,7 +115,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         logger.info("url_tmp1:" + url_tmp1)
         logger.info("new_jdbc_url:" + new_jdbc_url)
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
@@ -123,7 +123,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
@@ -131,7 +131,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "SHOW DATA"
             } catch (Exception e) {
@@ -139,7 +139,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "SHOW DATA"
             } catch (Exception e) {
@@ -148,7 +148,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
 
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
@@ -156,7 +156,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
@@ -165,15 +165,15 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${tableName}"
         }
 
 
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
@@ -181,7 +181,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
@@ -190,15 +190,15 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """grant select_priv(username) on ${dbName}.${view_name} to ${user}"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${view_name}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${view_name}"
         }
 
 
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
@@ -206,7 +206,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
@@ -215,10 +215,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${mtmv_name}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${mtmv_name}"
         }
 
@@ -228,15 +228,15 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         // user
         sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${tableName}"
         }
 
         sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
@@ -244,7 +244,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
@@ -257,17 +257,17 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """grant select_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant Load_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant '${role}' to '${user}'"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
             sql """insert into ${dbName}.`${tableName}` values (4, "444")"""
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${tableName}"
             sql """insert into ${dbName}.`${tableName}` values (4, "444")"""
         }
 
         sql """revoke '${role}' from '${user}'"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
@@ -275,7 +275,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
@@ -286,7 +286,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
 
         // workload group
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql """set workload_group = '${wg}';"""
             try {
                 sql "select username from ${dbName}.${tableName}"
@@ -295,7 +295,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql """set workload_group = '${wg}';"""
             try {
                 sql "select username from ${dbName}.${tableName}"
@@ -305,30 +305,30 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg}' TO '${user}';"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             sql """set workload_group = '${wg}';"""
             sql """select username from ${dbName}.${tableName}"""
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql """set workload_group = '${wg}';"""
             sql """select username from ${dbName}.${tableName}"""
         }
 
         // resource group
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res == [])
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res == [])
         }
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
-        connect(user=user, password="${pwd}", url=url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res.size == 10)
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res.size == 10)
         }

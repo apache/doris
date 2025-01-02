@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "vec/columns/column.h"
@@ -105,13 +106,15 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else {
         // get the function. won't prepare function.
         _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
+                _fn.name.function_name, argument_template, _data_type,
+                {.enable_decimal256 = state->enable_decimal256(),
+                 .new_is_ip_address_in_range = state->new_is_ip_address_in_range()},
+                state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                "Function {} get failed, expr is {} "
-                "and return type is {}.",
-                _fn.name.function_name, _expr_name, _data_type->get_name());
+        return Status::InternalError("Could not find function {}, arg {} return {} ",
+                                     _fn.name.function_name, get_child_names(),
+                                     _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
@@ -125,7 +128,7 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
@@ -149,7 +152,7 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {

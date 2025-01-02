@@ -55,7 +55,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     /** Different type of table may have different partition prune behavior. */
     public enum PartitionTableType {
         OLAP,
-        HIVE
+        EXTERNAL
     }
 
     private PartitionPruner(List<OnePartitionEvaluator> partitions, Expression partitionPredicate) {
@@ -102,21 +102,21 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /** prune */
-    public List<Long> prune() {
-        Builder<Long> scanPartitionIds = ImmutableList.builder();
+    public <K> List<K> prune() {
+        Builder<K> scanPartitionIdents = ImmutableList.builder();
         for (OnePartitionEvaluator partition : partitions) {
             if (!canBePrunedOut(partition)) {
-                scanPartitionIds.add(partition.getPartitionId());
+                scanPartitionIdents.add((K) partition.getPartitionIdent());
             }
         }
-        return scanPartitionIds.build();
+        return scanPartitionIdents.build();
     }
 
     /**
      * prune partition with `idToPartitions` as parameter.
      */
-    public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
-            Map<Long, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+    public static <K> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
@@ -135,7 +135,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
 
         List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
-        for (Entry<Long, PartitionItem> kv : idToPartitions.entrySet()) {
+        for (Entry<K, PartitionItem> kv : idToPartitions.entrySet()) {
             evaluators.add(toPartitionEvaluator(
                     kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold));
         }
@@ -147,7 +147,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     /**
      * convert partition item to partition evaluator
      */
-    public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
+    public static final <K> OnePartitionEvaluator<K> toPartitionEvaluator(K id, PartitionItem partitionItem,
             List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold) {
         if (partitionItem instanceof ListPartitionItem) {
             return new OneListPartitionEvaluator(

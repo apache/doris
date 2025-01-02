@@ -85,7 +85,7 @@ using Matcher = std::variant<ExactPhraseMatcher, OrderedSloppyPhraseMatcher, Phr
 class PhraseQuery : public Query {
 public:
     PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                const TQueryOptions& query_options);
+                const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~PhraseQuery() override;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
@@ -106,6 +106,7 @@ public:
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    const io::IOContext* _io_ctx = nullptr;
 
     TermIterator _lead1;
     TermIterator _lead2;

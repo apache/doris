@@ -21,6 +21,10 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
 #include "arrow/array/builder_binary.h"
 #include "common/exception.h"
 #include "common/status.h"
@@ -136,7 +140,29 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int start,
                                                int end, std::vector<StringRef>& buffer_list) const {
-    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+
+    INIT_MEMORY_FOR_ORC_WRITER()
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            std::string_view string_ref = string_column.get_data_at(row_id).to_string_view();
+            auto serialized_value = std::make_unique<std::string>(
+                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size()));
+            auto len = serialized_value->size();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value->data(), len);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            cur_batch->length[row_id] = len;
+            offset += len;
+        }
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,

@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_group/workload_group_metrics.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
@@ -68,18 +69,11 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
-        _scan_io_throttle_map[data_dir.path] =
-                std::make_shared<IOThrottle>(_name, data_dir.bvar_name + "_read_bytes");
+        _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>(data_dir.bvar_name);
     }
-    _remote_scan_io_throttle = std::make_shared<IOThrottle>(_name, "remote_read_bytes");
-    _mem_used_status = std::make_unique<bvar::Status<int64_t>>(_name, "memory_used", 0);
-    _cpu_usage_adder = std::make_unique<bvar::Adder<uint64_t>>(_name, "cpu_usage_adder");
-    _cpu_usage_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<uint64_t>>>(
-            _name, "cpu_usage", _cpu_usage_adder.get(), 10);
-    _total_local_scan_io_adder =
-            std::make_unique<bvar::Adder<size_t>>(_name, "total_local_read_bytes");
-    _total_local_scan_io_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
-            _name, "total_local_read_bytes_per_second", _total_local_scan_io_adder.get(), 1);
+    _remote_scan_io_throttle = std::make_shared<IOThrottle>();
+
+    _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
 
 std::string WorkloadGroup::debug_string() const {
@@ -95,6 +89,21 @@ std::string WorkloadGroup::debug_string() const {
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
             _spill_low_watermark, _spill_high_watermark, _is_shutdown, _query_ctxs.size(),
             _scan_bytes_per_second, _remote_scan_bytes_per_second);
+}
+
+std::string WorkloadGroup::memory_debug_string() const {
+    return fmt::format(
+            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
+            "{}, weighted_memory_limit = {}, total_mem_used = {}, "
+            "wg_refresh_interval_memory_growth = {}, spill_low_watermark = {}, "
+            "spill_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
+            _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_weighted_memory_limit, TUnit::BYTES),
+            PrettyPrinter::print(_total_mem_used, TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth, TUnit::BYTES),
+            _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
+            _query_ctxs.size());
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -129,22 +138,33 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
     }
 }
 
+// MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::make_memory_tracker_snapshots(
         std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots) {
     int64_t used_memory = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (const auto& trackerWptr : mem_tracker_group.trackers) {
-            auto tracker = trackerWptr.lock();
-            CHECK(tracker != nullptr);
-            if (tracker_snapshots != nullptr) {
-                tracker_snapshots->insert(tracker_snapshots->end(), tracker);
+        for (auto trackerWptr = mem_tracker_group.trackers.begin();
+             trackerWptr != mem_tracker_group.trackers.end();) {
+            auto tracker = trackerWptr->lock();
+            if (tracker == nullptr) {
+                trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
+            } else {
+                if (tracker_snapshots != nullptr) {
+                    tracker_snapshots->insert(tracker_snapshots->end(), tracker);
+                }
+                used_memory += tracker->consumption();
+                ++trackerWptr;
             }
-            used_memory += tracker->consumption();
         }
     }
-    refresh_memory(used_memory);
-    _mem_used_status->set_value(used_memory);
+    // refresh total memory used.
+    _total_mem_used = used_memory;
+    _wg_metrics->update_memory_used_bytes(used_memory);
+    // reserve memory is recorded in the query mem tracker
+    // and _total_mem_used already contains all the current reserve memory.
+    // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
+    _wg_refresh_interval_memory_growth.store(0.0);
     return used_memory;
 }
 
@@ -152,35 +172,38 @@ int64_t WorkloadGroup::memory_used() {
     return make_memory_tracker_snapshots(nullptr);
 }
 
-void WorkloadGroup::refresh_memory(int64_t used_memory) {
-    // refresh total memory used.
-    _total_mem_used = used_memory;
-    // reserve memory is recorded in the query mem tracker
-    // and _total_mem_used already contains all the current reserve memory.
-    // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
-    _wg_refresh_interval_memory_growth.store(0.0);
+void WorkloadGroup::do_sweep() {
+    // Clear memtracker limiter that is registered during query or load.
+    for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
+        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
+        for (auto trackerWptr = mem_tracker_group.trackers.begin();
+             trackerWptr != mem_tracker_group.trackers.end();) {
+            auto tracker = trackerWptr->lock();
+            if (tracker == nullptr) {
+                trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
+            } else {
+                ++trackerWptr;
+            }
+        }
+    }
+
+    // Clear query context that is registered during query context ctor
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
+    for (auto iter = _query_ctxs.begin(); iter != _query_ctxs.end();) {
+        if (iter->second.lock() == nullptr) {
+            iter = _query_ctxs.erase(iter);
+        } else {
+            iter++;
+        }
+    }
 }
 
 void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
     std::unique_lock<std::shared_mutex> wlock(_mutex);
     auto group_num = mem_tracker_ptr->group_num();
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    mem_tracker_ptr->wg_tracker_limiter_group_it =
-            _mem_tracker_limiter_pool[group_num].trackers.insert(
-                    _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
-}
-
-void WorkloadGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
-    std::unique_lock<std::shared_mutex> wlock(_mutex);
-    auto group_num = mem_tracker_ptr->group_num();
-    std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    if (mem_tracker_ptr->wg_tracker_limiter_group_it !=
-        _mem_tracker_limiter_pool[group_num].trackers.end()) {
-        _mem_tracker_limiter_pool[group_num].trackers.erase(
-                mem_tracker_ptr->wg_tracker_limiter_group_it);
-        mem_tracker_ptr->wg_tracker_limiter_group_it =
-                _mem_tracker_limiter_pool[group_num].trackers.end();
-    }
+    _mem_tracker_limiter_pool[group_num].trackers.insert(
+            _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
 }
 
 int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
@@ -195,36 +218,38 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
         cancel_str = fmt::format(
                 "MinorGC kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, "
                 "backend:{}.",
-                _id, _name, MemTracker::print_bytes(used_memory),
-                MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                _id, _name, MemCounter::print_bytes(used_memory),
+                MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
     } else {
         if (_enable_memory_overcommit) {
             cancel_str = fmt::format(
                     "FullGC release wg overcommit mem, wg id:{}, name:{}, "
                     "used:{},limit:{},backend:{}.",
-                    _id, _name, MemTracker::print_bytes(used_memory),
-                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    _id, _name, MemCounter::print_bytes(used_memory),
+                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
         } else {
             cancel_str = fmt::format(
                     "GC wg for hard limit, wg id:{}, name:{}, used:{}, limit:{}, "
                     "backend:{}.",
-                    _id, _name, MemTracker::print_bytes(used_memory),
-                    MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    _id, _name, MemCounter::print_bytes(used_memory),
+                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
     auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
                                                   const std::string& label) {
         return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, Execute "
+                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, "
+                "Execute "
                 "again after enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
                 GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
     };
     auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
         return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute again "
+                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute "
+                "again "
                 "after enough memory, details see be.INFO.",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
                 GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
     };
 
@@ -234,7 +259,8 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
             _id, _name, _memory_limit, used_memory, need_free_mem);
     Defer defer {[&]() {
         LOG(INFO) << fmt::format(
-                "[MemoryGC] work load group finished gc, id:{} name:{}, memory limit: {}, used: "
+                "[MemoryGC] work load group finished gc, id:{} name:{}, memory limit: {}, "
+                "used: "
                 "{}, need_free_mem: {}, freed memory: {}.",
                 _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
     }};
@@ -310,19 +336,19 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
 
     // 4 cpu_share
     uint64_t cpu_share = CgroupCpuCtl::cpu_soft_limit_default_value();
-    if (tworkload_group_info.__isset.cpu_share) {
+    if (tworkload_group_info.__isset.cpu_share && tworkload_group_info.cpu_share > 0) {
         cpu_share = tworkload_group_info.cpu_share;
     }
 
     // 5 cpu hard limit
     int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.cpu_hard_limit) {
+    if (tworkload_group_info.__isset.cpu_hard_limit && tworkload_group_info.cpu_hard_limit > 0) {
         cpu_hard_limit = tworkload_group_info.cpu_hard_limit;
     }
 
     // 6 mem_limit
     std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.mem_limit) {
+    if (tworkload_group_info.__isset.mem_limit && tworkload_group_info.mem_limit != "-1") {
         mem_limit_str = tworkload_group_info.mem_limit;
     }
     bool is_percent = true;
@@ -375,13 +401,15 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
 
     // 14 scan io
     int read_bytes_per_second = -1;
-    if (tworkload_group_info.__isset.read_bytes_per_second) {
+    if (tworkload_group_info.__isset.read_bytes_per_second &&
+        tworkload_group_info.read_bytes_per_second > 0) {
         read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
     }
 
     // 15 remote scan io
     int remote_read_bytes_per_second = -1;
-    if (tworkload_group_info.__isset.remote_read_bytes_per_second) {
+    if (tworkload_group_info.__isset.remote_read_bytes_per_second &&
+        tworkload_group_info.remote_read_bytes_per_second > 0) {
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
     }
 
@@ -421,7 +449,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                 _cgroup_cpu_ctl = std::move(cgroup_cpu_ctl);
                 LOG(INFO) << "[upsert wg thread pool] cgroup init success, wg_id=" << tg_id;
             } else {
-                LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id= " << tg_id
+                LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id=" << tg_id
                           << ", reason=" << ret.to_string();
             }
         } else {
@@ -451,7 +479,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
     if (_scan_task_sched == nullptr) {
         std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + tg_name,
-                                                                      cg_cpu_ctl_ptr);
+                                                                      cg_cpu_ctl_ptr, tg_name);
         Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_queue_size);
@@ -471,7 +499,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + tg_name,
-                                                                      cg_cpu_ctl_ptr);
+                                                                      cg_cpu_ctl_ptr, tg_name);
         Status ret = remote_scan_scheduler->start(remote_max_thread_num,
                                                   config::doris_scanner_min_thread_pool_thread_num,
                                                   remote_scan_thread_queue_size);
@@ -527,7 +555,8 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                 _cgroup_cpu_ctl->update_cpu_soft_limit(
                         CgroupCpuCtl::cpu_soft_limit_default_value());
             } else {
-                LOG(INFO) << "[upsert wg thread pool] enable cpu hard limit but value is illegal: "
+                LOG(INFO) << "[upsert wg thread pool] enable cpu hard limit but value is "
+                             "illegal: "
                           << cpu_hard_limit << ", gid=" << tg_id;
             }
         } else {
@@ -599,16 +628,20 @@ std::shared_ptr<IOThrottle> WorkloadGroup::get_remote_scan_io_throttle() {
     return _remote_scan_io_throttle;
 }
 
-void WorkloadGroup::update_cpu_adder(int64_t delta_cpu_time) {
-    (*_cpu_usage_adder) << (uint64_t)delta_cpu_time;
+void WorkloadGroup::update_cpu_time(int64_t delta_cpu_time) {
+    _wg_metrics->update_cpu_time_nanos(delta_cpu_time);
 }
 
-void WorkloadGroup::update_total_local_scan_io_adder(size_t scan_bytes) {
-    (*_total_local_scan_io_adder) << scan_bytes;
+void WorkloadGroup::update_local_scan_io(std::string path, size_t scan_bytes) {
+    _wg_metrics->update_local_scan_io_bytes(path, (uint64_t)scan_bytes);
 }
 
-int64_t WorkloadGroup::get_remote_scan_bytes_per_second() {
-    return _remote_scan_io_throttle->get_bvar_io_per_second();
+void WorkloadGroup::update_remote_scan_io(size_t scan_bytes) {
+    _wg_metrics->update_remote_scan_io_bytes((uint64_t)scan_bytes);
+}
+
+int64_t WorkloadGroup::get_mem_used() {
+    return _total_mem_used;
 }
 
 void WorkloadGroup::try_stop_schedulers() {

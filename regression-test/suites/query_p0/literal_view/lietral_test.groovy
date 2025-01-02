@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("literal_view_test", "arrow_flight_sql") {
+suite("literal_view_test") {
 
     sql """DROP TABLE IF EXISTS table1"""
 

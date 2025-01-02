@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -42,6 +43,8 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -179,6 +182,20 @@ public class NereidsParserTest extends ParserTestBase {
         ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
         ExplainLevel explainLevel = explainCommand.getLevel();
         Assertions.assertEquals(ExplainLevel.GRAPH, explainLevel);
+    }
+
+    @Test
+    public void testPlanReplayer() {
+        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ReplayCommand replayCommand = (ReplayCommand) logicalPlan;
+        Assertions.assertEquals(ReplayCommand.ReplayType.DUMP, replayCommand.getReplayType());
+        sql = "plan replayer play 'path'";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        replayCommand = (ReplayCommand) logicalPlan;
+        Assertions.assertEquals(ReplayCommand.ReplayType.PLAY, replayCommand.getReplayType());
+        Assertions.assertEquals("path", replayCommand.getDumpFileFullPath());
     }
 
     @Test
@@ -644,5 +661,39 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "create role a comment 'create user'";
         nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testBlockSqlAst() {
+        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+
+        Config.block_sql_ast_names = "ReplayCommand";
+        StmtExecutor.initBlockSqlAstNames();
+        StmtExecutor stmtExecutor = new StmtExecutor(new ConnectContext(), "");
+        try {
+            stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
+            Assertions.fail();
+        } catch (Exception ignore) {
+            // do nothing
+        }
+
+        Config.block_sql_ast_names = "CreatePolicyCommand, ReplayCommand";
+        StmtExecutor.initBlockSqlAstNames();
+        try {
+            stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
+            Assertions.fail();
+        } catch (Exception ignore) {
+            // do nothing
+        }
+
+        Config.block_sql_ast_names = "";
+        StmtExecutor.initBlockSqlAstNames();
+        try {
+            stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
+        } catch (Exception ex) {
+            Assertions.fail(ex);
+        }
     }
 }

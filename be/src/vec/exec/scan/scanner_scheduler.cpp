@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
@@ -41,6 +42,7 @@
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -54,24 +56,9 @@
 
 namespace doris::vectorized {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-
 ScannerScheduler::ScannerScheduler() = default;
 
-ScannerScheduler::~ScannerScheduler() {
-    if (!_is_init) {
-        return;
-    }
-
-    _deregister_metrics();
-}
+ScannerScheduler::~ScannerScheduler() = default;
 
 void ScannerScheduler::stop() {
     if (!_is_init) {
@@ -114,14 +101,12 @@ Status ScannerScheduler::init(ExecEnv* env) {
                             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
                             .build(&_limited_scan_thread_pool));
-    _register_metrics();
     _is_init = true;
     return Status::OK();
 }
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
-    scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
         return Status::OK();
     }
@@ -147,7 +132,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
             if (!status.ok()) {
                 scanner_ref->set_status(status);
-                ctx->append_block_to_queue(scanner_ref);
+                ctx->push_back_scan_task(scanner_ref);
             }
         });
         if (!s.ok()) {
@@ -163,13 +148,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         auto sumbit_task = [&]() {
-            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
-            SimplifiedScanScheduler* scan_sched =
-                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
-            if (!scan_sched) { // query without workload group
-                scan_sched =
-                        is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
-            }
+            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
             auto work_func = [scanner_ref = scan_task, ctx]() {
                 auto status = [&] {
                     RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
@@ -178,7 +157,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
                 if (!status.ok()) {
                     scanner_ref->set_status(status);
-                    ctx->append_block_to_queue(scanner_ref);
+                    ctx->push_back_scan_task(scanner_ref);
                 }
             };
             SimplifiedScanTask simple_scan_task = {work_func, ctx};
@@ -206,12 +185,13 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
-    // record the time from scanner submission to actual execution in nanoseconds
-    ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
     }
+
+    ctx->update_peak_running_scanner(1);
+    Defer defer([&] { ctx->update_peak_running_scanner(-1); });
 
     std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
     if (scanner_delegate == nullptr) {
@@ -262,7 +242,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            size_t raw_bytes_read = 0; bool first_read = true;
+            size_t raw_bytes_read = 0; bool first_read = true; int64_t limit = scanner->limit();
             while (!eos && raw_bytes_read < raw_bytes_threshold) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
@@ -276,13 +256,18 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (free_block == nullptr) {
                     break;
                 }
+                // We got a new created block or a reused block.
+                ctx->update_peak_memory_usage(free_block->allocated_bytes());
+                ctx->update_peak_memory_usage(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {
                     LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
                     break;
                 }
+                // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
+                ctx->update_peak_memory_usage(free_block_bytes);
                 raw_bytes_read += free_block_bytes;
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
@@ -290,19 +275,37 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
                     vectorized::MutableBlock mutable_block(
                             scan_task->cached_blocks.back().first.get());
+                    ctx->update_peak_memory_usage(-mutable_block.allocated_bytes());
                     status = mutable_block.merge(*free_block);
+                    ctx->update_peak_memory_usage(mutable_block.allocated_bytes());
                     if (!status.ok()) {
                         LOG(WARNING) << "Block merge failed: " << status.to_string();
                         break;
                     }
+                    scan_task->cached_blocks.back().second = mutable_block.allocated_bytes();
                     scan_task->cached_blocks.back().first.get()->set_columns(
                             std::move(mutable_block.mutable_columns()));
+
+                    // Return block succeed or not, this free_block is not used by this scan task any more.
+                    ctx->update_peak_memory_usage(-free_block_bytes);
+                    // If block can be reused, its memory usage will be added back.
                     ctx->return_free_block(std::move(free_block));
-                    ctx->inc_free_block_usage(
-                            scan_task->cached_blocks.back().first->allocated_bytes() - block_size);
+                    ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
+                                         block_size);
                 } else {
-                    ctx->inc_free_block_usage(free_block->allocated_bytes());
+                    ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
+                }
+                if (limit > 0 && limit < ctx->batch_size()) {
+                    // If this scanner has limit, and less than batch size,
+                    // return immediately and no need to wait raw_bytes_threshold.
+                    // This can save time that each scanner may only return a small number of rows,
+                    // but rows are enough from all scanners.
+                    // If not break, the query like "select * from tbl where id=1 limit 10"
+                    // may scan a lot data when the "id=1"'s filter ratio is high.
+                    // If limit is larger than batch size, this rule is skipped,
+                    // to avoid user specify a large limit and causing too much small blocks.
+                    break;
                 }
             } // end for while
 
@@ -322,33 +325,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->mark_to_need_to_close();
     }
     scan_task->set_eos(eos);
-    ctx->append_block_to_queue(scan_task);
-}
-
-void ScannerScheduler::_register_metrics() {
-    REGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size,
-                         [this]() { return _local_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num,
-                         [this]() { return _local_scan_thread_pool->get_active_threads(); });
-    REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
-                         [this]() { return _remote_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
-                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
-    REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
-                         [this]() { return _limited_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
-                         [this]() { return _limited_scan_thread_pool->num_threads(); });
-}
-
-void ScannerScheduler::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
+    ctx->push_back_scan_task(scan_task);
 }
 
 int ScannerScheduler::get_remote_scan_thread_num() {

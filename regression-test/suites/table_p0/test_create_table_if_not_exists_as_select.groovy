@@ -75,9 +75,6 @@ suite("test_create_table_if_not_exists_as_select") {
         """
     def secondExecuteCount = sql """select count(*) from ${table_name}"""
     assertEquals(1, secondExecuteCount[0][0]);
-    sql """
-         SET enable_nereids_planner=false;
-        """
     sql """drop table if exists `${table_name}`"""
     sql """
        create table if not exists ${table_name} PROPERTIES("replication_num"="1") as select * from ${base_table_name}

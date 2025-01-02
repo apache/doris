@@ -47,6 +47,7 @@ public:
     int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
+    Status _process_init_variant(Block* block, int value_column_idx);
     ColumnPtr _array_column;
     ColumnArrayExecutionData _detail;
     size_t _array_offset; // start offset of array[row_idx]

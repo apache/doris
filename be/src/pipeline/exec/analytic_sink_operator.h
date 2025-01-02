@@ -58,7 +58,9 @@ private:
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
+    RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
+    RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };
@@ -74,25 +76,20 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
-        } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+        } else {
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
 
     bool require_data_distribution() const override { return true; }
-    bool require_shuffled_data_distribution() const override {
-        return !_partition_by_eq_expr_ctxs.empty() && _order_by_eq_expr_ctxs.empty();
-    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,

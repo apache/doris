@@ -102,10 +102,10 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
     io::FileReaderSPtr file_reader;
     ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
     *reader = new BloomFilterIndexReader(std::move(file_reader), meta.bloom_filter_index());
-    auto st = (*reader)->load(true, false);
+    auto st = (*reader)->load(true, false, nullptr);
     EXPECT_TRUE(st.ok());
 
-    st = (*reader)->new_iterator(iter);
+    st = (*reader)->new_iterator(iter, nullptr);
     EXPECT_TRUE(st.ok());
 }
 
@@ -160,7 +160,12 @@ void test_bloom_filter_index_reader_writer_template(
         }
         // test nullptr
         EXPECT_TRUE(bf->test_bytes(nullptr, 1));
-
+        if (is_slice_type) {
+            Slice* value = (Slice*)(not_exist_value);
+            EXPECT_FALSE(bf->test_bytes(value->data, value->size));
+        } else {
+            EXPECT_FALSE(bf->test_bytes((char*)not_exist_value, sizeof(CppType)));
+        }
         delete reader;
     }
 }

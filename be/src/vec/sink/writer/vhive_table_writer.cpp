@@ -367,7 +367,8 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             _t_sink, std::move(partition_name), update_mode, _write_output_vexpr_ctxs,
             std::move(column_names), std::move(write_info),
             (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
-            file_format_type, write_compress_type, hive_table_sink.hadoop_config);
+            file_format_type, write_compress_type, &hive_table_sink.serde_properties,
+            hive_table_sink.hadoop_config);
 }
 
 std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::Block& block,

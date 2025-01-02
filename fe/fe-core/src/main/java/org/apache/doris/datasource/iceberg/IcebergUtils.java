@@ -41,16 +41,19 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -63,6 +66,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
+import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
@@ -553,7 +557,7 @@ public class IcebergUtils {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache()
-                .getRemoteTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
+                .getIcebergTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
     }
 
     private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,
@@ -570,18 +574,23 @@ public class IcebergUtils {
      * Get iceberg schema from catalog and convert them to doris schema
      */
     public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
-        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
-            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
-            Schema schema = icebergTable.schema();
-            List<Types.NestedField> columns = schema.columns();
-            List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-            for (Types.NestedField field : columns) {
-                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
-                        IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                        schema.caseInsensitiveFindField(field.name()).fieldId()));
-            }
-            return tmpSchema;
-        });
+        try {
+            return catalog.getPreExecutionAuthenticator().execute(() -> {
+                org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+                Schema schema = icebergTable.schema();
+                List<Types.NestedField> columns = schema.columns();
+                List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
+                for (Types.NestedField field : columns) {
+                    tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
+                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                            schema.caseInsensitiveFindField(field.name()).fieldId()));
+                }
+                return tmpSchema;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+
     }
 
 
@@ -601,11 +610,14 @@ public class IcebergUtils {
                 .getIcebergTable(catalog, dbName, tbName);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
+            LOG.info("Iceberg table {}.{}.{} is empty, return -1.", catalog.getName(), dbName, tbName);
             // empty table
-            return 0;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         Map<String, String> summary = snapshot.summary();
-        return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        long rows = Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        LOG.info("Iceberg table {}.{}.{} row count in summary is {}", catalog.getName(), dbName, tbName, rows);
+        return rows;
     }
 
 
@@ -664,5 +676,17 @@ public class IcebergUtils {
             }
         }
         return dataLocation;
+    }
+
+    public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
+        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        hiveCatalog.setConf(externalCatalog.getConfiguration());
+
+        Map<String, String> catalogProperties = externalCatalog.getProperties();
+        String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
+        catalogProperties.put(CatalogProperties.URI, metastoreUris);
+
+        hiveCatalog.initialize(name, catalogProperties);
+        return hiveCatalog;
     }
 }

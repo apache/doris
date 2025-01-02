@@ -26,6 +26,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -116,7 +117,7 @@ private:
     TFileRangeDesc _range_desc;
     TFileScanRange _scan_range;
     std::unique_ptr<ShardedKVCache> _kv_cache = nullptr;
-    std::unique_ptr<TMasterInfo> _master_info = nullptr;
+    std::unique_ptr<ClusterInfo> _cluster_info = nullptr;
 };
 
 void VWalScannerTest::_init_desc_table() {
@@ -259,7 +260,7 @@ void VWalScannerTest::init() {
             std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
-    WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to prepare scan_node");
+    WARN_IF_ERROR(_scan_node->open(&_runtime_state), "fail to prepare scan_node");
 
     auto local_state =
             pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
@@ -279,12 +280,12 @@ void VWalScannerTest::init() {
     _scan_range.params.format_type = TFileFormatType::FORMAT_WAL;
     _kv_cache.reset(new ShardedKVCache(48));
 
-    _master_info.reset(new TMasterInfo());
+    _cluster_info.reset(new ClusterInfo());
     _env = ExecEnv::GetInstance();
-    _env->_master_info = _master_info.get();
-    _env->_master_info->network_address.hostname = "host name";
-    _env->_master_info->network_address.port = _backend_id;
-    _env->_master_info->backend_id = 1001;
+    _env->_cluster_info = _cluster_info.get();
+    _env->_cluster_info->master_fe_addr.hostname = "host name";
+    _env->_cluster_info->master_fe_addr.port = _backend_id;
+    _env->_cluster_info->backend_id = 1001;
     _env->_wal_manager = WalManager::create_shared(_env, _wal_dir);
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();

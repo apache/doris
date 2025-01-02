@@ -113,7 +113,7 @@ public class LoadingTaskPlanner {
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
-            this.analyzer.setUDFAllowed(false);
+            this.analyzer.setUDFAllowed(Config.enable_udf_in_load);
         }
     }
 
@@ -125,6 +125,9 @@ public class LoadingTaskPlanner {
         scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         if (isPartialUpdate && !table.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
+        }
+        if (isPartialUpdate && table.isUniqKeyMergeOnWriteWithClusterKeys()) {
+            throw new UserException("Only unique key merge on write without cluster keys support partial update");
         }
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();

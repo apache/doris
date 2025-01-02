@@ -403,7 +403,7 @@ public:
 
     template <typename U, typename... TAllocatorParams>
     void push_back(U&& x, TAllocatorParams&&... allocator_params) {
-        if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
+        if (UNLIKELY(this->c_end == nullptr || this->c_end + sizeof(T) > this->c_end_of_storage)) {
             this->reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
         }
 

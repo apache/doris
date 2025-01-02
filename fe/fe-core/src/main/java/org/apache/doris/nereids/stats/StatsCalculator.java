@@ -18,11 +18,18 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -49,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
@@ -64,6 +72,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -129,8 +138,8 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -141,11 +150,13 @@ import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -183,6 +194,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private CascadesContext cascadesContext;
 
+    private StatsCalculator(CascadesContext context) {
+        this.groupExpression = null;
+        this.cascadesContext = context;
+    }
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
@@ -207,6 +223,65 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
+     *
+     * get the max row count of tables used in a query
+     */
+    public static double getMaxTableRowCount(List<LogicalCatalogRelation> scans, CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        double max = -1;
+        for (LogicalCatalogRelation scan : scans) {
+            double row;
+            if (scan instanceof LogicalOlapScan) {
+                row = calculator.getOlapTableRowCount((LogicalOlapScan) scan);
+            } else {
+                row = scan.getTable().getRowCount();
+            }
+            max = Math.max(row, max);
+        }
+        return max;
+    }
+
+    /**
+     * disable join reorder if
+     * 1. any table rowCount is not available, or
+     * 2. col stats ndv=0 but minExpr or maxExpr is not null
+     * 3. ndv > 10 * rowCount
+     */
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<CatalogRelation> scans,
+            CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        if (ConnectContext.get() == null) {
+            // ut case
+            return Optional.empty();
+        }
+        for (CatalogRelation scan : scans) {
+            double rowCount = calculator.getTableRowCount(scan);
+            // row count not available
+            if (rowCount == -1) {
+                LOG.info("disable join reorder since row count not available: "
+                        + scan.getTable().getNameWithFullQualifiers());
+                return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
+            }
+            if (scan instanceof OlapScan) {
+                // ndv abnormal
+                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
+                if (reason.isPresent()) {
+                    try {
+                        ConnectContext.get().getSessionVariable()
+                                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
+                        LOG.info("disable join reorder since col stats invalid: "
+                                + reason.get());
+                    } catch (Exception e) {
+                        LOG.info("disableNereidsJoinReorderOnce failed");
+                    }
+                    return reason;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
      * estimate stats
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
@@ -216,15 +291,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
         statsCalculator.estimate();
         return statsCalculator;
-    }
-
-    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
-        return StatsCalculator.estimate(groupExpression,
-                forbidUnknownColStats,
-                columnStatisticMap,
-                isPlayNereidsDump,
-                new HashMap<>(), context);
     }
 
     // For unit test only
@@ -237,7 +303,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private void estimate() {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
-        newStats.enforceValid();
+        newStats.normalizeColumnStatistics();
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
@@ -306,46 +372,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     /**
      * returns the sum of deltaRowCount for all selected partitions or for the table.
      */
-    private long computeDeltaRowCount(OlapScan olapScan, SlotReference slot) {
+    private long computeDeltaRowCount(OlapScan olapScan) {
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
         long deltaRowCount = 0;
         if (tableMeta != null) {
-            ColStatsMeta colMeta = tableMeta.findColumnStatsMeta(
-                    olapScan.getTable().getIndexNameById(olapScan.getSelectedIndexId()), slot.getName());
-            if (colMeta != null && colMeta.partitionUpdateRows != null) {
-                // when fe upgraded from old version, colMeta object may be deserialized from json,
-                // and colMeta.partitionUpdateRows could be null
-                if (olapScan.getSelectedPartitionIds().isEmpty()) {
-                    deltaRowCount = tableMeta.updatedRows.get() - colMeta.updatedRows;
-                } else {
-                    // sum partition delta row
-                    for (long partitionId : olapScan.getSelectedPartitionIds()) {
-                        deltaRowCount += tableMeta.partitionUpdateRows.getOrDefault(partitionId, 0L)
-                                - colMeta.partitionUpdateRows.getOrDefault(partitionId, 0L);
-                    }
-                }
-            }
+            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapScan.getTable());
         }
         return deltaRowCount;
-    }
-
-    private void adjustColStats(OlapScan olapScan, SlotReference slot,
-            ColumnStatisticBuilder builder) {
-        if (builder.getAvgSizeByte() <= 0) {
-            builder.setAvgSizeByte(slot.getDataType().toCatalogDataType().getSlotSize());
-        }
-        long delta = computeDeltaRowCount(olapScan, slot);
-        if (delta > 0) {
-            builder.setCount(builder.getCount() + delta);
-            // clear min-max to avoid error estimation
-            // for example, after yesterday data loaded, user send query about yesterday immediately.
-            // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
-            // estimates the filter result is zero
-            builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                    .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
-        }
-
     }
 
     private ColumnStatistic getColumnStatsFromTableCache(CatalogRelation catalogRelation, SlotReference slot) {
@@ -366,10 +400,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private long getSelectedPartitionRowCount(OlapScan olapScan) {
         long partRowCountSum = 0;
         for (long id : olapScan.getSelectedPartitionIds()) {
-            long partRowCount = olapScan.getTable().getPartition(id)
-                    .getIndex(olapScan.getSelectedIndexId()).getRowCount();
+            long partRowCount = olapScan.getTable()
+                    .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
             // if we cannot get any partition's rowCount, return -1 to fallback to table level stats
-            if (partRowCount <= 0) {
+            if (partRowCount == -1) {
                 return -1;
             }
             partRowCountSum += partRowCount;
@@ -397,19 +431,55 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
-    private Statistics computeOlapScan(OlapScan olapScan) {
+    private double getTableRowCount(CatalogRelation scan) {
+        if (scan instanceof OlapScan) {
+            return getOlapTableRowCount((OlapScan) scan);
+        } else {
+            return scan.getTable().getRowCount();
+        }
+    }
+
+    /**
+     * if the table is not analyzed and BE does not report row count, return -1
+     */
+    private double getOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId());
-        if (tableRowCount <= 0) {
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-            if (tableMeta != null) {
-                // create-view after analyzing, we may get -1 for this view row count
-                tableRowCount = Math.max(1, tableMeta.getRowCount(olapScan.getSelectedIndexId()));
-            } else {
-                tableRowCount = 1;
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        double rowCount = -1;
+        if (tableMeta != null && tableMeta.userInjected) {
+            rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
+        } else {
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            if (rowCount == -1) {
+                if (tableMeta != null) {
+                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
+                }
             }
         }
+        return rowCount;
+    }
+
+    // check validation of ndv.
+    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
+        for (Slot slot : ((Plan) olapScan).getOutput()) {
+            if (isVisibleSlotReference(slot)) {
+                ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, (SlotReference) slot);
+                if (!cache.isUnKnown) {
+                    if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
+                            || cache.ndv > rowCount * 10) {
+                        return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Statistics computeOlapScan(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        double tableRowCount = getOlapTableRowCount(olapScan);
+        tableRowCount = Math.max(1, tableRowCount);
 
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
             // mv is selected, return its estimated stats
@@ -427,8 +497,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
                         if (derivedStats.findColumnStatistics(slot) == null) {
                             derivedStats.addColumnStats(slot,
-                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN)
-                                            .setCount(derivedRowCount).build());
+                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
                         }
                     }
                     return derivedStats;
@@ -455,13 +524,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // get row count from any visible slotReference's colStats
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot,
-                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(tableRowCount).build());
+                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, tableRowCount).build());
             }
             setHasUnknownColStatsInStatementContext();
             return builder.setRowCount(tableRowCount).build();
         }
 
         // build Stats for olapScan
+        double deltaRowCount = computeDeltaRowCount(olapScan);
+        builder.setDeltaRowCount(deltaRowCount);
         // if slot is invisible, use UNKNOWN
         List<SlotReference> visibleOutputSlots = new ArrayList<>();
         for (Slot slot : ((Plan) olapScan).getOutput()) {
@@ -482,20 +553,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 });
                 for (SlotReference slot : visibleOutputSlots) {
                     ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
-                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                    colStatsBuilder.setCount(selectedPartitionsRowCount);
-                    adjustColStats(olapScan, slot, colStatsBuilder);
+                    if (slot.getColumn().isPresent()) {
+                        cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
+                    }
+                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
+                            selectedPartitionsRowCount);
+                    colStatsBuilder.normalizeAvgSizeByte(slot);
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(selectedPartitionsRowCount);
+                builder.setRowCount(selectedPartitionsRowCount + deltaRowCount);
             } else {
                 // if partition row count is invalid (-1), fallback to table stats
                 for (SlotReference slot : visibleOutputSlots) {
                     ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
-                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                    colStatsBuilder.setCount(tableRowCount);
-                    adjustColStats(olapScan, slot, colStatsBuilder);
+                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
+                    colStatsBuilder.normalizeAvgSizeByte(slot);
                     builder.putColumnStatistics(slot, colStatsBuilder.build());
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
@@ -505,15 +578,133 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
-                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-                colStatsBuilder.setCount(tableRowCount);
-                adjustColStats(olapScan, slot, colStatsBuilder);
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
+                colStatsBuilder.normalizeAvgSizeByte(slot);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
         }
         return builder.build();
+    }
+
+    private ColumnStatistic updateMinMaxForPartitionKey(OlapTable olapTable,
+            List<String> selectedPartitionNames,
+            SlotReference slot, ColumnStatistic cache) {
+        if (olapTable.getPartitionType() == PartitionType.LIST) {
+            cache = updateMinMaxForListPartitionKey(olapTable, selectedPartitionNames, slot, cache);
+        } else if (olapTable.getPartitionType() == PartitionType.RANGE) {
+            cache = updateMinMaxForTheFirstRangePartitionKey(olapTable, selectedPartitionNames, slot, cache);
+        }
+        return cache;
+    }
+
+    private double convertLegacyLiteralToDouble(LiteralExpr literal) throws AnalysisException {
+        return StatisticsUtil.convertToDouble(literal.getType(), literal.getStringValue());
+    }
+
+    private ColumnStatistic updateMinMaxForListPartitionKey(OlapTable olapTable,
+            List<String> selectedPartitionNames,
+            SlotReference slot, ColumnStatistic cache) {
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        if (partitionColumnIdx != -1) {
+            try {
+                LiteralExpr minExpr = null;
+                LiteralExpr maxExpr = null;
+                double minValue = 0;
+                double maxValue = 0;
+                for (String selectedPartitionName : selectedPartitionNames) {
+                    PartitionItem item = olapTable.getPartitionItemOrAnalysisException(
+                            selectedPartitionName);
+                    if (item instanceof ListPartitionItem) {
+                        ListPartitionItem lp = (ListPartitionItem) item;
+                        for (PartitionKey key : lp.getItems()) {
+                            if (minExpr == null) {
+                                minExpr = key.getKeys().get(partitionColumnIdx);
+                                minValue = convertLegacyLiteralToDouble(minExpr);
+                                maxExpr = key.getKeys().get(partitionColumnIdx);
+                                maxValue = convertLegacyLiteralToDouble(maxExpr);
+                            } else {
+                                double current = convertLegacyLiteralToDouble(key.getKeys().get(partitionColumnIdx));
+                                if (current > maxValue) {
+                                    maxValue = current;
+                                    maxExpr = key.getKeys().get(partitionColumnIdx);
+                                } else if (current < minValue) {
+                                    minValue = current;
+                                    minExpr = key.getKeys().get(partitionColumnIdx);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (minExpr != null) {
+                    cache = new ColumnStatisticBuilder(cache)
+                            .setMinExpr(minExpr)
+                            .setMinValue(minValue)
+                            .setMaxExpr(maxExpr)
+                            .setMaxValue(maxValue)
+                            .build();
+                }
+            } catch (AnalysisException e) {
+                LOG.debug(e.getMessage());
+            }
+        }
+        return cache;
+    }
+
+    private ColumnStatistic updateMinMaxForTheFirstRangePartitionKey(OlapTable olapTable,
+            List<String> selectedPartitionNames,
+            SlotReference slot, ColumnStatistic cache) {
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        // for multi partition keys, only the first partition key need to adjust min/max
+        if (partitionColumnIdx == 0) {
+            // update partition column min/max by partition info
+            try {
+                LiteralExpr minExpr = null;
+                LiteralExpr maxExpr = null;
+                double minValue = 0;
+                double maxValue = 0;
+                for (String selectedPartitionName : selectedPartitionNames) {
+                    PartitionItem item = olapTable.getPartitionItemOrAnalysisException(
+                            selectedPartitionName);
+                    if (item instanceof RangePartitionItem) {
+                        RangePartitionItem ri = (RangePartitionItem) item;
+                        Range<PartitionKey> range = ri.getItems();
+                        PartitionKey upper = range.upperEndpoint();
+                        PartitionKey lower = range.lowerEndpoint();
+                        if (maxExpr == null) {
+                            maxExpr = upper.getKeys().get(partitionColumnIdx);
+                            maxValue = convertLegacyLiteralToDouble(maxExpr);
+                            minExpr = lower.getKeys().get(partitionColumnIdx);
+                            minValue = convertLegacyLiteralToDouble(minExpr);
+                        } else {
+                            double currentValue = convertLegacyLiteralToDouble(upper.getKeys()
+                                    .get(partitionColumnIdx));
+                            if (currentValue > maxValue) {
+                                maxValue = currentValue;
+                                maxExpr = upper.getKeys().get(partitionColumnIdx);
+                            }
+                            currentValue = convertLegacyLiteralToDouble(lower.getKeys().get(partitionColumnIdx));
+                            if (currentValue < minValue) {
+                                minValue = currentValue;
+                                minExpr = lower.getKeys().get(partitionColumnIdx);
+                            }
+                        }
+                    }
+                }
+                if (minExpr != null) {
+                    cache = new ColumnStatisticBuilder(cache)
+                            .setMinExpr(minExpr)
+                            .setMinValue(minValue)
+                            .setMaxExpr(maxExpr)
+                            .setMaxValue(maxValue)
+                            .build();
+                }
+            } catch (AnalysisException e) {
+                LOG.debug(e.getMessage());
+            }
+        }
+        return cache;
     }
 
     @Override
@@ -603,8 +794,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        Statistics joinStats = JoinEstimation.estimate(groupExpression.childStatistics(0),
-                groupExpression.childStatistics(1), join);
+        Statistics joinStats = computeJoin(join);
+        // NOTE: physical operator visiting doesn't need the following
+        // logic which will ONLY be used in no-stats estimation.
         joinStats = new StatisticsBuilder(joinStats).setWidthInJoinCluster(
                 groupExpression.childStatistics(0).getWidthInJoinCluster()
                         + groupExpression.childStatistics(1).getWidthInJoinCluster()).build();
@@ -748,16 +940,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, Void context) {
-        return JoinEstimation.estimate(groupExpression.childStatistics(0),
-                groupExpression.childStatistics(1), hashJoin);
+        return computeJoin(hashJoin);
     }
 
     @Override
     public Statistics visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
             Void context) {
-        return JoinEstimation.estimate(groupExpression.childStatistics(0),
-                groupExpression.childStatistics(1), nestedLoopJoin);
+        return computeJoin(nestedLoopJoin);
     }
 
     // TODO: We should subtract those pruned column, and consider the expression transformations in the node.
@@ -874,7 +1064,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         }
                         builder.setRowCount(isNullStats.getRowCount());
                         stats = builder.build();
-                        stats.enforceValid();
+                        stats.normalizeColumnStatistics();
                     }
                 }
             }
@@ -946,7 +1136,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
                     newStats = ((Plan) newJoin).accept(statsCalculator, null);
                 }
-                newStats.enforceValid();
+                newStats.normalizeColumnStatistics();
 
                 double selectivity = Statistics.getValidSelectivity(
                         newStats.getRowCount() / (leftRowCount * rightRowCount));
@@ -1054,13 +1244,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
-        double tableRowCount = catalogRelation.getTable().getRowCount();
 
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().internalSession) {
-            builder.setRowCount(catalogRelation.getTable().getRowCountForNereids());
+            builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1076,8 +1266,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-
         if (tableRowCount <= 0) {
+            tableRowCount = 1;
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
                 ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
@@ -1092,12 +1282,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             } else {
                 cache = getColumnStatsFromTableCache(catalogRelation, slot);
             }
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
-            colStatsBuilder.setCount(tableRowCount);
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
         return builder.setRowCount(tableRowCount).build();
+    }
+
+    private Statistics computeJoin(Join join) {
+        return JoinEstimation.estimate(groupExpression.childStatistics(0),
+                groupExpression.childStatistics(1), join);
     }
 
     private Statistics computeTopN(TopN topN) {
@@ -1203,7 +1397,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         Statistics aggOutputStats = new Statistics(rowCount, 1, slotToColumnStats);
-        aggOutputStats.enforceValid();
+        aggOutputStats.normalizeColumnStatistics();
         return aggOutputStats;
     }
 
@@ -1217,7 +1411,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     ColumnStatistic stats = kv.getValue();
                     ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(stats);
                     columnStatisticBuilder
-                            .setCount(stats.count < 0 ? stats.count : stats.count * groupingSetNum)
                             .setNumNulls(stats.numNulls < 0 ? stats.numNulls : stats.numNulls * groupingSetNum)
                             .setDataSize(stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum);
                     return Pair.of(kv.getKey(), columnStatisticBuilder.build());
@@ -1352,12 +1545,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         double count = stats.getRowCount() * generate.getGeneratorOutput().size() * statsFactor;
         Map<Expression, ColumnStatistic> columnStatsMap = Maps.newHashMap();
         for (Map.Entry<Expression, ColumnStatistic> entry : stats.columnStatistics().entrySet()) {
-            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).setCount(count).build();
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).build();
             columnStatsMap.put(entry.getKey(), columnStatistic);
         }
         for (Slot output : generate.getGeneratorOutput()) {
             ColumnStatistic columnStatistic = new ColumnStatisticBuilder()
-                    .setCount(count)
                     .setMinValue(Double.NEGATIVE_INFINITY)
                     .setMaxValue(Double.POSITIVE_INFINITY)
                     .setNdv(count)
@@ -1379,8 +1571,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             "need WindowExpression, but we meet " + expr);
                     WindowExpression windExpr = (WindowExpression) expr.child(0);
                     ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder();
-                    colStatsBuilder.setCount(childStats.getRowCount())
-                            .setOriginal(null);
+                    colStatsBuilder.setOriginal(null);
 
                     Double partitionCount = windExpr.getPartitionKeys().stream().map(key -> {
                         ColumnStatistic keyStats = childStats.findColumnStatistics(key);
@@ -1395,8 +1586,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
                     if (partitionCount == -1.0) {
                         // partition key stats are all unknown
-                        colStatsBuilder.setCount(childStats.getRowCount())
-                                .setNdv(1)
+                        colStatsBuilder.setNdv(1)
                                 .setMinValue(Double.NEGATIVE_INFINITY)
                                 .setMaxValue(Double.POSITIVE_INFINITY);
                     } else {
@@ -1441,7 +1631,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
             double rightRowCount, DataType dataType) {
         if (leftStats.isUnKnown() || rightStats.isUnKnown()) {
-            return new ColumnStatisticBuilder(leftStats).setCount(leftRowCount + rightRowCount).build();
+            return new ColumnStatisticBuilder(leftStats).build();
         }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setMaxValue(Math.max(leftStats.maxValue, rightStats.maxValue));

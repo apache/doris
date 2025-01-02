@@ -67,9 +67,14 @@ public:
 protected:
     Status merge_input_rowsets();
 
+    // merge inverted index files
     Status do_inverted_index_compaction();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+    // mark all columns in columns_to_do_index_compaction to skip index compaction next time.
+    void mark_skip_index_compaction(const RowsetWriterContext& context,
+                                    const std::function<void(int64_t, int64_t)>& error_handler);
+
+    void construct_index_compaction_columns(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
@@ -89,10 +94,11 @@ protected:
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
-    int64_t _input_rowsets_size {0};
+    int64_t _input_rowsets_data_size {0};
+    int64_t _input_rowsets_index_size {0};
+    int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
-    int64_t _input_index_size {0};
 
     Merger::Statistics _stats;
 

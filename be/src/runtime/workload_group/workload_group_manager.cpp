@@ -26,6 +26,7 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_metrics.h"
 #include "util/mem_info.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -136,6 +137,13 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
               << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
 }
 
+void WorkloadGroupMgr::do_sweep() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto& [wg_id, wg] : _workload_groups) {
+        wg->do_sweep();
+    }
+}
+
 struct WorkloadGroupMemInfo {
     int64_t total_mem_used = 0;
     std::list<std::shared_ptr<MemTrackerLimiter>> tracker_snapshots =
@@ -232,9 +240,9 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             // check whether queries need to revoke memory for task group
             for (const auto& query_mem_tracker : wgs_mem_info[wg.first].tracker_snapshots) {
                 debug_msg += fmt::format(
-                        "\n    MemTracker Label={}, Parent Label={}, Used={}, SpillThreshold={}, "
+                        "\n    MemTracker Label={}, Used={}, SpillThreshold={}, "
                         "Peak={}",
-                        query_mem_tracker->label(), query_mem_tracker->parent_label(),
+                        query_mem_tracker->label(),
                         PrettyPrinter::print(query_mem_tracker->consumption(), TUnit::BYTES),
                         PrettyPrinter::print(query_spill_threshold, TUnit::BYTES),
                         PrettyPrinter::print(query_mem_tracker->peak_consumption(), TUnit::BYTES));
@@ -247,7 +255,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
 }
 
 void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     int cpu_num = CpuInfo::num_cores();
     cpu_num = cpu_num <= 0 ? 1 : cpu_num;
     uint64_t total_cpu_time_ns_per_second = cpu_num * 1000000000ll;
@@ -257,16 +265,25 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
     for (const auto& [id, wg] : _workload_groups) {
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_int64_value(1, wg->id(), block);
-        SchemaScannerHelper::insert_int64_value(2, wg->get_mem_used(), block);
+        SchemaScannerHelper::insert_int64_value(2, wg->get_metrics()->get_memory_used(), block);
 
-        double cpu_usage_p =
-                (double)wg->get_cpu_usage() / (double)total_cpu_time_ns_per_second * 100;
+        double cpu_usage_p = (double)wg->get_metrics()->get_cpu_time_nanos_per_second() /
+                             (double)total_cpu_time_ns_per_second * 100;
         cpu_usage_p = std::round(cpu_usage_p * 100.0) / 100.0;
 
         SchemaScannerHelper::insert_double_value(3, cpu_usage_p, block);
 
-        SchemaScannerHelper::insert_int64_value(4, wg->get_local_scan_bytes_per_second(), block);
-        SchemaScannerHelper::insert_int64_value(5, wg->get_remote_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(
+                4, wg->get_metrics()->get_local_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(
+                5, wg->get_metrics()->get_remote_scan_bytes_per_second(), block);
+    }
+}
+
+void WorkloadGroupMgr::refresh_workload_group_metrics() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (const auto& [id, wg] : _workload_groups) {
+        wg->get_metrics()->refresh_metrics();
     }
 }
 

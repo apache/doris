@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -37,6 +38,7 @@ import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,7 +50,9 @@ import java.util.Optional;
  * The derived class should implement the abstract method for certain type of target table
  */
 public abstract class AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
+
     protected long jobId;
     protected final ConnectContext ctx;
     protected final Coordinator coordinator;
@@ -62,6 +66,7 @@ public abstract class AbstractInsertExecutor {
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
+    protected long txnId = INVALID_TXN_ID;
 
     /**
      * Constructor
@@ -93,7 +98,9 @@ public abstract class AbstractInsertExecutor {
         return labelName;
     }
 
-    public abstract long getTxnId();
+    public long getTxnId() {
+        return txnId;
+    }
 
     /**
      * begin transaction if necessary
@@ -108,7 +115,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * Do something before exec
      */
-    protected abstract void beforeExec();
+    protected abstract void beforeExec() throws UserException;
 
     /**
      * Do something after exec finished
@@ -141,7 +148,7 @@ public abstract class AbstractInsertExecutor {
         }
         boolean notTimeout = coordinator.join(execTimeout);
         if (!coordinator.isDone()) {
-            coordinator.cancel();
+            coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {
                 errMsg = coordinator.getExecStatus().getErrorMsg();
                 ErrorReport.reportDdlException("there exists unhealthy backend. "

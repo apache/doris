@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -72,8 +73,9 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
         real_function_name = "collection_" + real_function_name;
     }
-    _function = SimpleFunctionFactory::instance().get_function(real_function_name,
-                                                               argument_template, _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            real_function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
@@ -89,7 +91,7 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     for (auto& child : _children) {
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
@@ -98,17 +100,6 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
                                         [](const VExprSPtr& expr) { return expr->is_constant(); });
     _open_finished = true;
     return Status::OK();
-}
-
-size_t VInPredicate::skip_constant_args_size() const {
-    if (_is_args_all_constant && !_can_fast_execute) {
-        // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
-        // where all values inside the IN clause are constants,
-        // a hash set is created during open, and it will not be accessed again during execute
-        //  Here, _children[0] is colA
-        return 1;
-    }
-    return _children.size();
 }
 
 void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
@@ -125,12 +116,19 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
-    doris::vectorized::ColumnNumbers arguments(skip_constant_args_size());
-    for (int i = 0; i < skip_constant_args_size(); ++i) {
+
+    // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
+    // where all values inside the IN clause are constants,
+    // a hash set is created during open, and it will not be accessed again during execute
+    //  Here, _children[0] is colA
+    const size_t args_size = _is_args_all_constant ? 1 : _children.size();
+
+    doris::vectorized::ColumnNumbers arguments(args_size);
+    for (int i = 0; i < args_size; ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;

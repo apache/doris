@@ -343,9 +343,16 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
     }
 
     private void analyzeGroupByClause() throws AnalysisException {
-        if (isReplay || selectStmt.getGroupByClause() == null) {
+        if (isReplay) {
             return;
         }
+        if (selectStmt.getGroupByClause() == null && mvKeysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("agg mv must has group by clause");
+        }
+        if (selectStmt.getGroupByClause() == null) {
+            return;
+        }
+
         List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
         List<FunctionCallExpr> aggregateExprs = selectStmt.getAggInfo().getAggregateExprs();
         List<Expr> selectExprs = selectStmt.getSelectList().getExprs();

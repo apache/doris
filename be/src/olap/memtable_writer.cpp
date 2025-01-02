@@ -133,12 +133,18 @@ Status MemTableWriter::write(const vectorized::Block* block,
 
 Status MemTableWriter::_flush_memtable_async() {
     DCHECK(_flush_token != nullptr);
-    std::unique_ptr<MemTable> memtable;
+    std::shared_ptr<MemTable> memtable;
     {
         std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
-        memtable = std::move(_mem_table);
+        memtable = _mem_table;
+        _mem_table = nullptr;
     }
-    return _flush_token->submit(std::move(memtable));
+    {
+        std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
+        memtable->update_mem_type(MemType::WRITE_FINISHED);
+        _freezed_mem_tables.push_back(memtable);
+    }
+    return _flush_token->submit(memtable);
 }
 
 Status MemTableWriter::flush_async() {
@@ -187,35 +193,10 @@ Status MemTableWriter::wait_flush() {
 }
 
 void MemTableWriter::_reset_mem_table() {
-#ifndef BE_TEST
-    auto mem_table_insert_tracker = std::make_shared<MemTracker>(
-            fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
-                        std::to_string(tablet_id()), _mem_table_num,
-                        UniqueId(_req.load_id).to_string()),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->memtable_tracker_set());
-    auto mem_table_flush_tracker = std::make_shared<MemTracker>(
-            fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
-                        std::to_string(tablet_id()), _mem_table_num++,
-                        UniqueId(_req.load_id).to_string()),
-            ExecEnv::GetInstance()->memtable_memory_limiter()->memtable_tracker_set());
-#else
-    auto mem_table_insert_tracker = std::make_shared<MemTracker>(fmt::format(
-            "MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
-            std::to_string(tablet_id()), _mem_table_num, UniqueId(_req.load_id).to_string()));
-    auto mem_table_flush_tracker = std::make_shared<MemTracker>(fmt::format(
-            "MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}", std::to_string(tablet_id()),
-            _mem_table_num++, UniqueId(_req.load_id).to_string()));
-#endif
-    {
-        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
-        _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
-        _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
-    }
     {
         std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
         _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
-                                      _unique_key_mow, _partial_update_info.get(),
-                                      mem_table_insert_tracker, mem_table_flush_tracker));
+                                      _unique_key_mow, _partial_update_info.get()));
     }
 
     _segment_num++;
@@ -366,15 +347,11 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
     }
     int64_t mem_usage = 0;
     {
-        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
-        if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
-            for (const auto& mem_table_tracker : _mem_table_insert_trackers) {
-                mem_usage += mem_table_tracker->consumption();
-            }
-        }
-        if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
-            for (const auto& mem_table_tracker : _mem_table_flush_trackers) {
-                mem_usage += mem_table_tracker->consumption();
+        std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
+        for (const auto& mem_table : _freezed_mem_tables) {
+            auto mem_table_sptr = mem_table.lock();
+            if (mem_table_sptr != nullptr && mem_table_sptr->get_mem_type() == mem) {
+                mem_usage += mem_table_sptr->memory_usage();
             }
         }
     }

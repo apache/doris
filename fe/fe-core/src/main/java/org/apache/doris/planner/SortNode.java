@@ -340,8 +340,6 @@ public class SortNode extends PlanNode {
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
-        boolean isFixedLength = info.getOrderingExprs().stream()
-                .allMatch(e -> !e.getType().isStringType() && !e.getType().isCollectionType());
         ConnectContext connectContext = ConnectContext.get();
         TSortAlgorithm algorithm;
         if (connectContext != null && !connectContext.getSessionVariable().forceSortAlgorithm.isEmpty()) {
@@ -354,12 +352,18 @@ public class SortNode extends PlanNode {
                 algorithm = TSortAlgorithm.FULL_SORT;
             }
         } else {
-            if (limit > 0 && limit + offset < 1024 && (useTwoPhaseReadOpt || hasRuntimePredicate || isFixedLength)) {
-                algorithm = TSortAlgorithm.HEAP_SORT;
-            } else if (limit > 0 && !isFixedLength && limit + offset < 256) {
-                algorithm = TSortAlgorithm.TOPN_SORT;
-            } else {
+            if (limit <= 0) {
                 algorithm = TSortAlgorithm.FULL_SORT;
+            } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
+                algorithm = TSortAlgorithm.HEAP_SORT;
+            } else {
+                if (limit + offset < 50000) {
+                    algorithm = TSortAlgorithm.HEAP_SORT;
+                } else if (limit + offset < 20000000) {
+                    algorithm = TSortAlgorithm.FULL_SORT;
+                } else {
+                    algorithm = TSortAlgorithm.TOPN_SORT;
+                }
             }
         }
         msg.sort_node.setAlgorithm(algorithm);
@@ -383,6 +387,12 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    // If it's analytic sort or not merged by a followed exchange node, it must output the global ordered data.
+    @Override
+    public boolean isSerialOperator() {
+        return !isAnalyticSort && !mergeByexchange;
     }
 
     public void setColocate(boolean colocate) {

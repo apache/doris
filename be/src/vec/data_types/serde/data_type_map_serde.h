@@ -60,7 +60,7 @@ public:
             const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 
-    void serialize_one_cell_to_hive_text(
+    Status serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 
@@ -93,6 +93,10 @@ public:
         DataTypeSerDe::set_return_object_as_string(value);
         key_serde->set_return_object_as_string(value);
         value_serde->set_return_object_as_string(value);
+    }
+
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const override {
+        return {key_serde, value_serde};
     }
 
 private:

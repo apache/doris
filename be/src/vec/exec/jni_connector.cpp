@@ -80,15 +80,13 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         batch_size = _state->batch_size();
     }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
     SCOPED_TIMER(_open_scanner_time);
+    _scanner_params.emplace("time_zone", _state->timezone());
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
-    _scanner_opened = true;
     RETURN_ERROR_IF_EXC(env);
+    _scanner_opened = true;
     return Status::OK();
 }
 
@@ -463,8 +461,6 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     case TYPE_DATEV2:
         return "datev2";
     case TYPE_DATETIME:
-        [[fallthrough]];
-    case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
@@ -547,8 +543,6 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     case TYPE_DATEV2:
         return "datev2";
     case TYPE_DATETIME:
-        [[fallthrough]];
-    case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];

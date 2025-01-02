@@ -68,10 +68,13 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,9 +83,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
@@ -102,9 +105,6 @@ import java.util.Set;
 public class TabletScheduler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletScheduler.class);
 
-    // handle at most BATCH_NUM tablets in one loop
-    private static final int MIN_BATCH_NUM = 50;
-
     // the minimum interval of updating cluster statistics and priority of tablet info
     private static final long STAT_UPDATE_INTERVAL_MS = 20 * 1000; // 20s
 
@@ -119,7 +119,7 @@ public class TabletScheduler extends MasterDaemon {
      *
      * pendingTablets, allTabletTypes, runningTablets and schedHistory are protected by 'synchronized'
      */
-    private PriorityQueue<TabletSchedCtx> pendingTablets = new PriorityQueue<>();
+    private MinMaxPriorityQueue<TabletSchedCtx> pendingTablets = MinMaxPriorityQueue.create();
     private Map<Long, TabletSchedCtx.Type> allTabletTypes = Maps.newHashMap();
     // contains all tabletCtxs which state are RUNNING
     private Map<Long, TabletSchedCtx> runningTablets = Maps.newHashMap();
@@ -148,6 +148,7 @@ public class TabletScheduler extends MasterDaemon {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
         LIMIT_EXCEED, // number of pending tablets exceed the limit
+        REPLACE_ADDED,  // succ to add, and evict a lowest task
         DISABLED // scheduler has been disabled.
     }
 
@@ -273,12 +274,22 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
+        AddResult addResult = AddResult.ADDED;
         // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (!force && (pendingTablets.size() > Config.max_scheduling_tablets
-                || runningTablets.size() > Config.max_scheduling_tablets)) {
-            return AddResult.LIMIT_EXCEED;
+        if (!force && (pendingTablets.size() >= Config.max_scheduling_tablets
+                || runningTablets.size() >= Config.max_scheduling_tablets)) {
+            // For a sched tablet, if its compare value is bigger, it will be more close to queue's tail position,
+            // and its priority is lower.
+            TabletSchedCtx lowestPriorityTablet = pendingTablets.peekLast();
+            if (lowestPriorityTablet == null || lowestPriorityTablet.compareTo(tablet) <= 0) {
+                return AddResult.LIMIT_EXCEED;
+            }
+            addResult = AddResult.REPLACE_ADDED;
+            pendingTablets.pollLast();
+            finalizeTabletCtx(lowestPriorityTablet, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
+                    "evict lower priority sched tablet because pending queue is full");
         }
 
         if (!contains || tablet.getType() == TabletSchedCtx.Type.REPAIR) {
@@ -290,7 +301,7 @@ public class TabletScheduler extends MasterDaemon {
             LOG.info("Add tablet to pending queue, {}", tablet);
         }
 
-        return AddResult.ADDED;
+        return addResult;
     }
 
 
@@ -311,11 +322,12 @@ public class TabletScheduler extends MasterDaemon {
      * Iterate current tablets, change their priority to VERY_HIGH if necessary.
      */
     public synchronized void changeTabletsPriorityToVeryHigh(long dbId, long tblId, List<Long> partitionIds) {
-        PriorityQueue<TabletSchedCtx> newPendingTablets = new PriorityQueue<>();
+        MinMaxPriorityQueue<TabletSchedCtx> newPendingTablets = MinMaxPriorityQueue.create();
         for (TabletSchedCtx tabletCtx : pendingTablets) {
             if (tabletCtx.getDbId() == dbId && tabletCtx.getTblId() == tblId
                     && partitionIds.contains(tabletCtx.getPartitionId())) {
                 tabletCtx.setPriority(Priority.VERY_HIGH);
+                tabletCtx.setLastVisitedTime(1L);
             }
             newPendingTablets.add(tabletCtx);
         }
@@ -376,7 +388,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, LoadStatisticForTag> newStatisticMap = Maps.newHashMap();
         Set<Tag> tags = infoService.getTags();
         for (Tag tag : tags) {
-            LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex);
+            LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex, rebalancer);
             loadStatistic.init();
             newStatisticMap.put(tag, loadStatistic);
             if (LOG.isDebugEnabled()) {
@@ -1521,9 +1533,13 @@ public class TabletScheduler extends MasterDaemon {
         List<BePathLoadStatPair> allFitPaths =
                 !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
+            List<String> backendsInfo = Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values().stream()
+                    .filter(be -> be.getLocationTag().equals(tag))
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList());
             throw new SchedException(Status.UNRECOVERABLE, String.format("unable to find dest path for new replica"
-                    + " for replica allocation { %s } with tag %s storage medium %s",
-                    tabletCtx.getReplicaAlloc(), tag, tabletCtx.getStorageMedium()));
+                    + " for replica allocation { %s } with tag %s storage medium %s, backends on this tag is: %s",
+                    tabletCtx.getReplicaAlloc(), tag, tabletCtx.getStorageMedium(), backendsInfo));
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
@@ -1760,7 +1776,7 @@ public class TabletScheduler extends MasterDaemon {
             slotNum = 1;
         }
         while (list.size() < Config.schedule_batch_size && slotNum > 0) {
-            TabletSchedCtx tablet = pendingTablets.poll();
+            TabletSchedCtx tablet = pendingTablets.pollFirst();
             if (tablet == null) {
                 // no more tablets
                 break;
@@ -1841,9 +1857,9 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.increaseFailedRunningCounter();
                 if (!tabletCtx.isExceedFailedRunningLimit()) {
                     stat.counterCloneTaskFailed.incrementAndGet();
+                    tabletCtx.setState(TabletSchedCtx.State.PENDING);
                     tabletCtx.releaseResource(this);
                     tabletCtx.resetFailedSchedCounter();
-                    tabletCtx.setState(TabletSchedCtx.State.PENDING);
                     addBackToPendingTablets(tabletCtx);
                     return false;
                 } else {
@@ -1962,6 +1978,11 @@ public class TabletScheduler extends MasterDaemon {
         });
     }
 
+    // only use for fe ut
+    public MinMaxPriorityQueue<TabletSchedCtx> getPendingTabletQueue() {
+        return pendingTablets;
+    }
+
     public List<List<String>> getPendingTabletsInfo(int limit) {
         return collectTabletCtx(getPendingTablets(limit));
     }
@@ -2066,7 +2087,7 @@ public class TabletScheduler extends MasterDaemon {
         private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
         private long beId;
         // only use in takeAnAvailBalanceSlotFrom, make pick RR
-        private Map<TStorageMedium, Long> lastPickPathHashs = Maps.newHashMap();
+        private Table<Tag, TStorageMedium, Long> lastPickPathHashs = HashBasedTable.create();
 
         public PathSlot(Map<Long, TStorageMedium> paths, long beId) {
             this.beId = beId;
@@ -2216,14 +2237,22 @@ public class TabletScheduler extends MasterDaemon {
             return -1;
         }
 
-        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs, TStorageMedium medium) {
+        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs, Tag tag, TStorageMedium medium) {
             if (pathHashs.isEmpty()) {
                 return -1;
             }
 
+            if (tag == null) {
+                tag = Tag.DEFAULT_BACKEND_TAG;
+            }
+
             Collections.sort(pathHashs);
             synchronized (this) {
-                int preferSlotIndex = pathHashs.indexOf(lastPickPathHashs.getOrDefault(medium, -1L)) + 1;
+                Long lastPathHash = lastPickPathHashs.get(tag, medium);
+                if (lastPathHash == null) {
+                    lastPathHash = -1L;
+                }
+                int preferSlotIndex = pathHashs.indexOf(lastPathHash) + 1;
                 if (preferSlotIndex < 0 || preferSlotIndex >= pathHashs.size()) {
                     preferSlotIndex = 0;
                 }
@@ -2231,14 +2260,14 @@ public class TabletScheduler extends MasterDaemon {
                 for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
                     long pathHash = pathHashs.get(i);
                     if (takeBalanceSlot(pathHash) != -1) {
-                        lastPickPathHashs.put(medium, pathHash);
+                        lastPickPathHashs.put(tag, medium, pathHash);
                         return pathHash;
                     }
                 }
                 for (int i = 0; i < preferSlotIndex; i++) {
                     long pathHash = pathHashs.get(i);
                     if (takeBalanceSlot(pathHash) != -1) {
-                        lastPickPathHashs.put(medium, pathHash);
+                        lastPickPathHashs.put(tag, medium, pathHash);
                         return pathHash;
                     }
                 }

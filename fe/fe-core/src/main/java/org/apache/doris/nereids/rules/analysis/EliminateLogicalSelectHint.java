@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -62,11 +61,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 if (hintName.equalsIgnoreCase("SET_VAR")) {
                     setVar((SelectHintSetVar) hint.getValue(), ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("ORDERED")) {
-                    try {
-                        ctx.cascadesContext.getConnectContext().getSessionVariable()
-                                .disableNereidsJoinReorderOnce();
-                    } catch (DdlException e) {
-                        throw new RuntimeException(e);
+                    if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
+                                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {
+                        throw new RuntimeException("set DISABLE_JOIN_REORDER=true once failed");
                     }
                     OrderedHint ordered = new OrderedHint("Ordered");
                     ordered.setStatus(Hint.HintStatus.SUCCESS);
@@ -101,17 +98,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                         + key + "' = '" + value.get() + "'", t);
                 }
             }
-        }
-        // if sv set enable_nereids_planner=true and hint set enable_nereids_planner=false, we should set
-        // enable_fallback_to_original_planner=true and revert it after executing.
-        // throw exception to fall back to original planner
-        if (!sessionVariable.isEnableNereidsPlanner()) {
-            try {
-                sessionVariable.enableFallbackToOriginalPlannerOnce();
-            } catch (Throwable t) {
-                throw new AnalysisException("failed to set fallback to original planner to true", t);
-            }
-            throw new AnalysisException("The nereids is disabled in this sql, fallback to original planner");
         }
     }
 

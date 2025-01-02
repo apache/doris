@@ -19,9 +19,7 @@ package org.apache.doris.datasource.lakesoul.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
@@ -30,11 +28,11 @@ import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -62,7 +60,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
@@ -84,8 +81,8 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     String readType;
 
-    public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv);
+    public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -112,17 +109,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         } catch (IOException e) {
             throw new UserException(e);
         }
-    }
-
-    @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(location);
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for lakesoul table "));
     }
 
     @Override
@@ -170,7 +156,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
+    private void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(lakeSoulSplit.getTableFormatType().value());
         TLakeSoulFileDesc fileDesc = new TLakeSoulFileDesc();
@@ -224,7 +210,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getSplits with columnFilters={}", columnFilters);
             LOG.debug("getSplits with columnNameToRange={}", columnNameToRange);

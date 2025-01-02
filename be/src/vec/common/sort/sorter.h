@@ -59,7 +59,7 @@ public:
 
     ~MergeSorterState() = default;
 
-    Status add_sorted_block(Block& block);
+    void add_sorted_block(std::shared_ptr<Block> block);
 
     Status build_merge_tree(const SortDescription& sort_description);
 
@@ -72,23 +72,19 @@ public:
 
     uint64_t num_rows() const { return num_rows_; }
 
-    Block& last_sorted_block() { return sorted_blocks_.back(); }
+    std::shared_ptr<Block> last_sorted_block() { return sorted_blocks_.back(); }
 
-    std::vector<Block>& get_sorted_block() { return sorted_blocks_; }
+    std::vector<std::shared_ptr<Block>>& get_sorted_block() { return sorted_blocks_; }
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
-    std::vector<MergeSortCursorImpl>& get_cursors() { return cursors_; }
     void reset();
 
     std::unique_ptr<Block> unsorted_block_;
 
 private:
-    int _calc_spill_blocks_to_merge() const;
-
     Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
 
     std::priority_queue<MergeSortCursor> priority_queue_;
-    std::vector<MergeSortCursorImpl> cursors_;
-    std::vector<Block> sorted_blocks_;
+    std::vector<std::shared_ptr<Block>> sorted_blocks_;
     size_t in_mem_sorted_bocks_size_ = 0;
     uint64_t num_rows_ = 0;
 
@@ -181,8 +177,8 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block_->rows() > buffered_block_size_ ||
-               _state->unsorted_block_->bytes() > buffered_block_bytes_;
+        return _enable_spill && (_state->unsorted_block_->rows() > buffered_block_size_ ||
+                                 _state->unsorted_block_->bytes() > buffered_block_bytes_);
     }
 
     Status _do_sort();

@@ -17,7 +17,6 @@
 
 #include "operator.h"
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
@@ -25,6 +24,8 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/cache_sink_operator.h"
+#include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
@@ -73,6 +74,7 @@
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/pipeline.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -115,13 +117,18 @@ std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
     }() + ")";
 }
 
-DataDistribution DataSinkOperatorXBase::required_data_distribution() const {
-    return _child_x && _child_x->ignore_data_distribution()
+DataDistribution OperatorBase::required_data_distribution() const {
+    return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
 }
+
+bool OperatorBase::require_shuffled_data_distribution() const {
+    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
+}
+
 const RowDescriptor& OperatorBase::row_desc() const {
-    return _child_x->row_desc();
+    return _child->row_desc();
 }
 
 template <typename SharedStateArg>
@@ -140,8 +147,9 @@ std::string PipelineXSinkLocalState<SharedStateArg>::debug_string(int indentatio
 
 std::string OperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, parallel_tasks={}",
-                   std::string(indentation_level * 2, ' '), _op_name, node_id(), _parallel_tasks);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, parallel_tasks={}, _is_serial_operator={}",
+                   std::string(indentation_level * 2, ' '), _op_name, node_id(), _parallel_tasks,
+                   _is_serial_operator);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -198,7 +206,7 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     return Status::OK();
 }
 
-Status OperatorXBase::prepare(RuntimeState* state) {
+Status OperatorXBase::open(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
@@ -213,14 +221,6 @@ Status OperatorXBase::prepare(RuntimeState* state) {
                 vectorized::VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
     }
 
-    if (_child_x && !is_source()) {
-        RETURN_IF_ERROR(_child_x->prepare(state));
-    }
-
-    return Status::OK();
-}
-
-Status OperatorXBase::open(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
@@ -228,15 +228,15 @@ Status OperatorXBase::open(RuntimeState* state) {
     for (auto& projections : _intermediate_projections) {
         RETURN_IF_ERROR(vectorized::VExpr::open(projections, state));
     }
-    if (_child_x && !is_source()) {
-        RETURN_IF_ERROR(_child_x->open(state));
+    if (_child && !is_source()) {
+        RETURN_IF_ERROR(_child->open(state));
     }
     return Status::OK();
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
-    if (_child_x && !is_source()) {
-        RETURN_IF_ERROR(_child_x->close(state));
+    if (_child && !is_source()) {
+        RETURN_IF_ERROR(_child->close(state));
     }
     auto result = state->get_local_state_result(operator_id());
     if (!result) {
@@ -361,8 +361,8 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
-                   _name, node_id());
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, _is_serial_operator={}",
+                   std::string(indentation_level * 2, ' '), _name, node_id(), _is_serial_operator);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -580,8 +580,7 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                      bool* eos) {
-    RETURN_IF_ERROR(
-            OperatorX<LocalStateType>::_child_x->get_block_after_projects(state, block, eos));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(state, block, eos));
     return pull(state, block, eos);
 }
 
@@ -591,8 +590,8 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
-                OperatorX<LocalStateType>::_child_x->row_desc().num_materialized_slots());
-        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
+                OperatorX<LocalStateType>::_child->row_desc().num_materialized_slots());
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;
         if (local_state._child_block->rows() == 0 && !local_state._child_eos) {
@@ -663,7 +662,7 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     if (_writer) {
         Status st = _writer->get_writer_status();
         if (exec_status.ok()) {
-            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+            _writer->force_close(state->is_cancelled() ? state->cancel_reason()
                                                        : Status::Cancelled("force close"));
         } else {
             _writer->force_close(exec_status);
@@ -676,66 +675,68 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     return Base::close(state, exec_status);
 }
 
-#define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
-DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
-DECLARE_OPERATOR_X(ResultSinkLocalState)
-DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
-DECLARE_OPERATOR_X(MemoryScratchSinkLocalState)
-DECLARE_OPERATOR_X(ResultFileSinkLocalState)
-DECLARE_OPERATOR_X(OlapTableSinkLocalState)
-DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
-DECLARE_OPERATOR_X(HiveTableSinkLocalState)
-DECLARE_OPERATOR_X(IcebergTableSinkLocalState)
-DECLARE_OPERATOR_X(AnalyticSinkLocalState)
-DECLARE_OPERATOR_X(SortSinkLocalState)
-DECLARE_OPERATOR_X(SpillSortSinkLocalState)
-DECLARE_OPERATOR_X(LocalExchangeSinkLocalState)
-DECLARE_OPERATOR_X(AggSinkLocalState)
-DECLARE_OPERATOR_X(PartitionedAggSinkLocalState)
-DECLARE_OPERATOR_X(ExchangeSinkLocalState)
-DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
-DECLARE_OPERATOR_X(UnionSinkLocalState)
-DECLARE_OPERATOR_X(MultiCastDataStreamSinkLocalState)
-DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
-DECLARE_OPERATOR_X(SetProbeSinkLocalState<true>)
-DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
-DECLARE_OPERATOR_X(SetSinkLocalState<true>)
-DECLARE_OPERATOR_X(SetSinkLocalState<false>)
-DECLARE_OPERATOR_X(PartitionedHashJoinSinkLocalState)
-DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
+#define DECLARE_OPERATOR(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
+DECLARE_OPERATOR(HashJoinBuildSinkLocalState)
+DECLARE_OPERATOR(ResultSinkLocalState)
+DECLARE_OPERATOR(JdbcTableSinkLocalState)
+DECLARE_OPERATOR(MemoryScratchSinkLocalState)
+DECLARE_OPERATOR(ResultFileSinkLocalState)
+DECLARE_OPERATOR(OlapTableSinkLocalState)
+DECLARE_OPERATOR(OlapTableSinkV2LocalState)
+DECLARE_OPERATOR(HiveTableSinkLocalState)
+DECLARE_OPERATOR(IcebergTableSinkLocalState)
+DECLARE_OPERATOR(AnalyticSinkLocalState)
+DECLARE_OPERATOR(SortSinkLocalState)
+DECLARE_OPERATOR(SpillSortSinkLocalState)
+DECLARE_OPERATOR(LocalExchangeSinkLocalState)
+DECLARE_OPERATOR(AggSinkLocalState)
+DECLARE_OPERATOR(PartitionedAggSinkLocalState)
+DECLARE_OPERATOR(ExchangeSinkLocalState)
+DECLARE_OPERATOR(NestedLoopJoinBuildSinkLocalState)
+DECLARE_OPERATOR(UnionSinkLocalState)
+DECLARE_OPERATOR(MultiCastDataStreamSinkLocalState)
+DECLARE_OPERATOR(PartitionSortSinkLocalState)
+DECLARE_OPERATOR(SetProbeSinkLocalState<true>)
+DECLARE_OPERATOR(SetProbeSinkLocalState<false>)
+DECLARE_OPERATOR(SetSinkLocalState<true>)
+DECLARE_OPERATOR(SetSinkLocalState<false>)
+DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
+DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
+DECLARE_OPERATOR(CacheSinkLocalState)
 
-#undef DECLARE_OPERATOR_X
+#undef DECLARE_OPERATOR
 
-#define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
-DECLARE_OPERATOR_X(HashJoinProbeLocalState)
-DECLARE_OPERATOR_X(OlapScanLocalState)
-DECLARE_OPERATOR_X(GroupCommitLocalState)
-DECLARE_OPERATOR_X(JDBCScanLocalState)
-DECLARE_OPERATOR_X(FileScanLocalState)
-DECLARE_OPERATOR_X(EsScanLocalState)
-DECLARE_OPERATOR_X(AnalyticLocalState)
-DECLARE_OPERATOR_X(SortLocalState)
-DECLARE_OPERATOR_X(SpillSortLocalState)
-DECLARE_OPERATOR_X(AggLocalState)
-DECLARE_OPERATOR_X(PartitionedAggLocalState)
-DECLARE_OPERATOR_X(TableFunctionLocalState)
-DECLARE_OPERATOR_X(ExchangeLocalState)
-DECLARE_OPERATOR_X(RepeatLocalState)
-DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
-DECLARE_OPERATOR_X(AssertNumRowsLocalState)
-DECLARE_OPERATOR_X(EmptySetLocalState)
-DECLARE_OPERATOR_X(UnionSourceLocalState)
-DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
-DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
-DECLARE_OPERATOR_X(SetSourceLocalState<true>)
-DECLARE_OPERATOR_X(SetSourceLocalState<false>)
-DECLARE_OPERATOR_X(DataGenLocalState)
-DECLARE_OPERATOR_X(SchemaScanLocalState)
-DECLARE_OPERATOR_X(MetaScanLocalState)
-DECLARE_OPERATOR_X(LocalExchangeSourceLocalState)
-DECLARE_OPERATOR_X(PartitionedHashJoinProbeLocalState)
+#define DECLARE_OPERATOR(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
+DECLARE_OPERATOR(HashJoinProbeLocalState)
+DECLARE_OPERATOR(OlapScanLocalState)
+DECLARE_OPERATOR(GroupCommitLocalState)
+DECLARE_OPERATOR(JDBCScanLocalState)
+DECLARE_OPERATOR(FileScanLocalState)
+DECLARE_OPERATOR(EsScanLocalState)
+DECLARE_OPERATOR(AnalyticLocalState)
+DECLARE_OPERATOR(SortLocalState)
+DECLARE_OPERATOR(SpillSortLocalState)
+DECLARE_OPERATOR(AggLocalState)
+DECLARE_OPERATOR(PartitionedAggLocalState)
+DECLARE_OPERATOR(TableFunctionLocalState)
+DECLARE_OPERATOR(ExchangeLocalState)
+DECLARE_OPERATOR(RepeatLocalState)
+DECLARE_OPERATOR(NestedLoopJoinProbeLocalState)
+DECLARE_OPERATOR(AssertNumRowsLocalState)
+DECLARE_OPERATOR(EmptySetLocalState)
+DECLARE_OPERATOR(UnionSourceLocalState)
+DECLARE_OPERATOR(MultiCastDataStreamSourceLocalState)
+DECLARE_OPERATOR(PartitionSortSourceLocalState)
+DECLARE_OPERATOR(SetSourceLocalState<true>)
+DECLARE_OPERATOR(SetSourceLocalState<false>)
+DECLARE_OPERATOR(DataGenLocalState)
+DECLARE_OPERATOR(SchemaScanLocalState)
+DECLARE_OPERATOR(MetaScanLocalState)
+DECLARE_OPERATOR(LocalExchangeSourceLocalState)
+DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
+DECLARE_OPERATOR(CacheSourceLocalState)
 
-#undef DECLARE_OPERATOR_X
+#undef DECLARE_OPERATOR
 
 template class StreamingOperatorX<AssertNumRowsLocalState>;
 template class StreamingOperatorX<SelectLocalState>;
@@ -763,6 +764,7 @@ template class PipelineXSinkLocalState<MultiCastSharedState>;
 template class PipelineXSinkLocalState<SetSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
+template class PipelineXSinkLocalState<CacheSharedState>;
 
 template class PipelineXLocalState<HashJoinSharedState>;
 template class PipelineXLocalState<PartitionedHashJoinSharedState>;
@@ -774,6 +776,7 @@ template class PipelineXLocalState<AggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
+template class PipelineXLocalState<CacheSharedState>;
 template class PipelineXLocalState<MultiCastSharedState>;
 template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;

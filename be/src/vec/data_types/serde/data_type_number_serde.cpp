@@ -78,12 +78,21 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
     auto arrow_null_map = revert_null_map(null_map, start, end);
     auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(
-                builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
+        auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
+        if (null_builder) {
+            for (size_t i = start; i < end; ++i) {
+                checkArrowStatus(null_builder->AppendNull(), column.get_name(),
+                                 null_builder->type()->name());
+            }
+        } else {
+            ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+            checkArrowStatus(
+                    builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
+                                         end - start,
+                                         reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                    column.get_name(), array_builder->type()->name());
+        }
+
     } else if constexpr (std::is_same_v<T, Int128>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
@@ -228,6 +237,9 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, int rows, int* num_deserialized,
         const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
@@ -241,6 +253,9 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 template <typename T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                      int times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
     auto& col = static_cast<ColumnVector<T>&>(column);
     auto sz = col.size();
     T val = col.get_element(sz - 1);
@@ -324,38 +339,22 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     if constexpr (std::is_same_v<T, Int128>) { // largeint
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-        char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-        if (!ptr) {
-            return Status::InternalError(
-                    "malloc memory error when write largeint column data to orc file.");
-        }
-        StringRef bufferRef;
-        bufferRef.data = ptr;
-        bufferRef.size = BUFFER_UNIT_SIZE;
-        size_t offset = 0;
-        const size_t begin_off = offset;
+        INIT_MEMORY_FOR_ORC_WRITER()
 
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 0) {
-                continue;
-            }
-            std::string value_str = fmt::format("{}", col_data[row_id]);
-            size_t len = value_str.size();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
-            offset += len;
-            cur_batch->length[row_id] = len;
-        }
-        size_t data_off = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
-                data_off += cur_batch->length[row_id];
+                std::string value_str = fmt::format("{}", col_data[row_id]);
+                size_t len = value_str.size();
+
+                REALLOC_MEMORY_FOR_ORC_WRITER()
+
+                strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+                cur_batch->length[row_id] = len;
+                offset += len;
             }
         }
-        buffer_list.emplace_back(bufferRef);
+
         cur_batch->numElements = end - start;
     } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) { // tinyint/boolean
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ByteVectorBatch)

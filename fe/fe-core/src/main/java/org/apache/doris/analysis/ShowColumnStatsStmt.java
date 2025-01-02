@@ -70,6 +70,7 @@ public class ShowColumnStatsStmt extends ShowStmt implements NotFallbackInParser
                     .add("updated_time")
                     .add("update_rows")
                     .add("last_analyze_row_count")
+                    .add("last_analyze_version")
                     .build();
 
     private static final ImmutableList<String> PARTITION_COLUMN_TITLE_NAMES =
@@ -185,6 +186,7 @@ public class ShowColumnStatsStmt extends ShowStmt implements NotFallbackInParser
             row.add(String.valueOf(p.second.updatedTime));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.updatedRows));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.rowCount));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.tableVersion));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

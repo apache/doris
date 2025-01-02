@@ -305,7 +305,7 @@ public:
 #endif
     }
 
-    static uint64_t hash64(const void* data, int32_t bytes, uint64_t seed) {
+    static uint64_t hash64(const void* data, uint64_t bytes, uint64_t seed) {
 #ifdef _SSE4_2_
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
             return crc_hash64(data, bytes, seed);

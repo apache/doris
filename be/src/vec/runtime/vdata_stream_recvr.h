@@ -73,7 +73,7 @@ public:
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                      int num_senders, bool is_merging, RuntimeProfile* profile);
 
-    virtual ~VDataStreamRecvr();
+    ~VDataStreamRecvr() override;
 
     Status create_merger(const VExprContextSPtrs& ordering_expr,
                          const std::vector<bool>& is_asc_order,
@@ -83,7 +83,8 @@ public:
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done);
+                     ::google::protobuf::Closure** done, const int64_t wait_for_worker,
+                     const uint64_t time_to_find_recvr);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -114,8 +115,6 @@ public:
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
 private:
-    class PipSenderQueue;
-
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
@@ -160,40 +159,31 @@ private:
     RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
+    RuntimeProfile::Counter* _max_wait_worker_time = nullptr;
+    RuntimeProfile::Counter* _max_wait_to_process_time = nullptr;
+    RuntimeProfile::Counter* _max_find_recvr_time = nullptr;
 
     std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
 
-class ThreadClosure : public google::protobuf::Closure {
-public:
-    void Run() override { _cv.notify_one(); }
-    void wait(std::unique_lock<std::mutex>& lock) { _cv.wait(lock); }
-
-private:
-    std::condition_variable _cv;
-};
-
 class VDataStreamRecvr::SenderQueue {
 public:
-    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile);
+    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
+                std::shared_ptr<pipeline::Dependency> local_channel_dependency);
 
-    virtual ~SenderQueue();
-
-    void set_local_channel_dependency(
-            std::shared_ptr<pipeline::Dependency> local_channel_dependency) {
-        _local_channel_dependency = local_channel_dependency;
-    }
+    ~SenderQueue();
 
     std::shared_ptr<pipeline::Dependency> local_channel_dependency() {
         return _local_channel_dependency;
     }
 
-    virtual Status get_batch(Block* next_block, bool* eos);
+    Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done);
+                     ::google::protobuf::Closure** done, const int64_t wait_for_worker,
+                     const uint64_t time_to_find_recvr);
 
-    virtual void add_block(Block* block, bool use_move);
+    void add_block(Block* block, bool use_move);
 
     void decrement_senders(int sender_id);
 
@@ -267,43 +257,17 @@ protected:
     bool _is_cancelled;
     Status _cancel_status;
     int _num_remaining_senders;
-    std::condition_variable _data_arrival_cv;
-    std::condition_variable _data_removal_cv;
     std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
-    bool _received_first_batch;
     // sender_id
     std::unordered_set<int> _sender_eos_set;
     // be_number => packet_seq
     std::unordered_map<int, int64_t> _packet_seq_map;
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
-    std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::Dependency> _source_dependency;
     std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
-};
-
-class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
-public:
-    PipSenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile)
-            : SenderQueue(parent_recvr, num_senders, profile) {}
-
-    Status get_batch(Block* block, bool* eos) override {
-        std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-#ifndef NDEBUG
-        if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "_is_cancelled: {}, _block_queue_empty: {}, "
-                                   "_num_remaining_senders: {}, _debug_string_info: {}",
-                                   _is_cancelled, _block_queue.empty(), _num_remaining_senders,
-                                   _debug_string_info());
-        }
-#endif
-        return _inner_get_batch_without_lock(block, eos);
-    }
-
-    void add_block(Block* block, bool use_move) override;
 };
 
 } // namespace vectorized

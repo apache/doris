@@ -48,14 +48,14 @@ public:
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
-    template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableBuild;
 
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     vectorized::Arena _arena;
+
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -86,8 +86,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -95,7 +93,6 @@ public:
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
-    bool require_shuffled_data_distribution() const override { return true; }
 
 private:
     template <class HashTableContext, bool is_intersected>
@@ -113,7 +110,7 @@ private:
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
-    using OperatorBase::_child_x;
+    using OperatorBase::_child;
 };
 
 } // namespace pipeline

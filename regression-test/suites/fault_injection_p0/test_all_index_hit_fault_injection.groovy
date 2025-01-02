@@ -101,7 +101,7 @@ suite("test_all_index_hit_fault_injection", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [column_name: "clientip,request"])
         GetDebugPoint().enableDebugPointForAllBEs("VectorizedFnCall.must_in_slow_path", [column_name: "status,size"])
 
-        
+        qt_sql """ select count(`@timestamp`) from ${indexTbName1} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm' and clientip = '126.1.0.0'); """
         qt_sql """ select count() from ${indexTbName1} where (request match_phrase 'hm' and clientip = '126.1.0.0') or (request match_phrase 'bg' and clientip = '201.0.0.0'); """
@@ -112,6 +112,7 @@ suite("test_all_index_hit_fault_injection", "nonConcurrent") {
         qt_sql """ select count() from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' or request match_phrase 'ag'); """
         qt_sql """ select count() from ${indexTbName1} where (`@timestamp` >= 893964617 and `@timestamp` < 893966455) and (request match_phrase 'hm' or request match_phrase 'ag' or status = 304); """
 
+        qt_sql """ select count(`@timestamp`) from ${indexTbName2} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm' and clientip = '126.1.0.0'); """
         qt_sql """ select count() from ${indexTbName2} where (request match_phrase 'hm' and clientip = '126.1.0.0') or (request match_phrase 'bg' and clientip = '201.0.0.0'); """

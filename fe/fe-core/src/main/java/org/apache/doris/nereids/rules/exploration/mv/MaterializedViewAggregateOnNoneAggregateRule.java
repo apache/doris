@@ -124,7 +124,7 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
                     () -> String.format("query aggregate = %s", queryAggregate.treeString()));
             return null;
         }
-        return doRewriteQueryByView(queryStructInfo,
+        return aggregateRewriteByView(queryStructInfo,
                 viewToQuerySlotMapping,
                 queryTopPlanAndAggPair,
                 tempRewritedPlan,

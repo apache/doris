@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
@@ -95,16 +94,12 @@ public interface RelationVisitor<R, C> {
         return visitLogicalRelation(emptyRelation, context);
     }
 
-    default R visitLogicalExternalRelation(LogicalExternalRelation relation, C context) {
-        return visitLogicalCatalogRelation(relation, context);
-    }
-
     default R visitLogicalEsScan(LogicalEsScan esScan, C context) {
-        return visitLogicalExternalRelation(esScan, context);
+        return visitLogicalCatalogRelation(esScan, context);
     }
 
     default R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
-        return visitLogicalExternalRelation(fileScan, context);
+        return visitLogicalCatalogRelation(fileScan, context);
     }
 
     default R visitLogicalHudiScan(LogicalHudiScan fileScan, C context) {
@@ -112,11 +107,11 @@ public interface RelationVisitor<R, C> {
     }
 
     default R visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, C context) {
-        return visitLogicalExternalRelation(jdbcScan, context);
+        return visitLogicalCatalogRelation(jdbcScan, context);
     }
 
     default R visitLogicalOdbcScan(LogicalOdbcScan odbcScan, C context) {
-        return visitLogicalExternalRelation(odbcScan, context);
+        return visitLogicalCatalogRelation(odbcScan, context);
     }
 
     default R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {

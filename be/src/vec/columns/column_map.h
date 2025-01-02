@@ -96,6 +96,11 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
+               values_column->is_exclusive() && offsets_column->is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
@@ -125,6 +130,8 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
@@ -33,25 +34,19 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 import lombok.Data;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 @Data
 public class TablePartitionValues {
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
 
-    private final ReadWriteLock readWriteLock;
+    private final MonitoredReentrantReadWriteLock readWriteLock;
     private long lastUpdateTimestamp;
     private long nextPartitionId;
     private final Map<Long, PartitionItem> idToPartitionItem;
@@ -68,7 +63,7 @@ public class TablePartitionValues {
     private Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap;
 
     public TablePartitionValues() {
-        readWriteLock = new ReentrantReadWriteLock();
+        readWriteLock = new MonitoredReentrantReadWriteLock();
         lastUpdateTimestamp = 0;
         nextPartitionId = 0;
         idToPartitionItem = new HashMap<>();
@@ -79,11 +74,6 @@ public class TablePartitionValues {
     public TablePartitionValues(List<String> partitionNames, List<List<String>> partitionValues, List<Type> types) {
         this();
         addPartitions(partitionNames, partitionValues, types);
-    }
-
-    public TablePartitionValues(List<String> partitionNames, List<Type> types) {
-        this();
-        addPartitions(partitionNames, types);
     }
 
     public void addPartitions(List<String> partitionNames, List<List<String>> partitionValues, List<Type> types) {
@@ -106,10 +96,6 @@ public class TablePartitionValues {
         addPartitionItems(addPartitionNames, addPartitionItems, types);
     }
 
-    public void addPartitions(List<String> partitionNames, List<Type> types) {
-        addPartitions(partitionNames,
-                partitionNames.stream().map(this::getHivePartitionValues).collect(Collectors.toList()), types);
-    }
 
     private void addPartitionItems(List<String> partitionNames, List<PartitionItem> partitionItems, List<Type> types) {
         Preconditions.checkState(partitionNames.size() == partitionItems.size());
@@ -197,23 +183,6 @@ public class TablePartitionValues {
         }
     }
 
-    private List<String> getHivePartitionValues(String partitionName) {
-        // Partition name will be in format: nation=cn/city=beijing
-        // parse it to get values "cn" and "beijing"
-        return Arrays.stream(partitionName.split("/")).map(part -> {
-            String[] kv = part.split("=");
-            Preconditions.checkState(kv.length == 2, partitionName);
-            String partitionValue;
-            try {
-                // hive partition value maybe contains special characters like '=' and '/'
-                partitionValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
-            } catch (UnsupportedEncodingException e) {
-                // It should not be here
-                throw new RuntimeException(e);
-            }
-            return partitionValue;
-        }).collect(Collectors.toList());
-    }
 
     @Data
     public static class TablePartitionKey {

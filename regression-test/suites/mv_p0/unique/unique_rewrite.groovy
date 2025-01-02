@@ -20,6 +20,7 @@ suite("mv_on_unique_table") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set DELETE_WITHOUT_PARTITION=true"
 
     sql """
     drop table if exists lineitem_2_uniq;
@@ -95,6 +96,10 @@ suite("mv_on_unique_table") {
     AS
     ${mv1}
     """)
+
+    def desc_all_mv1 = sql """desc lineitem_2_uniq all;"""
+    logger.info("desc mv1 is: " + desc_all_mv1.toString())
+
     explain {
         sql("""${query1}""")
         check {result ->
@@ -123,6 +128,11 @@ suite("mv_on_unique_table") {
     AS
     ${mv2}
     """)
+
+    def desc_all_mv2 = sql """desc lineitem_2_uniq all;"""
+    logger.info("desc mv2 is" + desc_all_mv2)
+    // If exec on fe follower, wait meta data is ready on follower
+    Thread.sleep(2000)
     explain {
         sql("""${query2}""")
         check {result ->

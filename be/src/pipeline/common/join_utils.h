@@ -43,7 +43,7 @@ using I32HashTableContext = vectorized::PrimaryTypeHashTableContext<vectorized::
 using I64HashTableContext = vectorized::PrimaryTypeHashTableContext<UInt64>;
 using I128HashTableContext = vectorized::PrimaryTypeHashTableContext<UInt128>;
 using I256HashTableContext = vectorized::PrimaryTypeHashTableContext<UInt256>;
-
+using MethodOneString = vectorized::MethodStringNoCache<JoinHashMap<StringRef>>;
 template <bool has_null>
 using I64FixedKeyHashTableContext = vectorized::FixedKeyHashTableContext<UInt64, has_null>;
 
@@ -63,6 +63,6 @@ using HashTableVariants =
                      I64FixedKeyHashTableContext<false>, I128FixedKeyHashTableContext<true>,
                      I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
                      I256FixedKeyHashTableContext<false>, I136FixedKeyHashTableContext<true>,
-                     I136FixedKeyHashTableContext<false>>;
+                     I136FixedKeyHashTableContext<false>, MethodOneString>;
 
 } // namespace doris::pipeline

@@ -21,8 +21,6 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/regex.hpp>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -40,12 +38,10 @@
 using apache::thrift::ThriftDebugString;
 using std::vector;
 using std::string;
-using std::stringstream;
 
 using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
-using namespace ErrorCode;
 
 // construct sub condition from TCondition
 std::string construct_sub_predicate(const TCondition& condition) {
@@ -314,38 +310,35 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
 // value: matches "1597751948193618247  and length(source)<1;\n;\n"
 //
 // For more info, see DeleteHandler::construct_sub_predicates
-// FIXME(gavin): support unicode. And this is a tricky implementation, it should
-//               not be the final resolution, refactor it.
+// FIXME(gavin): This is a tricky implementation, it should not be the final resolution, refactor it.
 const char* const CONDITION_STR_PATTERN =
-    // .----------------- column-name ----------------.   .----------------------- operator ------------------------.   .------------ value ----------.
-    R"(([_a-zA-Z@0-9\s/][.a-zA-Z0-9_+-/?@#$%^&*"\s,:]*)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?: IS ))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-    // '----------------- group 1 --------------------'   '--------------------- group 2 ---------------------------'   | '-- group 4--'              |
-    //                                                         match any of: = != >> << >= <= *= " IS "                 '----------- group 3 ---------'
-    //                                                                                                                   match **ANY THING** without(4)
-    //                                                                                                                   or with(3) single quote
-boost::regex DELETE_HANDLER_REGEX(CONDITION_STR_PATTERN);
+    // .----------------- column-name --------------------------.   .----------------------- operator ------------------------.   .------------ value ----------.
+    R"(([_a-zA-Z@0-9\s/\p{L}][.a-zA-Z0-9_+-/?@#$%^&*"\s,:\p{L}]*)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?: IS ))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
+    // '----------------- group 1 ------------------------------'   '--------------------- group 2 ---------------------------'   | '-- group 4--'              |
+    //                                                                   match any of: = != >> << >= <= *= " IS "                 '----------- group 3 ---------'
+    //                                                                                                                             match **ANY THING** without(4)
+    //                                                                                                                             or with(3) single quote
 // clang-format on
+RE2 DELETE_HANDLER_REGEX(CONDITION_STR_PATTERN);
 
 Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
-    bool matched = false;
-    boost::smatch what;
-    try {
-        VLOG_NOTICE << "condition_str: " << condition_str;
-        matched = boost::regex_match(condition_str, what, DELETE_HANDLER_REGEX) &&
-                  condition_str.size() == what[0].str().size(); // exact match
-    } catch (boost::regex_error& e) {
-        VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
-                    << "]";
-    }
+    std::string col_name, op, value, g4;
+
+    bool matched = RE2::FullMatch(condition_str, DELETE_HANDLER_REGEX, &col_name, &op, &value,
+                                  &g4); // exact match
+
     if (!matched) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>("fail to sub condition. condition={}",
-                                                          condition_str);
+        return Status::InvalidArgument("fail to sub condition. condition={}", condition_str);
     }
 
-    condition->column_name = what[1].str();
-    condition->condition_op = what[2].str() == " IS " ? "IS" : what[2].str();
+    condition->column_name = col_name;
+    condition->condition_op = op == " IS " ? "IS" : op;
     // match string with single quotes, a = b  or a = 'b'
-    condition->condition_values.push_back(what[3 + !!what[4].matched].str());
+    if (!g4.empty()) {
+        condition->condition_values.push_back(g4);
+    } else {
+        condition->condition_values.push_back(value);
+    }
     VLOG_NOTICE << "parsed condition_str: col_name={" << condition->column_name << "} op={"
                 << condition->condition_op << "} val={" << condition->condition_values.back()
                 << "}";
@@ -353,6 +346,8 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
 }
 
 template <typename SubPredType>
+    requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
+             std::is_same_v<SubPredType, std::string>)
 Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
                                          TabletSchemaSPtr delete_pred_related_schema,
                                          const RepeatedPtrField<SubPredType>& sub_pred_list,
@@ -360,10 +355,13 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
     for (const auto& sub_predicate : sub_pred_list) {
         TCondition condition;
         RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
-        int32_t col_unique_id;
-        if constexpr (std::is_same_v<SubPredType, DeletePredicatePB>) {
-            col_unique_id = sub_predicate.col_unique_id;
-        } else {
+        int32_t col_unique_id = -1;
+        if constexpr (std::is_same_v<SubPredType, DeleteSubPredicatePB>) {
+            if (sub_predicate.has_column_unique_id()) [[likely]] {
+                col_unique_id = sub_predicate.column_unique_id();
+            }
+        }
+        if (col_unique_id < 0) {
             const auto& column =
                     *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
             col_unique_id = column.unique_id();
@@ -417,7 +415,20 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            auto col_unique_id = in_predicate.column_unique_id();
+
+            int32_t col_unique_id = -1;
+            if (in_predicate.has_column_unique_id()) {
+                col_unique_id = in_predicate.column_unique_id();
+            } else {
+                // if upgrade from version 2.0.x, column_unique_id maybe not set
+                const auto& pre_column =
+                        *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
+                col_unique_id = pre_column.unique_id();
+            }
+            if (col_unique_id == -1) {
+                return Status::Error<ErrorCode::DELETE_INVALID_CONDITION>(
+                        "cannot get column_unique_id for column {}", condition.column_name);
+            }
             condition.__set_column_unique_id(col_unique_id);
 
             if (in_predicate.is_not_in()) {

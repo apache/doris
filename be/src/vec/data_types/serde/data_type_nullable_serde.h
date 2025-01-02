@@ -59,7 +59,7 @@ public:
             const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 
-    void serialize_one_cell_to_hive_text(
+    Status serialize_one_cell_to_hive_text(
             const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 
@@ -98,6 +98,8 @@ public:
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
+
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
 
 private:
     template <bool is_binary_format>
