@@ -54,6 +54,7 @@ void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
         }
         if (file_path->string().compare(0, data_dir_info.path.size(), data_dir_info.path) == 0) {
             *data_dir_arg = data_dir_info.path;
+            break;
         }
     }
 }
@@ -67,7 +68,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = store_paths[i].path;
         data_dir_info.storage_medium = store_paths[i].storage_medium;
         data_dir_info.data_dir_type = DataDirType::OLAP_DATA_DIR;
-        data_dir_info.bvar_name = "local_data_dir_" + std::to_string(i);
+        data_dir_info.metric_name = "local_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -76,7 +77,7 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = spill_store_paths[i].path;
         data_dir_info.storage_medium = spill_store_paths[i].storage_medium;
         data_dir_info.data_dir_type = doris::DataDirType::SPILL_DISK_DIR;
-        data_dir_info.bvar_name = "spill_data_dir_" + std::to_string(i);
+        data_dir_info.metric_name = "spill_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 
@@ -85,9 +86,14 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.path = cache_paths[i].path;
         data_dir_info.storage_medium = TStorageMedium::REMOTE_CACHE;
         data_dir_info.data_dir_type = doris::DataDirType::DATA_CACHE_DIR;
-        data_dir_info.bvar_name = "local_cache_dir_" + std::to_string(i);
+        data_dir_info.metric_name = "local_cache_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
+
+    std::sort(be_config_data_dir_list.begin(), be_config_data_dir_list.end(),
+              [](const DataDirInfo& a, const DataDirInfo& b) {
+                  return a.path.length() > b.path.length();
+              });
 }
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
