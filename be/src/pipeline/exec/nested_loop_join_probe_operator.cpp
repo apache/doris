@@ -479,6 +479,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
                                           bool eos) const {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
+    COUNTER_SET(local_state._memory_used_counter, block->allocated_bytes());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
               local_state._cur_probe_row_visited_flags.end(), 0);

@@ -54,6 +54,8 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
+    Status disable_runtime_filters(RuntimeState* state);
+
 protected:
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
@@ -75,6 +77,8 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
+
+    bool _runtime_filters_disabled = false;
 
     size_t _build_side_rows = 0;
 

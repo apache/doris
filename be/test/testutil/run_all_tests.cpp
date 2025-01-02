@@ -50,6 +50,16 @@
 int main(int argc, char** argv) {
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
+    // Used for unit test
+    std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+
+    std::ignore = doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                          .set_min_threads(12)
+                          .set_max_threads(48)
+                          .build(&non_block_close_thread_pool);
+    doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(
+            std::move(non_block_close_thread_pool));
+
     doris::thread_context()->thread_mem_tracker_mgr->init();
     std::shared_ptr<doris::MemTrackerLimiter> test_tracker =
             doris::MemTrackerLimiter::create_shared(doris::MemTrackerLimiter::Type::GLOBAL,
@@ -96,5 +106,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
     int res = RUN_ALL_TESTS();
+
+    doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
     return res;
 }

@@ -70,6 +70,7 @@ import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
+import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
@@ -266,6 +267,7 @@ import org.apache.doris.nereids.DorisParser.SetTransactionContext;
 import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
+import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
@@ -306,6 +308,7 @@ import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowSmallFilesContext;
 import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
+import org.apache.doris.nereids.DorisParser.ShowStagesContext;
 import org.apache.doris.nereids.DorisParser.ShowStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
 import org.apache.doris.nereids.DorisParser.ShowSyncJobContext;
@@ -315,6 +318,7 @@ import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
+import org.apache.doris.nereids.DorisParser.ShowUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
 import org.apache.doris.nereids.DorisParser.ShowWarningErrorCountContext;
@@ -483,6 +487,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
@@ -588,6 +593,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
@@ -597,6 +603,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatComm
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
@@ -5020,6 +5027,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowUserProperties(ShowUserPropertiesContext ctx) {
+        String user = ctx.user != null ? stripQuotes(ctx.user.getText()) : null;
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowUserPropertyCommand(user, pattern, false);
+    }
+
+    @Override
+    public LogicalPlan visitShowAllProperties(ShowAllPropertiesContext ctx) {
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowUserPropertyCommand(null, pattern, true);
+    }
+
+    @Override
     public LogicalPlan visitAlterCatalogComment(AlterCatalogCommentContext ctx) {
         String catalogName = stripQuotes(ctx.name.getText());
         String comment = stripQuotes(ctx.comment.getText());
@@ -5046,6 +5072,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                     ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
 
         return new CreateCatalogCommand(catalogName, ifNotExists, resourceName, comment, properties);
+    }
+
+    @Override
+    public LogicalPlan visitShowStages(ShowStagesContext ctx) {
+        return new ShowStagesCommand();
     }
 
     @Override
@@ -5113,6 +5144,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
         return new CreateEncryptkeyCommand(new EncryptKeyName(nameParts), ctx.EXISTS() != null,
                                             stripQuotes(ctx.STRING_LITERAL().getText()));
+    }
+
+    @Override
+    public LogicalPlan visitAlterCatalogRename(AlterCatalogRenameContext ctx) {
+        String catalogName = stripQuotes(ctx.name.getText());
+        String newName = stripQuotes(ctx.newName.getText());
+        return new AlterCatalogRenameCommand(catalogName, newName);
     }
 
     @Override
