@@ -612,7 +612,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
-DEFINE_mString(je_dirty_pages_mem_limit_percent, "2%");
+DEFINE_mInt32(je_dirty_decay_ms, "5000");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
