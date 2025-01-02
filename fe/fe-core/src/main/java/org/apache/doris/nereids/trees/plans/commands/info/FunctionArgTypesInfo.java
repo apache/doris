@@ -19,22 +19,24 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * represent function arguments
  */
-public class FunctionArgsDefInfo {
+public class FunctionArgTypesInfo {
     private final List<DataType> argTypeDefs;
     private final boolean isVariadic;
 
     // set after analyze
     private Type[] argTypes;
 
-    public FunctionArgsDefInfo(List<DataType> argTypeDefs, boolean isVariadic) {
-        this.argTypeDefs = argTypeDefs;
+    public FunctionArgTypesInfo(List<DataType> argTypeDefs, boolean isVariadic) {
+        this.argTypeDefs = Utils.fastToImmutableList(Objects.requireNonNull(argTypeDefs,
+                "argTypeDefs should not be null"));
         this.isVariadic = isVariadic;
     }
 
@@ -57,7 +59,7 @@ public class FunctionArgsDefInfo {
         argTypes = new Type[argTypeDefs.size()];
         int i = 0;
         for (DataType dataType : argTypeDefs) {
-            TypeCoercionUtils.validateDataType(dataType);
+            dataType.validateDataType();
             argTypes[i++] = dataType.toCatalogDataType();
         }
     }

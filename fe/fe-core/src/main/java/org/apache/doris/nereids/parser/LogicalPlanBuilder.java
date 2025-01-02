@@ -345,6 +345,7 @@ import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.SpecifiedPartitionContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
+import org.apache.doris.nereids.DorisParser.StatementScopeContext;
 import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
@@ -672,7 +673,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgsDefInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -4136,16 +4137,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.DEFAULT() != null && ctx.STORAGE() != null && ctx.VAULT() != null) {
             return new UnsetDefaultStorageVaultCommand();
         }
-        SetType type = SetType.DEFAULT;
-        if (ctx.GLOBAL() != null) {
-            type = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            type = SetType.SESSION;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         if (ctx.ALL() != null) {
-            return new UnsetVariableCommand(type, true);
+            return new UnsetVariableCommand(statementScope, true);
         } else if (ctx.identifier() != null) {
-            return new UnsetVariableCommand(type, ctx.identifier().getText());
+            return new UnsetVariableCommand(statementScope, ctx.identifier().getText());
         }
         throw new AnalysisException("Should add 'ALL' or variable name");
     }
@@ -4169,25 +4165,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitCreateUserDefineFunction(CreateUserDefineFunctionContext ctx) {
-        SetType setType;
-        if (ctx.GLOBAL() != null) {
-            setType = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            setType = SetType.SESSION;
-        } else {
-            setType = SetType.DEFAULT;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifNotExists = ctx.EXISTS() != null;
         boolean isAggFunction = ctx.AGGREGATE() != null;
         boolean isTableFunction = ctx.TABLES() != null;
         String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
         String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
         FunctionName function = new FunctionName(dbName, functionName);
-        FunctionArgsDefInfo functionArgsDefInfo;
+        FunctionArgTypesInfo functionArgTypesInfo;
         if (ctx.functionArguments() != null) {
-            functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
         } else {
-            functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
+            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
         }
         DataType returnType = typedVisit(ctx.returnType);
         returnType = returnType.conversion();
@@ -4198,66 +4187,49 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
                 : Maps.newHashMap();
-        if (isTableFunction) {
-            return new CreateFunctionCommand(setType, ifNotExists, function, functionArgsDefInfo, returnType,
-                    intermediateType, properties);
-        } else {
-            return new CreateFunctionCommand(setType, ifNotExists, isAggFunction, function, functionArgsDefInfo,
-                    returnType, intermediateType, properties);
-        }
+        return new CreateFunctionCommand(statementScope, ifNotExists, isAggFunction, false, isTableFunction,
+                function, functionArgTypesInfo, returnType, intermediateType,
+                null, null, properties);
     }
 
     @Override
     public Command visitCreateAliasFunction(CreateAliasFunctionContext ctx) {
-        SetType setType;
-        if (ctx.GLOBAL() != null) {
-            setType = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            setType = SetType.SESSION;
-        } else {
-            setType = SetType.DEFAULT;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifNotExists = ctx.EXISTS() != null;
         String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
         String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
         FunctionName function = new FunctionName(dbName, functionName);
-        FunctionArgsDefInfo functionArgsDefInfo;
+        FunctionArgTypesInfo functionArgTypesInfo;
         if (ctx.functionArguments() != null) {
-            functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
         } else {
-            functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
+            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
         }
         List<String> parameters = ctx.parameters != null ? visitIdentifierSeq(ctx.parameters) : new ArrayList<>();
         Expression originFunction = getExpression(ctx.expression());
-        return new CreateFunctionCommand(setType, ifNotExists, function, functionArgsDefInfo, parameters,
-                originFunction);
+        return new CreateFunctionCommand(statementScope, ifNotExists, false, true, false,
+                function, functionArgTypesInfo, VarcharType.MAX_VARCHAR_TYPE, null,
+                parameters, originFunction, null);
     }
 
     @Override
     public Command visitDropFunction(DropFunctionContext ctx) {
-        SetType setType;
-        if (ctx.GLOBAL() != null) {
-            setType = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            setType = SetType.SESSION;
-        } else {
-            setType = SetType.DEFAULT;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifExists = ctx.EXISTS() != null;
         String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
         String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
         FunctionName function = new FunctionName(dbName, functionName);
-        FunctionArgsDefInfo functionArgsDefInfo;
+        FunctionArgTypesInfo functionArgTypesInfo;
         if (ctx.functionArguments() != null) {
-            functionArgsDefInfo = visitFunctionArguments(ctx.functionArguments());
+            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
         } else {
-            functionArgsDefInfo = new FunctionArgsDefInfo(new ArrayList<>(), false);
+            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
         }
-        return new DropFunctionCommand(setType, ifExists, function, functionArgsDefInfo);
+        return new DropFunctionCommand(statementScope, ifExists, function, functionArgTypesInfo);
     }
 
     @Override
-    public FunctionArgsDefInfo visitFunctionArguments(FunctionArgumentsContext ctx) {
+    public FunctionArgTypesInfo visitFunctionArguments(FunctionArgumentsContext ctx) {
         boolean isVariadic = false;
         List<DataType> argTypeDefs = new ArrayList<>(4);
         for (Object child : ctx.children) {
@@ -4270,7 +4242,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
         }
-        return new FunctionArgsDefInfo(argTypeDefs, isVariadic);
+        return new FunctionArgTypesInfo(argTypeDefs, isVariadic);
     }
 
     @Override
@@ -4321,28 +4293,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public SetVarOp visitSetSystemVariable(SetSystemVariableContext ctx) {
-        SetType type = SetType.DEFAULT;
-        if (ctx.GLOBAL() != null) {
-            type = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            type = SetType.SESSION;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
-        return new SetSessionVarOp(type, name, expression);
+        return new SetSessionVarOp(statementScope, name, expression);
     }
 
     @Override
     public SetVarOp visitSetVariableWithType(SetVariableWithTypeContext ctx) {
-        SetType type = SetType.DEFAULT;
-        if (ctx.GLOBAL() != null) {
-            type = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            type = SetType.SESSION;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
-        return new SetSessionVarOp(type, name, expression);
+        return new SetSessionVarOp(statementScope, name, expression);
     }
 
     @Override
@@ -4822,15 +4784,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowVariables(ShowVariablesContext ctx) {
-        SetType type = SetType.DEFAULT;
-        if (ctx.GLOBAL() != null) {
-            type = SetType.GLOBAL;
-        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
-            type = SetType.SESSION;
-        }
+        SetType statementScope = visitStatementScope(ctx.statementScope());
         if (ctx.wildWhere() != null) {
             if (ctx.wildWhere().LIKE() != null) {
-                return new ShowVariablesCommand(type, stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
+                return new ShowVariablesCommand(statementScope,
+                        stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
             } else {
                 StringBuilder sb = new StringBuilder();
                 sb.append("SELECT `VARIABLE_NAME` AS `Variable_name`, `VARIABLE_VALUE` AS `Value` FROM ");
@@ -4838,7 +4796,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 sb.append(".");
                 sb.append("`").append(InfoSchemaDb.DATABASE_NAME).append("`");
                 sb.append(".");
-                if (type == SetType.GLOBAL) {
+                if (statementScope == SetType.GLOBAL) {
                     sb.append("`global_variables` ");
                 } else {
                     sb.append("`session_variables` ");
@@ -4847,7 +4805,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return new NereidsParser().parseSingle(sb.toString());
             }
         } else {
-            return new ShowVariablesCommand(type, null);
+            return new ShowVariablesCommand(statementScope, null);
         }
     }
 
@@ -5508,15 +5466,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowStatus(ShowStatusContext ctx) {
-        String scope = null;
-        if (ctx.GLOBAL() != null) {
-            scope = "GLOBAL";
-        } else if (ctx.SESSION() != null) {
-            scope = "SESSION";
-        } else if (ctx.LOCAL() != null) {
-            scope = "LOCAL";
-        }
-
+        String scope = visitStatementScope(ctx.statementScope()).name();
         return new ShowStatusCommand(scope);
     }
 
@@ -5538,6 +5488,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             wild = ctx.STRING_LITERAL().getText();
         }
         return new ShowTableCreationCommand(dbName, wild);
+    }
+
+    @Override
+    public SetType visitStatementScope(StatementScopeContext ctx) {
+        SetType statementScope = SetType.DEFAULT;
+        if (ctx != null) {
+            if (ctx.GLOBAL() != null) {
+                statementScope = SetType.GLOBAL;
+            } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+                statementScope = SetType.SESSION;
+            }
+        }
+        return statementScope;
     }
 
     @Override

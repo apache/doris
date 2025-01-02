@@ -67,12 +67,10 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgsDefInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.FunctionService;
 import org.apache.doris.proto.PFunctionServiceGrpc;
 import org.apache.doris.proto.Types;
@@ -148,7 +146,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private final boolean isAggregate;
     private final boolean isAlias;
     private boolean isTableFunction;
-    private final FunctionArgsDefInfo argsDef;
+    private final FunctionArgTypesInfo argsDef;
     private final DataType returnType;
     private DataType intermediateType;
     private final Map<String, String> properties;
@@ -169,62 +167,36 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     /**
      * CreateFunctionCommand
      */
-    public CreateFunctionCommand(SetType setType, boolean ifNotExists, boolean isAggregate, FunctionName functionName,
-            FunctionArgsDefInfo argsDef,
-            DataType returnType, DataType intermediateType, Map<String, String> properties) {
+    public CreateFunctionCommand(SetType setType, boolean ifNotExists, boolean isAggregate, boolean isAlias,
+                                 boolean isTableFunction, FunctionName functionName, FunctionArgTypesInfo argsDef,
+                                 DataType returnType, DataType intermediateType, List<String> parameters,
+                                 Expression originFunction, Map<String, String> properties) {
         super(PlanType.CREATE_FUNCTION_COMMAND);
         this.setType = setType;
         this.ifNotExists = ifNotExists;
-        this.functionName = functionName;
         this.isAggregate = isAggregate;
+        this.isAlias = isAlias;
+        this.isTableFunction = isTableFunction;
+        this.functionName = functionName;
         this.argsDef = argsDef;
         this.returnType = returnType;
         this.intermediateType = intermediateType;
-        if (properties == null) {
-            this.properties = ImmutableSortedMap.of();
-        } else {
-            this.properties = ImmutableSortedMap.copyOf(properties, String.CASE_INSENSITIVE_ORDER);
-        }
-        this.isAlias = false;
-        this.isTableFunction = false;
-        this.parameters = ImmutableList.of();
-        this.originFunction = null;
-    }
-
-    public CreateFunctionCommand(SetType setType, boolean ifNotExists, FunctionName functionName,
-            FunctionArgsDefInfo argsDef,
-            DataType returnType, DataType intermediateType, Map<String, String> properties) {
-        this(setType, ifNotExists, false, functionName, argsDef, returnType, intermediateType, properties);
-        this.isTableFunction = true;
-    }
-
-    /**
-     * CreateFunctionCommand
-     */
-    public CreateFunctionCommand(SetType setType, boolean ifNotExists, FunctionName functionName,
-            FunctionArgsDefInfo argsDef,
-            List<String> parameters, Expression originFunction) {
-        super(PlanType.CREATE_FUNCTION_COMMAND);
-        this.setType = setType;
-        this.ifNotExists = ifNotExists;
-        this.functionName = functionName;
-        this.isAlias = true;
-        this.argsDef = argsDef;
         if (parameters == null) {
             this.parameters = ImmutableList.of();
         } else {
             this.parameters = ImmutableList.copyOf(parameters);
         }
         this.originFunction = originFunction;
-        this.isAggregate = false;
-        this.isTableFunction = false;
-        this.returnType = VarcharType.MAX_VARCHAR_TYPE;
-        this.properties = ImmutableSortedMap.of();
+        if (properties == null) {
+            this.properties = ImmutableSortedMap.of();
+        } else {
+            this.properties = ImmutableSortedMap.copyOf(properties, String.CASE_INSENSITIVE_ORDER);
+        }
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate(ctx);
+        analyze(ctx);
         if (SetType.GLOBAL.equals(setType)) {
             Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(function, ifNotExists);
         } else {
@@ -257,7 +229,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 
-    private void validate(ConnectContext ctx) throws Exception {
+    private void analyze(ConnectContext ctx) throws Exception {
         // https://github.com/apache/doris/issues/17810
         // this error report in P0 test, so we suspect that it is related to concurrency
         // add this change to test it.
@@ -270,7 +242,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 } else if (isAlias) {
                     analyzeAliasFunction(ctx);
                 } else if (isTableFunction) {
-                    analyzeTableFunction();
+                    analyzeUdtf();
                 } else {
                     analyzeUdf();
                 }
@@ -283,7 +255,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             } else if (isAlias) {
                 analyzeAliasFunction(ctx);
             } else if (isTableFunction) {
-                analyzeTableFunction();
+                analyzeUdtf();
             } else {
                 analyzeUdf();
             }
@@ -310,9 +282,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         if (isAlias) {
             return;
         }
-        TypeCoercionUtils.validateDataType(returnType);
+        returnType.validateDataType();
         if (intermediateType != null) {
-            TypeCoercionUtils.validateDataType(intermediateType);
+            intermediateType.validateDataType();
         } else {
             intermediateType = returnType;
         }
@@ -354,7 +326,12 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             }
             String expirationTimeString = properties.get(EXPIRATION_TIME);
             if (expirationTimeString != null) {
-                long timeMinutes = Long.parseLong(expirationTimeString);
+                long timeMinutes = 0;
+                try {
+                    timeMinutes = Long.parseLong(expirationTimeString);
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException(e.getMessage());
+                }
                 if (timeMinutes <= 0) {
                     throw new AnalysisException("expirationTime should greater than zero: ");
                 }
@@ -396,7 +373,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void analyzeTableFunction() throws AnalysisException {
+    private void analyzeUdtf() throws AnalysisException {
         String symbol = properties.get(SYMBOL_KEY);
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
