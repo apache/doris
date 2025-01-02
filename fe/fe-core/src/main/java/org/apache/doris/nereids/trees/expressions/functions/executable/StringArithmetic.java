@@ -318,7 +318,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
-        return new IntegerLiteral(second.getValue().trim().indexOf(first.getValue()) + 1);
+        return new IntegerLiteral(second.getValue().indexOf(first.getValue()) + 1);
     }
 
     /**
@@ -326,9 +326,9 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        int result = second.getValue().trim().indexOf(first.getValue()) + 1;
+        int result = second.getValue().indexOf(first.getValue()) + 1;
         if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().length()).trim().contains(first.getValue())) {
+                second.getValue().length()).contains(first.getValue())) {
             result = 0;
         }
         return new IntegerLiteral(result);
@@ -718,6 +718,9 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "substring_index")
     public static Expression substringIndex(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
+        if (chr.getValue().isEmpty()) {
+            return chr;
+        }
         String[] parts = first.getValue().split(chr.getValue(), -1);
         if (Math.abs(number.getValue()) >= parts.length) {
             return first;
