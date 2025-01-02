@@ -479,7 +479,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
     if (_scan_task_sched == nullptr) {
         std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + tg_name,
-                                                                      cg_cpu_ctl_ptr);
+                                                                      cg_cpu_ctl_ptr, tg_name);
         Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_queue_size);
@@ -499,7 +499,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + tg_name,
-                                                                      cg_cpu_ctl_ptr);
+                                                                      cg_cpu_ctl_ptr, tg_name);
         Status ret = remote_scan_scheduler->start(remote_max_thread_num,
                                                   config::doris_scanner_min_thread_pool_thread_num,
                                                   remote_scan_thread_queue_size);

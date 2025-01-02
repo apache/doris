@@ -15,15 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("any_value") {
-    // enable nereids
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+#pragma once
 
-    test {
-        sql "select any(s_suppkey), any(s_name), any_value(s_address) from supplier;"
-    }
-    qt_sql_max """select max(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
-    qt_sql_min """select min(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
-    sql """select any(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
-}
+#include <boost/circular_buffer.hpp>
+#include <shared_mutex>
+
+namespace doris {
+
+// A thread-safe interval histogram stat class.
+// IntervalHistogramStat will keep a FIXED-SIZE window of values and provide
+// statistics like mean, median, max, min.
+
+template <typename T>
+class IntervalHistogramStat {
+public:
+    explicit IntervalHistogramStat(size_t N);
+
+    void add(T value);
+
+    T mean();
+    T median();
+    T max();
+    T min();
+
+private:
+    boost::circular_buffer<T> window;
+    mutable std::shared_mutex mutex;
+};
+
+} // namespace doris
