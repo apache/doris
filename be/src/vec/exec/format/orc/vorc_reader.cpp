@@ -1712,7 +1712,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         col_name);
             }
             reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
-                    ->insert_null_elements(num_values);
+                    ->insert_many_defaults(num_values);
         }
 
         for (auto read_field : read_fields) {
