@@ -309,9 +309,9 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.a = t2.a)) otherCondition=() build RFs:RF0 a->[a];RF1 a->[a]
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.a = t2.a)) otherCondition=()
 --------------PhysicalProject
-----------------PhysicalOlapScan[test1] apply RFs: RF0 RF1
+----------------PhysicalOlapScan[test1]
 --------------PhysicalProject
 ----------------filter((test2.b = 105))
 ------------------PhysicalOlapScan[test2]
