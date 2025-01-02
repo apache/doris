@@ -899,40 +899,41 @@ public:
                                 std::to_string(cidr));
             }
             for (size_t i = 0; i < input_rows_count; ++i) {
-                }
-                apply_cidr_mask(from_column.get_data_at(i).data,
-                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                cast_set<UInt8>(cidr));
             }
-        } else {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                auto cidr = cidr_column.get_int(i);
-                if (cidr < 0 || cidr > max_cidr_mask) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
-                                    std::to_string(cidr));
-                }
-                apply_cidr_mask(from_column.get_data_at(i).data,
-                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                cast_set<UInt8>(cidr));
-            }
-        }
-        return ColumnStruct::create(
-                Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
-    }
-
-private:
-    static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
-                                char* __restrict dst_upper, UInt8 bits_to_keep) {
-        // little-endian mask
-        const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
-
-        for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
-            dst_lower[i] = src[i] & mask[i];
-            dst_upper[i] = dst_lower[i] | ~mask[i];
+            apply_cidr_mask(from_column.get_data_at(i).data,
+                            reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                            reinterpret_cast<char*>(&vec_res_upper_range[i]),
+                            cast_set<UInt8>(cidr));
         }
     }
+    else {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto cidr = cidr_column.get_int(i);
+            if (cidr < 0 || cidr > max_cidr_mask) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                std::to_string(cidr));
+            }
+            apply_cidr_mask(from_column.get_data_at(i).data,
+                            reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                            reinterpret_cast<char*>(&vec_res_upper_range[i]),
+                            cast_set<UInt8>(cidr));
+        }
+    }
+    return ColumnStruct::create(
+            Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
+}
+
+private : static void
+          apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
+                          char* __restrict dst_upper, UInt8 bits_to_keep) {
+    // little-endian mask
+    const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
+
+    for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
+        dst_lower[i] = src[i] & mask[i];
+        dst_upper[i] = dst_lower[i] | ~mask[i];
+    }
+}
 };
 
 class FunctionIsIPv4Compat : public IFunction {
