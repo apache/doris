@@ -33,6 +33,7 @@ public class OperationType {
     public static final short OP_ERASE_DB = 4;
     public static final short OP_RECOVER_DB = 5;
     public static final short OP_RENAME_DB = 6;
+    public static final short OP_NEW_CREATE_DB = 7;
 
     // 10~19 110~119 210~219 ...
     public static final short OP_CREATE_TABLE = 10;

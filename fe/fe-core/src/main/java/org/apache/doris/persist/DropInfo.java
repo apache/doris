@@ -30,6 +30,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class DropInfo implements Writable {
+    @SerializedName(value = "ctl")
+    private String ctl;
+    @SerializedName(value = "db")
+    private String db;
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableId")
@@ -50,6 +54,13 @@ public class DropInfo implements Writable {
     public DropInfo() {
     }
 
+    // for external table
+    public DropInfo(String ctl, String db, String tbl) {
+        this.ctl = ctl;
+        this.db = db;
+        this.tableName = tbl;
+    }
+
     public DropInfo(long dbId, long tableId, String tableName, boolean isView, boolean forceDrop,
             long recycleTime) {
         this(dbId, tableId, tableName, -1L, "", isView, forceDrop, recycleTime);
@@ -65,6 +76,14 @@ public class DropInfo implements Writable {
         this.isView = isView;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+    }
+
+    public String getCtl() {
+        return ctl;
+    }
+
+    public String getDb() {
+        return db;
     }
 
     public long getDbId() {

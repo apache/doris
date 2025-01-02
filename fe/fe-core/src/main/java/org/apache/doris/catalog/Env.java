@@ -211,6 +211,9 @@ import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanQueryStatsInfo;
+import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -3263,6 +3266,17 @@ public class Env {
         getInternalCatalog().replayCreateDb(db, "");
     }
 
+    public void replayNewCreateDb(CreateDbInfo info) {
+        if (info.getCtlName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            getInternalCatalog().replayCreateDb(info.getInternalDb(), "");
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayCreateDb(info.getDbName());
+            }
+        }
+    }
+
     public void dropDb(DropDbStmt stmt) throws DdlException {
         dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
@@ -3277,8 +3291,15 @@ public class Env {
         catalogIf.dropDb(dbName, ifExists, force);
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
-        getInternalCatalog().replayDropDb(dbName, isForceDrop, recycleTime);
+    public void replayDropDb(DropDbInfo info) throws DdlException {
+        if (Strings.isNullOrEmpty(info.getCtlName())) {
+            getInternalCatalog().replayDropDb(info.getDbName(), info.isForceDrop(), info.getRecycleTime());
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayDropDb(info.getDbName());
+            }
+        }
     }
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
@@ -4157,8 +4178,15 @@ public class Env {
         }
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        getInternalCatalog().replayCreateTable(dbName, table);
+    public void replayCreateTable(CreateTableInfo info) throws MetaNotFoundException {
+        if (Strings.isNullOrEmpty(info.getCtlName())) {
+            getInternalCatalog().replayCreateTable(info.getDbName(), info.getTable());
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayCreateTable(info.getDbName(), info.getTblName());
+            }
+        }
     }
 
     public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema)

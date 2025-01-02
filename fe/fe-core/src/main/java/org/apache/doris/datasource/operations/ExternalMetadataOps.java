@@ -36,14 +36,25 @@ public interface ExternalMetadataOps {
      * @param stmt
      * @throws DdlException
      */
-    void createDb(CreateDbStmt stmt) throws DdlException;
+    default void createDb(CreateDbStmt stmt) throws DdlException {
+        createDbImpl(stmt);
+        afterCreateDb(stmt.getFullDbName());
+    }
+
+    void createDbImpl(CreateDbStmt stmt) throws DdlException;
+
+    default void afterCreateDb(String dbName) {
+    }
 
     /**
      * drop db in external metastore
      * @param stmt
      * @throws DdlException
      */
-    void dropDb(DropDbStmt stmt) throws DdlException;
+    default void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDbImpl(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+        afterDropDb(stmt.getCtlName());
+    }
 
     /**
      * drop db in external metastore for nereids
@@ -52,7 +63,9 @@ public interface ExternalMetadataOps {
      * @param force
      * @throws DdlException
      */
-    void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
+    void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
+
+    void afterDropDb(String dbName);
 
     /**
      *
@@ -60,14 +73,33 @@ public interface ExternalMetadataOps {
      * @return if set isExists is true, return true if table exists, otherwise return false
      * @throws UserException
      */
-    boolean createTable(CreateTableStmt stmt) throws UserException;
+    default boolean createTable(CreateTableStmt stmt) throws UserException {
+        boolean res = createTableImpl(stmt);
+        if (!res) {
+            afterCreateTable(stmt.getDbName(), stmt.getTableName());
+        }
+        return res;
+    }
+
+    boolean createTableImpl(CreateTableStmt stmt) throws UserException;
+
+    default void afterCreateTable(String dbName, String tblName) {
+    }
 
     /**
      *
      * @param stmt
      * @throws DdlException
      */
-    void dropTable(DropTableStmt stmt) throws DdlException;
+    default void dropTable(DropTableStmt stmt) throws DdlException {
+        dropTableImpl(stmt);
+        afterDropTable(stmt.getDbName(), stmt.getTableName());
+    }
+
+    void dropTableImpl(DropTableStmt stmt) throws DdlException;
+
+    default void afterDropTable(String dbName, String tblName) {
+    }
 
     /**
      *
@@ -75,7 +107,15 @@ public interface ExternalMetadataOps {
      * @param tblName
      * @param partitions
      */
-    void truncateTable(String dbName, String tblName, List<String> partitions, boolean isReplay) throws DdlException;
+    default void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+        truncateTableImpl(dbName, tblName, partitions);
+        afterTruncateTable(dbName, tblName);
+    }
+
+    void truncateTableImpl(String dbName, String tblName, List<String> partitions) throws DdlException;
+
+    default void afterTruncateTable(String dbName, String tblName) {
+    }
 
     /**
      *

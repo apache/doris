@@ -486,10 +486,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
-    }
-
+    @Override
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         LOG.info("begin drop database[{}], is force : {}", dbName, force);
 
