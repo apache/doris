@@ -592,6 +592,11 @@ public:
                _query_options.enable_shared_exchange_sink_buffer;
     }
 
+    bool fuzzy_disable_runtime_filter_in_be() const {
+        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
+               _query_options.fuzzy_disable_runtime_filter_in_be;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return std::max(_query_options.min_revocable_mem, (int64_t)1);

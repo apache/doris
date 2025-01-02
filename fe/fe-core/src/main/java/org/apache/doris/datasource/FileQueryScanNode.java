@@ -340,7 +340,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
             long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
-            int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
+            // Here, we must take the max of 1, because
+            // in the case of multiple BEs, `numApproximateSplits() / backendPolicy.numBackends()` may be 0,
+            // and finally numSplitsPerBE is 0, resulting in no data being queried.
+            int numSplitsPerBE = Math.max(numApproximateSplits() / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
                 SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);

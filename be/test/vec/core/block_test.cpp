@@ -220,7 +220,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(),
                                                         nullable_data_type, "test_nullable");
         vectorized::Block block({type_and_name});
@@ -241,7 +241,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         vectorized::ColumnWithTypeAndName type_and_name(
                 nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
         vectorized::Block block({type_and_name});

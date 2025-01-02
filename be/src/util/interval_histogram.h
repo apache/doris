@@ -15,13 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nereids_workload_test") {
-    sql "drop workload group if exists test_nereids_wg1;"
-    sql "drop workload group if exists test_nereids_wg2;"
-    checkNereidsExecute("create workload group test_nereids_wg1 properties('cpu_share'='1024');")
-    checkNereidsExecute("create workload group test_nereids_wg2 properties('cpu_share'='1024');")
-    qt_check_workload_check1("select NAME from information_schema.workload_groups where NAME='test_nereids_wg1';")
-    checkNereidsExecute("drop workload group  test_nereids_wg1;")
-    qt_check_workload_check2("select NAME from information_schema.workload_groups where NAME='test_nereids_wg1';")
-    checkNereidsExecute("drop workload group if exists test_nereids_wg2;")
-}
+#pragma once
+
+#include <boost/circular_buffer.hpp>
+#include <shared_mutex>
+
+namespace doris {
+
+// A thread-safe interval histogram stat class.
+// IntervalHistogramStat will keep a FIXED-SIZE window of values and provide
+// statistics like mean, median, max, min.
+
+template <typename T>
+class IntervalHistogramStat {
+public:
+    explicit IntervalHistogramStat(size_t N);
+
+    void add(T value);
+
+    T mean();
+    T median();
+    T max();
+    T min();
+
+private:
+    boost::circular_buffer<T> window;
+    mutable std::shared_mutex mutex;
+};
+
+} // namespace doris

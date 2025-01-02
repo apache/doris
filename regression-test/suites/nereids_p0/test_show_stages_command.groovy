@@ -15,26 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("test_show_stages_command", "nereids_p0") {
+    try {
+	if (!cloudMode)
+	    return;
+        
+	// Check if stages can be listed
+        checkNereidsExecute("SHOW STAGES")
+    } catch (Exception e) {
+        logger.error("Test failed: ", e)
+        throw e
+    }
+}
 
-#include <complex>
-#include <type_traits>
-
-namespace doris {
-
-template <class T, template <class...> class Primary>
-struct is_specialization_of : std::false_type {};
-
-template <template <class...> class Primary, class... Args>
-struct is_specialization_of<Primary<Args...>, Primary> : std::true_type {};
-
-template <class T, template <class...> class Primary>
-constexpr bool is_specialization_of_v = is_specialization_of<T, Primary>::value;
-
-template <class T>
-using is_complex = is_specialization_of<T, std::complex>;
-
-template <class T>
-constexpr bool is_complex_v = is_specialization_of_v<T, std::complex>;
-
-} // namespace doris

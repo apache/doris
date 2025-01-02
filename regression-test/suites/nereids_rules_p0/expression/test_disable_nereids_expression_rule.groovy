@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nereids_workload_test") {
-    sql "drop workload group if exists test_nereids_alter_wg1;"
-    sql "create workload group test_nereids_alter_wg1 properties('cpu_share'='1024', 'scan_thread_num'='10');"
-    qt_check_workload_check1("select CPU_SHARE,scan_thread_num from information_schema.workload_groups where NAME='test_nereids_alter_wg1';")
-    checkNereidsExecute("Alter workload group  test_nereids_alter_wg1 properties('cpu_share'='20', 'scan_thread_num'='8');")
-    qt_check_workload_check2("select CPU_SHARE,scan_thread_num from information_schema.workload_groups where NAME='test_nereids_alter_wg1';")
-    checkNereidsExecute("drop workload group if exists test_nereids_alter_wg1;")
+suite('test_disable_nereids_expression_rule') {
+    def tbl = 'test_disable_nereids_expression_rule_tbl'
+    sql "DROP TABLE IF EXISTS ${tbl}"
+    sql "CREATE TABLE ${tbl}(a INT) PROPERTIES('replication_num' = '1')"
+    sql "INSERT INTO ${tbl} VALUES(10)"
+    sql "SET enable_parallel_result_sink=true"
+    qt_shape_1 "EXPLAIN SHAPE PLAN SELECT * FROM ${tbl} WHERE a = 1.1"
+    sql "SET disable_nereids_expression_rules='SIMPLIFY_COMPARISON_PREDICATE'"
+    qt_shape_2 "EXPLAIN SHAPE PLAN SELECT * FROM ${tbl} WHERE a = 1.1"
+    sql "DROP TABLE IF EXISTS ${tbl}"
 }
