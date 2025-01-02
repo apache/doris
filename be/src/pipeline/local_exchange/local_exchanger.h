@@ -167,7 +167,7 @@ public:
         _data_queue.resize(num_partitions);
         _m.resize(num_partitions);
         for (size_t i = 0; i < num_partitions; i++) {
-            _m[i] = std::make_unique<std::shared_mutex>();
+            _m[i] = std::make_unique<std::mutex>();
         }
     }
     Exchanger(int running_sink_operators, int num_sources, int num_partitions, int free_block_limit)
