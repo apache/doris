@@ -804,7 +804,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     for (const auto& col : columns_to_filter) {
         auto& column = block->get_by_position(col).column;
-        if (!column || column->size() == count) {
+        if (column->size() == count) {
             continue;
         }
         if (count == 0) {

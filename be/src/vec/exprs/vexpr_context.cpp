@@ -326,11 +326,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
             execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
-            auto& column = block->get_by_position(col).column;
-            if (!column || column->empty()) {
-                continue;
-            }
-            column->assume_mutable()->clear();
+            block->get_by_position(col).column->assume_mutable()->clear();
         }
     } else {
         try {

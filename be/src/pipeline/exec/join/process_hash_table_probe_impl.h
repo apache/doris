@@ -126,7 +126,9 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
             } else if (i + _right_col_idx == _parent->_mark_column_id) {
                 mcol[i + _right_col_idx]->resize(size);
             } else {
-                mcol[i + _right_col_idx] = MutableColumnPtr();
+                mcol[i + _right_col_idx]->insert_default();
+                mcol[i + _right_col_idx] =
+                        vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
             }
         }
     }
@@ -148,7 +150,8 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
                                              _probe_indexs.data() + size);
             }
         } else {
-            mcol[i] = MutableColumnPtr();
+            mcol[i]->insert_default();
+            mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), size);
         }
     }
 
