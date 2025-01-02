@@ -46,7 +46,6 @@ import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
@@ -199,8 +198,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return context;
         }
 
-        public abstract Expression toExpression();
-
         public abstract ValueDesc union(ValueDesc other);
 
         /** or */
@@ -323,11 +320,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         public ValueDesc intersect(ValueDesc other) {
             return this;
         }
-
-        @Override
-        public Expression toExpression() {
-            return ExpressionUtils.falseOrNull(reference);
-        }
     }
 
     /**
@@ -381,30 +373,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return intersect(context, this, (DiscreteValue) other);
             }
             return new UnknownValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
-        public Expression toExpression() {
-            List<Expression> result = Lists.newArrayList();
-            if (range.hasLowerBound()) {
-                if (range.lowerBoundType() == BoundType.CLOSED) {
-                    result.add(new GreaterThanEqual(reference, range.lowerEndpoint()));
-                } else {
-                    result.add(new GreaterThan(reference, range.lowerEndpoint()));
-                }
-            }
-            if (range.hasUpperBound()) {
-                if (range.upperBoundType() == BoundType.CLOSED) {
-                    result.add(new LessThanEqual(reference, range.upperEndpoint()));
-                } else {
-                    result.add(new LessThan(reference, range.upperEndpoint()));
-                }
-            }
-            if (!result.isEmpty()) {
-                return ExpressionUtils.and(result);
-            } else {
-                return ExpressionUtils.trueOrNull(reference);
-            }
         }
 
         @Override
@@ -470,22 +438,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         @Override
-        public Expression toExpression() {
-            // NOTICE: it's related with `InPredicateToEqualToRule`
-            // They are same processes, so must change synchronously.
-            if (values.size() == 1) {
-                return new EqualTo(reference, values.iterator().next());
-
-                // this condition should as same as OrToIn, or else meet dead loop
-            } else if (values.size() < OrToIn.REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
-                Iterator<Literal> iterator = values.iterator();
-                return new Or(new EqualTo(reference, iterator.next()), new EqualTo(reference, iterator.next()));
-            } else {
-                return new InPredicate(reference, Lists.newArrayList(values));
-            }
-        }
-
-        @Override
         public String toString() {
             return values.toString();
         }
@@ -496,21 +448,18 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      */
     public static class UnknownValue extends ValueDesc {
         private final List<ValueDesc> sourceValues;
-        private final Expression toExpr;
         private final boolean isAnd;
 
         private UnknownValue(ExpressionRewriteContext context, Expression expr) {
             super(context, expr);
             sourceValues = ImmutableList.of();
-            toExpr = expr;
             isAnd = false;
         }
 
-        public UnknownValue(ExpressionRewriteContext context,
+        private UnknownValue(ExpressionRewriteContext context,
                 List<ValueDesc> sourceValues, boolean isAnd) {
             super(context, getReference(context, sourceValues, isAnd));
             this.sourceValues = ImmutableList.copyOf(sourceValues);
-            this.toExpr = toExpression(context, sourceValues, isAnd);
             this.isAnd = isAnd;
         }
 
@@ -534,7 +483,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             Expression reference = sourceValues.get(0).reference;
             for (int i = 1; i < sourceValues.size(); i++) {
                 if (!reference.equals(sourceValues.get(i).reference)) {
-                    return toExpression(context, sourceValues, isAnd);
+                    return SimplifyRange.INSTANCE.getExpression(context, sourceValues, isAnd);
                 }
             }
             return reference;
@@ -566,28 +515,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.intersect(this);
             }
             return new UnknownValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
-        public Expression toExpression() {
-            return toExpr;
-        }
-
-        private static Expression toExpression(ExpressionRewriteContext context,
-                List<ValueDesc> sourceValues, boolean isAnd) {
-            List<Expression> sourceExprs = Lists.newArrayListWithExpectedSize(sourceValues.size());
-            for (ValueDesc sourceValue : sourceValues) {
-                Expression expr = sourceValue.toExpression();
-                if (isAnd) {
-                    sourceExprs.addAll(ExpressionUtils.extractConjunction(expr));
-                } else {
-                    sourceExprs.addAll(ExpressionUtils.extractDisjunction(expr));
-                }
-            }
-            Expression result = isAnd ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
-            result = FoldConstantRuleOnFE.evaluate(result, context);
-
-            return result;
         }
     }
 }
