@@ -106,7 +106,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         if (state == null) {
             throw new AnalysisException("txn does not exist: " + txnId);
         }
-        state.cancelOrWaitForSchemaChange();
+        state.cancelSchemaChangeJob();
     }
 
     @Override

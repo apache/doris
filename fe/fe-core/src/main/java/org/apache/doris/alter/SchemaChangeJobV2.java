@@ -406,6 +406,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @Override
     protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
+
+        if (env.getSchemaChangeHandler().isTableBlocked(tableId)) {
+            return;
+        }
+
         LOG.info("begin to send create replica tasks. job: {}", jobId);
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
@@ -459,6 +464,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @Override
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
+
+        if (env.getSchemaChangeHandler().isTableBlocked(tableId)) {
+            return;
+        }
+
         try {
             if (!checkFailedPreviousLoadAndAbort()) {
                 LOG.info("wait transactions before {} to be finished, schema change job: {}", watershedTxnId, jobId);
@@ -570,6 +580,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @Override
     protected void runRunningJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
+
+        if (env.getSchemaChangeHandler().isTableBlocked(tableId)) {
+            return;
+        }
 
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,

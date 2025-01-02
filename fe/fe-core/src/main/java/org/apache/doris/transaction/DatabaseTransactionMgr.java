@@ -1751,6 +1751,7 @@ public class DatabaseTransactionMgr {
         if (txnOperated && transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             clearBackendTransactions(transactionState);
         }
+        Env.getSchemaChangeHandler().unblockTables(transactionState.getTableIdList());
 
         LOG.info("abort transaction: {} successfully", transactionState);
     }

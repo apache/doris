@@ -128,6 +128,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 import java.util.stream.Collectors;
 
@@ -154,6 +155,9 @@ public class SchemaChangeHandler extends AlterHandler {
     public final Map<Long, IndexChangeJob> activeIndexChangeJob = Maps.newConcurrentMap();
 
     public final Map<Long, IndexChangeJob> runnableIndexChangeJob = Maps.newConcurrentMap();
+
+    // schema change job should not make any progress if related table is in `blockedTableIds`
+    public final ConcurrentMap<Long, AtomicInteger> blockedTableIds = Maps.newConcurrentMap();
 
     public int cycleCount = 0;
 
@@ -3421,5 +3425,62 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             nameSet.add(colName);
         }
+    }
+
+    public boolean cancelSchemaChangeJobByTableIds(List<Long> tableIdList, String msg) {
+        boolean hasUnfinishedAlterJobs = false;
+        for (long tableId : tableIdList) {
+            if (cancelSchemaChangeJobByTableId(tableId, msg)) {
+                hasUnfinishedAlterJobs = true;
+            }
+        }
+        return hasUnfinishedAlterJobs;
+    }
+
+    // NOTE: job.cancel() will take table's write lock, so this method should be outside table's lock
+    public boolean cancelSchemaChangeJobByTableId(long tableId, String msg) {
+        boolean hasUnfinishedAlterJobs = false;
+        List<AlterJobV2> unfinishedAlterJobs = getUnfinishedAlterJobV2ByTableId(tableId);
+        for (AlterJobV2 job : unfinishedAlterJobs) {
+            if (job.cancel(msg)) {
+                hasUnfinishedAlterJobs = true;
+            }
+        }
+        return hasUnfinishedAlterJobs;
+    }
+
+    public void blockTable(long tableId) {
+        LOG.info("block schema change job for tableId={} when doing partial update", tableId);
+        blockedTableIds.compute(key, (k, count) -> {
+            if (count == null) {
+                count = new AtomicInteger(0);
+            }
+            count.incrementAndGet();
+            return count;
+        });
+    }
+
+    public void unblockTable(long tableId) {
+        AtomicInteger count = blockedTableIds.get(key);
+        if (count == null) {
+            return;
+        }
+
+        int current = count.decrementAndGet();
+        if (current == 0) {
+            blockedTableIds.remove(key);
+        }
+        LOG.info("unblock schema change job for table={} after partial update", tableId);
+    }
+
+    public void unblockTables(List<Long> tableIds) {
+        for (long tableId : tableIds) {
+            unblockTable(tableId);
+        }
+    } 
+
+    public boolean isTableBlocked(long tableId) {
+        AtomicInteger count = blockedTableIds.get(tableId);
+        return count == null ? false : count.get() > 0;
     }
 }

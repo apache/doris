@@ -874,25 +874,16 @@ public class TransactionState implements Writable {
         return true;
     }
 
-    public void cancelOrWaitForSchemaChange() {
+    public void cancelSchemaChangeJob() {
         // When partial update load meets schema change on dst table, use this method to cancel
         // the schema change job. This method should be called before generating plan and after begin transaction.
         
-        // NOTE: job.cancel() will take table's write lock, so this method should be outside table's lock
-        boolean hasUnfinishedAlterJobs = false;
         String msg = "cancel schema change job because of conflicting partial update,"
                 + " transactionId: " + transactionId;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        for (long tableId : tableIdList) {
-            List<AlterJobV2> unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
-                    .getUnfinishedAlterJobV2ByTableId(tableId);
-            for (AlterJobV2 job : unfinishedAlterJobs) {
-                if (job.cancel(msg)) {
-                    hasUnfinishedAlterJobs = true;
-                }
-            }
-        }
+        boolean hasUnfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
+                .cancelSchemaChangeJobByTableIds(tableIdList, msg);
         stopWatch.stop();
         if (hasUnfinishedAlterJobs) {
             LOG.info("wait for cancelling unfinished schema change task before partial update,"
