@@ -47,7 +47,7 @@ public:
 
     ~DeltaDecoder() override = default;
 
-    Status skip_values(int num_values) override {
+    Status skip_values(size_t num_values) override {
         return _type_converted_decoder->skip_values(num_values);
     }
 
@@ -233,10 +233,10 @@ public:
     explicit DeltaLengthByteArrayDecoder()
             : DeltaDecoder(nullptr), _len_decoder(), _buffered_length(0), _buffered_data(0) {}
 
-    Status skip_values(int num_values) override {
+    Status skip_values(size_t num_values) override {
         _values.resize(num_values);
         int num_valid_values;
-        return _get_internal(_values.data(), num_values, &num_valid_values);
+        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -256,7 +256,7 @@ public:
         // init read buffer
         _values.resize(num_values - null_count);
         int num_valid_values;
-        RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<uint32_t>(num_values - null_count),
+        RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<int32_t>(num_values - null_count),
                                       &num_valid_values));
 
         if (PREDICT_FALSE(num_values - null_count != num_valid_values)) {
@@ -306,10 +306,10 @@ public:
     explicit DeltaByteArrayDecoder()
             : DeltaDecoder(nullptr), _buffered_prefix_length(0), _buffered_data(0) {}
 
-    Status skip_values(int num_values) override {
+    Status skip_values(size_t num_values) override {
         _values.resize(num_values);
         int num_valid_values;
-        return _get_internal(_values.data(), num_values, &num_valid_values);
+        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,

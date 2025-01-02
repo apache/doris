@@ -53,7 +53,7 @@ void BoolRLEDecoder::set_data(Slice* slice) {
     _decoder = RleDecoder<uint8_t>(decoder_data, num_bytes, 1);
 }
 
-Status BoolRLEDecoder::skip_values(int num_values) {
+Status BoolRLEDecoder::skip_values(size_t num_values) {
     _current_value_idx += num_values;
     return Status::OK();
 }

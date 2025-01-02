@@ -107,12 +107,14 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
         if (dict_column.dict_size() == 0) {
+            //If the dictionary grows too big, whether in size or number of distinct values,
+            // the encoding will fall back to the plain encoding.
             dict_column.insert_many_dict_data(_dict_items.data(),
                                               cast_set<uint32_t>(_dict_items.size()));
         }
     }
     _indexes.resize(non_null_size);
-    _index_batch_decoder->GetBatch(_indexes.data(), cast_set<int32_t>(non_null_size));
+    _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
 
     if (doris_column->is_column_dictionary() || is_dict_filter) {
         return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);

@@ -42,10 +42,10 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status skip_values(int num_values) override;
+    Status skip_values(size_t num_values) override;
 };
 
-Status FixLengthPlainDecoder::skip_values(int num_values) {
+Status FixLengthPlainDecoder::skip_values(size_t num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");

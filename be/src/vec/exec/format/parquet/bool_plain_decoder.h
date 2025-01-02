@@ -38,6 +38,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 /// Decoder bit-packed boolean-encoded values.
 /// Implementation from https://github.com/apache/impala/blob/master/be/src/exec/parquet/parquet-bool-decoder.h
+//bit-packed-run-len and rle-run-len must be in the range [1, 2^31 - 1].
+// This means that a Parquet implementation can always store the run length in a signed 32-bit integer
 class BoolPlainDecoder final : public Decoder {
 public:
     BoolPlainDecoder() = default;
@@ -58,7 +60,7 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status skip_values(int num_values) override;
+    Status skip_values(size_t num_values) override;
 
 protected:
     inline bool _decode_value(bool* value) {

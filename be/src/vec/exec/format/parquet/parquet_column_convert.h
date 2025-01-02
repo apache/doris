@@ -131,6 +131,10 @@ struct ConvertParams {
                         DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
                                                                                    scale);
             } else {
+                //When an external data source performs a schema change that involves converting
+                // a high-precision value to a lower-precision one, we allow data loss during this
+                // process and therefore do not perform any checks. In the future, we may consider
+                // representing the lost data as `null`.
                 decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
                         DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
                                                                                    scale));

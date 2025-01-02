@@ -83,7 +83,7 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-Status ByteStreamSplitDecoder::skip_values(int num_values) {
+Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
     _offset += _type_length * num_values;
     if (UNLIKELY(_offset > _data->size)) {
         return Status::IOError(

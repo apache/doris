@@ -50,7 +50,7 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status skip_values(int num_values) override;
+    Status skip_values(size_t num_values) override;
 
 private:
     RleDecoder<uint8_t> _decoder;

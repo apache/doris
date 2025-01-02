@@ -28,13 +28,13 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-Status BoolPlainDecoder::skip_values(int num_values) {
+Status BoolPlainDecoder::skip_values(size_t num_values) {
     int skip_cached = std::min(num_unpacked_values_ - unpacked_value_idx_, (int)num_values);
     unpacked_value_idx_ += skip_cached;
     if (skip_cached == num_values) {
         return Status::OK();
     }
-    int num_remaining = num_values - skip_cached;
+    int num_remaining = cast_set<int>(num_values - skip_cached);
     int num_to_skip = BitUtil::RoundDownToPowerOf2(num_remaining, 32);
     if (num_to_skip > 0) {
         bool_values_.SkipBatch(1, num_to_skip);

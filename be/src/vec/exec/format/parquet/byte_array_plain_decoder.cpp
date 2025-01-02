@@ -26,7 +26,7 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-Status ByteArrayPlainDecoder::skip_values(int num_values) {
+Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
     for (int i = 0; i < num_values; ++i) {
         if (UNLIKELY(_offset + 4 > _data->size)) {
             return Status::IOError("Can't read byte array length from plain decoder");
