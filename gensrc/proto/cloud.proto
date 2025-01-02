@@ -1096,7 +1096,7 @@ message AlterClusterRequest {
     optional ClusterPB cluster = 3;
     optional Operation op = 4;
     // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
-    optional bool drop_empty_cluster = 5 [default = false];
+    optional bool replace_if_existing_empty_target_cluster = 5;
 }
 
 message AlterClusterResponse {

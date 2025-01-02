@@ -2205,8 +2205,10 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::RENAME_CLUSTER: {
         // SQL mode, cluster cluster name eq empty cluster name, need drop empty cluster first.
         // but in http api, cloud control will drop empty cluster
-        bool drop_empty_cluster =
-                request->has_drop_empty_cluster() ? request->drop_empty_cluster() : false;
+        bool replace_if_existing_empty_target_cluster =
+                request->has_replace_if_existing_empty_target_cluster()
+                        ? request->replace_if_existing_empty_target_cluster()
+                        : false;
 
         msg = resource_mgr_->update_cluster(
                 instance_id, cluster,
@@ -2237,7 +2239,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     }
                     c.set_cluster_name(cluster.cluster.cluster_name());
                     return msg;
-                }, drop_empty_cluster);
+                },
+                replace_if_existing_empty_target_cluster);
     } break;
     case AlterClusterRequest::UPDATE_CLUSTER_ENDPOINT: {
         msg = resource_mgr_->update_cluster(

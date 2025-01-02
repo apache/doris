@@ -327,9 +327,9 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new DdlException("unable to alter backends due to empty cloud_instance_id");
         }
         // Issue rpc to meta to alter node, then fe master would add this node to its frontends
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(computeGroupId)
-                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .setType(ClusterPB.Type.COMPUTE)
                 .build();
 
         for (HostInfo hostInfo : hostInfos) {
@@ -844,10 +844,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                 .setCtime(System.currentTimeMillis() / 1000)
                 .build();
 
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(Config.cloud_sql_server_cluster_id)
                 .setClusterName(Config.cloud_sql_server_cluster_name)
-                .setType(Cloud.ClusterPB.Type.SQL)
+                .setType(ClusterPB.Type.SQL)
                 .addNodes(nodeInfoPB)
                 .build();
 
@@ -888,10 +888,10 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new DdlException("unable to create compute group due to empty cloud_instance_id");
         }
 
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(computeGroupId)
                 .setClusterName(clusterName)
-                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .setType(ClusterPB.Type.COMPUTE)
                 .build();
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
@@ -917,7 +917,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 Cloud.GetClusterResponse clusterResponse = getCloudCluster(clusterName, "", "");
                 if (clusterResponse.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
                     if (clusterResponse.getClusterCount() > 0) {
-                        Cloud.ClusterPB cluster = clusterResponse.getCluster(0);
+                        ClusterPB cluster = clusterResponse.getCluster(0);
                         return cluster.getClusterId();
                     } else {
                         throw new UserException("Cluster information not found in the response");
@@ -1054,7 +1054,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             builder.setCloudUniqueId(Config.cloud_unique_id);
             builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
 
-            Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
+            ClusterPB.Builder clusterBuilder = ClusterPB.newBuilder();
             clusterBuilder.setClusterId(getCloudClusterIdByName(clusterName));
             clusterBuilder.setClusterStatus(Cloud.ClusterStatus.TO_RESUME);
             builder.setCluster(clusterBuilder);
@@ -1167,35 +1167,42 @@ public class CloudSystemInfoService extends SystemInfoService {
         String originalComputeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getCloudClusterIdByName(originalName);
         if (Strings.isNullOrEmpty(originalComputeGroupId)) {
-            throw new DdlException("unable to rename compute group, "
-                    +  "cant get compute group id by compute name " + originalName);
+            LOG.info("rename original compute group {} not found, unable to rename", originalName);
+            throw new DdlException("compute group '" + originalName + "' not found, unable to rename");
+        }
+        // check newGroupName has existed
+        if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(newGroupName)) {
+            LOG.info("rename new compute group {} has existed in instance, unable to rename", newGroupName);
+            throw new DdlException("compute group '" + newGroupName + "' has existed in warehouse, unable to rename");
         }
 
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(originalComputeGroupId)
                 .setClusterName(newGroupName)
-                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .setType(ClusterPB.Type.COMPUTE)
                 .build();
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterClusterRequest.Operation.RENAME_CLUSTER)
-                .setDropEmptyCluster(true)
+                .setReplaceIfExistingEmptyTargetCluster(true)
                 .setCluster(clusterPB)
                 .build();
 
 
-        Cloud.AlterClusterResponse response;
+        Cloud.AlterClusterResponse response = null;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("alter rename compute group, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("alter rename compute group not ok, response: {}", response);
                 throw new UserException("failed to rename compute group errorCode: " + response.getStatus().getCode()
-                    + " msg: " + response.getStatus().getMsg());
+                    + " msg: " + response.getStatus().getMsg() + " may be you can try later");
             }
         } catch (RpcException e) {
+            LOG.warn("alter rename compute group rpc exception");
             throw new UserException("failed to alter rename compute group", e);
+        } finally {
+            LOG.info("alter rename compute group, request: {}, response: {}", request, response);
         }
     }
 }
