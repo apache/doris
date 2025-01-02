@@ -53,7 +53,7 @@ public class StorageProperties extends CatalogProperties {
 
         // In previous version, we don't support fs.xxx.support properties.
         // So we need to "guess" this info from the properties.
-        
+        throw new RuntimeException("Unknown storage type");
     }
 
     protected StorageProperties(Type type, Map<String, String> origProps) {

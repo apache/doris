@@ -1,7 +1,10 @@
 package org.apache.doris.datasource;
 
+import org.apache.doris.backup.Status;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
@@ -19,9 +22,11 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.options.Options;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -170,5 +175,27 @@ public class CatalogAPITest {
             System.out.println(dbs);
             return paimonCatalog;
         });
+    }
+
+    @Test
+    public void testOSSHDFS() {
+        String remotePath = "oss://benchmark-dls.cn-beijing.oss-dls.aliyuncs.com/user/yy/tbl_oss_hdfs/";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
+        properties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.JindoOSS");
+        properties.put("fs.oss.accessKeyId", ak);
+        properties.put("fs.oss.accessKeySecret", sk);
+        properties.put("fs.oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
+        DFSFileSystem fs = new DFSFileSystem(properties);
+        List<RemoteFile> results = new ArrayList<>();
+
+        Status st = fs.listFiles(remotePath, false, results);
+        if (!st.ok()) {
+            System.out.println("listFiles failed: " + st);
+            Assertions.fail();
+        }
+        for (RemoteFile file : results) {
+            System.out.println(file);
+        }
     }
 }

@@ -131,6 +131,6 @@ public class CatalogProperty implements Writable {
 
     public void initialize(Type type) {
         metastoreProperties = new MetastoreProperties(type, properties);
-        storageProperties = new StorageProperties(properties);
+        // storageProperties = new StorageProperties(properties);
     }
 }
