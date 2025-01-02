@@ -640,9 +640,6 @@ void FragmentMgr::remove_pipeline_context(
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
-    // this log will show when a query is really finished in BEs
-    LOG_INFO("Removing query {} fragment {}", print_id(query_id), f_context->get_fragment_id());
-
     std::unique_lock lock(_pipeline_map_mutex);
     _pipeline_map.erase({query_id, f_context->get_fragment_id()});
 }
