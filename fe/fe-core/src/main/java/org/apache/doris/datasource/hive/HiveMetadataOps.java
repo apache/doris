@@ -40,6 +40,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -310,16 +311,29 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+    public void truncateTable(String dbName, String tblName, List<String> partitions, boolean isReplay)
+            throws DdlException {
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
         if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+            if (!isReplay) {
+                throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+            } else {
+                LOG.warn("Failed to get database: '{}' in catalog: {} when replaying truncate table", dbName,
+                        catalog.getName());
+                return;
+            }
         }
-        try {
-            client.truncateTable(dbName, tblName, partitions);
-        } catch (Exception e) {
-            throw new DdlException(e.getMessage(), e);
+        if (!isReplay) {
+            try {
+                client.truncateTable(dbName, tblName, partitions);
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage(), e);
+            }
+            TruncateTableInfo info = new TruncateTableInfo(catalog.getName(), dbName, tblName, partitions);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         }
+
+        // Invalidate cache.
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tblName);
         db.setLastUpdateTime(System.currentTimeMillis());
         db.setUnInitialized(true);

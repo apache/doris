@@ -5865,7 +5865,14 @@ public class Env {
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
-        getInternalCatalog().replayTruncateTable(info);
+        if (Strings.isNullOrEmpty(info.getCtl())) {
+            getInternalCatalog().replayTruncateTable(info);
+        } else {
+            ExternalCatalog ctl = catalogMgr.getCatalog(info.getCtl());
+            if (ctl != null) {
+                ctl.replayTruncateTable(info);
+            }
+        }
     }
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {

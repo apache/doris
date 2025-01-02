@@ -75,7 +75,7 @@ public interface ExternalMetadataOps {
      * @param tblName
      * @param partitions
      */
-    void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException;
+    void truncateTable(String dbName, String tblName, List<String> partitions, boolean isReplay) throws DdlException;
 
     /**
      *

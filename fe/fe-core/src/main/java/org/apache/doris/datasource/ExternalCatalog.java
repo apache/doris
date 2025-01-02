@@ -60,6 +60,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -1087,10 +1088,22 @@ public abstract class ExternalCatalog
             if (tableRef.getPartitionNames() != null) {
                 partitions = tableRef.getPartitionNames().getPartitionNames();
             }
-            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions, false);
         } catch (Exception e) {
-            LOG.warn("Failed to drop a table", e);
+            LOG.warn("Failed to truncate table {}.{} in catlaog {}", stmt.getTblRef().getName().getDb(),
+                    stmt.getTblRef().getName().getTbl(), getName(), e);
             throw e;
+        }
+    }
+
+    public void replayTruncateTable(TruncateTableInfo info) {
+        if (metadataOps != null) {
+            try {
+                metadataOps.truncateTable(info.getDb(), info.getTable(), info.getExtPartNames(), true);
+            } catch (DdlException e) {
+                LOG.warn("Failed to replay truncate table {}.{} in catalog {}", info.getDb(), info.getTable(),
+                        getName(), e);
+            }
         }
     }
 
