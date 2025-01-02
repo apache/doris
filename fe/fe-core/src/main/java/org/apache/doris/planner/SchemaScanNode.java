@@ -45,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Full scan of an SCHEMA table.
@@ -175,15 +174,6 @@ public class SchemaScanNode extends ScanNode {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("TABLE: ").append(getSchemaDb()).append(".").append(getTableName());
         output.append("\n");
-        if (sortColumn != null) {
-            output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
-        }
-        if (useTopnFilter()) {
-            String topnFilterSources = String.join(",",
-                    topnFilterSortNodes.stream()
-                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
-            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
-        }
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
@@ -195,9 +185,6 @@ public class SchemaScanNode extends ScanNode {
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
         output.append("\n");
-        if (pushDownAggNoGroupingOp != null) {
-            output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
-        }
         return output.toString();
     }
 }
