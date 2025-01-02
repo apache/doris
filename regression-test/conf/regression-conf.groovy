@@ -97,8 +97,8 @@ customConf1 = "test_custom_conf_value"
 
 // for test csv with header
 enableHdfs=false // set to true if hdfs is ready
-hdfsFs = "hdfs://127.0.0.1:8020"
-hdfsUser = "root"
+hdfsFs = "hdfs://127.0.0.1:9000"
+hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
 
@@ -164,11 +164,11 @@ es_8_port=39200
 
 //hive  catalog test config for bigdata
 enableExternalHiveTest = false
-extHiveHmsHost = "127.0.0.1"
+extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
-extHdfsPort = 8020
+extHdfsPort = 4007
 extHiveServerPort= 7001
-extHiveHmsUser = "root"
+extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 dfsNameservices=""
 dfsNameservicesPort=8020
