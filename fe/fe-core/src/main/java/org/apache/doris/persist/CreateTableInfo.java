@@ -38,8 +38,12 @@ import java.util.Objects;
 public class CreateTableInfo implements Writable, GsonPostProcessable {
     public static final Logger LOG = LoggerFactory.getLogger(CreateTableInfo.class);
 
+    @SerializedName(value = "ctl")
+    private String ctlName;
     @SerializedName(value = "dbName")
     private String dbName;
+    @SerializedName(value = "tbl")
+    private String tblName;
     @SerializedName(value = "table")
     private Table table;
 
@@ -47,13 +51,30 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
         // for persist
     }
 
+    // for internal table
     public CreateTableInfo(String dbName, Table table) {
         this.dbName = dbName;
+        this.tblName = table.getName();
         this.table = table;
+    }
+
+    // for external table
+    public CreateTableInfo(String ctlName, String dbName, String tblName) {
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tblName = tblName;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
         return dbName;
+    }
+
+    public String getTblName() {
+        return tblName;
     }
 
     public Table getTable() {
