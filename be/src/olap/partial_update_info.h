@@ -80,10 +80,11 @@ class PartialUpdateReadPlan {
 public:
     void prepare_to_read(const RowLocation& row_location, size_t pos);
     Status read_columns_by_plan(const TabletSchema& tablet_schema,
-                                const std::vector<uint32_t> cids_to_read,
+                                std::vector<uint32_t> cids_to_read,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
-                                const signed char* __restrict skip_map = nullptr) const;
+                                bool force_read_old_delete_signs,
+                                const signed char* __restrict cur_delete_signs = nullptr) const;
     Status fill_missing_columns(RowsetWriterContext* rowset_ctx,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 const TabletSchema& tablet_schema, vectorized::Block& full_block,

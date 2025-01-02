@@ -24,7 +24,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/bitmap_value.h"
@@ -206,9 +205,21 @@ void PartialUpdateReadPlan::prepare_to_read(const RowLocation& row_location, siz
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status PartialUpdateReadPlan::read_columns_by_plan(
-        const TabletSchema& tablet_schema, const std::vector<uint32_t> cids_to_read,
+        const TabletSchema& tablet_schema, std::vector<uint32_t> cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, vectorized::Block& block,
-        std::map<uint32_t, uint32_t>* read_index, const signed char* __restrict skip_map) const {
+        std::map<uint32_t, uint32_t>* read_index, bool force_read_old_delete_signs,
+        const signed char* __restrict cur_delete_signs) const {
+    if (force_read_old_delete_signs) {
+        // always read delete sign column from historical data
+        if (const vectorized::ColumnWithTypeAndName* old_delete_sign_column =
+                    block.try_get_by_name(DELETE_SIGN);
+            old_delete_sign_column == nullptr) {
+            auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
+            cids_to_read.emplace_back(del_col_cid);
+            block.swap(tablet_schema.create_block_by_cids(cids_to_read));
+        }
+    }
+
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;
@@ -218,7 +229,7 @@ Status PartialUpdateReadPlan::read_columns_by_plan(
             CHECK(rowset_iter != rsid_to_rowset.end());
             std::vector<uint32_t> rids;
             for (auto [rid, pos] : mappings) {
-                if (skip_map && skip_map[pos]) {
+                if (cur_delete_signs && cur_delete_signs[pos]) {
                     continue;
                 }
                 rids.emplace_back(rid);
@@ -263,17 +274,15 @@ Status PartialUpdateReadPlan::fill_missing_columns(
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
-                                         old_value_block, &read_index, nullptr));
+                                         old_value_block, &read_index, true, nullptr));
 
-    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
-
+    const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
+    DCHECK(old_delete_signs != nullptr);
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
-    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, missing_cids, rowset_ctx->partial_update_info->default_values,
-                old_value_block, default_value_block));
-    }
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+            tablet_schema, missing_cids, rowset_ctx->partial_update_info->default_values,
+            old_value_block, default_value_block));
     auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
@@ -285,8 +294,8 @@ Status PartialUpdateReadPlan::fill_missing_columns(
         // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
         // to check if a row REALLY exists in the table.
         auto pos_in_old_block = read_index[idx + segment_start_pos];
-        if (use_default_or_null_flag[idx] || (delete_sign_column_data != nullptr &&
-                                              delete_sign_column_data[pos_in_old_block] != 0)) {
+        if (use_default_or_null_flag[idx] ||
+            (old_delete_signs != nullptr && old_delete_signs[pos_in_old_block] != 0)) {
             for (auto i = 0; i < missing_cids.size(); ++i) {
                 // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
