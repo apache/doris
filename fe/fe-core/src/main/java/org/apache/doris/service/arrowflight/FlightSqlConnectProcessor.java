@@ -28,7 +28,6 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
@@ -95,6 +94,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         prepare(command);
 
         ctx.setRunningQuery(query);
+        ctx.resetFinalizeArrowFlightSqlRequestFinished();
         super.handleQuery(query);
     }
 
@@ -194,13 +194,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
     @Override
     public void close() throws Exception {
-        ctx.setCommand(MysqlCommand.COM_SLEEP);
-        ctx.clear();
-        for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
-            asynExecutor.finalizeQuery();
+        //判断是不是 remote result，看下 insert into 是不是 romote resut  处理线程安全问题，close 和 isdone 可能同时到达
+        if (ctx.getIsExecStatusDone()) {
+            ctx.finalizeArrowFlightSqlRequest();
         }
-        returnResultFromRemoteExecutor.clear();
-        executor.finalizeQuery();
+        ctx.setIsFlightSqlConnectProcessorClose();
         ConnectContext.remove();
     }
 }

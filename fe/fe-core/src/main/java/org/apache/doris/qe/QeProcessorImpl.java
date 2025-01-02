@@ -26,6 +26,7 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
@@ -268,6 +269,14 @@ public final class QeProcessorImpl implements QeProcessor {
             LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
             return result;
+        }
+        ConnectContext ctx = info.getConnectContext();
+        if (ctx.getConnectType() == ConnectType.ARROW_FLIGHT_SQL && params.isDone()) {
+            // `params.isDone` may be true in multiple reportExecStatus.
+            if (ctx.getIsFlightSqlConnectProcessorClose() && !ctx.getFinalizeArrowFlightSqlRequestFinished()) {
+                ctx.finalizeArrowFlightSqlRequest();
+            }
+            ctx.setIsExecStatusDone();
         }
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;

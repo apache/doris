@@ -33,9 +33,10 @@ public interface FlightSessionsManager {
      * <p>
      *
      * @param peerIdentity identity after authorization
+     * @param createIfNotExist if true, create new one if not exist
      * @return The ConnectContext or null if no sessionId is given.
      */
-    ConnectContext getConnectContext(String peerIdentity);
+    ConnectContext getConnectContext(String peerIdentity, boolean createIfNotExist);
 
     /**
      * Creates a ConnectContext object and store it in the local cache, assuming that peerIdentity was already
