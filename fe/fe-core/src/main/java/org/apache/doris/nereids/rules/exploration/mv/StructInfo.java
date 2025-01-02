@@ -659,7 +659,7 @@ public class StructInfo {
      * should be valid
      */
     public static boolean isValidPushedNode(Plan plan) {
-        return plan instanceof CouldPushed && ((CouldPushed) plan).needRemain() == true
+        return plan instanceof CouldPushed && ((CouldPushed) plan).needRemain()
                 && ((CouldPushed) plan).isPushed();
     }
 
@@ -702,7 +702,8 @@ public class StructInfo {
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
                     || plan instanceof GroupPlan
-                    || plan instanceof LogicalRepeat || isValidPushedNode(plan)) {
+                    || plan instanceof LogicalRepeat
+                    || isValidPushedNode(plan)) {
                 return doVisit(plan, checkContext);
             }
             return false;
