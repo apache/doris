@@ -1029,7 +1029,7 @@ public:
                 apply_cidr_mask(from_column.get_data_at(0).data,
                                 reinterpret_cast<char*>(&vec_res_lower_range[i]),
                                 reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                cast_set<UInt8>(cidr));
+                                cidr);
             }
         } else if (is_cidr_const) {
             auto cidr = cidr_column.get_int(0);
@@ -1041,7 +1041,7 @@ public:
                 apply_cidr_mask(from_column.get_data_at(i).data,
                                 reinterpret_cast<char*>(&vec_res_lower_range[i]),
                                 reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                cast_set<UInt8>(cidr));
+                                cidr);
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -1053,7 +1053,7 @@ public:
                 apply_cidr_mask(from_column.get_data_at(i).data,
                                 reinterpret_cast<char*>(&vec_res_lower_range[i]),
                                 reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                cast_set<UInt8>(cidr));
+                                cidr);
             }
         }
         return ColumnStruct::create(
