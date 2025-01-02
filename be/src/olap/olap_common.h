@@ -383,8 +383,6 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
-struct RowsetId;
-RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1

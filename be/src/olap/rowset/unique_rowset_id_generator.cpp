@@ -20,8 +20,6 @@
 #include <memory>
 #include <mutex>
 
-#include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
@@ -30,10 +28,6 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(rowset_count_generated_and_in_use, MetricUnit::ROWSETS);
-
-RowsetId next_rowset_id() {
-    return ExecEnv::GetInstance()->storage_engine()->next_rowset_id();
-}
 
 UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
         : _backend_uid(backend_uid), _inc_id(0) {
