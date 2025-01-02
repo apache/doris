@@ -250,11 +250,14 @@ suite("check_before_quit", "nonConcurrent,p0") {
             continue
         }
         List<List<Object>> allTables = sql "show tables from ${db}"
-        logger.info("show all tabkes: ${allTables}")
+        logger.info("show all tables: ${allTables}")
         for (int j = 0;j < allTables.size();j ++) {
             def tbl = allTables[j][0]
             def createTableSql = sql "show create table ${db}.${tbl}"
             logger.info("create table sql info: ${createTableSql}")
+            if (createTableSql[0][1].contains("CREATE VIEW")) {
+                continue;
+            }
             sql "drop table if exists ${tbl}"
             sql(createTableSql[0][1])
             def createTableSqlResult = sql "show create table ${tbl}"
