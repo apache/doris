@@ -123,7 +123,9 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                     mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
                                                                   _build_indexs.data() + size);
                 }
-            } else if (i + _right_col_idx != _parent->_mark_column_id) {
+            } else if (i + _right_col_idx == _parent->_mark_column_id) {
+                mcol[i + _right_col_idx]->resize(size);
+            } else {
                 mcol[i + _right_col_idx] = MutableColumnPtr();
             }
         }
