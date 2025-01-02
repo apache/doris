@@ -81,8 +81,8 @@ private:
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
     vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
     vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
-    const size_t _partition_exprs_size = 0;
-    const size_t _order_by_exprs_size = 0;
+    size_t _partition_exprs_size = 0;
+    size_t _order_by_exprs_size = 0;
 
     size_t _agg_functions_size = 0;
     vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
