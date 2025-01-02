@@ -398,7 +398,6 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         return (new RangeInference()).getValue(parseExpression, context);
     }
 
-    @Test
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
