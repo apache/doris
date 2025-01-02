@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 
 /**
  * Hive metastore external database.
@@ -42,8 +43,13 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     public HMSExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
             ExternalCatalog catalog,
             ExternalDatabase db) {
-        return new HMSExternalTable(tblId, localTableName, remoteTableName, (HMSExternalCatalog) extCatalog,
-                (HMSExternalDatabase) db);
+        HMSExternalTable hmsExternalTable = new HMSExternalTable(tblId, localTableName, remoteTableName,
+                (HMSExternalCatalog) extCatalog, (HMSExternalDatabase) db);
+        if (hmsExternalTable.getDlaType() == DLAType.HIVE) {
+            return new HiveExternalTable(tblId, localTableName, remoteTableName,
+                    (HMSExternalCatalog) extCatalog, (HMSExternalDatabase) db);
+        }
+        return hmsExternalTable;
     }
 
     public void addTableForTest(HMSExternalTable tbl) {
