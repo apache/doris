@@ -299,9 +299,9 @@ public class RepositoryTest {
                                     100,
                                     0));
                         } else {
-                            result.add(new RemoteFile(location + "//" + Repository.PREFIX_REPO + repoName + "//"
+                            result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + repoName + "/"
                                     + Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
-                            result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + repoName + "//"
+                            result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + repoName + "/"
                                     + Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
                         }
                         return Status.OK;
