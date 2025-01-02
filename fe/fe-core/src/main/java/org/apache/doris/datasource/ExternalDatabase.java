@@ -211,6 +211,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             if (table.isPresent()) {
                 tmpTableNameToId.put(table.get().getName(), table.get().getId());
                 tmpIdToTbl.put(table.get().getId(), table.get());
+
+                // Add logic to set the database if missing
+                if (table.get().getDb() == null) {
+                    table.get().setDb(this);
+                }
+                LOG.info("Synchronized table (refresh): [Name: {}, ID: {}]", table.get().getName(),
+                        table.get().getId());
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
@@ -219,6 +226,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             log.getCreateTableIds().get(i), catalog, this, false);
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
+
+            // Add logic to set the database if missing
+            if (table.getDb() == null) {
+                table.setDb(this);
+            }
+            LOG.info("Synchronized table (create): [Name: {}, ID: {}, Remote Name: {}]",
+                    table.getName(), table.getId(), log.getRemoteTableNames().get(i));
         }
         tableNameToId = tmpTableNameToId;
         idToTbl = tmpIdToTbl;

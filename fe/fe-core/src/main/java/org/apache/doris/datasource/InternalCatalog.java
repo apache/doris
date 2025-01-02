@@ -24,7 +24,6 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
-import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
@@ -828,11 +827,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
-        String fullDbName = stmt.getDbName();
-        String newFullDbName = stmt.getNewDbName();
+    public void renameDatabase(String dbName, String newDbName) throws DdlException {
 
-        if (fullDbName.equals(newFullDbName)) {
+        if (dbName.equals(newDbName)) {
             throw new DdlException("Same database name");
         }
 
@@ -842,28 +839,28 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         try {
             // check if db exists
-            db = fullNameToDb.get(fullDbName);
+            db = fullNameToDb.get(dbName);
             if (db == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, fullDbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
             }
             // check if name is already used
-            if (fullNameToDb.get(newFullDbName) != null) {
-                throw new DdlException("Database name[" + newFullDbName + "] is already used");
+            if (fullNameToDb.get(newDbName) != null) {
+                throw new DdlException("Database name[" + newDbName + "] is already used");
             }
             // 1. rename db
-            db.setNameWithLock(newFullDbName);
+            db.setNameWithLock(newDbName);
 
             // 2. add to meta. check again
-            fullNameToDb.remove(fullDbName);
-            fullNameToDb.put(newFullDbName, db);
+            fullNameToDb.remove(dbName);
+            fullNameToDb.put(newDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
+            DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
             Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
         } finally {
             unlock();
         }
 
-        LOG.info("rename database[{}] to [{}]", fullDbName, newFullDbName);
+        LOG.info("rename database[{}] to [{}]", dbName, newDbName);
     }
 
     public void replayRenameDatabase(String dbName, String newDbName) {

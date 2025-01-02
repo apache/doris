@@ -22,6 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
+#include "vec/common/hash_table/join_hash_table.h"
 
 namespace doris {
 namespace vectorized {
@@ -54,7 +55,7 @@ struct ProcessHashTableProbe {
                                   int last_probe_index, bool all_match_one,
                                   bool have_other_join_conjunct);
 
-    template <bool need_judge_null, typename HashTableType>
+    template <typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                    vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
                    uint32_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
@@ -63,9 +64,8 @@ struct ProcessHashTableProbe {
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
-              bool is_mark_join>
-    Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
+    template <typename HashTableType, bool with_other_conjuncts, bool is_mark_join>
+    Status do_process(HashTableType& hash_table_ctx, const uint8_t* null_map,
                       vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
                       uint32_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
@@ -76,12 +76,12 @@ struct ProcessHashTableProbe {
                                    bool has_null_in_build_side);
 
     template <bool with_other_conjuncts>
-    Status do_mark_join_conjuncts(vectorized::Block* output_block, size_t hash_table_bucket_size);
+    Status do_mark_join_conjuncts(vectorized::Block* output_block, const uint8_t* null_map);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
                                                    bool with_other_join_conjuncts,
-                                                   const uint8_t* null_map, bool need_judge_null);
+                                                   const uint8_t* null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
