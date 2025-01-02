@@ -184,8 +184,9 @@ public class RepositoryTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
-                        result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "a", false, 100, 0));
-                        result.add(new RemoteFile("_ss_b", true, 100, 0));
+                        result.add(new RemoteFile(location + "/" + Repository.PREFIX_SNAPSHOT_DIR + "a",
+                                false, 100, 0));
+                        result.add(new RemoteFile(location + "/" + "_ss_b", true, 100, 0));
                         return Status.OK;
                     }
                 };
@@ -295,8 +296,10 @@ public class RepositoryTest {
                                     100,
                                     0));
                         } else {
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
-                            result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
+                            result.add(new RemoteFile(location + "//" + Repository.PREFIX_SNAPSHOT_DIR + "s1",
+                                    false, 100, 0));
+                            result.add(new RemoteFile(location + "/" + Repository.PREFIX_SNAPSHOT_DIR + "s2",
+                                    false, 100, 0));
                         }
                         return Status.OK;
                     }

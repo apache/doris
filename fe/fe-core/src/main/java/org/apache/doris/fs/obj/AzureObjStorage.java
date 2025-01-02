@@ -379,6 +379,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
         return st;
     }
+
     public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
                                                      String newContinuationToken) {
         PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);

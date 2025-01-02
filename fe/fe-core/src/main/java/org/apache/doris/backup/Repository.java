@@ -448,7 +448,8 @@ public class Repository implements Writable, GsonPostProcessable {
                 LOG.debug("get remote file: {} {}", remoteFile.getName(), listPathPrefix);
             }
             if (index == -1) {
-                LOG.info("glob list wrong results, prefix {}, file name {}", listPathPrefix, remoteFile.getName());
+                LOG.info("glob list wrong results, prefix {}, file name {}, full path is expected",
+                        listPathPrefix, remoteFile.getName());
                 continue;
             }
             String snapshotName = remoteFile.getName().substring(index + snapshotNameOffset + 1);
