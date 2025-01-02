@@ -32,23 +32,27 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -134,6 +138,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, context));
                     }
                 } catch (Exception exception) {
+                    LOG.warn("Materialized view rule exec fail", exception);
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 }
@@ -242,7 +247,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // Try to rewrite compensate predicates by using mv scan
                 List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
                         queryPlan, materializationContext.getShuttledExprToScanExprMapping(),
-                        viewToQuerySlotMapping, queryStructInfo.getTableBitSet());
+                        viewToQuerySlotMapping, queryStructInfo.getTableBitSet(),
+                        compensatePredicates.getRangePredicateMap(),
+                        cascadesContext);
                 if (rewriteCompensatePredicates.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "Rewrite compensate predicate by view fail",
@@ -560,7 +567,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      *         then use the corresponding value of mapping to replace it
      */
     protected List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
-            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping, BitSet sourcePlanBitSet) {
+            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping, BitSet sourcePlanBitSet,
+            Map<Expression, ExpressionInfo> queryExprToInfoMap, CascadesContext cascadesContext) {
         // Firstly, rewrite the target expression using source with inverse mapping
         // then try to use the target expression to represent the query. if any of source expressions
         // can not be represented by target expressions, return null.
@@ -573,24 +581,73 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Map<Expression, Expression> targetToTargetReplacementMappingQueryBased =
                 flattenExpressionMap.get(0);
 
+        // viewExprParamToDateTruncMap is {slot#0 : date_trunc(slot#0, 'day')}
+        Map<Expression, DateTrunc> viewExprParamToDateTruncMap = new HashMap<>();
+        targetToTargetReplacementMappingQueryBased.keySet().forEach(expr -> {
+            if (expr instanceof DateTrunc) {
+                viewExprParamToDateTruncMap.put(expr.child(0), (DateTrunc) expr);
+            }
+        });
+
         List<Expression> rewrittenExpressions = new ArrayList<>();
-        for (Expression expressionShuttledToRewrite : sourceShuttledExpressions) {
+        for (int exprIndex = 0; exprIndex < sourceShuttledExpressions.size(); exprIndex++) {
+            Expression expressionShuttledToRewrite = sourceShuttledExpressions.get(exprIndex);
             if (expressionShuttledToRewrite instanceof Literal) {
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
-            final Set<Object> slotsToRewrite =
+            final Set<Expression> slotsToRewrite =
                     expressionShuttledToRewrite.collectToSet(expression -> expression instanceof Slot);
 
             final Set<SlotReference> variants =
                     expressionShuttledToRewrite.collectToSet(expression -> expression instanceof SlotReference
-                    && ((SlotReference) expression).getDataType() instanceof VariantType);
+                            && ((SlotReference) expression).getDataType() instanceof VariantType);
             extendMappingByVariant(variants, targetToTargetReplacementMappingQueryBased);
             Expression replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
                     targetToTargetReplacementMappingQueryBased);
-            if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
-                // if contains any slot to rewrite, which means can not be rewritten by target, bail out
-                return ImmutableList.of();
+            Set<Expression> replacedExpressionSlotQueryUsed = replacedExpression.collect(slotsToRewrite::contains);
+            if (!replacedExpressionSlotQueryUsed.isEmpty()) {
+                // if contains any slot to rewrite, which means can not be rewritten by target,
+                // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
+                // which would try to rewrite
+                if (viewExprParamToDateTruncMap.isEmpty()
+                        || expressionShuttledToRewrite.children().isEmpty()
+                        || !(expressionShuttledToRewrite instanceof ComparisonPredicate)) {
+                    // view doesn't have date_trunc, or
+                    // expressionShuttledToRewrite is not ComparisonPredicate, bail out
+                    return ImmutableList.of();
+                }
+                Expression queryShuttledExprParam = expressionShuttledToRewrite.child(0);
+                Expression queryOriginalExpr = sourceExpressionsToWrite.get(exprIndex);
+                if (!queryExprToInfoMap.containsKey(queryOriginalExpr)
+                        || !viewExprParamToDateTruncMap.containsKey(queryShuttledExprParam)) {
+                    // query expr contains expression info or mv out contains date_trunc expression,
+                    // if not, can not try to rewritten by view date_trunc, bail out
+                    return ImmutableList.of();
+                }
+                Map<Expression, Expression> datetruncMap = new HashMap<>();
+                Literal queryUsedLiteral = queryExprToInfoMap.get(queryOriginalExpr).literal;
+                if (!(queryUsedLiteral instanceof DateLiteral)) {
+                    return ImmutableList.of();
+                }
+                datetruncMap.put(queryShuttledExprParam, queryUsedLiteral);
+                Expression dateTruncWithLiteral = ExpressionUtils.replace(
+                        viewExprParamToDateTruncMap.get(queryShuttledExprParam), datetruncMap);
+                Expression foldedExpressionWithLiteral = FoldConstantRuleOnFE.evaluate(dateTruncWithLiteral,
+                        new ExpressionRewriteContext(cascadesContext));
+                if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
+                    return ImmutableList.of();
+                }
+                if (((DateLiteral) foldedExpressionWithLiteral).getDouble() == queryUsedLiteral.getDouble()) {
+                    // after date_trunc simplify if equals to original expression, expr could be rewritten by mv
+                    replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
+                            targetToTargetReplacementMappingQueryBased,
+                            viewExprParamToDateTruncMap);
+                }
+                if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
+                    // has expression not rewritten successfully, bail out
+                    return ImmutableList.of();
+                }
             }
             rewrittenExpressions.add(replacedExpression);
         }
@@ -752,40 +809,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         // viewEquivalenceClass to query based
         // equal predicate compensate
-        final Set<Expression> equalCompensateConjunctions = Predicates.compensateEquivalence(
-                queryStructInfo,
-                viewStructInfo,
-                viewToQuerySlotMapping,
-                comparisonResult);
+        final Map<Expression, ExpressionInfo> equalCompensateConjunctions = Predicates.compensateEquivalence(
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
         // range compensate
-        final Set<Expression> rangeCompensatePredicates = Predicates.compensateRangePredicate(
-                queryStructInfo,
-                viewStructInfo,
-                viewToQuerySlotMapping,
-                comparisonResult,
-                cascadesContext);
+        final Map<Expression, ExpressionInfo> rangeCompensatePredicates =
+                Predicates.compensateRangePredicate(queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
+                comparisonResult, cascadesContext);
         // residual compensate
-        final Set<Expression> residualCompensatePredicates = Predicates.compensateResidualPredicate(
-                queryStructInfo,
-                viewStructInfo,
-                viewToQuerySlotMapping,
-                comparisonResult);
+        final Map<Expression, ExpressionInfo> residualCompensatePredicates = Predicates.compensateResidualPredicate(
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
         if (equalCompensateConjunctions == null || rangeCompensatePredicates == null
                 || residualCompensatePredicates == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
-        if (equalCompensateConjunctions.stream().anyMatch(expr -> expr.containsType(AggregateFunction.class))
-                || rangeCompensatePredicates.stream().anyMatch(expr -> expr.containsType(AggregateFunction.class))
-                || residualCompensatePredicates.stream().anyMatch(expr ->
-                expr.containsType(AggregateFunction.class))) {
-            return SplitPredicate.INVALID_INSTANCE;
-        }
-        return SplitPredicate.of(equalCompensateConjunctions.isEmpty() ? BooleanLiteral.TRUE
-                        : ExpressionUtils.and(equalCompensateConjunctions),
-                rangeCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
-                        : ExpressionUtils.and(rangeCompensatePredicates),
-                residualCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
-                        : ExpressionUtils.and(residualCompensatePredicates));
+        return SplitPredicate.of(equalCompensateConjunctions, rangeCompensatePredicates, residualCompensatePredicates);
     }
 
     /**
