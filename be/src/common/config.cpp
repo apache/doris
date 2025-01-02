@@ -1191,6 +1191,7 @@ DEFINE_mInt64(tablet_meta_serialize_size_limit, "1610612736");
 // 1717986918 = 2GB * 0.8
 DEFINE_Validator(tablet_meta_serialize_size_limit,
                  [](const int64_t config) -> bool { return config < 1717986918; });
+DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
 // clang-format off
 #ifdef BE_TEST
