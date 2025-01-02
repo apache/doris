@@ -304,9 +304,8 @@ public class LoadAction extends RestBaseController {
             if (!isStreamLoad && !Strings.isNullOrEmpty(request.getParameter(SUB_LABEL_NAME_PARAM))) {
                 // only multi mini load need to redirect to Master, because only Master has the info of table to
                 // the Backend which the file exists.
-                Object redirectView = redirectToMaster(request, response);
-                if (redirectView != null) {
-                    return redirectView;
+                if (checkForwardToMaster(request)) {
+                    return forwardToMaster(request);
                 }
                 try {
                     redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
