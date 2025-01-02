@@ -62,7 +62,12 @@ Status TransactionalHiveReader::init_reader(
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     OrcReader* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
-    _col_names.insert(_col_names.end(), column_names.begin(), column_names.end());
+    for (auto table_col_name : column_names) {
+        auto file_col_name = TransactionalHive::ROW + "." + table_col_name;
+        _col_names.emplace_back(file_col_name);
+        _table_col_to_file_col[table_col_name] = file_col_name;
+    }
+    orc_reader->set_table_col_to_file_col(_table_col_to_file_col);
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
     Status status = orc_reader->init_reader(
@@ -72,15 +77,33 @@ Status TransactionalHiveReader::init_reader(
 }
 
 Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    Block new_block;
+    std::vector<std::string> col_names;
+    for (auto& col : *block) {
+        String new_colname = col.name;
+        if (_table_col_to_file_col.contains(col.name)) {
+            new_colname = _table_col_to_file_col[col.name];
+        }
+        new_block.insert({
+                std::move(col.column),
+                col.type,
+                new_colname,
+        });
+    }
+
     for (int i = 0; i < TransactionalHive::READ_PARAMS.size(); ++i) {
         DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
                 TypeDescriptor(TransactionalHive::READ_PARAMS[i].type), false);
         MutableColumnPtr data_column = data_type->create_column();
-        block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
-                                            TransactionalHive::READ_PARAMS[i].column_lower_case));
+        new_block.insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type,
+                                      TransactionalHive::READ_PARAMS[i].column_lower_case));
     }
-    auto res = _file_format_reader->get_next_block(block, read_rows, eof);
-    Block::erase_useless_column(block, block->columns() - TransactionalHive::READ_PARAMS.size());
+
+    auto res = _file_format_reader->get_next_block(&new_block, read_rows, eof);
+    for (int idx = 0; idx < block->columns(); idx++) {
+        block->get_by_position(idx).column = std::move(new_block.get_by_position(idx).column);
+    }
     return res;
 }
 

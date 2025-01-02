@@ -119,6 +119,7 @@ private:
     AcidRowIDSet _delete_rows;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
     std::vector<std::string> _col_names;
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
 
     io::IOContext* _io_ctx = nullptr;
 };

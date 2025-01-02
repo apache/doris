@@ -150,7 +150,8 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
-    Status _init_select_types(const orc::Type& type, int idx);
+    Status _init_select_types(const orc::Type& type, int idx, std::string pre = "",
+                              bool recursion = true);
 
     Status _fill_partition_columns(
             Block* block, size_t rows,
@@ -165,7 +166,7 @@ public:
     Status get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
 
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
-                         orc::ColumnVectorBatch* batch, int idx);
+                         orc::ColumnVectorBatch* batch, int idx, bool recursion = true);
 
     void _build_delete_row_filter(const Block* block, size_t rows);
 
@@ -283,9 +284,8 @@ private:
     void _init_profile();
     Status _init_read_columns();
     void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
-                        std::vector<std::string>& orc_cols_lower_case,
                         std::unordered_map<std::string, const orc::Type*>& type_map,
-                        bool* is_hive1_orc);
+                        bool* is_hive1_orc, std::string pre = "", bool recursion = true);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
 
@@ -581,8 +581,10 @@ private:
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
-    std::list<std::string> _read_cols_lower_case;
+
+    std::list<std::string> _existing_cols; //The hive column name to read from the orc file.
     std::list<std::string> _missing_cols;
+
     std::unordered_map<std::string, int> _colname_to_idx;
     // Column name in Orc file after removed acid(remove row.) to column name to schema.
     // This is used for Hive 1.x which use internal column name in Orc file.
