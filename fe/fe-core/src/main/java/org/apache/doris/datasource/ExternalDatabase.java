@@ -688,7 +688,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
+                metaCache.updateCache(tableName, extCatalog.fromRemoteTableName(this.remoteName, tableName),
+                        (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             }
         } else {

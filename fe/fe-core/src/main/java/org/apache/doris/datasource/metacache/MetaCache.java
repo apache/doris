@@ -102,19 +102,6 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
-    public void updateCache(String objName, T obj, long id) {
-        metaObjCache.put(objName, Optional.of(obj));
-        namesCache.asMap().compute("", (k, v) -> {
-            if (v == null) {
-                return Lists.newArrayList(Pair.of(objName, objName));
-            } else {
-                v.add(Pair.of(objName, objName));
-                return v;
-            }
-        });
-        idToName.put(id, objName);
-    }
-
     public void updateCache(String remoteName, String localName, T obj, long id) {
         metaObjCache.put(localName, Optional.of(obj));
         namesCache.asMap().compute("", (k, v) -> {
@@ -128,16 +115,16 @@ public class MetaCache<T> {
         idToName.put(id, localName);
     }
 
-    public void invalidate(String objName, long id) {
+    public void invalidate(String localName, long id) {
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
             } else {
-                v.removeIf(pair -> pair.value().equals(objName));
+                v.removeIf(pair -> pair.value().equals(localName));
                 return v;
             }
         });
-        metaObjCache.invalidate(objName);
+        metaObjCache.invalidate(localName);
         idToName.remove(id);
     }
 
