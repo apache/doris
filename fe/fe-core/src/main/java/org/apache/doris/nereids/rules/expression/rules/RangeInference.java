@@ -34,12 +34,15 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -154,7 +157,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         List<ValueDesc> valuePerRefs = Lists.newArrayList();
         for (Entry<Expression, Collection<ValueDesc>> referenceValues : groupByReference.asMap().entrySet()) {
+            Expression reference = referenceValues.getKey();
             List<ValueDesc> valuePerReference = (List) referenceValues.getValue();
+            if (!isAnd) {
+                valuePerReference = ValueDesc.unionDiscreteAndRange(context, reference, valuePerReference);
+            }
 
             // merge per reference
             ValueDesc simplifiedValue = valuePerReference.get(0);
@@ -214,6 +221,47 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     ? ImmutableList.of(discrete, range)
                     : ImmutableList.of(range, discrete);
             return new UnknownValue(context, toExpr, sourceValues, false);
+        }
+
+        /** merge discrete and ranges */
+        public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
+                Expression reference, List<ValueDesc> valueDescs) {
+            Set<Literal> discreteValues = Sets.newHashSet();
+            for (ValueDesc valueDesc : valueDescs) {
+                if (valueDesc instanceof DiscreteValue) {
+                    discreteValues.addAll(((DiscreteValue) valueDesc).getValues());
+                }
+            }
+
+            RangeSet<Literal> rangeSet = TreeRangeSet.create();
+            for (ValueDesc valueDesc : valueDescs) {
+                if (valueDesc instanceof RangeValue) {
+                    Range<Literal> range = ((RangeValue) valueDesc).range;
+                    rangeSet.add(range);
+                    if (range.hasLowerBound()
+                            && range.lowerBoundType() == BoundType.OPEN
+                            && discreteValues.contains(range.lowerEndpoint())) {
+                        rangeSet.add(Range.singleton(range.lowerEndpoint()));
+                    }
+                    if (range.hasUpperBound()
+                            && range.upperBoundType() == BoundType.OPEN
+                            && discreteValues.contains(range.upperEndpoint())) {
+                        rangeSet.add(Range.singleton(range.upperEndpoint()));
+                    }
+                }
+            }
+
+            if (!rangeSet.isEmpty()) {
+                discreteValues.removeIf(x -> !rangeSet.contains(x));
+            }
+
+            List<ValueDesc> result = Lists.newArrayListWithExpectedSize(valueDescs.size());
+            if (!discreteValues.isEmpty()) {
+                Expression toExpr = new InPredicate(reference, ImmutableList.copyOf(discreteValues));
+                result.add(new DiscreteValue(context, reference, toExpr, discreteValues));
+            }
+
+            return result;
         }
 
         /** intersect */
