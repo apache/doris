@@ -463,7 +463,7 @@ void BufferControlBlock::cancel(const Status& reason) {
     }
     _waiting_rpc.clear();
     for (auto& ctx : _waiting_arrow_result_batch_rpc) {
-        ctx->on_failure(Status::Cancelled("Cancelled"));
+        ctx->on_failure(reason);
     }
     _waiting_arrow_result_batch_rpc.clear();
     _update_dependency();
