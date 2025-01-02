@@ -175,7 +175,7 @@ public:
         _data_queue.resize(num_sources);
         _m.resize(num_sources);
         for (size_t i = 0; i < num_sources; i++) {
-            _m[i] = std::make_unique<std::shared_mutex>();
+            _m[i] = std::make_unique<std::mutex>();
         }
     }
     ~Exchanger() override = default;
@@ -194,7 +194,7 @@ protected:
     void _enqueue_data_and_set_ready(int channel_id, BlockType&& block);
     bool _dequeue_data(BlockType& block, bool* eos, vectorized::Block* data_block, int channel_id);
     std::vector<BlockQueue<BlockType>> _data_queue;
-    std::vector<std::unique_ptr<std::shared_mutex>> _m;
+    std::vector<std::unique_ptr<std::mutex>> _m;
 };
 
 class LocalExchangeSourceLocalState;

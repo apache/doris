@@ -95,7 +95,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
     } else if (all_finished) {
         *eos = true;
     } else {
-        std::shared_lock l(*_m[channel_id]);
+        std::unique_lock l(*_m[channel_id]);
         if (_data_queue[channel_id].try_dequeue(block)) {
             if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
                           std::is_same_v<BroadcastBlock, BlockType>) {
