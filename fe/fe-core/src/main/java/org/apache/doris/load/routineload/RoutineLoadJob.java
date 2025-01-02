@@ -503,7 +503,12 @@ public abstract class RoutineLoadJob
     }
 
     public void setOtherMsg(String otherMsg) {
-        this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
+        writeLock();
+        try {
+            this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -917,9 +922,10 @@ public abstract class RoutineLoadJob
                                 + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
-            // reset currentTotalNum and currentErrorNum
+            // reset currentTotalNum, currentErrorNum and otherMsg
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
+            this.otherMsg = "";
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
                     && ((double) this.jobStatistic.currentErrorRows
@@ -938,9 +944,10 @@ public abstract class RoutineLoadJob
                         "current error rows is more than max_error_number "
                             + "or the max_filter_ratio is more than the value set"), isReplay);
             }
-            // reset currentTotalNum and currentErrorNum
+            // reset currentTotalNum, currentErrorNum and otherMsg
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
+            this.otherMsg = "";
         }
     }
 
@@ -1199,6 +1206,7 @@ public abstract class RoutineLoadJob
         long taskBeId = -1L;
         try {
             this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
+            setOtherMsg(txnStatusChangeReasonString);
             if (txnOperated) {
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
@@ -1518,6 +1526,7 @@ public abstract class RoutineLoadJob
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("msg", "Job need to be rescheduled")
                         .build());
+                this.otherMsg = pauseReason == null ? "" : pauseReason.getMsg();
                 unprotectUpdateProgress();
                 unprotectUpdateState(JobState.NEED_SCHEDULE, null, false);
             }
