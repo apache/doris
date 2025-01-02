@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Map;
 
 public class TruncateTableInfo implements Writable {
-    @SerializedName(value = "dbId")
+    @SerializedName(value = "ctl")
     private String ctl;
     @SerializedName(value = "dbId")
     private long dbId;

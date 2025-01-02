@@ -1090,7 +1090,7 @@ public abstract class ExternalCatalog
             }
             metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions, false);
         } catch (Exception e) {
-            LOG.warn("Failed to truncate table {}.{} in catlaog {}", stmt.getTblRef().getName().getDb(),
+            LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
                     stmt.getTblRef().getName().getTbl(), getName(), e);
             throw e;
         }
