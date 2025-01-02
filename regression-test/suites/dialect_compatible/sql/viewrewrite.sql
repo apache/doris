@@ -3,7 +3,7 @@ set sql_dialect = hive;
 
 --create catalog 
 drop catalog if exists hive;
-create catalog hive properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://10.16.10.6:9083');
+create catalog hive properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');
 --switch catalog
 switch hive;
 --test view rewrite
