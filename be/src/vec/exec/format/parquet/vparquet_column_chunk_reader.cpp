@@ -277,7 +277,7 @@ Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     _remaining_num_values -= num_values;
     if (skip_data) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        return _page_decoder->skip_values(cast_set<int>(num_values));
+        return _page_decoder->skip_values(num_values);
     } else {
         return Status::OK();
     }

@@ -373,7 +373,7 @@ public:
     template <typename T>
     static inline T RoundDownToPowerOf2(T value, T factor) {
         static_assert(std::is_integral<T>::value, "T must be an integral type");
-        DCHECK((factor > 0) && ((factor & (factor - 1)) == 0)); // factor 必须是 2 的幂
+        DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
         return value & ~(factor - 1);
     }
 
