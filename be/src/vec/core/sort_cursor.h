@@ -50,8 +50,7 @@ private:
     void _reset() {
         sort_columns.clear();
         auto columns = block.get_columns_and_convert();
-        for (size_t j = 0, size = desc.size(); j < size; ++j) {
-            auto& column_desc = desc[j];
+        for (auto& column_desc : desc) {
             size_t column_number = !column_desc.column_name.empty()
                                            ? block.get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
@@ -65,7 +64,7 @@ using HeapSortCursorBlockSPtr = std::shared_ptr<HeapSortCursorBlockView>;
 struct HeapSortCursorImpl {
 public:
     HeapSortCursorImpl(int row_id, HeapSortCursorBlockSPtr block_view)
-            : _row_id(row_id), _block_view(block_view) {}
+            : _row_id(row_id), _block_view(std::move(block_view)) {}
 
     HeapSortCursorImpl(const HeapSortCursorImpl& other) {
         _row_id = other._row_id;
@@ -180,11 +179,11 @@ using BlockSupplier = std::function<Status(Block*, bool* eos)>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     ENABLE_FACTORY_CREATOR(BlockSupplierSortCursorImpl);
-    BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,
+    BlockSupplierSortCursorImpl(BlockSupplier block_supplier,
                                 const VExprContextSPtrs& ordering_expr,
                                 const std::vector<bool>& is_asc_order,
                                 const std::vector<bool>& nulls_first)
-            : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
+            : _ordering_expr(ordering_expr), _block_supplier(std::move(block_supplier)) {
         block = Block::create_shared();
         sort_columns_size = ordering_expr.size();
 
@@ -196,8 +195,8 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         _is_eof = !has_next_block();
     }
 
-    BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier, const SortDescription& desc_)
-            : MergeSortCursorImpl(desc_), _block_supplier(block_supplier) {
+    BlockSupplierSortCursorImpl(BlockSupplier block_supplier, const SortDescription& desc_)
+            : MergeSortCursorImpl(desc_), _block_supplier(std::move(block_supplier)) {
         _is_eof = !has_next_block();
     }
 
@@ -213,7 +212,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         // If status not ok, upper callers could not detect whether it is eof or error.
         // So that fatal here, and should throw exception in the future.
         if (status.ok() && !block->empty()) {
-            if (_ordering_expr.size() > 0) {
+            if (!_ordering_expr.empty()) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
                     // TODO yiguolei: throw exception if status not ok in the future
                     status = _ordering_expr[i]->execute(block.get(), &desc[i].column_number);
@@ -282,7 +281,7 @@ struct MergeSortCursor {
         }
 
         /// The last row of this cursor is no larger than the first row of the another cursor.
-        return greater_at(rhs, impl->rows - 1, 0) <= 0;
+        return greater_at(rhs, impl->rows - 1, rhs->pos) <= 0;
     }
 
     bool greater_with_offset(const MergeSortCursor& rhs, size_t lhs_offset,
@@ -303,7 +302,7 @@ struct MergeSortBlockCursor {
     ENABLE_FACTORY_CREATOR(MergeSortBlockCursor);
     std::shared_ptr<MergeSortCursorImpl> impl = nullptr;
 
-    MergeSortBlockCursor(std::shared_ptr<MergeSortCursorImpl> impl_) : impl(impl_) {}
+    MergeSortBlockCursor(std::shared_ptr<MergeSortCursorImpl> impl_) : impl(std::move(impl_)) {}
     MergeSortCursorImpl* operator->() const { return impl.get(); }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.
@@ -351,46 +350,46 @@ public:
     template <typename Cursors>
     explicit SortingQueueImpl(Cursors& cursors) {
         size_t size = cursors.size();
-        queue.reserve(size);
+        _queue.reserve(size);
 
         for (size_t i = 0; i < size; ++i) {
-            queue.emplace_back(cursors[i]);
+            _queue.emplace_back(cursors[i]);
         }
 
-        std::make_heap(queue.begin(), queue.end());
+        std::make_heap(_queue.begin(), _queue.end());
 
         if constexpr (strategy == SortingQueueStrategy::Batch) {
-            if (!queue.empty()) {
+            if (!_queue.empty()) {
                 update_batch_size();
             }
         }
     }
 
-    bool is_valid() const { return !queue.empty(); }
+    bool is_valid() const { return !_queue.empty(); }
 
     Cursor& current()
         requires(strategy == SortingQueueStrategy::Default)
     {
-        return &queue.front();
+        return &_queue.front();
     }
 
     std::pair<Cursor*, size_t> current()
         requires(strategy == SortingQueueStrategy::Batch)
     {
-        return {&queue.front(), batch_size};
+        return {&_queue.front(), batch_size};
     }
 
-    size_t size() { return queue.size(); }
+    size_t size() { return _queue.size(); }
 
-    Cursor& next_child() { return queue[next_child_index()]; }
+    Cursor& next_child() { return _queue[next_child_index()]; }
 
     void ALWAYS_INLINE next()
         requires(strategy == SortingQueueStrategy::Default)
     {
         assert(is_valid());
 
-        if (!queue.front()->is_last()) {
-            queue.front()->next();
+        if (!_queue.front()->is_last()) {
+            _queue.front()->next();
             update_top(true);
         } else {
             remove_top();
@@ -406,30 +405,25 @@ public:
 
         batch_size -= batch_size_value;
         if (batch_size > 0) {
-            queue.front()->next(batch_size_value);
+            _queue.front()->next(batch_size_value);
             return;
         }
 
-        if (!queue.front()->is_last(batch_size_value)) {
-            queue.front()->next(batch_size_value);
+        if (!_queue.front()->is_last(batch_size_value)) {
+            _queue.front()->next(batch_size_value);
             update_top(false);
         } else {
             remove_top();
         }
     }
 
-    void replace_top(Cursor new_top) {
-        queue.front() = new_top;
-        update_top(true);
-    }
-
     void remove_top() {
-        std::pop_heap(queue.begin(), queue.end());
-        queue.pop_back();
+        std::pop_heap(_queue.begin(), _queue.end());
+        _queue.pop_back();
         next_child_idx = 0;
 
         if constexpr (strategy == SortingQueueStrategy::Batch) {
-            if (queue.empty()) {
+            if (_queue.empty()) {
                 batch_size = 0;
             } else {
                 update_batch_size();
@@ -438,8 +432,8 @@ public:
     }
 
     void push(MergeSortCursorImpl& cursor) {
-        queue.emplace_back(&cursor);
-        std::push_heap(queue.begin(), queue.end());
+        _queue.emplace_back(&cursor);
+        std::push_heap(_queue.begin(), _queue.end());
         next_child_idx = 0;
 
         if constexpr (strategy == SortingQueueStrategy::Batch) {
@@ -449,7 +443,7 @@ public:
 
 private:
     using Container = std::vector<Cursor>;
-    Container queue;
+    Container _queue;
 
     /// Cache comparison between first and second child if the order in queue has not been changed.
     size_t next_child_idx = 0;
@@ -459,7 +453,7 @@ private:
         if (next_child_idx == 0) {
             next_child_idx = 1;
 
-            if (queue.size() > 2 && queue[1].greater(queue[2])) {
+            if (_queue.size() > 2 && _queue[1].greater(_queue[2])) {
                 ++next_child_idx;
             }
         }
@@ -472,12 +466,12 @@ private:
     /// - because it doesn't support updating the top element and requires pop and push instead.
     /// Also look at "Boost.Heap" library.
     void ALWAYS_INLINE update_top(bool check_in_order) {
-        size_t size = queue.size();
+        size_t size = _queue.size();
         if (size < 2) {
             return;
         }
 
-        auto begin = queue.begin();
+        auto begin = _queue.begin();
 
         size_t child_idx = next_child_index();
         auto child_it = begin + child_idx;
@@ -525,20 +519,20 @@ private:
 
     /// Update batch size of elements that client can extract from current cursor
     void update_batch_size() {
-        assert(!queue.empty());
+        DCHECK(!_queue.empty());
 
-        auto& begin_cursor = *queue.begin();
+        auto& begin_cursor = *_queue.begin();
         size_t min_cursor_size = begin_cursor->get_size();
         size_t min_cursor_pos = begin_cursor->pos;
 
-        if (queue.size() == 1) {
+        if (_queue.size() == 1) {
             batch_size = min_cursor_size - min_cursor_pos;
             return;
         }
 
         batch_size = 1;
         size_t child_idx = next_child_index();
-        auto& next_child_cursor = *(queue.begin() + child_idx);
+        auto& next_child_cursor = *(_queue.begin() + child_idx);
         if (min_cursor_pos + batch_size < min_cursor_size &&
             next_child_cursor.greater_with_offset(begin_cursor, 0, batch_size)) {
             ++batch_size;
