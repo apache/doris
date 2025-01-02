@@ -61,6 +61,8 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -78,7 +80,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -446,9 +450,43 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public String getViewText() {
         String viewText = getViewExpandedText();
         if (StringUtils.isNotEmpty(viewText)) {
-            return viewText;
+            if (!viewText.equals("/* Presto View */")) {
+                return viewText;
+            }
         }
-        return getViewOriginalText();
+
+        String originalText = getViewOriginalText();
+        /**
+         * Get the SQL text definition of the view.
+         * For Presto views, the definition is stored in the format:
+         * View Original Text: /* Presto View: <base64-encoded-json> * /
+         *
+         * The base64 encoded JSON contains the following fields:
+         * {
+         *   "originalSql": "SELECT * FROM employees",  // The original SQL statement
+         *   "catalog": "hive",                               // The data catalog name
+         *   "schema": "mmc_hive",                           // The schema name
+         *    .....
+         * }
+         */
+        if (originalText != null && originalText.contains("/* Presto View: ")) {
+            try {
+                String base64String = originalText.substring(
+                        originalText.indexOf("/* Presto View: ") + "/* Presto View: ".length(),
+                        originalText.lastIndexOf(" */")
+                ).trim();
+                byte[] decodedBytes = Base64.getDecoder().decode(base64String);
+                String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
+                JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
+                if (jsonObject.has("originalSql")) {
+                    return jsonObject.get("originalSql").getAsString();
+                }
+            } catch (Exception e) {
+                LOG.warn("Decoding Presto view definition failed", e);
+            }
+        }
+
+        return originalText;
     }
 
     public String getViewExpandedText() {

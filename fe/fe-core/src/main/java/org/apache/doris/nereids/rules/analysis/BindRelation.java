@@ -45,6 +45,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.LeadingHint;
+import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -88,22 +89,31 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.plugin.DialectConverterPlugin;
+import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectProcessor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
+
+    private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
 
     public BindRelation() {}
 
@@ -450,11 +460,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
+        String convertedSql = convertViewDefinition(ddlSql, cascadesContext.getConnectContext());
         // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
         ctx.changeDefaultCatalog(hiveCatalog);
         ctx.setDatabase(hiveDb);
         try {
-            return parseAndAnalyzeView(table, ddlSql, cascadesContext);
+            return parseAndAnalyzeView(table, convertedSql, cascadesContext);
         } finally {
             // restore catalog and db in connect context
             ctx.changeDefaultCatalog(previousCatalog);
@@ -519,5 +530,30 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * Convert view definition SQL based on current SQL dialect
+     */
+    private String convertViewDefinition(String originSql, ConnectContext ctx) {
+        String convertedSql = originSql;
+        @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
+        if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
+            PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
+            List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
+            for (DialectConverterPlugin plugin : plugins) {
+                try {
+                    String converted = plugin.convertSql(originSql, ctx.getSessionVariable());
+                    if (StringUtils.isNotEmpty(converted)) {
+                        convertedSql = converted;
+                        break;
+                    }
+                } catch (Throwable throwable) {
+                    LOG.warn("Convert view definition with dialect {} failed, plugin: {}, sql: {}, use origin sql.",
+                            sqlDialect, plugin.getClass().getSimpleName(), originSql, throwable);
+                }
+            }
+        }
+        return convertedSql;
     }
 }
