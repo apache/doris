@@ -78,27 +78,29 @@ suite("test_add_key_partial_update", "nonConcurrent") {
 
 
         // block the schema change process before it change the shadow index to base index
-        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::process_alter_tablet.leave.block")
+        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::process_alter_tablet.leave.sleep")
 
         sql "alter table ${table1} ADD COLUMN k2 int key;"
 
-        def t1 = Thread.start {
-            // wait util alter process finish on BE
-            Thread.sleep(6000)
-            GetDebugPoint().disableDebugPointForAllFEs("SchemaChangeJob::process_alter_tablet.leave.block")
-        }
+        // def t1 = Thread.start {
+        //     // wait util alter process finish on BE
+        //     Thread.sleep(4000)
+        //     GetDebugPoint().disableDebugPointForAllFEs("SchemaChangeJob::process_alter_tablet.leave.block")
+        // }
 
         Thread.sleep(1000)
         sql "delete from ${table1} where k1<=3;"
 
-        t1.join()
+        // t1.join()
 
         waitForSchemaChangeDone {
             sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
             time 1000
         }
 
-        qt_sql "select * from ${table1} order by k1,k2;"
+        sql "set skip_delete_sign=true;"
+        sql "sync;"
+        qt_sql "select k1,k2,c1,c2,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${table1} order by k1,k2,__DORIS_VERSION_COL__;"
 
     } catch(Exception e) {
         logger.info(e.getMessage())

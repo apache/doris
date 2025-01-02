@@ -805,7 +805,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 
     Status res = _do_process_alter_tablet(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
-    DBUG_EXECUTE_IF("SchemaChangeJob::process_alter_tablet.leave.block", DBUG_BLOCK);
+    DBUG_EXECUTE_IF("SchemaChangeJob::process_alter_tablet.leave.sleep", { sleep(5); });
     return res;
 }
 
