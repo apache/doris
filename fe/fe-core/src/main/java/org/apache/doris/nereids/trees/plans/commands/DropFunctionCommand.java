@@ -27,7 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgsDefInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -49,7 +49,7 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
     private SetType setType;
     private final boolean ifExists;
     private final FunctionName functionName;
-    private final FunctionArgsDefInfo argsDef;
+    private final FunctionArgTypesInfo argsDef;
     // set after analyzed
     private FunctionSearchDesc function;
 
@@ -57,7 +57,7 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
      * DropFunctionCommand
      */
     public DropFunctionCommand(SetType setType, boolean ifExists, FunctionName functionName,
-                                 FunctionArgsDefInfo argsDef) {
+                                 FunctionArgTypesInfo argsDef) {
         super(PlanType.CREATE_FUNCTION_COMMAND);
         this.setType = setType;
         this.ifExists = ifExists;
