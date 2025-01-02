@@ -36,6 +36,8 @@ protected:
         MutableColumns array_cols;
         // we need to load data from csv file into column_array list
         // step1. create data type for array nested type (const and nullable)
+        // array<bool>
+        BaseInputTypeSet array_uint8 = {TypeIndex::Array, TypeIndex::UInt8};
         // array<tinyint>
         BaseInputTypeSet array_tinyint = {TypeIndex::Array, TypeIndex::Int8};
         // array<smallint>
@@ -72,6 +74,8 @@ protected:
         BaseInputTypeSet array_decimal128 = {TypeIndex::Array, TypeIndex::Decimal128V3};
         // array<decimal256(76, 40)> UT
         BaseInputTypeSet array_decimal256 = {TypeIndex::Array, TypeIndex::Decimal256};
+        // array<array<bool>>
+        BaseInputTypeSet array_array_uint8 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::UInt8};
         // array<array<tinyint>>
         BaseInputTypeSet array_array_tinyint = {TypeIndex::Array, TypeIndex::Array,
                                                 TypeIndex::Int8};
@@ -141,17 +145,18 @@ protected:
                 TypeIndex::Float64, TypeIndex::IPv4,      TypeIndex::IPv6};
 
         std::vector<BaseInputTypeSet> array_typeIndex = {
-                array_tinyint,   array_smallint,   array_int,        array_bigint,  array_largeint,
-                array_float,     array_double,     array_ipv4,       array_ipv6,    array_date,
-                array_datetime,  array_datev2,     array_datetimev2, array_varchar, array_decimal,
-                array_decimal64, array_decimal128, array_decimal256};
+                array_uint8,    array_tinyint,   array_smallint,   array_int,        array_bigint,
+                array_largeint, array_float,     array_double,     array_ipv4,       array_ipv6,
+                array_date,     array_datetime,  array_datev2,     array_datetimev2, array_varchar,
+                array_decimal,  array_decimal64, array_decimal128, array_decimal256};
         std::vector<BaseInputTypeSet> array_array_typeIndex = {
-                array_array_tinyint,    array_array_smallint,   array_array_int,
-                array_array_bigint,     array_array_largeint,   array_array_float,
-                array_array_double,     array_array_ipv4,       array_array_ipv6,
-                array_array_date,       array_array_datetime,   array_array_datev2,
-                array_array_datetimev2, array_array_varchar,    array_array_decimal,
-                array_array_decimal64,  array_array_decimal128, array_array_decimal256};
+                array_array_uint8,     array_array_tinyint,    array_array_smallint,
+                array_array_int,       array_array_bigint,     array_array_largeint,
+                array_array_float,     array_array_double,     array_array_ipv4,
+                array_array_ipv6,      array_array_date,       array_array_datetime,
+                array_array_datev2,    array_array_datetimev2, array_array_varchar,
+                array_array_decimal,   array_array_decimal64,  array_array_decimal128,
+                array_array_decimal256};
         std::vector<BaseInputTypeSet> array_map_typeIndex = {
                 array_map_char_double, array_map_datetime_decimal, array_map_ipv4_ipv6,
                 array_map_largeint_string};
@@ -223,7 +228,8 @@ protected:
         }
 
         // create column_array for each data type
-        vector<string> data_files = {data_file_dir + "test_array_tinyint.csv",
+        vector<string> data_files = {data_file_dir + "test_array_bool.csv",
+                                     data_file_dir + "test_array_tinyint.csv",
                                      data_file_dir + "test_array_smallint.csv",
                                      data_file_dir + "test_array_int.csv",
                                      data_file_dir + "test_array_bigint.csv",
@@ -243,7 +249,8 @@ protected:
                                      data_file_dir + "test_array_decimalv3(76,56).csv"};
 
         data_files.insert(data_files.end(),
-                          {data_file_dir + "test_array_array_tinyint.csv",
+                          {data_file_dir + "test_array_array_bool.csv",
+                           data_file_dir + "test_array_array_tinyint.csv",
                            data_file_dir + "test_array_array_smallint.csv",
                            data_file_dir + "test_array_array_int.csv",
                            data_file_dir + "test_array_array_bigint.csv",
@@ -362,13 +369,22 @@ TEST_F(ColumnArrayTest, InsertManyDefaultsTest) {
     assert_insert_many_defaults_callback(array_columns, serdes);
 }
 
+TEST_F(ColumnArrayTest, InsertDataTest) {
+    // we expect insert_data will throw exception
+    EXPECT_ANY_THROW(assert_insert_data_from_callback(array_columns, serdes));
+}
+
 TEST_F(ColumnArrayTest, GetDataAtTest) {
     // get_data_at is not support in column_array
     EXPECT_ANY_THROW(assert_get_data_at_callback(array_columns, serdes));
 }
 
 TEST_F(ColumnArrayTest, FieldTest) {
-    assert_field_callback(array_columns, serdes);
+    MutableColumns array_columns_copy;
+    DataTypeSerDeSPtrs serdes_copy;
+    array_columns_copy.push_back(array_columns[42]->assume_mutable());
+    serdes_copy.push_back(serdes[42]);
+    assert_field_callback(array_columns_copy, serdes_copy);
 }
 
 TEST_F(ColumnArrayTest, GetRawDataTest) {
@@ -440,15 +456,15 @@ TEST_F(ColumnArrayTest, ReplicateTest) {
     assert_replicate_callback(array_columns_copy, serdes_copy);
     // expect error columns
     MutableColumns error_columns;
-    error_columns.push_back(array_columns[31]->assume_mutable());
+    error_columns.push_back(array_columns[33]->assume_mutable());
     DataTypeSerDeSPtrs error_serdes;
-    error_serdes.push_back(serdes[31]);
+    error_serdes.push_back(serdes[33]);
     EXPECT_ANY_THROW(assert_replicate_callback(error_columns, error_serdes));
 }
 
 TEST_F(ColumnArrayTest, ReplaceColumnTest) {
     // replace_column_data is not support in column_array, only support non-variable length column
-    EXPECT_ANY_THROW(assert_replace_column_data_callback(array_columns, serdes));
+    assert_replace_column_data_callback(array_columns, serdes);
     assert_replace_column_null_data_callback(array_columns, serdes);
 }
 
@@ -468,7 +484,11 @@ TEST_F(ColumnArrayTest, PermutationAndSortTest) {
 }
 
 TEST_F(ColumnArrayTest, FilterTest) {
+    // The filter method implemented by column_array does not achieve the memory reuse acceleration effect like other basic types,
+    // and still returns a new ptr, which can be make a todo task
     assert_filter_callback(array_columns, serdes);
+    // filter with result_size_hint
+    assert_filter_with_result_hint_callback(array_columns, serdes);
 }
 
 // HASH Interfaces
@@ -481,6 +501,9 @@ TEST_F(ColumnArrayTest, HashTest) {
     std::vector<PrimitiveType> pts(array_columns.size(), PrimitiveType::TYPE_ARRAY);
     assert_update_crc_hashes_callback(array_columns, serdes, pts);
     // CrcHash with null_data
+
+    // SipHash
+    assert_update_siphashes_with_value_callback(array_columns, serdes);
 };
 
 //////////////////////// special function from column_array.h ////////////////////////
@@ -506,10 +529,29 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
         auto column_type = type->get_name();
         LOG(INFO) << "column_type: " << column_type;
         // test create_array
+        // test create expect exception case
+        // 1.offsets is not ColumnUInt64
+        auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
+        auto tmp_offsets_col =
+                assert_cast<ColumnArray::Offsets64>(column->get_offsets_column().clone_resized(1));
+        // make offsets_col into column_int32
+        ColumnUInt128 wrong_type_offsets_col;
+        wrong_type_offsets_col.insert(tmp_offsets_col.back());
+        EXPECT_ANY_THROW({
+            auto new_array_column = ColumnArray::create(tmp_data_col->assume_mutable(),
+                                                        wrong_type_offsets_col.assume_mutable());
+        });
+        // 2.offsets size is not equal to data size
+        auto tmp_data_col1 = column->get_data_ptr()->clone_resized(2);
+        EXPECT_ANY_THROW({
+            auto new_array_column = ColumnArray::create(
+                    tmp_data_col1->assume_mutable(),
+                    column->get_offsets_column().clone_resized(1)->assume_mutable());
+        });
+        // 3.data is const
         auto last_offset = column->get_offsets().back();
         EXPECT_ANY_THROW(
                 { auto const_col = ColumnConst::create(column->get_data_ptr(), last_offset); });
-        auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
         Field assert_field;
         column->get(0, assert_field);
         auto const_col = ColumnConst::create(tmp_data_col->assume_mutable(), last_offset);
@@ -544,7 +586,7 @@ TEST_F(ColumnArrayTest, MetaInfoTest) {
 
 TEST_F(ColumnArrayTest, ConvertIfOverflowAndInsertTest) {
     // test nested string in array which like ColumnArray<ColumnString> only use in join
-    // test convert_column_if_overflow && insert_range_from_ignore_overflow
+    // test convert_column_if_overflow
     for (int i = 0; i < array_columns.size(); i++) {
         auto& column = array_columns[i];
         auto type = array_types[i];
@@ -572,6 +614,12 @@ TEST_F(ColumnArrayTest, ConvertIfOverflowAndInsertTest) {
     }
 }
 
+// Test insert_range_from_ignore_overflow
+TEST_F(ColumnArrayTest, InsertRangeFromIgnoreOverflowTest) {
+    // test insert_range_from_ignore_overflow
+    assert_insert_range_from_ignore_overflow(array_columns, array_types);
+}
+
 TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
     // test dimension of array
     for (int i = 0; i < array_columns.size(); i++) {
@@ -584,9 +632,30 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
                                        .get_nested_type();
             dimension++;
             check_type = nested_type;
+            std::cout << "dimension: " << dimension << std::endl;
         }
         EXPECT_EQ(column->get_number_of_dimensions(), dimension)
                 << "column dimension is not equal to check_type dimension";
+    }
+}
+
+TEST_F(ColumnArrayTest, IsExclusiveTest) {
+    for (int i = 0; i < array_columns.size(); i++) {
+        auto column = check_and_get_column<ColumnArray>(
+                remove_nullable(array_columns[i]->assume_mutable()).get());
+        auto cloned = array_columns[i]->clone_resized(1);
+        // test expect true
+        EXPECT_TRUE(column->is_exclusive());
+        // new column with different data column
+        const ColumnPtr new_data_column =
+                column->get_data_ptr()->clone_resized(0)->convert_column_if_overflow();
+        auto new_array_column = ColumnArray::create(new_data_column);
+        EXPECT_FALSE(new_array_column->is_exclusive());
+        // new column with different offsets column
+        const ColumnPtr new_offsets_column =
+                column->get_offsets_ptr()->clone_resized(0)->convert_column_if_overflow();
+        new_array_column = ColumnArray::create(column->get_data_ptr(), new_offsets_column);
+        EXPECT_FALSE(new_array_column->is_exclusive());
     }
 }
 
