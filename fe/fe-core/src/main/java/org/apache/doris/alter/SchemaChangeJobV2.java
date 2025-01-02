@@ -663,21 +663,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             commitShadowIndex();
             // all partitions are good
             onFinished(tbl);
+            pruneMeta();
+
+            LOG.info("schema change job finished: {}", jobId);
+
+            changeTableState(dbId, tableId, OlapTableState.NORMAL);
+            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+
+            this.jobState = JobState.FINISHED;
+            this.finishedTimeMs = System.currentTimeMillis();
+            // Write edit log with table's write lock held, to avoid adding partitions before writing edit log,
+            // else it will try to transform index in newly added partition while replaying and result in failure.
+            Env.getCurrentEnv().getEditLog().logAlterJob(this);
         } finally {
             tbl.writeUnlock();
         }
-
-        pruneMeta();
-
-        LOG.info("schema change job finished: {}", jobId);
-
-        changeTableState(dbId, tableId, OlapTableState.NORMAL);
-        LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
-
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = System.currentTimeMillis();
-        Env.getCurrentEnv().getEditLog().logAlterJob(this);
-
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
         Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
