@@ -92,7 +92,8 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     SCOPED_TIMER(local_state._get_sorted_timer);
     //sorter output data one by one
     bool current_eos = false;
-    if (local_state._sort_idx < local_state._shared_state->partition_sorts.size()) {
+    if (local_state._sort_idx < local_state._shared_state->partition_sorts.size() &&
+        local_state._shared_state->partition_sorts[local_state._sort_idx]->prepared_finish()) {
         RETURN_IF_ERROR(local_state._shared_state->partition_sorts[local_state._sort_idx]->get_next(
                 state, output_block, &current_eos));
         COUNTER_UPDATE(local_state._sorted_partition_output_rows_counter, output_block->rows());

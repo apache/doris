@@ -69,6 +69,7 @@ Status PartitionSorter::prepare_for_read() {
         priority_queue.emplace(MergeSortCursorImpl::create_shared(block, _sort_description));
     }
     blocks.clear();
+    _prepared_finish = true;
     return Status::OK();
 }
 

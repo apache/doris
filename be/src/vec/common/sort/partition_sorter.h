@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -94,6 +95,7 @@ public:
     Status partition_sort_read(Block* block, bool* eos, int batch_size);
     int64 get_output_rows() const { return _output_total_rows; }
     void reset_sorter_state(RuntimeState* runtime_state);
+    auto prepared_finish() { return _prepared_finish.load(); }
 
 private:
     std::unique_ptr<MergeSorterState> _state;
@@ -104,6 +106,7 @@ private:
     int _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
     SortCursorCmp* _previous_row = nullptr;
+    std::atomic_bool _prepared_finish = false;
 };
 
 } // namespace doris::vectorized
