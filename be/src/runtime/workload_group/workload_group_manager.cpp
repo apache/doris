@@ -865,8 +865,6 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         // If the query is a pure load task, then should not modify its limit. Or it will reserve
         // memory failed and we did not hanle it.
         if (!query_ctx->is_pure_load_task()) {
-            // If slot memory policy is enabled, then overcommit is disabled.
-            query_ctx->get_mem_tracker()->set_overcommit(false);
             query_ctx->set_mem_limit(query_weighted_mem_limit);
             query_ctx->set_expected_mem_limit(expected_query_weighted_mem_limit);
         }

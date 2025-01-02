@@ -139,7 +139,6 @@ public:
     ~MemTrackerLimiter();
 
     Type type() const { return _type; }
-    void set_overcommit(bool enable) { _enable_overcommit = enable; }
     const std::string& label() const { return _label; }
     std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
     int64_t group_num() const { return _group_num; }
@@ -217,9 +216,7 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        // If enable overcommit, then the limit is useless, use a very large value as limit
-        bool rt = _mem_counter.try_add(
-                bytes, _enable_overcommit ? std::numeric_limits<int64_t>::max() : _limit.load());
+        bool rt = _mem_counter.try_add(bytes, _limit.load());
         if (rt && _query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(peak_consumption());
             _query_statistics->set_current_used_memory_bytes(consumption());
@@ -318,7 +315,6 @@ private:
     */
 
     Type _type;
-    bool _enable_overcommit = true;
 
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
@@ -377,6 +373,7 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
+    // Do not enable check limit, because reserve process will check it.
     /*
     if (bytes <= 0 || _enable_overcommit) {
         return Status::OK();

@@ -248,6 +248,7 @@ public:
 
     int64_t get_mem_limit() const { return query_mem_tracker->limit(); }
 
+    // The new memlimit should be less than user set memlimit.
     void set_expected_mem_limit(int64_t new_mem_limit) {
         _expected_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
     }
@@ -261,10 +262,6 @@ public:
         return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
     }
 
-    bool enable_mem_overcommit() const {
-        return _query_options.__isset.enable_mem_overcommit ? _query_options.enable_mem_overcommit
-                                                            : false;
-    }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
