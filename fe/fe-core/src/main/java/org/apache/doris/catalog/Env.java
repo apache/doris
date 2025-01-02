@@ -5866,9 +5866,11 @@ public class Env {
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
         if (Strings.isNullOrEmpty(info.getCtl())) {
+            // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
+            // So if the catalog info is empty, we assume it's internal table.
             getInternalCatalog().replayTruncateTable(info);
         } else {
-            ExternalCatalog ctl = catalogMgr.getCatalog(info.getCtl());
+            ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
                 ctl.replayTruncateTable(info);
             }
