@@ -267,6 +267,7 @@ import org.apache.doris.nereids.DorisParser.SetTransactionContext;
 import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
+import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
@@ -316,6 +317,7 @@ import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
+import org.apache.doris.nereids.DorisParser.ShowUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
 import org.apache.doris.nereids.DorisParser.ShowWarningErrorCountContext;
@@ -599,6 +601,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatComm
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
@@ -5019,6 +5022,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowWhitelist(ShowWhitelistContext ctx) {
         return new ShowWhiteListCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowUserProperties(ShowUserPropertiesContext ctx) {
+        String user = ctx.user != null ? stripQuotes(ctx.user.getText()) : null;
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowUserPropertyCommand(user, pattern, false);
+    }
+
+    @Override
+    public LogicalPlan visitShowAllProperties(ShowAllPropertiesContext ctx) {
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowUserPropertyCommand(null, pattern, true);
     }
 
     @Override

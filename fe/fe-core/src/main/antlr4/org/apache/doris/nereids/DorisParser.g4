@@ -272,6 +272,8 @@ supportedShowStatement
     | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
+    | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
+    | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
@@ -368,8 +370,6 @@ unsupportedShowStatement
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
-    | SHOW PROPERTY (FOR user=identifierOrText)? wildWhere?                         #showUserProperties
-    | SHOW ALL PROPERTIES wildWhere?                                                #showAllProperties
     | SHOW BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
     | SHOW BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
