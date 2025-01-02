@@ -3248,4 +3248,8 @@ public class Config extends ConfigBase {
             "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
     public static String block_sql_ast_names = "";
+
+    public static long meta_service_rpc_reconnect_interval_ms = 5000;
+
+    public static long meta_service_rpc_retry_cnt = 10;
 }

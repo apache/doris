@@ -77,5 +77,7 @@ DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
 DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "false");
+
+DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "5000");
 #include "common/compile_check_end.h"
 } // namespace doris::config
