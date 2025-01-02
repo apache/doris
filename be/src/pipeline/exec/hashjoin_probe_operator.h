@@ -92,7 +92,6 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
-
     // For mark join, last probe index of null mark
     int _last_probe_null_mark;
 
@@ -174,7 +173,6 @@ private:
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    bool _probe_ignore_null = false;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;
