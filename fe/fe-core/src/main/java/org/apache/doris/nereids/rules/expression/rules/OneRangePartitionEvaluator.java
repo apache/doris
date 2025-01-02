@@ -63,6 +63,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -362,13 +364,12 @@ public class OneRangePartitionEvaluator<K>
         if (exprRanges.containsKey(inPredicate.getCompareExpr())
                 && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
             Expression compareExpr = inPredicate.getCompareExpr();
-            ColumnRange unionLiteralRange = ColumnRange.empty();
             ColumnRange compareExprRange = result.childrenResult.get(0).columnRanges.get(compareExpr);
+            RangeSet<ColumnBound> union = TreeRangeSet.create();
             for (Expression expr : inPredicate.getOptions()) {
-                unionLiteralRange = unionLiteralRange.union(
-                        compareExprRange.intersect(ColumnRange.singleton((Literal) expr)));
+                union.addAll(compareExprRange.intersect(ColumnRange.singleton((Literal) expr)).asRanges());
             }
-            result = intersectSlotRange(result, exprRanges, compareExpr, unionLiteralRange);
+            result = intersectSlotRange(result, exprRanges, compareExpr, new ColumnRange(union));
         }
         result = result.withRejectNot(false);
         return result;
