@@ -138,6 +138,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
+        // Both upward and downward casting of date types satisfy monotonicity.
         if (child().getDataType() instanceof DateLikeType && targetType instanceof DateLikeType) {
             return true;
         }

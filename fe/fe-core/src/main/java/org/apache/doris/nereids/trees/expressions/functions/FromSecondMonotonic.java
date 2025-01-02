@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
-/** monotonicity for from_xx */
+/** monotonicity for from_{xx}second */
 public interface FromSecondMonotonic extends Monotonic {
     @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
