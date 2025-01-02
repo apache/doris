@@ -1361,8 +1361,12 @@ class Suite implements GroovyInterceptable {
     }
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database) {
+        return getServerPrepareJdbcUrl(jdbcUrl, database, true)
+    }
+
+    String getServerPrepareJdbcUrl(String jdbcUrl, String database, boolean useMasterIp) {
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = getMasterIp()
+        def sql_ip = useMasterIp ? getMasterIp() : urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
         def sql_port
         if (urlWithoutSchema.indexOf("/") >= 0) {
             // e.g: jdbc:mysql://locahost:8080/?a=b

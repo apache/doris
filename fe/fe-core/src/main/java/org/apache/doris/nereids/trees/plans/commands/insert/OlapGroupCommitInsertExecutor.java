@@ -33,6 +33,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -63,6 +64,20 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
+    /**
+     * check if the sql can run in group commit mode
+     * @param logicalPlan plan of sql
+     */
+    public static void analyzeGroupCommit(LogicalPlan logicalPlan) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx.getSessionVariable().isEnableInsertGroupCommit() && logicalPlan instanceof InsertIntoTableCommand) {
+            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+            TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
+            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, logicalQuery,
+                    Optional.empty());
+        }
+    }
+
     protected static void analyzeGroupCommit(ConnectContext ctx, TableIf table, LogicalPlan logicalQuery,
             Optional<InsertCommandContext> insertCtx) {
         // The flag is set to false before execute sql, if it is true, this is a http stream
@@ -91,8 +106,10 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             conditions.add(Pair.of(() -> !(insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
                     && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
             conditions.add(Pair.of(
-                    () -> tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion,
-                    () -> "not one row relation or union, class: " + tableSink.child().getClass().getName()));
+                    () -> tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion
+                            || tableSink.child() instanceof LogicalInlineTable,
+                    () -> "not one row relation or union or inline table, class: " + tableSink.child().getClass()
+                            .getName()));
             ctx.setGroupCommit(conditions.stream().allMatch(p -> p.first.getAsBoolean()));
             if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
