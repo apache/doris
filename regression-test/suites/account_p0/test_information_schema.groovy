@@ -108,5 +108,10 @@ suite("test_information_schema") {
     """
     qt_default "SELECT COLUMN_NAME as field,COLUMN_TYPE as type,IS_NULLABLE as isNullable, COLUMN_DEFAULT as defaultValue FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${tableName}' AND TABLE_SCHEMA = '${dbName}'"
     sql "DROP DATABASE `${dbName}`"
+
+    def explainRes = sql """explain select * from user_privileges where IS_GRANTABLE='NO';"""
+    logger.info("explainRes: " + explainRes.toString())
+    assertFalse(explainRes.toString().contains("PREDICATES"))
+    assertFalse(explainRes.toString().contains("IS_GRANTABLE"))
 }
 
