@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 
 public class MetaCache<T> {
     private LoadingCache<String, List<Pair<String, String>>> namesCache;
+    //Pair<String, String> : <Remote name, Local name>
     private Map<Long, String> idToName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
@@ -114,12 +115,25 @@ public class MetaCache<T> {
         idToName.put(id, objName);
     }
 
+    public void updateCache(String remoteName, String localName, T obj, long id) {
+        metaObjCache.put(localName, Optional.of(obj));
+        namesCache.asMap().compute("", (k, v) -> {
+            if (v == null) {
+                return Lists.newArrayList(Pair.of(remoteName, localName));
+            } else {
+                v.add(Pair.of(remoteName, localName));
+                return v;
+            }
+        });
+        idToName.put(id, localName);
+    }
+
     public void invalidate(String objName, long id) {
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
             } else {
-                v.remove(objName);
+                v.removeIf(pair -> pair.value().equals(objName));
                 return v;
             }
         });
