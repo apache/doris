@@ -248,7 +248,6 @@ public:
                                           free_block_limit) {
         DCHECK_GT(num_partitions, 0);
         DCHECK_GT(num_sources, 0);
-        DCHECK_GE(num_partitions, num_sources);
         _partition_rows_histogram.resize(running_sink_operators);
     }
     ~ShuffleExchanger() override = default;
