@@ -136,17 +136,18 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._agg_arena_pool.reset(nullptr);
         local_state._partitioned_data.reset(nullptr);
         SCOPED_TIMER(local_state._sorted_data_timer);
+        for (auto& _value_place : local_state._value_places) {
+            _value_place->create_or_reset_sorter_state();
+            auto sorter = std::move(_value_place->_partition_topn_sorter);
+            local_state._shared_state->partition_sorts.push_back(std::move(sorter));
+        }
+        // notice: need split two for loop
         for (int i = 0; i < local_state._value_places.size(); ++i) {
-            local_state._value_places[i]->create_or_reset_sorter_state();
-            auto sorter = std::move(local_state._value_places[i]->_partition_topn_sorter);
-
-            //get blocks from every partition, and sorter get those data.
+            auto& sorter = local_state._shared_state->partition_sorts[i];
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
-            local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
-            local_state._shared_state->partition_sorts.push_back(std::move(sorter));
             if (i == 0) {
                 // iff one sorter have data, then could set source ready to read
                 local_state._dependency->set_ready_to_read();
@@ -160,6 +161,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         {
             std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
             local_state._shared_state->sink_eos = true;
+            // this ready is also need, as source maybe block by self in some case
             local_state._dependency->set_ready_to_read();
         }
         local_state._profile->add_info_string("HasPassThrough",

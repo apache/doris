@@ -55,6 +55,7 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                 // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
                 // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
                 std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                //if buffer have no data and sink not eos, block reading and wait for signal again
                 if (!local_state._shared_state->sink_eos) {
                     local_state._dependency->block();
                 }
@@ -69,16 +70,10 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
         // if we move the _blocks_buffer output at last(behind 286 line),
         // it's maybe eos but not output all data: when _blocks_buffer.empty() and _can_read = false (this: _sort_idx && _partition_sorts.size() are 0)
         RETURN_IF_ERROR(get_sorted_block(state, output_block, local_state));
-        {
-            std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
-
-            *eos = local_state._shared_state->blocks_buffer.empty() &&
-                   local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
-        }
+        { *eos = local_state._sort_idx >= local_state._shared_state->partition_sorts.size(); }
     }
 
     if (!output_block->empty()) {
-        //if buffer have no data and sink not eos, block reading and wait for signal again
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                                output_block->columns()));
         local_state._num_rows_returned += output_block->rows();
