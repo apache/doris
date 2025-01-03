@@ -213,7 +213,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new UnknownValue(context, sourceValues, false);
         }
 
-        /** merge discrete and ranges */
+        /** merge discrete and ranges only, no merge other value desc */
         public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
                 Expression reference, List<ValueDesc> valueDescs) {
             Set<Literal> discreteValues = Sets.newHashSet();
@@ -223,7 +223,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 }
             }
 
-            // for 'a > 8 or a = 8', then the range (8, +00) convert to [8, +00]
+            // for 'a > 8 or a = 8', then range (8, +00) can convert to [8, +00)
             RangeSet<Literal> rangeSet = TreeRangeSet.create();
             for (ValueDesc valueDesc : valueDescs) {
                 if (valueDesc instanceof RangeValue) {
