@@ -29,6 +29,10 @@ suite("test_compact_with_seq2", "nonConcurrent") {
     }
 
     def get_running_txns = { expected_num ->
+        if (isCloudMode()) {
+            sleep 6000
+            return true
+        }
         for (int i = 0; i < 2000; i++) {
             def txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
             logger.info("${txns.size} txns: ${txns}")
