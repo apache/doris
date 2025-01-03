@@ -1506,18 +1506,6 @@ class Suite implements GroovyInterceptable {
         if (status != "FINISHED") {
             logger.info("status is not success")
         }
-
-        def show_tables = sql """
-        show tables from ${dbName};
-        """
-        def db_id = getDbId(dbName)
-        def table_id = getTableId(dbName, tableName)
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + tableName
-                + ", db name is " + dbName
-                + ", show_tables are " + show_tables
-                + ", db_id is " + db_id
-                + ", table_id " + table_id)
-
         Assert.assertEquals("FINISHED", status)
     }
 
