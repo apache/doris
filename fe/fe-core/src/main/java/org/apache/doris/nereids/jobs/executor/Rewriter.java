@@ -179,7 +179,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new ExpressionNormalizationAndOptimization(),
                                 new AvgDistinctToSumDivCount(),
                                 new CountDistinctRewrite(),
-                                new MedianRewrite(),
+//                                new MedianRewrite(),
                                 new ExtractFilterFromCrossJoin()
                         ),
                         topDown(
