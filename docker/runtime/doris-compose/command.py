@@ -625,13 +625,8 @@ class UpCommand(Command):
             LOG.info("after Waiting for FE master to be elected...")
             if cluster.is_cloud and args.sql_mode_node_mgr:
                 db_mgr = database.get_db_mgr(args.NAME, False)
-                master_fe_endpoint = ""
-                for i in range(10):
-                    master_fe_endpoint = CLUSTER.get_master_fe_endpoint(
-                        cluster.name)
-                    if master_fe_endpoint:
-                        break
-                    time.sleep(1)
+                master_fe_endpoint = CLUSTER.get_master_fe_endpoint(
+                    cluster.name)
                 # Add FEs except master_fe
                 for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
                     fe_endpoint = f"{fe.get_ip()}:{CLUSTER.FE_EDITLOG_PORT}"
@@ -1076,8 +1071,7 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service:
-                    ComposeService(
+                    service: ComposeService(
                         service,
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])

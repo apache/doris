@@ -139,9 +139,12 @@ def gen_subnet_prefix16():
 
 def get_master_fe_endpoint(cluster_name):
     master_fe_ip_file = get_cluster_path(cluster_name) + "/status/master_fe_ip"
-    if os.path.exists(master_fe_ip_file):
-        with open(master_fe_ip_file, "r") as f:
-            return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+    max_retries = 10
+    for attempt in range(max_retries):
+        if os.path.exists(master_fe_ip_file):
+            with open(master_fe_ip_file, "r") as f:
+                return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+        time.sleep(1)
     try:
         cluster = Cluster.load(cluster_name)
         LOG.info("master file not exist, master ip get from node 1")
