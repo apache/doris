@@ -85,8 +85,8 @@ public:
 
 protected:
     Status _build_current_tablet_schema(int64_t index_id,
-                                      const OlapTableSchemaParam* table_schema_param,
-                                      const TabletSchema& ori_tablet_schema);
+                                        const OlapTableSchemaParam* table_schema_param,
+                                        const TabletSchema& ori_tablet_schema);
 
     virtual void _init_profile(RuntimeProfile* profile);
 
