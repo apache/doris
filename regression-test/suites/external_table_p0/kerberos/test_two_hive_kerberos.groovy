@@ -20,7 +20,7 @@ import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
 import org.junit.Assert;
 
 suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
-    def command = "sudo docker logs doris-external--kerberos1 "
+    def command = "sudo docker ps"
     def process = command.execute() 
     process.waitFor()               
     
