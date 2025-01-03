@@ -647,7 +647,7 @@ public class MasterImpl {
         }
 
         AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-        LOG.info("beigin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
+        LOG.info("begin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
                 alterInvertedIndexTask.getSignature(),
                 alterInvertedIndexTask.getTabletId(),
                 alterInvertedIndexTask.toString());

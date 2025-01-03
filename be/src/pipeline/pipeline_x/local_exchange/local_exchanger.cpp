@@ -28,7 +28,7 @@ template <typename BlockType>
 bool Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
                                                        LocalExchangeSinkLocalState& local_state,
                                                        BlockType&& block) {
-    std::unique_lock l(_m);
+    std::unique_lock l(*_m[channel_id]);
     if (_data_queue[channel_id].enqueue(std::move(block))) {
         local_state._shared_state->set_ready_to_read(channel_id);
         return true;
@@ -45,7 +45,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
     } else if (all_finished) {
         *eos = true;
     } else {
-        std::unique_lock l(_m);
+        std::unique_lock l(*_m[local_state._channel_id]);
         if (_data_queue[local_state._channel_id].try_dequeue(block)) {
             return true;
         }

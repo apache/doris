@@ -19,6 +19,9 @@ import java.util.stream.Collectors
 
 suite("parse_sql_from_sql_cache") {
     def assertHasCache = { String sqlStr ->
+        if (isCloudMode()) {
+            return
+        }
         explain {
             sql ("physical plan ${sqlStr}")
             contains("PhysicalSqlCache")
@@ -26,6 +29,9 @@ suite("parse_sql_from_sql_cache") {
     }
 
     def assertNoCache = { String sqlStr ->
+        if (isCloudMode()) {
+            return
+        }
         explain {
             sql ("physical plan ${sqlStr}")
             notContains("PhysicalSqlCache")

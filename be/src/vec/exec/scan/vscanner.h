@@ -70,6 +70,9 @@ public:
         _common_expr_ctxs_push_down.clear();
         _stale_expr_ctxs.clear();
         DorisMetrics::instance()->scanner_cnt->increment(-1);
+        DCHECK(DorisMetrics::instance()->scanner_cnt->value() >= 0) << fmt::format(
+                "Meets negative scanner count: {}, current query {}",
+                DorisMetrics::instance()->scanner_cnt->value(), print_id(_state->query_id()));
     }
 
     virtual Status init() { return Status::OK(); }

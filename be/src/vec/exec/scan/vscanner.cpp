@@ -40,6 +40,7 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
           _output_tuple_desc(parent->output_tuple_desc()),
           _output_row_descriptor(_parent->_output_row_descriptor.get()) {
     _total_rf_num = _parent->runtime_filter_num();
+    DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
 VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
