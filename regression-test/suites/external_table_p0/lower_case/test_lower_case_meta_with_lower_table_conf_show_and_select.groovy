@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external,doris,external_docker,external_docker_doris") {
 
     String jdbcUrl = context.config.jdbcUrl
@@ -23,6 +27,18 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+
+    def wait_table_sync = { String db ->
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+            try {
+                def res = sql "show tables from ${db}"
+                return res.size() > 0;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+    }
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
@@ -68,21 +84,29 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "only_test_lower_case_table_names" = "1"
         )"""
 
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_1 "select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_2 "select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_3 "select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_4 "select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf1"
+    wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf1_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
 
@@ -117,21 +141,29 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "only_test_lower_case_table_names" = "2"
         )"""
 
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_1 "select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_2 "select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_3 "select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_4 "select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf2"
+    wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf2_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     test {
@@ -263,21 +295,29 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "only_test_lower_case_table_names" = "1"
         )"""
 
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_1 "select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_2 "select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_3 "select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_4 "select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf1"
+    wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf1_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf1.external_test_lower_with_conf.upper_with_conf"
 
     test {
@@ -311,21 +351,29 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "only_test_lower_case_table_names" = "2"
         )"""
 
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_1 "select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_2 "select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_3 "select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_4 "select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.LOWER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_3_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.UPPER_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf2"
+    wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf2_4_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf2.external_test_lower_with_conf.upper_with_conf"
 
     test {
@@ -401,7 +449,7 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "jdbc_url" = "${jdbcUrl}",
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
-            "use_meta_cache" = "truee",
+            "use_meta_cache" = "true",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
@@ -457,34 +505,42 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "only_test_lower_case_table_names" = "0"
         )"""
 
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf0_1 "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf0_2 "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf0_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_false_with_conf0_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     test {
         sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     test {
         sql "select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
         exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
     sql "refresh catalog test_cache_false_lower_false_with_conf0"
+    wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_false_with_conf0.external_test_lower_with_conf.upper_with_conf"
         exception "Table [upper_with_conf] does not exist in database [external_test_lower_with_conf]."
@@ -588,34 +644,42 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "only_test_lower_case_table_names" = "0"
         )"""
 
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf0_1 "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf0_2 "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf0_1_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     qt_sql_test_cache_false_lower_true_with_conf0_2_insert "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.upper_with_conf"
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     test {
         sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     test {
         sql "select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
         exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.Lower_with_conf"
         exception "Table [Lower_with_conf] does not exist in database [external_test_lower_with_conf]."
     }
 
     sql "refresh catalog test_cache_false_lower_true_with_conf0"
+    wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
     test {
         sql "insert into internal.external_test_lower_with_conf.with_conf_insert select * from test_cache_false_lower_true_with_conf0.external_test_lower_with_conf.UPPER_with_conf"
         exception "Table [UPPER_with_conf] does not exist in database [external_test_lower_with_conf]."
