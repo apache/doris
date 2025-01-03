@@ -148,6 +148,28 @@ bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeInd
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
     ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
+
+    // To prevent from null info lost, we should not call function since the function framework will wrap
+    // nullable to Variant instead of the root of Variant
+    // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
+    // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
+    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+        // If source column is variant, so the nullable info is different from dst column
+        if (WhichDataType(remove_nullable(arg.type)).is_variant_type()) {
+            *result = type->is_nullable() ? make_nullable(arg.column) : remove_nullable(arg.column);
+            return Status::OK();
+        }
+        // set variant root column/type to from column/type
+        auto variant = ColumnObject::create(true /*always nullable*/);
+        CHECK(arg.column->is_nullable());
+        variant->create_root(arg.type, arg.column->assume_mutable());
+        ColumnPtr nullable = ColumnNullable::create(
+                variant->get_ptr(),
+                check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
+        *result = type->is_nullable() ? nullable : variant->get_ptr();
+        return Status::OK();
+    }
+
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     if (!function) {
         return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
@@ -157,19 +179,10 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     size_t result_column = tmp_block.columns();
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
-    // To prevent from null info lost, we should not call function since the function framework will wrap
-    // nullable to Variant instead of the root of Variant
-    // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
-    // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
-        // set variant root column/type to from column/type
-        auto variant = ColumnObject::create(true /*always nullable*/);
-        CHECK(arg.column->is_nullable());
-        variant->create_root(arg.type, arg.column->assume_mutable());
-        ColumnPtr nullable = ColumnNullable::create(
-                variant->get_ptr(),
-                check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
-        *result = type->is_nullable() ? nullable : variant->get_ptr();
+    if (WhichDataType(arg.type).is_nothing()) {
+        // cast from nothing to any type should result in nulls
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
         return Status::OK();
     }
 
