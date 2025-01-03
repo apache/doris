@@ -183,6 +183,7 @@ suite("test_commit_mtmv") {
 
     sql """
         CREATE MATERIALIZED VIEW ${mvSag}
+        BUILD DEFERRED
         REFRESH COMPLETE ON commit
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1 
         PROPERTIES (
@@ -191,8 +192,6 @@ suite("test_commit_mtmv") {
         )
         AS  select a.sid,b.cid,b.score from ${tblStu} a join ${tblGrade} b on a.sid = b.sid;
     """
-
-    sleep(1000)
 
     sql """
          insert into ${tblGrade} values(1, 1, 60);
