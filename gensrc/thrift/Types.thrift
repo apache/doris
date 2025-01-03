@@ -717,11 +717,16 @@ enum TMetadataType {
   TASKS,
   WORKLOAD_SCHED_POLICY,
   PARTITIONS,
-  PARTITION_VALUES;
+  PARTITION_VALUES,
+  HUDI,
 }
 
 enum TIcebergQueryType {
   SNAPSHOTS
+}
+
+enum THudiQueryType {
+  TIMELINE
 }
 
 // represent a user identity
