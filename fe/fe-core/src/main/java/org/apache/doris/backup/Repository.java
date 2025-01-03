@@ -453,13 +453,21 @@ public class Repository implements Writable, GsonPostProcessable {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get remote file: {} {}", remoteFilePath, listPathPrefix);
             }
-            if (index == -1) {
+            if (index == -1 || index == remoteFilePath.length() - 1) {
                 LOG.info("glob list wrong results, prefix {}, file name {}, full path is expected",
                         listPathPrefix, remoteFilePath);
                 continue;
             }
+
             String snapshotName = remoteFilePath.substring(index + snapshotNameOffset + 1);
             snapshotName = disjoinPrefix(PREFIX_SNAPSHOT_DIR, snapshotName);
+
+            // _ss_/a
+            int delimiterCount = snapshotName.length() - snapshotName.replace(PATH_DELIMITER, "").length();
+            if (delimiterCount != 1) {
+                LOG.info("Invalid snapshot name format, expected 1 PATH_DELIMITER, got {}", delimiterCount);
+                continue;
+            }
             index = snapshotName.indexOf(PATH_DELIMITER);
             if (index != -1) {
                 snapshotName = snapshotName.substring(0, index);

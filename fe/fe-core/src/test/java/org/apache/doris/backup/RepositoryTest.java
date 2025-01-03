@@ -185,9 +185,11 @@ public class RepositoryTest {
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
                         result.add(new RemoteFile(location + "//" + Repository.PREFIX_REPO + name + "/"
-                                + Repository.PREFIX_SNAPSHOT_DIR + "/" + "a", false, 100, 0));
-                        result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name + "/"
-                                + Repository.PREFIX_SNAPSHOT_DIR + "/" + "_ss_b", true, 100, 0));
+                                + Repository.PREFIX_SNAPSHOT_DIR + "a/__info_", false, 100, 0));
+                        result.add(new RemoteFile(location + "//" + Repository.PREFIX_REPO + name + "/"
+                                + Repository.PREFIX_SNAPSHOT_DIR + "/" + "a/__info_", false, 100, 0));
+                        result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name
+                                + "/_ss_b/__info_", true, 100, 0));
                         return Status.OK;
                     }
                 };
@@ -197,6 +199,7 @@ public class RepositoryTest {
         repo = new Repository(10000, name, false, location, fileSystem);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
+        System.out.println(snapshotNames);
         Assert.assertTrue(st.ok());
         Assert.assertEquals(1, snapshotNames.size());
         Assert.assertEquals("a", snapshotNames.get(0));
@@ -291,16 +294,20 @@ public class RepositoryTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
+                        String metaFilePath1 = location + "//" + Repository.PREFIX_REPO + name + "//"
+                                    + Repository.PREFIX_SNAPSHOT_DIR + "s1//"
+                                    + "__info_2018-04-18-20-11-00.12345678123456781234567812345678";
+                        String metaFilePath2 = location + "//" + Repository.PREFIX_REPO + name + "//"
+                                    + Repository.PREFIX_SNAPSHOT_DIR + "s2//"
+                                    + "__info_2018-04-18-20-11-00.12345678123456781234567812345678";
                         if (remotePath.contains(Repository.PREFIX_JOB_INFO)) {
-                            result.add(new RemoteFile(" __info_2018-04-18-20-11-00.12345678123456781234567812345678",
+                            result.add(new RemoteFile(metaFilePath1,
                                     true,
                                     100,
                                     0));
                         } else {
-                            result.add(new RemoteFile(location + "//" + Repository.PREFIX_REPO + name + "//"
-                                    + Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
-                            result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name + "/"
-                                    + Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
+                            result.add(new RemoteFile(metaFilePath1, true, 100, 0));
+                            result.add(new RemoteFile(metaFilePath2, true, 100, 0));
                         }
                         return Status.OK;
                     }
