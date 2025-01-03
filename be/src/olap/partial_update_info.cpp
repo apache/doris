@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "common/consts.h"
+#include "common/logging.h"
 #include "olap/base_tablet.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -32,12 +33,13 @@
 
 namespace doris {
 
-void PartialUpdateInfo::init(const TabletSchema& tablet_schema,
-                             UniqueKeyUpdateModePB unique_key_update_mode,
-                             const std::set<string>& partial_update_cols, bool is_strict_mode,
-                             int64_t timestamp_ms, int32_t nano_seconds,
-                             const std::string& timezone, const std::string& auto_increment_column,
-                             int32_t sequence_map_col_uid, int64_t cur_max_version) {
+Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
+                               UniqueKeyUpdateModePB unique_key_update_mode,
+                               const std::set<string>& partial_update_cols, bool is_strict_mode,
+                               int64_t timestamp_ms, int32_t nano_seconds,
+                               const std::string& timezone,
+                               const std::string& auto_increment_column,
+                               int32_t sequence_map_col_uid, int64_t cur_max_version) {
     partial_update_mode = unique_key_update_mode;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
@@ -47,6 +49,31 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema,
     this->timezone = timezone;
     missing_cids.clear();
     update_cids.clear();
+
+    // partial_update_cols should include all key columns
+    for (std::size_t i {0}; i < tablet_schema.num_key_columns(); i++) {
+        const auto key_col = tablet_schema.column(i);
+        if (!partial_update_cols.contains(key_col.name())) {
+            auto msg = fmt::format(
+                    "Unable to do partial update on shadow index's tablet, tablet_id={}, "
+                    "txn_id={}. Missing key column {}.",
+                    tablet_id, txn_id, key_col.name());
+            LOG_WARNING(msg);
+            return Status::Aborted<false>(msg);
+        }
+    }
+
+    // every including columns should be in tablet_schema
+    for (const auto& col : partial_update_cols) {
+        if (-1 == tablet_schema.field_index(col)) {
+            auto msg = fmt::format(
+                    "Unable to do partial update on shadow index's tablet, tablet_id={}, "
+                    "txn_id={}. Can't find column {} in tablet's schema.",
+                    tablet_id, txn_id, col);
+            LOG_WARNING(msg);
+            return Status::Aborted<false>(msg);
+        }
+    }
 
     for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
         if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
@@ -75,6 +102,7 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema,
             is_fixed_partial_update() &&
             partial_update_input_columns.contains(auto_increment_column);
     _generate_default_values_for_missing_cids(tablet_schema);
+    return Status::OK();
 }
 
 void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const {
