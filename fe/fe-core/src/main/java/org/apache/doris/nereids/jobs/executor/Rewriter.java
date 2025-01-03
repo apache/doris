@@ -55,6 +55,7 @@ import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
@@ -106,6 +107,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectBetweenTopNAndAgg;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -115,6 +117,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -253,6 +256,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new CountLiteralRewrite(),
                         new NormalizeSort()
                 ),
+
+                topDown(// must behind NormalizeAggregate/NormalizeSort
+                        new MergeProjects(),
+                        new PushDownEncodeSlot(),
+                        new DecoupleEncodeDecode()
+                ),
+
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
@@ -372,9 +382,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         //       generate one PhysicalLimit if current distribution is gather or two
                         //       PhysicalLimits with gather exchange
                         topDown(new LimitSortToTopN()),
-                        topDown(new SimplifyEncodeDecode()),
-                        topDown(new LimitAggToTopNAgg()),
                         topDown(new MergeTopNs()),
+                        topDown(new SimplifyEncodeDecode(),
+                                new MergeProjects()
+                        ),
+                        topDown(new LimitAggToTopNAgg()),
                         topDown(new SplitLimit()),
                         topDown(
                                 new PushDownLimit(),
@@ -466,6 +478,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                         topDown(new MergeProjects())
                 ),
+                topic("Adjust topN project",
+                        topDown(new MergeProjects(),
+                                new PullUpProjectBetweenTopNAndAgg())),
                 // this rule batch must keep at the end of rewrite to do some plan check
                 topic("Final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
