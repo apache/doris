@@ -120,8 +120,8 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    // this variable is assgiened to true the first time the profile is loaded from storage
-    // no futher write operaiton, so no data race
+    // this variable is assigned to true the first time the profile is loaded from storage
+    // no further write operation, so no data race
     boolean isProfileLoaded = false;
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -129,10 +129,10 @@ public class ProfileManager extends MasterDaemon {
     private ReadLock readLock;
     private WriteLock writeLock;
 
-    // profile id is long string for brocker load
+    // profile id is long string for broker load
     // is TUniqueId for others.
     private Map<String, ProfileElement> queryIdToProfileMap;
-    // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
+    // Sometimes one Profile is related with multiple execution profiles(Broker-load), so that
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
@@ -151,7 +151,7 @@ public class ProfileManager extends MasterDaemon {
         return INSTANCE;
     }
 
-    // The visiablity of ProfileManager() is package level, so that we can write ut for it.
+    // The visibility of ProfileManager() is package level, so that we can write ut for it.
     ProfileManager() {
         super("profile-manager", Config.profile_manager_gc_interval_seconds * 1000);
         lock = new ReentrantReadWriteLock(true);
@@ -941,5 +941,30 @@ public class ProfileManager extends MasterDaemon {
                         stringBuilder.toString(), profileNum);
             }
         }
+    }
+
+    public List<List<String>> getProfileMetaWithType(ProfileType profileType, int limit) {
+        List<List<String>> result = Lists.newArrayList();
+        readLock.lock();
+
+        try {
+            PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
+            while (!queueIdDeque.isEmpty() && limit > 0) {
+                ProfileElement profileElement = queueIdDeque.poll();
+                Map<String, String> infoStrings = profileElement.infoStrings;
+                if (infoStrings.get(SummaryProfile.TASK_TYPE).equals(profileType.toString())) {
+                    List<String> row = Lists.newArrayList();
+                    for (String str : SummaryProfile.SUMMARY_KEYS) {
+                        row.add(infoStrings.get(str));
+                    }
+                    result.add(row);
+                    limit--;
+                }
+            }
+        } finally {
+            readLock.unlock();
+        }
+
+        return result;
     }
 }

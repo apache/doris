@@ -17,32 +17,40 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-// deprecated stmt, use will be guided to a specific url to get profile from
-// web browser
+// For stmt like:
+// show query profile "/";   # list all saving query ids
 public class ShowQueryProfileStmt extends ShowStmt implements NotFallbackInParser {
-    private String queryIdPath;
+    // This should be same as ProfileManager.PROFILE_HEADERS
+    public static final ShowResultSetMetaData META_DATA_QUERY_IDS;
 
-    public ShowQueryProfileStmt(String queryIdPath) {
-        this.queryIdPath = queryIdPath;
+    static {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String key : SummaryProfile.SUMMARY_KEYS) {
+            builder.addColumn(new Column(key, ScalarType.createStringType()));
+        }
+        META_DATA_QUERY_IDS = builder.build();
+    }
+
+    public ShowQueryProfileStmt(String useless) {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
-        int httpPort = Config.http_port;
-        String terminalMsg = String.format(
-                "try visit http://%s:%d/QueryProfile/%s, show query/load profile syntax is a deprecated feature",
-                selfHost, httpPort, this.queryIdPath);
-        throw new UserException(terminalMsg);
+    public String toSql() {
+        return "SHOW QUERY PROFILE";
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return null;
+        return META_DATA_QUERY_IDS;
     }
 }
