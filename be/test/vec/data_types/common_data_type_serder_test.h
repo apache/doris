@@ -143,16 +143,14 @@ public:
 
         while (std::getline(file, line)) {
             std::stringstream lineStream(line);
-            //            std::cout << "whole : " << lineStream.str() << std::endl;
             std::string value;
             int l_idx = 0;
             int c_idx = 0;
             std::vector<std::string> row;
             while (std::getline(lineStream, value, spliter)) {
-                if (idxes.contains(l_idx)) {
+                if (!value.starts_with("//") && idxes.contains(l_idx)) {
                     // load csv data
                     Slice string_slice(value.data(), value.size());
-                    std::cout << "origin : " << string_slice << std::endl;
                     Status st;
                     // deserialize data
                     if constexpr (is_hive_format) {
@@ -210,8 +208,6 @@ public:
             }
             for (size_t r = 0; r < assert_str_cols[0]->size(); ++r) {
                 for (size_t c = 0; c < assert_str_cols.size(); ++c) {
-                    std::cout << assert_str_cols[c]->get_data_at(r).to_string() << spliter
-                              << std::endl;
                     res_f << assert_str_cols[c]->get_data_at(r).to_string() << spliter;
                 }
                 res_f << std::endl;
