@@ -21,6 +21,7 @@ suite("test_hive_translation_insert_only", "p2,external,hive,external_remote,ext
     //hudi hive use same catalog in p2.
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable test")
+        return;
     }
 
     String props = context.config.otherConfigs.get("hudiEmrCatalog")    
