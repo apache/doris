@@ -74,15 +74,11 @@ public class CreateWorkloadGroupStmt extends DdlStmt {
             throw new AnalysisException("Workload Group properties can't be empty");
         }
 
-        if (properties.containsKey(WorkloadGroup.INTERNAL_TYPE)) {
-            throw new AnalysisException(WorkloadGroup.INTERNAL_TYPE + " can not be create or modified ");
-        }
-
         String tagStr = properties.get(WorkloadGroup.TAG);
-        if (!StringUtils.isEmpty(tagStr) && (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)
-                || WorkloadGroupMgr.INTERNAL_GROUP_NAME.equals(workloadGroupName))) {
+        if (!StringUtils.isEmpty(tagStr)
+                && (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName))) {
             throw new AnalysisException(
-                    WorkloadGroupMgr.INTERNAL_GROUP_NAME + " and " + WorkloadGroupMgr.DEFAULT_GROUP_NAME
+                    WorkloadGroupMgr.DEFAULT_GROUP_NAME
                             + " group can not set tag");
         }
     }
