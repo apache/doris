@@ -202,6 +202,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<Expression> value = entry.getValue();
             if (!value.isPresent() || value.get() instanceof NullLiteral || common.contains(value.get())) {
                 newSlotUniformValue.put(entry.getKey(), value);
+            } else {
+                newSlotUniformValue.put(entry.getKey(), Optional.empty());
             }
         }
         builder.addUniformSlotValueMap(newSlotUniformValue);
