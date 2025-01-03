@@ -127,8 +127,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     auto mem_usage = block->allocated_bytes();
 
     if (rows != 0) {
-        local_state._build_rows += rows;
-        local_state._total_mem_usage += mem_usage;
+        COUNTER_UPDATE(local_state._memory_used_counter, mem_usage);
         local_state._shared_state->build_blocks.emplace_back(std::move(*block));
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(
