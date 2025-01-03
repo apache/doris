@@ -42,7 +42,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
-import org.apache.doris.thrift.TWorkloadType;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
@@ -71,12 +70,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     public static final String DEFAULT_GROUP_NAME = "normal";
 
     public static final Long DEFAULT_GROUP_ID = 1L;
-
-    public static final String INTERNAL_GROUP_NAME = "_internal";
-
-    // internal_type_id could be converted to workload group id when Workload published to BE
-    // refer WorkloadGroup.toTopicInfo
-    public static final Long INTERNAL_TYPE_ID = Long.valueOf(TWorkloadType.INTERNAL.getValue());
 
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
@@ -374,24 +367,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         LOG.info("Create workload group success: {}", workloadGroup);
     }
 
-    public void createInternalWorkloadGroup() {
-        Map<String, String> properties = Maps.newHashMap();
-        // 100 is cgroup v2 default cpu_share value
-        properties.put(WorkloadGroup.CPU_SHARE, "100");
-        properties.put(WorkloadGroup.INTERNAL_TYPE, String.valueOf(INTERNAL_TYPE_ID));
-        WorkloadGroup wg = new WorkloadGroup(Env.getCurrentEnv().getNextId(), INTERNAL_GROUP_NAME, properties);
-        writeLock();
-        try {
-            if (!nameToWorkloadGroup.containsKey(wg.getName())) {
-                nameToWorkloadGroup.put(wg.getName(), wg);
-                idToWorkloadGroup.put(wg.getId(), wg);
-                Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(wg);
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
     // NOTE: used for checking sum value of 100%  for cpu_hard_limit and memory_limit
     //  when create/alter workload group with same tag.
     //  when oldWg is null it means caller is an alter stmt.
@@ -485,7 +460,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
         String workloadGroupName = stmt.getWorkloadGroupName();
-        if (DEFAULT_GROUP_NAME.equals(workloadGroupName) || INTERNAL_GROUP_NAME.equals(workloadGroupName)) {
+        if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping workload group " + workloadGroupName + " is not allowed");
         }
 
