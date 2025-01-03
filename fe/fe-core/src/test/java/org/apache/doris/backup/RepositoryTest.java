@@ -184,9 +184,9 @@ public class RepositoryTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
-                        result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + "/"
+                        result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + name + "/"
                                 + Repository.PREFIX_SNAPSHOT_DIR + "/" + "a", false, 100, 0));
-                        result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + "/"
+                        result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name + "/"
                                 + Repository.PREFIX_SNAPSHOT_DIR + "/" + "_ss_b", true, 100, 0));
                         return Status.OK;
                     }
@@ -194,7 +194,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, "repo", false, location, fileSystem);
+        repo = new Repository(10000, name, false, location, fileSystem);
         List<String> snapshotNames = Lists.newArrayList();
         Status st = repo.listSnapshots(snapshotNames);
         Assert.assertTrue(st.ok());
@@ -285,7 +285,7 @@ public class RepositoryTest {
 
     @Test
     public void testGetSnapshotInfo() {
-        String repoName = "repo";
+        String name = "repo";
 
         new Expectations() {
             {
@@ -299,9 +299,9 @@ public class RepositoryTest {
                                     100,
                                     0));
                         } else {
-                            result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + repoName + "/"
+                            result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + name + "/"
                                     + Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
-                            result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + repoName + "/"
+                            result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name + "/"
                                     + Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));
                         }
                         return Status.OK;
@@ -310,7 +310,7 @@ public class RepositoryTest {
             }
         };
 
-        repo = new Repository(10000, repoName, false, location, fileSystem);
+        repo = new Repository(10000, name, false, location, fileSystem);
         String snapshotName = "";
         String timestamp = "";
         try {
