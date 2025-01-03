@@ -185,7 +185,10 @@ public class FrontendServiceImplTest {
         TGetDbsResult dbNames = impl.getDbNames(params);
 
         Assert.assertEquals(dbNames.getDbs().size(), 2);
-        Assert.assertEquals(dbNames.getDbs(), Arrays.asList("test", "test_"));
+        List<String> expected = Arrays.asList("test", "test_");
+        dbNames.getDbs().sort(String::compareTo);
+        expected.sort(String::compareTo);
+        Assert.assertEquals(dbNames.getDbs(), expected);
     }
 
     @Test
