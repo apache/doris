@@ -1254,7 +1254,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
     int64_t start_apply = MonotonicMillis();
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
