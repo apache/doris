@@ -18,11 +18,15 @@
 suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external_docker_doris") {
 
     String jdbcUrl = context.config.jdbcUrl
-    String jdbcUser = context.config.jdbcUser
-    String jdbcPassword = context.config.jdbcPassword
+    String jdbcUser = "test_timing_refresh_catalog_user"
+    String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+
+    try_sql """drop user ${jdbcUser}"""
+    sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+    sql """grant all on *.*.* to ${jdbcUser}"""
 
     String mapping = """
     {
@@ -158,4 +162,6 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
     sql """drop catalog if exists test_timing_refresh_catalog1 """
     sql """drop catalog if exists test_timing_refresh_catalog2 """
     sql """drop database if exists internal.external_timing_refresh_catalog """
+
+    try_sql """drop user ${jdbcUser}"""
 }
