@@ -1657,11 +1657,22 @@ void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& r
                 .tag("tablet_id", drop_tablet_req.tablet_id);
         return;
     });
-    // 1. erase lru from tablet mgr
-    // TODO(dx) clean tablet file cache
-    // get tablet's info(such as cachekey, tablet id, rsid)
+    auto weak_tablets = engine.tablet_mgr().get_weak_tablets();
+    auto it = std::find_if(
+            weak_tablets.begin(), weak_tablets.end(),
+            [tablet_id = drop_tablet_req.tablet_id](const std::weak_ptr<CloudTablet>& weak_tablet) {
+                if (auto tablet = weak_tablet.lock()) {
+                    return tablet->tablet_id() == tablet_id;
+                }
+                return false;
+            });
+
+    if (it != weak_tablets.end()) {
+        if (auto tablet = it->lock()) {
+            CloudTablet::recycle_cached_data(tablet->get_snapshot_rowset(true));
+        }
+    }
     engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
-    // 2. gen clean file cache task
     return;
 }
 
