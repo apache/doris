@@ -154,7 +154,7 @@ suite("test_mtmv_property","mtmv") {
         sql """ALTER TABLE ${mvName} SET ("store_row_column" = "false");"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not alter store_row_column"))
+        assertTrue(e.getMessage().contains("Unknown table property: [store_row_column]"))
     }
 
     // is_being_synced
