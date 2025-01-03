@@ -22,8 +22,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
+
 // For stmt like:
-// show load profile "/";   # list all saving load job ids
+// show load profile "/" limit 10;
 public class ShowLoadProfileStmt extends ShowStmt implements NotFallbackInParser {
     // This should be same as ProfileManager.PROFILE_HEADERS
     public static final ShowResultSetMetaData META_DATA_QUERY_IDS;
@@ -31,17 +33,36 @@ public class ShowLoadProfileStmt extends ShowStmt implements NotFallbackInParser
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String key : SummaryProfile.SUMMARY_KEYS) {
+            if (key.equals(SummaryProfile.DISTRIBUTED_PLAN)) {
+                continue;
+            }
             builder.addColumn(new Column(key, ScalarType.createStringType()));
         }
         META_DATA_QUERY_IDS = builder.build();
     }
 
-    public ShowLoadProfileStmt(String useless) {
+    public ShowLoadProfileStmt(String useless, LimitElement limit) {
+        this.path = useless;
+        this.limitElement = limit;
     }
+
+    private String path;
+    private final LimitElement limitElement;
 
     @Override
     public String toSql() {
-        return "SHOW LOAD PROFILE";
+        StringBuilder sb = new StringBuilder();
+        sb.append("SHOW LOAD PROFILE");
+        if (!Strings.isNullOrEmpty(path)) {
+            sb.append(" ");
+            sb.append(path);
+        }
+
+        if (limitElement != null) {
+            sb.append(" LIMIT ").append(getLimit());
+        }
+
+        return sb.toString();
     }
 
     @Override
@@ -52,5 +73,9 @@ public class ShowLoadProfileStmt extends ShowStmt implements NotFallbackInParser
     @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA_QUERY_IDS;
+    }
+
+    public long getLimit() {
+        return limitElement == null ? 20 : limitElement.getLimit();
     }
 }

@@ -4646,13 +4646,13 @@ show_param ::=
     {:
         RESULT = new ShowTransactionStmt(dbName, parser.where);
     :}
-    | KW_QUERY KW_PROFILE STRING_LITERAL:queryIdPath
+    | KW_QUERY KW_PROFILE STRING_LITERAL:queryIdPath limit_clause:limitClause
     {:
-        RESULT = new ShowQueryProfileStmt(queryIdPath);
+        RESULT = new ShowQueryProfileStmt(queryIdPath, limitClause);
     :}
-    | KW_LOAD KW_PROFILE STRING_LITERAL:loadIdPath
+    | KW_LOAD KW_PROFILE STRING_LITERAL:loadIdPath limit_clause:limitClause
     {:
-        RESULT = new ShowLoadProfileStmt(loadIdPath);
+        RESULT = new ShowLoadProfileStmt(loadIdPath, limitClause);
     :}
     | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
     {:

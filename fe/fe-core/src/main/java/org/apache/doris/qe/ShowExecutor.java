@@ -2622,13 +2622,15 @@ public class ShowExecutor {
 
     private void handleShowQueryProfile() throws AnalysisException {
         ShowQueryProfileStmt showStmt = (ShowQueryProfileStmt) stmt;
-        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(ProfileType.QUERY, 20);
+        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(
+                                                                ProfileType.QUERY, showStmt.getLimit());
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowLoadProfile() throws AnalysisException {
         ShowLoadProfileStmt showStmt = (ShowLoadProfileStmt) stmt;
-        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(ProfileType.LOAD, 20);
+        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(
+                                                                ProfileType.LOAD, showStmt.getLimit());
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
