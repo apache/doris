@@ -184,7 +184,7 @@ public class RepositoryTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public Status list(String remotePath, List<RemoteFile> result) {
-                        result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + name + "/"
+                        result.add(new RemoteFile(location + "//" + Repository.PREFIX_REPO + name + "/"
                                 + Repository.PREFIX_SNAPSHOT_DIR + "/" + "a", false, 100, 0));
                         result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name + "/"
                                 + Repository.PREFIX_SNAPSHOT_DIR + "/" + "_ss_b", true, 100, 0));
@@ -285,8 +285,6 @@ public class RepositoryTest {
 
     @Test
     public void testGetSnapshotInfo() {
-        String name = "repo";
-
         new Expectations() {
             {
                 fileSystem.globList(anyString, (List<RemoteFile>) any);
@@ -299,7 +297,7 @@ public class RepositoryTest {
                                     100,
                                     0));
                         } else {
-                            result.add(new RemoteFile(location + "/" + Repository.PREFIX_REPO + name + "/"
+                            result.add(new RemoteFile(location + "//" + Repository.PREFIX_REPO + name + "//"
                                     + Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100, 0));
                             result.add(new RemoteFile(location + "/"  + Repository.PREFIX_REPO + name + "/"
                                     + Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100, 0));

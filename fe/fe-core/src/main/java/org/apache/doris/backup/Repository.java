@@ -431,7 +431,6 @@ public class Repository implements Writable, GsonPostProcessable {
             return new Status(ErrCode.COMMON_ERROR, "Invalid URI syntax: " + listPathPrefix);
         }
 
-
         String listPath = listPathPrefix + "*" + PATH_DELIMITER + "*";
         List<RemoteFile> result = Lists.newArrayList();
         Status st = fileSystem.globList(listPath, result);
@@ -443,16 +442,23 @@ public class Repository implements Writable, GsonPostProcessable {
 
         HashSet<String> uniqueSnapshotNames = new HashSet<>();
         for (RemoteFile remoteFile : result) {
-            int index = remoteFile.getName().indexOf(listPathPrefix);
+            String remoteFilePath;
+            try {
+                remoteFilePath = new URI(remoteFile.getName()).normalize().toString();
+            } catch (URISyntaxException e) {
+                LOG.error("Invalid URI syntax: " + remoteFile.getName(), e);
+                continue;
+            }
+            int index = remoteFilePath.indexOf(listPathPrefix);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("get remote file: {} {}", remoteFile.getName(), listPathPrefix);
+                LOG.debug("get remote file: {} {}", remoteFilePath, listPathPrefix);
             }
             if (index == -1) {
                 LOG.info("glob list wrong results, prefix {}, file name {}, full path is expected",
-                        listPathPrefix, remoteFile.getName());
+                        listPathPrefix, remoteFilePath);
                 continue;
             }
-            String snapshotName = remoteFile.getName().substring(index + snapshotNameOffset + 1);
+            String snapshotName = remoteFilePath.substring(index + snapshotNameOffset + 1);
             snapshotName = disjoinPrefix(PREFIX_SNAPSHOT_DIR, snapshotName);
             index = snapshotName.indexOf(PATH_DELIMITER);
             if (index != -1) {
