@@ -191,7 +191,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
         // If the remote name is missing during upgrade, all tables in the Map will be reinitialized.
-        if (log.getRemoteTableNames() == null || log.getRemoteTableNames().isEmpty()) {
+        if (log.getCreateCount() > 0 && (log.getRemoteTableNames() == null || log.getRemoteTableNames().isEmpty())) {
             tableNameToId = Maps.newConcurrentMap();
             idToTbl = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
