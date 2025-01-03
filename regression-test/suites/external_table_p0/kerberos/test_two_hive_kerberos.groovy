@@ -20,13 +20,13 @@ import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
 import org.junit.Assert;
 
 suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
-    def command = "sudo docker ps"
+    def command = "sudo docker logs doris-external--kerberos2 "
     def process = command.execute() 
     process.waitFor()               
     
     def output = process.in.text
     
-    println "Docker containers:"
+    println "Docker doris-external--kerberos2:"
     println output
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
