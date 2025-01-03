@@ -66,6 +66,20 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
         this.groupCommitBackend = backend;
     }
 
+    /**
+     * check if the sql can run in group commit mode
+     * @param logicalPlan plan of sql
+     */
+    public static void analyzeGroupCommit(LogicalPlan logicalPlan) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx.getSessionVariable().isEnableInsertGroupCommit() && logicalPlan instanceof InsertIntoTableCommand) {
+            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+            TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
+            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, logicalQuery,
+                    Optional.empty());
+        }
+    }
+
     protected static void analyzeGroupCommit(ConnectContext ctx, TableIf table, LogicalPlan logicalQuery,
             Optional<InsertCommandContext> insertCtx) {
         // The flag is set to false before execute sql, if it is true, this is a http stream
