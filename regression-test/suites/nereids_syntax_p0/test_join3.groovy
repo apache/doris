@@ -41,9 +41,24 @@ suite("nereids_test_join3", "query,p0") {
     sql "INSERT INTO ${tbName3} VALUES ( 'cc', 23 );"
     sql "INSERT INTO ${tbName3} VALUES ( 'dd', 33 );"
 
-    qt_join1 """
-            SELECT * FROM ${tbName1} FULL JOIN ${tbName2} USING (name) FULL JOIN ${tbName3} USING (name) ORDER BY 1,2,3,4,5,6;
-        """
+
+    sql "set profile_level=3"
+    def label = UUID.randomUUID().toString()
+
+    profile(label) {
+        run {
+            qt_join1 """
+                SELECT /** $label */ * FROM ${tbName1} FULL JOIN ${tbName2} USING (name) FULL JOIN ${tbName3} USING (name) ORDER BY 1,2,3,4,5,6;
+            """
+        }
+
+        check { p, e ->
+            logger.info("profile\n${p}")
+            if (e != null) {
+                throw e
+            }
+        }
+    }
     qt_join2 """
             SELECT * FROM
             (SELECT * FROM ${tbName2}) as s2
