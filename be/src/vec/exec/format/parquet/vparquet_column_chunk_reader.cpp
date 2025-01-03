@@ -71,8 +71,8 @@ Status ColumnChunkReader::init() {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
         // Parse dictionary data when reading
-        // RETURN_IF_ERROR(_page_reader->next_page_header());
-        // RETURN_IF_ERROR(_decode_dict_page());
+        RETURN_IF_ERROR(_page_reader->next_page_header());
+        RETURN_IF_ERROR(_decode_dict_page());
     } else {
         // seek to the first data page
         _page_reader->seek_to_page(_metadata.data_page_offset);
@@ -93,20 +93,6 @@ Status ColumnChunkReader::next_page() {
     }
 
     RETURN_IF_ERROR(_page_reader->next_page_header());
-
-    if (!_dict_checked) {
-        _dict_checked = true;
-        const tparquet::PageHeader* header;
-        RETURN_IF_ERROR(_page_reader->get_page_header(header));
-        if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
-            // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-            // so we should parse the directory page in next_page()
-            RETURN_IF_ERROR(_decode_dict_page());
-            // parse the real first data page
-            return next_page();
-        }
-    }
-
     RETURN_IF_ERROR(_page_reader->get_num_values(_remaining_num_values));
     _chunk_parsed_values += _remaining_num_values;
     _state = HEADER_PARSED;
@@ -131,6 +117,8 @@ Status ColumnChunkReader::load_page_data() {
     }
     const tparquet::PageHeader* header;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
+    // shoud not be dictionary page
+    DCHECK(header->type != tparquet::PageType::DICTIONARY_PAGE);
     int32_t uncompressed_size = header->uncompressed_page_size;
 
     if (_block_compress_codec != nullptr) {
