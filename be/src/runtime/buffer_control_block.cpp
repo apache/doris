@@ -172,7 +172,10 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size, Run
 }
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel(Status::Cancelled("Cancelled"));
+    cancel(Status::Cancelled(
+            "BufferControlBlock is destructed, this is not the expected path, the correct path is "
+            "ResultBufferMgr::cancel before the destructor, fragmentId: {}",
+            print_id(_fragment_id)));
 }
 
 Status BufferControlBlock::init() {
@@ -447,7 +450,7 @@ void BufferControlBlock::cancel(const Status& reason) {
     }
     _waiting_rpc.clear();
     for (auto& ctx : _waiting_arrow_result_batch_rpc) {
-        ctx->on_failure(Status::Cancelled("Cancelled"));
+        ctx->on_failure(reason);
     }
     _waiting_arrow_result_batch_rpc.clear();
     _arrow_flight_result_batch_queue.clear();
