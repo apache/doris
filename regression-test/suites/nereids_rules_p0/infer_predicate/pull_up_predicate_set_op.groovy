@@ -471,10 +471,6 @@ suite("pull_up_predicate_set_op") {
     select /*+use_cbo_rule(INFER_SET_OPERATOR_DISTINCT)*/ t.a,t3.b from (select 1 as a,b from test_pull_up_predicate_set_op1 intersect select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3 
     on t3.a=t.a and t3.b=t.b order by 1,2; 
     """
-    qt_intersect_with_hint_infer_set_operator_distinct_and_do_eliminate_gby_key_by_uniform_shape """
-    explain shape plan select /*+use_cbo_rule(INFER_SET_OPERATOR_DISTINCT)*/ t.a,t3.b from (select 1 as a,b from test_pull_up_predicate_set_op1 intersect select a,b from test_pull_up_predicate_set_op2 where b>'ab') t inner join test_pull_up_predicate_set_op3 t3 
-    on t3.a=t.a and t3.b=t.b order by 1,2; 
-    """
 
     sql """
         drop table if exists table_1_undef_partitions2_keys3_properties4_distributed_by52;

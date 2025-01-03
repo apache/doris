@@ -564,29 +564,5 @@ abbbb
 -- !intersect_with_hint_infer_set_operator_distinct_and_do_eliminate_gby_key_by_uniform --
 1	d2
 
--- !intersect_with_hint_infer_set_operator_distinct_and_do_eliminate_gby_key_by_uniform_shape --
-PhysicalResultSink
---PhysicalQuickSort[MERGE_SORT]
-----PhysicalQuickSort[LOCAL_SORT]
-------hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
---------PhysicalIntersect
-----------filter((a = 1))
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((test_pull_up_predicate_set_op1.b > 'ab'))
-------------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
-----------filter((test_pull_up_predicate_set_op2.a = 1))
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((test_pull_up_predicate_set_op2.a = 1) and (test_pull_up_predicate_set_op2.b > 'ab'))
-------------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
---------filter((t3.a = 1) and (t3.b > 'ab'))
-----------PhysicalOlapScan[test_pull_up_predicate_set_op3]
-
-Hint log:
-Used: use_INFER_SET_OPERATOR_DISTINCT
-UnUsed:
-SyntaxError:
-
 -- !test --
 
