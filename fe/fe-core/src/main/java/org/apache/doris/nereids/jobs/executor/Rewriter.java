@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.executor;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.rules.JoinSplitForNullSkew;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
@@ -320,8 +321,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new EliminateEmptyRelation()),
                         // when union has empty relation child and constantExprsList is not empty,
                         // after EliminateEmptyRelation, project can be pushed into union
-                        topDown(new PushProjectIntoUnion())
-                ),
+                        topDown(new PushProjectIntoUnion()),
+                        costBased(topDown(new JoinSplitForNullSkew()))
+                        ),
                 // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
