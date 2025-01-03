@@ -378,6 +378,15 @@ public:
     // Define the custom assert callback function to verify insert_range_from_ignore_overflow behavior
     static void assert_insert_range_from_ignore_overflow(MutableColumns& load_cols,
                                                          DataTypes types) {
+        size_t max = load_cols[0]->size();
+        for (size_t i = 1; i < load_cols.size(); ++i) {
+            max = std::max(max, load_cols[i]->size());
+        }
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() < max) {
+                load_cols[i]->resize(max);
+            }
+        }
         // step1. to construct a block for load_cols
         Block block;
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -516,8 +525,6 @@ public:
                         target_column->insert_indices_from(*source_column, &(*from_idx),
                                                            &(*end_idx));
                     }
-                    std::cout << source_column->get_name() << " now insert_indices_from from "
-                              << *from_idx << " to " << *end_idx << std::endl;
                     // Verify the inserted data matches the expected results in `assert_res`
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(target_column->size());
@@ -1477,6 +1484,7 @@ public:
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
             auto source_size = source_column->size();
+            auto cloned_col = load_cols[i]->clone_resized(source_size);
             const ColumnArray::Filter all_filtered(source_size, 0);
             const ColumnArray::Filter no_filtered(source_size, 1);
             // invalid data -1 will also make data without be filtered ??
@@ -1486,28 +1494,8 @@ public:
             LOG(INFO) << "now we are in filter column : " << load_cols[i]->get_name()
                       << " for column size : " << source_column->size();
             {
-                auto ret_size = source_column->filter(all_filtered);
-                // check filter res
-                auto ser_col = ColumnString::create();
-                ser_col->reserve(ret_size);
-                VectorBufferWriter buffer_writer(*ser_col.get());
-                data.push_back("column: " + source_column->get_name() +
-                               " with all filtered with ptr: " + std::to_string(ret_size));
-                for (size_t j = 0; j < ret_size; ++j) {
-                    if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
-                                                                         buffer_writer, option);
-                        !st) {
-                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
-                        break;
-                    }
-                    buffer_writer.commit();
-                    std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                    data.push_back(actual_str_value);
-                }
-                res.push_back(data);
-            }
-            {
                 auto ret_size = source_column->filter(no_filtered);
+                EXPECT_EQ(ret_size, source_size);
                 // check filter res
                 auto ser_col = ColumnString::create();
                 ser_col->reserve(ret_size);
@@ -1529,8 +1517,14 @@ public:
                 res.push_back(data);
             }
             {
+                auto ret_size = source_column->filter(all_filtered);
+                EXPECT_EQ(ret_size, 0);
+            }
+            {
                 // check filter with invalid filter
-                auto ret_size = source_column->filter(invalid_filter);
+                // source_column is filterd, size=0
+                EXPECT_ANY_THROW(source_column->filter(invalid_filter));
+                auto ret_size = cloned_col->filter(invalid_filter);
                 // check filter res
                 auto ser_col = ColumnString::create();
                 ser_col->reserve(ret_size);
@@ -1539,7 +1533,7 @@ public:
                 data.push_back("column: " + source_column->get_name() +
                                " with invalid filtered with ptr: " + std::to_string(ret_size));
                 for (size_t j = 0; j < ret_size; ++j) {
-                    if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
+                    if (auto st = serders[i]->serialize_one_cell_to_json(*cloned_col, j,
                                                                          buffer_writer, option);
                         !st) {
                         LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
@@ -1571,6 +1565,7 @@ public:
             const ColumnArray::Filter no_filtered(source_size, 1);
             // invalid data -1 will also make data without be filtered ??
             ColumnArray::Filter invalid_filter(source_size - 1, 1);
+            // now  AddressSanitizer: negative-size-param: (size=-1) can be checked
             invalid_filter.emplace_back(-1);
             std::vector<string> data;
             LOG(INFO) << "now we are in filter column : " << load_cols[i]->get_name()

@@ -447,7 +447,7 @@ TEST_F(ColumnArrayTest, ReplicateTest) {
     DataTypeSerDeSPtrs serdes_copy;
     // just skip array_array_char use vector copy
     for (int i = 0; i < array_columns.size(); i++) {
-        if (i == 31) {
+        if (i == 33) {
             continue;
         }
         array_columns_copy.push_back(array_columns[i]->assume_mutable());
@@ -464,7 +464,7 @@ TEST_F(ColumnArrayTest, ReplicateTest) {
 
 TEST_F(ColumnArrayTest, ReplaceColumnTest) {
     // replace_column_data is not support in column_array, only support non-variable length column
-    assert_replace_column_data_callback(array_columns, serdes);
+    EXPECT_ANY_THROW(assert_replace_column_data_callback(array_columns, serdes));
     assert_replace_column_null_data_callback(array_columns, serdes);
 }
 
@@ -483,10 +483,13 @@ TEST_F(ColumnArrayTest, PermutationAndSortTest) {
     }
 }
 
-TEST_F(ColumnArrayTest, FilterTest) {
+TEST_F(ColumnArrayTest, FilterInplaceTest) {
     // The filter method implemented by column_array does not achieve the memory reuse acceleration effect like other basic types,
     // and still returns a new ptr, which can be make a todo task
     assert_filter_callback(array_columns, serdes);
+}
+
+TEST_F(ColumnArrayTest, FilterTest) {
     // filter with result_size_hint
     assert_filter_with_result_hint_callback(array_columns, serdes);
 }
@@ -524,22 +527,21 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
                 remove_nullable(array_columns[i]->assume_mutable()).get());
-        auto& type = array_types[i];
         auto column_size = column->size();
-        auto column_type = type->get_name();
-        LOG(INFO) << "column_type: " << column_type;
+        LOG(INFO) << "column_type: " << column->get_name();
         // test create_array
         // test create expect exception case
         // 1.offsets is not ColumnUInt64
         auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
-        auto tmp_offsets_col =
-                assert_cast<ColumnArray::Offsets64>(column->get_offsets_column().clone_resized(1));
+        MutableColumnPtr tmp_offsets_col =
+                assert_cast<const ColumnArray::ColumnOffsets&>(column->get_offsets_column())
+                        .clone_resized(1);
+        UInt64 off = tmp_offsets_col->operator[](0).get<UInt64>();
         // make offsets_col into column_int32
-        ColumnUInt128 wrong_type_offsets_col;
-        wrong_type_offsets_col.insert(tmp_offsets_col.back());
+        auto wrong_type_offsets_col = vectorized::ColumnVector<vectorized::UInt128>::create(1, off);
         EXPECT_ANY_THROW({
             auto new_array_column = ColumnArray::create(tmp_data_col->assume_mutable(),
-                                                        wrong_type_offsets_col.assume_mutable());
+                                                        wrong_type_offsets_col->assume_mutable());
         });
         // 2.offsets size is not equal to data size
         auto tmp_data_col1 = column->get_data_ptr()->clone_resized(2);
@@ -632,7 +634,6 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
                                        .get_nested_type();
             dimension++;
             check_type = nested_type;
-            std::cout << "dimension: " << dimension << std::endl;
         }
         EXPECT_EQ(column->get_number_of_dimensions(), dimension)
                 << "column dimension is not equal to check_type dimension";
