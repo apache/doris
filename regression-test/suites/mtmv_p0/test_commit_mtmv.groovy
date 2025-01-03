@@ -127,4 +127,76 @@ suite("test_commit_mtmv") {
     sql """drop materialized view if exists ${mvName2};"""
     sql """drop table if exists `${tableName}`"""
 
+    //===========test excluded_trigger_tables===========
+    def tblStu = "test_commit_mtmv_tbl_stu"
+    def tblGrade = "test_commit_mtmv_tbl_grade"
+    def mvSag = "test_commit_mv_sag"
+    sql """drop materialized view if exists ${mvSag};"""
+    sql """drop table if exists `${tblStu}`"""
+    sql """drop table if exists `${tblGrade}`"""
+    sql """
+        CREATE TABLE `${tblStu}` (
+          `sid` int(32) NULL,
+          `sname` varchar(32) NULL,
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`sid`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
+
+    sql """
+        CREATE TABLE `${tblGrade}` (
+          `sid` int(32) NULL,
+          `cid` int(32) NULL,
+          `score` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`sid`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvSag}
+        BUILD DEFERRED
+        REFRESH COMPLETE ON commit
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1 
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "excluded_trigger_tables" = "${tblGrade}"
+        )
+        AS  select a.sid,b.cid,b.score from ${tblStu} a join ${tblGrade} b on a.sid = b.sid;
+    """
+
+    sql """
+         insert into ${tblGrade} values(1, 1, 60);
+         insert into ${tblStu} values(1, 'sam');
+     """
+    def sagJobName = getJobName(dbName, mvSag);
+    waitingMTMVTaskFinished(sagJobName)
+    order_qt_mv_sag "SELECT * FROM ${mvSag} order by sid,cid"
+    order_qt_task_sag "SELECT TaskContext from tasks('type'='mv') where MvName='${mvSag}' order by CreateTime desc limit 1"
+
+    sql """
+         insert into ${tblGrade} values(1, 2, 70);
+     """
+    waitingMTMVTaskFinished(sagJobName)
+    order_qt_mv_sag1 "SELECT * FROM ${mvSag} order by sid,cid"
+    order_qt_task_sag1 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvSag}' order by CreateTime desc limit 1"
+
+    sql """
+         insert into ${tblGrade} values(2, 1, 70);
+         insert into ${tblStu} values(2, 'jack');
+     """
+
+    waitingMTMVTaskFinished(sagJobName)
+    order_qt_mv_sag2 "SELECT * FROM ${mvSag} order by sid,cid"
+    order_qt_task_sag2 "SELECT TaskContext from tasks('type'='mv') where MvName='${mvSag}' order by CreateTime desc limit 1"
+
+    sql """drop materialized view if exists ${mvSag};"""
+    sql """drop table if exists `${tblStu}`"""
+    sql """drop table if exists `${tblGrade}`"""
 }
