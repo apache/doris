@@ -841,6 +841,7 @@ public class OneRangePartitionEvaluator<K>
         if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
             return result;
         }
+
         if (!func.isPositive()) {
             Expression temp = lowerValue;
             lowerValue = upperValue;
@@ -867,5 +868,14 @@ public class OneRangePartitionEvaluator<K>
             newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
         }
+    }
+
+    // only allow literal(except NullLiteral) and null
+    private boolean checkFoldConstantValueIsValid(Expression lowerValue, Expression upperValue) {
+        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+            return false;
+        }
+        return (lowerValue == null || lowerValue instanceof Literal)
+                && (upperValue == null || upperValue instanceof Literal);
     }
 }

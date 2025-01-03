@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FromSecondMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -35,7 +36,8 @@ import java.util.List;
  * ScalarFunction 'from_microsecond'.
  */
 public class FromMicrosecond extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        FromSecondMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.MAX).args(BigIntType.INSTANCE));
@@ -58,5 +60,10 @@ public class FromMicrosecond extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarFunction(this, context);
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return new FromMicrosecond(literal);
     }
 }
