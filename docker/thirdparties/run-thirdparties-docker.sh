@@ -707,5 +707,6 @@ for compose in "${!pids[@]}"; do
         exit 1
     fi
 done
-
+echo "docker started"
+docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"
