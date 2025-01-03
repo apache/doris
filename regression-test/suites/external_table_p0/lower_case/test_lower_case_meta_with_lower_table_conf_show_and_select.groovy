@@ -18,14 +18,17 @@
 suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external,doris,external_docker,external_docker_doris") {
 
     String jdbcUrl = context.config.jdbcUrl
-    String jdbcUser = context.config.jdbcUser
-    String jdbcPassword = context.config.jdbcPassword
+    String jdbcUser = "test_lower_with_conf"
+    String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
 
+    try_sql """drop user ${jdbcUser}"""
+    sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+    sql """grant all on *.*.* to ${jdbcUser}"""
+
     sql """drop database if exists internal.external_test_lower_with_conf; """
-    sql """drop database if exists internal.external_test_UPPER_with_conf; """
     sql """create database if not exists internal.external_test_lower_with_conf; """
     sql """create table if not exists internal.external_test_lower_with_conf.lower_with_conf
          (id int, name varchar(20))
@@ -699,4 +702,6 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     sql """drop catalog if exists test_cache_true_lower_true_with_conf0 """
 
     sql """drop database if exists internal.external_test_lower_with_conf; """
+
+    try_sql """drop user ${jdbcUser}"""
 }
