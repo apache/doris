@@ -318,6 +318,9 @@ private:
     // Releases token 't' and invalidates it.
     void release_token(ThreadPoolToken* t);
 
+    //NOTE: not thread safe
+    Status try_create_thread(int thread_num);
+
     const std::string _name;
     const std::string _workload_group;
     int _min_threads;
