@@ -569,7 +569,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 databases have the same table name, the id will be the same.
-            return metaCache.getMetaObj(tableName, Util.genIdByName(getQualifiedName(tableName))).orElse(null);
+            return metaCache.getMetaObj(tableName,
+                    Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {
                 return null;
@@ -655,7 +656,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
+                metaCache.invalidate(tableName, Util.genIdByName(extCatalog.getName(), name, tableName));
                 lowerCaseToTableName.remove(tableName.toLowerCase());
             }
         } else {
@@ -688,8 +689,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, extCatalog.fromRemoteTableName(this.remoteName, tableName),
-                        (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
+                String localName = extCatalog.fromRemoteTableName(this.remoteName, tableName);
+                metaCache.updateCache(tableName, localName, (T) tableIf,
+                        Util.genIdByName(extCatalog.getName(), name, localName));
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             }
         } else {
@@ -703,10 +705,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
-    }
-
-    public String getQualifiedName(String tblName) {
-        return String.join(".", extCatalog.getName(), name, tblName);
     }
 
     private boolean isStoredTableNamesLowerCase() {

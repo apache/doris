@@ -244,7 +244,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(getQualifiedName(dbName)));
+                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
             }
         } else {
             Long dbId = dbNameToId.remove(dbName);
@@ -266,7 +266,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (useMetaCache.get()) {
             if (isInitialized()) {
                 metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                        Util.genIdByName(getQualifiedName(dbName)));
+                        Util.genIdByName(name, db.getFullName()));
             }
         } else {
             dbNameToId.put(dbName, dbId);
