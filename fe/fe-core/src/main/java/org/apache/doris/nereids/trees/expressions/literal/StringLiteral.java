@@ -49,7 +49,7 @@ public class StringLiteral extends StringLikeLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new org.apache.doris.analysis.StringLiteral(value);
     }
 }

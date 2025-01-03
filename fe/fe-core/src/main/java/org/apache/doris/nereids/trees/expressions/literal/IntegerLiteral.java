@@ -47,7 +47,7 @@ public class IntegerLiteral extends IntegerLikeLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         try {
             return new IntLiteral(value, Type.INT);
         } catch (AnalysisException e) {

@@ -55,7 +55,7 @@ public class NullLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return org.apache.doris.analysis.NullLiteral.create(dataType.toCatalogDataType());
     }
 

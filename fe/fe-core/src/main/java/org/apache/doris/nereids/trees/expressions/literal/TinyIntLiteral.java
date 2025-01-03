@@ -47,7 +47,7 @@ public class TinyIntLiteral extends IntegerLikeLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         try {
             return new IntLiteral(value, Type.TINYINT);
         } catch (AnalysisException e) {

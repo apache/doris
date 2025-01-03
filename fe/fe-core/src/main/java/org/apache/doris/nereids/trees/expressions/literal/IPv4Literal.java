@@ -55,7 +55,7 @@ public class IPv4Literal extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new org.apache.doris.analysis.IPv4Literal(value);
     }
 

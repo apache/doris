@@ -46,7 +46,7 @@ public class DoubleLiteral extends FractionalLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new FloatLiteral(value, Type.DOUBLE);
     }
 }

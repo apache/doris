@@ -45,7 +45,7 @@ public class FloatLiteral extends FractionalLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new org.apache.doris.analysis.FloatLiteral(getDouble(), Type.FLOAT);
     }
 }

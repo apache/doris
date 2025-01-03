@@ -42,7 +42,7 @@ public class CharLiteral extends StringLikeLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new StringLiteral(value);
     }
 }

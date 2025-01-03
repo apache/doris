@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import com.google.common.base.Suppliers;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.MysqlColType;
@@ -49,6 +50,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * All data type literal expression in Nereids.
@@ -57,6 +59,10 @@ import java.util.Optional;
 public abstract class Literal extends Expression implements LeafExpression, Comparable<Literal> {
 
     protected final DataType dataType;
+
+    // as 'https://github.com/apache/doris/pull/45181' test,
+    // toLegacyLiteral cost a lot of time when sort literals, so cache the legacy literal.
+    private final Supplier<LiteralExpr> legacyLiteral = Suppliers.memoize(this::computeLegacyLiteral);
 
     /**
      * Constructor for Literal.
@@ -375,7 +381,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         return String.valueOf(getValue());
     }
 
-    public abstract LiteralExpr toLegacyLiteral();
+    public final LiteralExpr toLegacyLiteral() {
+        return legacyLiteral.get();
+    }
+
+    protected abstract LiteralExpr computeLegacyLiteral();
 
     public boolean isStringLikeLiteral() {
         return dataType.isStringLikeType();

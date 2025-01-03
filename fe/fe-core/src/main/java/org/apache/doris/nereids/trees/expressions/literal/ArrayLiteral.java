@@ -63,7 +63,7 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         LiteralExpr[] itemExprs = items.stream()
                 .map(Literal::toLegacyLiteral)
                 .toArray(LiteralExpr[]::new);

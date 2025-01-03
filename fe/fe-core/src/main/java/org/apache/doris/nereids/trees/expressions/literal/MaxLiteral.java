@@ -33,7 +33,7 @@ public class MaxLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return org.apache.doris.analysis.MaxLiteral.MAX_VALUE;
     }
 

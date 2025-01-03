@@ -53,7 +53,7 @@ public class IPv6Literal extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         try {
             return new org.apache.doris.analysis.IPv6Literal(value);
         } catch (Exception e) {

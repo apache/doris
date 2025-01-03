@@ -47,7 +47,7 @@ public class BigIntLiteral extends IntegerLikeLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         try {
             return new IntLiteral(value, Type.BIGINT);
         } catch (AnalysisException e) {

@@ -454,7 +454,7 @@ public class DateLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATE);
     }
 

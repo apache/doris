@@ -65,7 +65,7 @@ public class BooleanLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new BoolLiteral(value);
     }
 

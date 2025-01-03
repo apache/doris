@@ -89,7 +89,7 @@ public class MapLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         List<LiteralExpr> keyExprs = keys.stream()
                 .map(Literal::toLegacyLiteral)
                 .collect(Collectors.toList());

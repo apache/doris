@@ -68,7 +68,7 @@ public class DecimalV3Literal extends FractionalLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new org.apache.doris.analysis.DecimalLiteral(value, getDataType().toCatalogDataType());
     }
 

@@ -63,7 +63,7 @@ public class JsonLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         try {
             return new org.apache.doris.analysis.JsonLiteral(value);
         } catch (Throwable t) {

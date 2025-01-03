@@ -102,7 +102,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, microSecond,
                 getDataType().toCatalogDataType());
     }

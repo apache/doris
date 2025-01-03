@@ -88,7 +88,7 @@ public class StructLiteral extends Literal {
     }
 
     @Override
-    public LiteralExpr toLegacyLiteral() {
+    protected LiteralExpr computeLegacyLiteral() {
         try {
             return new org.apache.doris.analysis.StructLiteral(dataType.toCatalogDataType(),
                     fields.stream().map(Literal::toLegacyLiteral).toArray(LiteralExpr[]::new)
