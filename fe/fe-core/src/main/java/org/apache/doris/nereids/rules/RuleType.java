@@ -322,6 +322,7 @@ public enum RuleType {
     MERGE_TOP_N(RuleTypeClass.REWRITE),
     BUILD_AGG_FOR_UNION(RuleTypeClass.REWRITE),
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
+    MEDIAN_REWRITE(RuleTypeClass.REWRITE),
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
     CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
     PRUNE_EMPTY_PARTITION(RuleTypeClass.REWRITE),
