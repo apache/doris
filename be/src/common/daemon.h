@@ -42,7 +42,7 @@ private:
     void memory_gc_thread();
     void memtable_memory_refresh_thread();
     void calculate_metrics_thread();
-    void je_purge_dirty_pages_thread() const;
+    void je_reset_dirty_decay_thread() const;
     void cache_adjust_capacity_thread();
     void cache_prune_stale_thread();
     void report_runtime_query_statistics_thread();
