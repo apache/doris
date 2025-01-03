@@ -338,7 +338,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
-            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
+            long maxWaitTime = sessionVariable.getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
             // Here, we must take the max of 1, because
             // in the case of multiple BEs, `numApproximateSplits() / backendPolicy.numBackends()` may be 0,
@@ -563,9 +563,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public int getNumInstances() {
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        if (sessionVariable.isIgnoreStorageDataDistribution()) {
+            return sessionVariable.getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
     }
