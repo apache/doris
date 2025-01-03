@@ -172,6 +172,26 @@ suite("single_external_table", "p0,external,hive") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
 
 
+
+    // single table with aggregate roll up and filter
+    def mv1_5 = """
+            select o_custkey, o_orderdate, o_totalprice 
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+    """
+    def query1_5 = """
+            select o_custkey, o_orderdate,
+            count(*)
+            from ${hive_catalog_name}.${hive_database}.${hive_table} 
+            where o_custkey > 2
+            group by
+            o_custkey, o_orderdate;
+            """
+    order_qt_query1_5_before "${query1_5}"
+    async_mv_rewrite_success(olap_db, mv1_5, query1_5, "mv1_5")
+    order_qt_query1_5_after "${query1_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
+
+
     sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
     sql """drop database if exists ${hive_catalog_name}.${hive_database}"""
     sql """drop catalog if exists ${hive_catalog_name}"""
