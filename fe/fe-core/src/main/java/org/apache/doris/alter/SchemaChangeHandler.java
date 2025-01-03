@@ -2324,26 +2324,35 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     public void updateTableProperties(Database db, String tableName, Map<String, String> properties)
             throws UserException {
-        Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY));
+        final Set<String> allowedProps = new HashSet<String>() {
+            {
+                add(PropertyAnalyzer.PROPERTIES_INMEMORY);
+                add(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+                add(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED);
+                add(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+            }
+        };
+        List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
+                .collect(Collectors.toList());
+        if (!notAllowedProps.isEmpty()) {
+            throw new UserException("modifying property " + notAllowedProps + " is forbidden");
+        }
 
         Env.getCurrentEnv().getAlterInstance().checkNoForceProperty(properties);
         List<Partition> partitions = Lists.newArrayList();
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         boolean enableUniqueKeyMergeOnWrite = false;
         olapTable.readLock();
         try {
