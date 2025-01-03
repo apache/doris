@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
@@ -44,7 +45,7 @@ import java.util.Set;
  * use for defer materialize top n
  */
 public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements TopN {
+        implements TopN, BlockFuncDepsPropagation {
 
     private final LogicalTopN<? extends Plan> logicalTopN;
 
@@ -112,24 +113,6 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
         return logicalTopN.getOutput().stream()
                 .filter(s -> !(s.getExprId().equals(columnIdSlot.getExprId())))
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
-    public void computeUnique(DataTrait.Builder builder) {
-        if (getLimit() == 1) {
-            getOutput().forEach(builder::addUniqueSlot);
-        } else {
-            builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
-        }
-    }
-
-    @Override
-    public void computeUniform(DataTrait.Builder builder) {
-        if (getLimit() == 1) {
-            getOutput().forEach(builder::addUniformSlot);
-        } else {
-            builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
-        }
     }
 
     @Override
