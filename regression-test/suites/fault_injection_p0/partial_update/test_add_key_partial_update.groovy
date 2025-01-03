@@ -51,7 +51,10 @@ suite("test_add_key_partial_update", "nonConcurrent") {
         sql "alter table ${table1} ADD COLUMN k2 int key;"
 
         Thread.sleep(1000)
-        sql "delete from ${table1} where k1<=3;"
+        test {
+            sql "delete from ${table1} where k1<=3;"
+            exception "Unable to do partial update on shadow index's tablet"
+        }
 
         waitForSchemaChangeDone {
             sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """

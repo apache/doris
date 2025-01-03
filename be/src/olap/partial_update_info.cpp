@@ -50,28 +50,18 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
     missing_cids.clear();
     update_cids.clear();
 
-    // partial_update_cols should include all key columns
-    for (std::size_t i {0}; i < tablet_schema.num_key_columns(); i++) {
-        const auto key_col = tablet_schema.column(i);
-        if (!partial_update_cols.contains(key_col.name())) {
-            auto msg = fmt::format(
-                    "Unable to do partial update on shadow index's tablet, tablet_id={}, "
-                    "txn_id={}. Missing key column {}.",
-                    tablet_id, txn_id, key_col.name());
-            LOG_WARNING(msg);
-            return Status::Aborted<false>(msg);
-        }
-    }
-
-    // every including columns should be in tablet_schema
-    for (const auto& col : partial_update_cols) {
-        if (-1 == tablet_schema.field_index(col)) {
-            auto msg = fmt::format(
-                    "Unable to do partial update on shadow index's tablet, tablet_id={}, "
-                    "txn_id={}. Can't find column {} in tablet's schema.",
-                    tablet_id, txn_id, col);
-            LOG_WARNING(msg);
-            return Status::Aborted<false>(msg);
+    if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+        // partial_update_cols should include all key columns
+        for (std::size_t i {0}; i < tablet_schema.num_key_columns(); i++) {
+            const auto key_col = tablet_schema.column(i);
+            if (!partial_update_cols.contains(key_col.name())) {
+                auto msg = fmt::format(
+                        "Unable to do partial update on shadow index's tablet, tablet_id={}, "
+                        "txn_id={}. Missing key column {}.",
+                        tablet_id, txn_id, key_col.name());
+                LOG_WARNING(msg);
+                return Status::Aborted<false>(msg);
+            }
         }
     }
 
