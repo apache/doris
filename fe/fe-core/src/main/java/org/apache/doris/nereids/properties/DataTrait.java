@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -123,6 +124,10 @@ public class DataTrait {
         return uniformSet.isUniformAndHasConstValue(slot);
     }
 
+    public Map<Slot, Optional<Expression>> getSlotUniformValueMap() {
+        return new HashMap<>(uniformSet.slotUniformValue);
+    }
+
     public Optional<Expression> getUniformValue(Slot slot) {
         return uniformSet.slotUniformValue.get(slot);
     }
@@ -193,6 +198,10 @@ public class DataTrait {
 
         public void addUniformSlotForOuterJoinNullableSide(DataTrait dataTrait) {
             uniformSet.addUniformSlotForOuterJoinNullableSide(dataTrait.uniformSet);
+        }
+
+        public void addUniformSlotValueMap(Map<Slot, Optional<Expression>> map) {
+            uniformSet.add(map);
         }
 
         public void addUniformSlotAndLiteral(Slot slot, Expression literal) {
@@ -538,11 +547,15 @@ public class DataTrait {
             }
         }
 
-        public void add(UniformDescription ud) {
-            slotUniformValue.putAll(ud.slotUniformValue);
-            for (Map.Entry<Slot, Optional<Expression>> entry : ud.slotUniformValue.entrySet()) {
+        public void add(Map<Slot, Optional<Expression>> map) {
+            slotUniformValue.putAll(map);
+            for (Map.Entry<Slot, Optional<Expression>> entry : map.entrySet()) {
                 add(entry.getKey(), entry.getValue().orElse(null));
             }
+        }
+
+        public void add(UniformDescription ud) {
+            add(ud.slotUniformValue);
         }
 
         public void add(Slot slot, Expression literal) {

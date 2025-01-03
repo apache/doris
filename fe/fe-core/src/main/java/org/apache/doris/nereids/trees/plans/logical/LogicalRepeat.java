@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
@@ -34,9 +35,12 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * LogicalRepeat.
@@ -190,7 +194,17 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
-        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        DataTrait dataTrait = child(0).getLogicalProperties().getTrait();
+        Set<Expression> common = getCommonGroupingSetExpressions();
+        Map<Slot, Optional<Expression>> slotUniformValue = dataTrait.getSlotUniformValueMap();
+        Map<Slot, Optional<Expression>> newSlotUniformValue = new HashMap<>();
+        for (Map.Entry<Slot, Optional<Expression>> entry : slotUniformValue.entrySet()) {
+            Optional<Expression> value = entry.getValue();
+            if (!value.isPresent() || value.get() instanceof NullLiteral || common.contains(value.get())) {
+                newSlotUniformValue.put(entry.getKey(), value);
+            }
+        }
+        builder.addUniformSlotValueMap(newSlotUniformValue);
     }
 
     @Override
