@@ -586,20 +586,20 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             } // end for partitions
             // all partitions are good
             onFinished(tbl);
+
+            pruneMeta();
+
+            LOG.info("schema change job finished: {}", jobId);
+
+            changeTableState(dbId, tableId, OlapTableState.NORMAL);
+            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+
+            this.jobState = JobState.FINISHED;
+            this.finishedTimeMs = System.currentTimeMillis();
+            Env.getCurrentEnv().getEditLog().logAlterJob(this);
         } finally {
             tbl.writeUnlock();
         }
-
-        pruneMeta();
-
-        LOG.info("schema change job finished: {}", jobId);
-
-        changeTableState(dbId, tableId, OlapTableState.NORMAL);
-        LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
-
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = System.currentTimeMillis();
-        Env.getCurrentEnv().getEditLog().logAlterJob(this);
 
         // Drop table column stats after schema change finished.
         Env.getCurrentEnv().getAnalysisManager().dropStats(tbl);
