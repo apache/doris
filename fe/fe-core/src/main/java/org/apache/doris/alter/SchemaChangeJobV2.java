@@ -586,7 +586,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             } // end for partitions
             // all partitions are good
             onFinished(tbl);
-        }
+
             pruneMeta();
 
             LOG.info("schema change job finished: {}", jobId);
