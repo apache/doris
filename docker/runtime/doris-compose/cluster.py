@@ -23,7 +23,6 @@ import jsonpickle
 import os
 import os.path
 import utils
-import time
 
 DOCKER_DORIS_PATH = "/opt/apache-doris"
 LOCAL_DORIS_PATH = os.getenv("LOCAL_DORIS_PATH", "/tmp/doris")
