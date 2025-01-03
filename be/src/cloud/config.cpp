@@ -78,6 +78,8 @@ DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "false");
 
+DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
+
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "5000");
 #include "common/compile_check_end.h"
 } // namespace doris::config
