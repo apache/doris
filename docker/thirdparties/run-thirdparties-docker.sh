@@ -614,6 +614,17 @@ start_minio() {
     fi
 }
 
+
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    echo "Starting Kerberos first..."
+    start_kerberos > start_kerberos.log 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Kerberos startup failed"
+        cat start_kerberos.log
+    fi
+    # Clear the flag to prevent starting Kerberos again in parallel
+    RUN_KERBEROS=0
+fi
 echo "starting dockers in parrallel"
 
 declare -A pids
@@ -703,11 +714,6 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     pids["lakesoul"]=$!
 fi
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > start_kerberos.log 2>&1 &
-    pids["kerberos"]=$!
-fi
-
 if [[ "${RUN_MINIO}" -eq 1 ]]; then
     start_minio > start_minio.log 2>&1 &
     pids["minio"]=$!
@@ -726,5 +732,6 @@ for compose in "${!pids[@]}"; do
         exit 1
     fi
 done
-
+echo "docker started"
+docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"
