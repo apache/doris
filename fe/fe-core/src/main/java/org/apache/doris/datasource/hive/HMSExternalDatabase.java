@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
@@ -45,9 +46,11 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
             ExternalDatabase db) {
         HMSExternalTable hmsExternalTable = new HMSExternalTable(tblId, localTableName, remoteTableName,
                 (HMSExternalCatalog) extCatalog, (HMSExternalDatabase) db);
-        if (hmsExternalTable.getDlaType() == DLAType.HIVE) {
-            return new HiveExternalTable(tblId, localTableName, remoteTableName,
-                    (HMSExternalCatalog) extCatalog, (HMSExternalDatabase) db);
+        if (!FeConstants.runningUnitTest) {
+            if (hmsExternalTable.getDlaType() == DLAType.HIVE) {
+                return new HiveExternalTable(tblId, localTableName, remoteTableName,
+                        (HMSExternalCatalog) extCatalog, (HMSExternalDatabase) db);
+            }
         }
         return hmsExternalTable;
     }
