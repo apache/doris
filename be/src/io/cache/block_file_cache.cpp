@@ -619,11 +619,10 @@ void BlockFileCache::recycle_deleted_blocks() {
                             cell.is_deleted
                                     ? true
                                     : std::chrono::duration_cast<std::chrono::seconds>(
-                                                         std::chrono::steady_clock::now()
-                                                                 .time_since_epoch())
-                                                                         .count() -
-                                                                 cell.atime >
-                                                         config::file_cache_ttl_valid_check_interval_second;
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                                              .count() -
+                                                      cell.atime >
+                                              config::file_cache_ttl_valid_check_interval_second;
                     if (!cell.is_deleted) {
                         continue;
                     } else if (cell.releasable()) {
