@@ -18,6 +18,6 @@
 suite("test_explain_information_schema", "query,p0") {
     def explainRes = sql """explain select * from information_schema.user_privileges where IS_GRANTABLE='NO';"""
     logger.info("explainRes: " + explainRes.toString())
-    assertFalse(explainRes.toString().contains("PREDICATES"))
-    assertFalse(explainRes.toString().contains("IS_GRANTABLE"))
+    assertTrue(explainRes.toString().contains("PREDICATES"))
+    assertTrue(explainRes.toString().contains("IS_GRANTABLE"))
 }
