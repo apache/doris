@@ -520,14 +520,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    // olap scan node will call scanner.close() when finished
-    // will release resources here
-    // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but
-    // deconstructor in reader references runtime state
-    // so that it will core
-    _tablet_reader_params.rs_splits.clear();
-    _tablet_reader.reset();
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
