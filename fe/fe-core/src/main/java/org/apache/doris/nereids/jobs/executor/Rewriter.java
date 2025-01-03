@@ -89,7 +89,6 @@ import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
-import org.apache.doris.nereids.rules.rewrite.MedianRewrite;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
@@ -179,7 +178,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new ExpressionNormalizationAndOptimization(),
                                 new AvgDistinctToSumDivCount(),
                                 new CountDistinctRewrite(),
-//                                new MedianRewrite(),
                                 new ExtractFilterFromCrossJoin()
                         ),
                         topDown(
