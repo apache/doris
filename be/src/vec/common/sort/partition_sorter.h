@@ -66,6 +66,7 @@ public:
         }
         return true;
     }
+
     int row = 0;
     std::shared_ptr<MergeSortCursorImpl> impl = nullptr;
 };

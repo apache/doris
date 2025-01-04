@@ -1036,6 +1036,7 @@ struct TMetadataTableRequestParams {
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
+  14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
 }
 
 struct TSchemaTableRequestParams {
