@@ -77,7 +77,7 @@ public class ConnectScheduler {
         }
     }
 
-    // submit one MysqlContext to this scheduler.
+    // submit one MysqlContext or ArrowFlightSqlContext to this scheduler.
     // return true, if this connection has been successfully submitted, otherwise return false.
     // Caller should close ConnectContext if return false.
     public boolean submit(ConnectContext context) {
