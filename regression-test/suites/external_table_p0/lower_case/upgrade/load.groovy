@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_docker,external_docker_doris") {
 
     String jdbcUrl = context.config.jdbcUrl
@@ -23,6 +27,18 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+
+    def wait_table_sync = { String db ->
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+            try {
+                def res = sql "show tables from ${db}"
+                return res.size() > 0;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+    }
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
@@ -63,6 +79,7 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
             "include_database_list" = "upgrade_lower_case_catalog_lower,upgrade_lower_case_catalog_UPPER"
         )"""
 
+    wait_table_sync("test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower")
     test {
         sql """show databases from test_upgrade_lower_case_catalog"""
 
