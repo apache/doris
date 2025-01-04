@@ -23,8 +23,6 @@ sql 'set enable_force_spill=false'
 
 sql 'set topn_opt_limit_threshold=10'
 
-sql "set experimental_ENABLE_COMPRESS_MATERIALIZE=true;"
-
 // different types
 qt_select1 """ select  sum(orderkey), count(partkey), shipmode from tpch_tiny_lineitem group by shipmode limit 3; """
 explain{
