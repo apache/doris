@@ -124,10 +124,6 @@ Status CumulativeCompaction::execute_compact() {
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
     DCHECK_EQ(_state, CompactionState::SUCCESS);
-    if (tablet()->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
-        tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
-                                                                          _output_rowset);
-    }
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);

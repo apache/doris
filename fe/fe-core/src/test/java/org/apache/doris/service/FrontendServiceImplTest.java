@@ -55,6 +55,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
@@ -231,8 +232,10 @@ public class FrontendServiceImplTest {
         TGetDbsResult dbNames = impl.getDbNames(params);
 
         Assert.assertEquals(dbNames.getDbs().size(), 2);
-        Assert.assertTrue(dbNames.getDbs().contains("test"));
-        Assert.assertTrue(dbNames.getDbs().contains("test_"));
+        List<String> expected = Arrays.asList("test", "test_");
+        dbNames.getDbs().sort(String::compareTo);
+        expected.sort(String::compareTo);
+        Assert.assertEquals(dbNames.getDbs(), expected);
     }
 
     @Test
