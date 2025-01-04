@@ -19,6 +19,7 @@ suite("check_rf") {
     sql """
         drop table if exists t1;
         set disable_join_reorder=true;
+        set enable_parallel_result_sink=false;
         """ 
     sql """
         CREATE TABLE IF NOT EXISTS t1 (
