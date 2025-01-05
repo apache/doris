@@ -28,6 +28,7 @@ import java.util.Map;
 public interface SplitToScanRange {
     TScanRangeLocations getScanRange(
             Backend backend,
+            Integer bucketNum,
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys) throws UserException;

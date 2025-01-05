@@ -30,13 +30,16 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
+import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -53,6 +56,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
@@ -64,7 +68,9 @@ import org.apache.doris.thrift.TTextSerdeType;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -85,6 +91,8 @@ import java.util.Optional;
  */
 public abstract class FileQueryScanNode extends FileScanNode {
     private static final Logger LOG = LogManager.getLogger(FileQueryScanNode.class);
+
+    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
@@ -274,6 +282,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        if (!scanRangeLocations.isEmpty()) {
+            /* Note: createScanRangeLocations invoked twice thru finalizeForNereids()
+             *       and produced duplicate records.
+             */
+            return;
+        }
+
         long start = System.currentTimeMillis();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
@@ -319,13 +334,20 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
+        boolean isSparkBucketedHiveTable = false;
+        TableIf targetTable = getTargetTable();
+        if (targetTable instanceof HMSExternalTable) {
+            isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
+        }
+
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
+                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys,
+                    isSparkBucketedHiveTable);
             splitAssignment.init();
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
@@ -353,10 +375,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 tSource.setSplitSourceId(splitSource.getUniqueId());
                 tSource.setNumSplits(numSplitsPerBE);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().setSplitSource(tSource);
+
                 TScanRangeLocation location = new TScanRangeLocation();
                 location.setBackendId(backend.getId());
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
+
                 // So there's only one scan range for each backend.
                 // Each backend only starts up one ScanNode instance.
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
@@ -373,14 +397,33 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
-            Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
-            for (Backend backend : assignment.keySet()) {
-                Collection<Split> splits = assignment.get(backend);
-                for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
-                    totalFileSize += split.getLength();
+
+            if (isSparkBucketedHiveTable) {
+                Multimap<Pair<Backend, Integer>, Split> assignment;
+
+                assignment = backendPolicy.computeBucketAwareScanRangeAssignmentWith(inputSplits);
+                for (Pair<Backend, Integer> backend : assignment.keySet()) {
+                    Collection<Split> splits = assignment.get(backend);
+                    for (Split split : splits) {
+                        scanRangeLocations.add(splitToScanRange(backend.first, backend.second, locationProperties,
+                                split, pathPartitionKeys));
+                        totalFileSize += split.getLength();
+                    }
+                    scanBackendIds.add(backend.first.getId());
                 }
-                scanBackendIds.add(backend.getId());
+            } else {
+                Multimap<Backend, Split> assignment;
+
+                assignment = backendPolicy.computeScanRangeAssignment(inputSplits);
+                for (Backend backend : assignment.keySet()) {
+                    Collection<Split> splits = assignment.get(backend);
+                    for (Split split : splits) {
+                        scanRangeLocations.add(splitToScanRange(backend, 0, locationProperties, split,
+                                pathPartitionKeys));
+                        totalFileSize += split.getLength();
+                    }
+                    scanBackendIds.add(backend.getId());
+                }
             }
         }
 
@@ -397,6 +440,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     private TScanRangeLocations splitToScanRange(
             Backend backend,
+            Integer bucketNum,
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys) throws UserException {
@@ -412,6 +456,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
                 ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
                 false, isACID) : fileSplit.getPartitionValues();
+
+        boolean isSparkBucketedHiveTable = false;
+        TableIf targetTable = getTargetTable();
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
@@ -451,6 +498,23 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setBackendId(backend.getId());
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
+
+        if (targetTable instanceof HMSExternalTable) {
+            isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
+            if (isSparkBucketedHiveTable) {
+                if (!bucketSeq2locations.containsKey(bucketNum)) {
+                    bucketSeq2locations.put(bucketNum, curLocations);
+                }
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}, bucketNum: {}",
+                    curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(),
+                    fileSplit.getStart(), fileSplit.getLength(),
+                    Joiner.on("|").join(fileSplit.getHosts()), bucketNum);
+        }
+
         return curLocations;
     }
 
@@ -590,6 +654,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
+
+    public DataPartition constructInputPartitionByDistributionInfo() {
+        return DataPartition.RANDOM;
+    }
+
+    public THashType getHashType() {
+        return THashType.CRC32;
+    }
 
     @Override
     public void stop() {

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
@@ -37,6 +38,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
@@ -2158,7 +2160,7 @@ public class Coordinator implements CoordInterface {
                     scanNode.getFragment().getPlanRoot()) && (scanNode instanceof OlapScanNode);
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController
                     .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot())
-                    && (scanNode instanceof OlapScanNode);
+                    && (scanNode instanceof OlapScanNode || scanNode instanceof HiveScanNode);
 
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
@@ -2167,7 +2169,7 @@ public class Coordinator implements CoordInterface {
                         replicaNumPerHost, isEnableOrderedLocations);
             }
             if (fragmentContainsBucketShuffleJoin) {
-                bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
+                bucketShuffleJoinController.computeScanRangeAssignmentByBucket(scanNode,
                         idToBackend, addressToBackendID, replicaNumPerHost);
             }
             if (!(fragmentContainsColocateJoin || fragmentContainsBucketShuffleJoin)) {
@@ -2559,7 +2561,7 @@ public class Coordinator implements CoordInterface {
         private final Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap
                 = Maps.newHashMap();
         // fragment_id -> < be_id -> bucket_count >
-        private final Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap = Maps.newHashMap();
+        private final Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBackendIdBucketCountMap = Maps.newHashMap();
         // fragment_id -> bucket_num
         protected final Map<PlanFragmentId, Integer> fragmentIdToBucketNumMap = Maps.newHashMap();
 
@@ -2614,30 +2616,30 @@ public class Coordinator implements CoordInterface {
                 PlanFragmentId fragmentId, Integer bucketSeq, ImmutableMap<Long, Backend> idToBackend,
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-            Map<Long, Integer> buckendIdToBucketCountMap = fragmentIdToBuckendIdBucketCountMap.get(fragmentId);
+            Map<Long, Integer> backendIdToBucketCountMap = fragmentIdToBackendIdBucketCountMap.get(fragmentId);
             int maxBucketNum = Integer.MAX_VALUE;
-            long buckendId = Long.MAX_VALUE;
+            long backendId = Long.MAX_VALUE;
             Long minReplicaNum = Long.MAX_VALUE;
             for (TScanRangeLocation location : seqLocation.locations) {
-                if (buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0) < maxBucketNum) {
-                    maxBucketNum = buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0);
-                    buckendId = location.backend_id;
+                if (backendIdToBucketCountMap.getOrDefault(location.backend_id, 0) < maxBucketNum) {
+                    maxBucketNum = backendIdToBucketCountMap.getOrDefault(location.backend_id, 0);
+                    backendId = location.backend_id;
                     minReplicaNum = replicaNumPerHost.get(location.server);
-                } else if (buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0) == maxBucketNum
+                } else if (backendIdToBucketCountMap.getOrDefault(location.backend_id, 0) == maxBucketNum
                         && replicaNumPerHost.get(location.server) < minReplicaNum) {
-                    buckendId = location.backend_id;
+                    backendId = location.backend_id;
                     minReplicaNum = replicaNumPerHost.get(location.server);
                 }
             }
             Reference<Long> backendIdRef = new Reference<>();
-            TNetworkAddress execHostPort = SimpleScheduler.getHost(buckendId,
+            TNetworkAddress execHostPort = SimpleScheduler.getHost(backendId,
                     seqLocation.locations, idToBackend, backendIdRef);
-            //the backend with buckendId is not alive, chose another new backend
-            if (backendIdRef.getRef() != buckendId) {
-                buckendIdToBucketCountMap.put(backendIdRef.getRef(),
-                        buckendIdToBucketCountMap.getOrDefault(backendIdRef.getRef(), 0) + 1);
-            } else { //the backend with buckendId is alive, update buckendIdToBucketCountMap directly
-                buckendIdToBucketCountMap.put(buckendId, buckendIdToBucketCountMap.getOrDefault(buckendId, 0) + 1);
+            //the backend with backendId is not alive, chose another new backend
+            if (backendIdRef.getRef() != backendId) {
+                backendIdToBucketCountMap.put(backendIdRef.getRef(),
+                        backendIdToBucketCountMap.getOrDefault(backendIdRef.getRef(), 0) + 1);
+            } else { //the backend with backendId is alive, update backendIdToBucketCountMap directly
+                backendIdToBucketCountMap.put(backendId, backendIdToBucketCountMap.getOrDefault(backendId, 0) + 1);
             }
             for (TScanRangeLocation location : seqLocation.locations) {
                 replicaNumPerHost.put(location.server, replicaNumPerHost.get(location.server) - 1);
@@ -2646,8 +2648,21 @@ public class Coordinator implements CoordInterface {
             this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
         }
 
-        // to ensure the same bucketSeq tablet to the same execHostPort
         private void computeScanRangeAssignmentByBucket(
+                final ScanNode scanNode, ImmutableMap<Long, Backend> idToBackend,
+                Map<TNetworkAddress, Long> addressToBackendID,
+                Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            if (scanNode instanceof OlapScanNode) {
+                computeScanRangeAssignmentByBucketForOlap((OlapScanNode) scanNode, idToBackend, addressToBackendID,
+                        replicaNumPerHost);
+            } else if (scanNode instanceof HiveScanNode) {
+                computeScanRangeAssignmentByBucketForHive((HiveScanNode) scanNode, idToBackend, addressToBackendID,
+                        replicaNumPerHost);
+            }
+        }
+
+        // to ensure the same bucketSeq tablet to the same execHostPort
+        private void computeScanRangeAssignmentByBucketForOlap(
                 final OlapScanNode scanNode, ImmutableMap<Long, Backend> idToBackend,
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
@@ -2656,7 +2671,52 @@ public class Coordinator implements CoordInterface {
                 fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), bucketNum);
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
-                fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
+                fragmentIdToBackendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
+                scanNode.getFragment().setBucketNum(bucketNum);
+            }
+            Map<Integer, TNetworkAddress> bucketSeqToAddress
+                    = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
+            BucketSeqToScanRange bucketSeqToScanRange = fragmentIdBucketSeqToScanRangeMap.get(scanNode.getFragmentId());
+
+            for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
+                //fill scanRangeParamsList
+                List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
+                if (!bucketSeqToAddress.containsKey(bucketSeq)) {
+                    getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragmentId(),
+                            bucketSeq, idToBackend, addressToBackendID, replicaNumPerHost);
+                }
+
+                for (TScanRangeLocations location : locations) {
+                    Map<Integer, List<TScanRangeParams>> scanRanges =
+                            findOrInsert(bucketSeqToScanRange, bucketSeq, new HashMap<>());
+
+                    List<TScanRangeParams> scanRangeParamsList =
+                            findOrInsert(scanRanges, scanNode.getId().asInt(), new ArrayList<>());
+
+                    // add scan range
+                    TScanRangeParams scanRangeParams = new TScanRangeParams();
+                    scanRangeParams.scan_range = location.scan_range;
+                    scanRangeParamsList.add(scanRangeParams);
+                    updateScanRangeNumByScanRange(scanRangeParams);
+                }
+            }
+        }
+
+        private void computeScanRangeAssignmentByBucketForHive(
+                final HiveScanNode scanNode, ImmutableMap<Long, Backend> idToBackend,
+                Map<TNetworkAddress, Long> addressToBackendID,
+                Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
+                int bucketNum = 0;
+                if (scanNode.getHiveTable().isSparkBucketedTable()) {
+                    bucketNum = scanNode.getHiveTable().getDefaultDistributionInfo().getBucketNum();
+                } else {
+                    throw new NotImplementedException("bucket shuffle for non-bucketed table not supported");
+                }
+                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), bucketNum);
+                fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
+                fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
+                fragmentIdToBackendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
                 scanNode.getFragment().setBucketNum(bucketNum);
             }
             Map<Integer, TNetworkAddress> bucketSeqToAddress
@@ -2789,13 +2849,10 @@ public class Coordinator implements CoordInterface {
                             Preconditions.checkArgument(node.isPresent());
                             FInstanceExecParam instanceParamToScan = node.get().isSerialOperator()
                                     ? firstInstanceParam : instanceParam;
-                            if (!instanceParamToScan.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
-                                range.put(nodeScanRange.getKey(), Lists.newArrayList());
-                                instanceParamToScan.perNodeScanRanges
-                                        .put(nodeScanRange.getKey(), Lists.newArrayList());
-                            }
-                            range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
-                            instanceParamToScan.perNodeScanRanges.get(nodeScanRange.getKey())
+                            range.computeIfAbsent(nodeScanRange.getKey(), ArrayList<TScanRangeParams>::new)
+                                    .addAll(nodeScanRange.getValue());
+                            instanceParamToScan.perNodeScanRanges
+                                    .computeIfAbsent(nodeScanRange.getKey(), ArrayList<TScanRangeParams>::new)
                                     .addAll(nodeScanRange.getValue());
                         }
                     }
@@ -3295,9 +3352,27 @@ public class Coordinator implements CoordInterface {
                 }
                 TEsScanRange esScanRange = range.getScanRange().getEsScanRange();
                 if (esScanRange != null) {
+                    if (idx++ != 0) {
+                        sb.append(",");
+                    }
+                    if (idx++ != 0) {
+                        sb.append(",");
+                    }
                     sb.append("{ index=").append(esScanRange.getIndex())
                             .append(", shardid=").append(esScanRange.getShardId())
                             .append("}");
+                }
+                TExternalScanRange extScanRange = range.getScanRange().getExtScanRange();
+                if (extScanRange != null) {
+                    TFileScanRange fileScanRange = extScanRange.getFileScanRange();
+                    if (fileScanRange != null) {
+                        if (idx++ != 0) {
+                            sb.append(",");
+                        }
+                        sb.append("{path=")
+                                .append(fileScanRange.getRanges().get(0).getPath())
+                                .append("}");
+                    }
                 }
             }
             sb.append("]");
@@ -3315,10 +3390,10 @@ public class Coordinator implements CoordInterface {
                 }
                 TNetworkAddress address = instanceExecParams.get(i).host;
                 Map<Integer, List<TScanRangeParams>> scanRanges =
-                        scanRangeAssignment.get(address);
+                        instanceExecParams.get(i).perNodeScanRanges;
                 sb.append("{");
                 sb.append("id=").append(DebugUtil.printId(instanceExecParams.get(i).instanceId));
-                sb.append(",host=").append(instanceExecParams.get(i).host);
+                sb.append(",host=").append(address);
                 if (scanRanges == null) {
                     sb.append("}");
                     continue;
