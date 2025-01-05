@@ -427,6 +427,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long id = Env.getCurrentEnv().getNextId();
         Database db = new Database(id, fullDbName);
         // check and analyze database properties before create database
+        db.checkStorageVault(properties);
         db.setDbProperties(new DatabaseProperty(properties));
 
         if (!tryLock(false)) {
@@ -2740,17 +2741,31 @@ public class InternalCatalog implements CatalogIf<Database> {
             // set storage vault
             String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
             String storageVaultId = null;
-            // If user does not specify one storage vault then FE would use the default vault
+            // If user does not specify one storage vault then FE would check db's storage vault then the default vault
+            // the storage vault inherit order is as follows: table -> db -> default
             if (Strings.isNullOrEmpty(storageVaultName)) {
-                Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
-                if (info != null) {
-                    storageVaultName = info.first;
-                    storageVaultId = info.second;
-                    LOG.info("Using default storage vault: name={}, id={}", storageVaultName, storageVaultId);
+                if (db.getDbProperties() != null) {
+                    Map<String, String> dbProperties = new HashMap<>(db.getDbProperties().getProperties());
+                    storageVaultName = PropertyAnalyzer.analyzeStorageVault(dbProperties);
+                }
+
+                if (!Strings.isNullOrEmpty(storageVaultName)) {
+                    storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
+                    LOG.info("Using database[{}] storage vault: name={}, id={}",
+                            db.getName(),storageVaultName, storageVaultId);
                 } else {
-                    throw new DdlException("No default storage vault."
-                            + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
-                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+                    // continue to check default vault
+                    Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
+                    if (info != null) {
+                        storageVaultName = info.first;
+                        storageVaultId = info.second;
+                        LOG.info("Using default storage vault: name={}, id={}",
+                                storageVaultName, storageVaultId);
+                    } else {
+                        throw new DdlException("No default storage vault."
+                                + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                                + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+                    }
                 }
             }
 
