@@ -3179,8 +3179,12 @@ public class Env {
     }
 
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
+        if (removedFrontends.size() == 0) {
+            return;
+        }
         if (haProtocol != null && haProtocol instanceof BDBHA) {
             BDBHA bdbha = (BDBHA) haProtocol;
+            LOG.info("remove frontends, num {} frontends {}", removedFrontends.size(), removedFrontends);
             bdbha.removeDroppedMember(removedFrontends);
         }
     }
