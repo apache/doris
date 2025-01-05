@@ -723,7 +723,7 @@ public abstract class ExternalCatalog
 
     public void replayInitCatalog(InitCatalogLog log) {
         // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()) {
+        if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
