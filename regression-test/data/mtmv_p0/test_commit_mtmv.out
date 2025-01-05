@@ -38,3 +38,23 @@
 -- !mv1_replace --
 3	2017-03-15	3
 
+-- !mv_sag --
+1	1	60
+
+-- !task_sag --
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+
+-- !mv_sag1 --
+1	1	60
+
+-- !task_sag1 --
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+
+-- !mv_sag2 --
+1	1	60
+1	2	70
+2	1	70
+
+-- !task_sag2 --
+{"triggerMode":"COMMIT","partitions":[],"isComplete":false}
+
