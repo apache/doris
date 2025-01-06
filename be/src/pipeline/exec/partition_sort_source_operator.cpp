@@ -87,16 +87,19 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     SCOPED_TIMER(local_state._get_sorted_timer);
     //sorter output data one by one
     bool current_eos = false;
-    if (local_state._sort_idx < local_state._shared_state->partition_sorts.size()) {
-        RETURN_IF_ERROR(local_state._shared_state->partition_sorts[local_state._sort_idx]->get_next(
-                state, output_block, &current_eos));
+    auto& sorters = local_state._shared_state->partition_sorts;
+    auto sorter_size = sorters.size();
+    if (local_state._sort_idx < sorter_size) {
+        RETURN_IF_ERROR(
+                sorters[local_state._sort_idx]->get_next(state, output_block, &current_eos));
         COUNTER_UPDATE(local_state._sorted_partition_output_rows_counter, output_block->rows());
     }
     if (current_eos) {
         // current sort have eos, so get next idx
-        local_state._shared_state->partition_sorts[local_state._sort_idx].reset(nullptr);
+        sorters[local_state._sort_idx].reset(nullptr);
         local_state._sort_idx++;
-        if (!local_state._shared_state->partition_sorts[local_state._sort_idx]->prepared_finish()) {
+        if (local_state._sort_idx < sorter_size &&
+            !sorters[local_state._sort_idx]->prepared_finish()) {
             local_state._dependency->block();
         }
     }
