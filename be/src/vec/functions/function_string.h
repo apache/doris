@@ -4085,8 +4085,9 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
-        res_chars.resize(str_chars.size() * 2 + input_rows_count);
+        // max pinyin size is 6 + 1 (first '~') for utf8 chinese word 3
+        size_t pinyin_size = (str_chars.size() + 2) / 3 * 7;
+        res_chars.resize(pinyin_size);
 
         size_t in_len = 0, out_len = 0;
         for (int i = 0; i < input_rows_count; ++i) {
@@ -4127,7 +4128,11 @@ public:
                     }
 
                     auto end = strchr(buf, ' ');
-                    auto len = end != nullptr ? end - buf : MAX_PINYIN_LEN;
+                    // max len for pinyin is 6
+                    int len = MAX_PINYIN_LEN;
+                    if (end != nullptr && end - buf < MAX_PINYIN_LEN) {
+                        len = end - buf;
+                    }
                     // set first char '~' just make sure all english word lower than chinese word
                     *dest = 126;
                     memcpy(dest + 1, buf, len);
