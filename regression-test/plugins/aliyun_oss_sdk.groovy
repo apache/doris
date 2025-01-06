@@ -1,5 +1,4 @@
 
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -49,7 +48,7 @@ Suite.metaClass.listOssObjectWithPrefix = { OSS client, String bucketName, Strin
         String nextMarker = null;
         final int maxKeys = 500;
         List<OSSObjectSummary> sums = null;
-        
+
         if (!client.doesBucketExist(bucketName)) {
             logger.info("no bucket named ${bucketName} in ${endpoint}")
             return
@@ -61,14 +60,14 @@ Suite.metaClass.listOssObjectWithPrefix = { OSS client, String bucketName, Strin
         do {
             objectListing = client.listObjects(new ListObjectsRequest(bucketName).
                     withPrefix(prefix).withMarker(nextMarker).withMaxKeys(maxKeys));
-            
+
             sums = objectListing.getObjectSummaries();
             for (OSSObjectSummary s : sums) {
                 logger.info("\t" + s.getKey());
             }
-            
+
             nextMarker = objectListing.getNextMarker();
-            
+
         } while (objectListing.isTruncated());
     } catch (OSSException oe) {
         logger.error("Caught an OSSException, which means your request made it to OSS, "
@@ -107,7 +106,7 @@ Suite.metaClass.calculateFolderLength = { OSS client, String bucketName, String 
         for (OSSObjectSummary s : sums) {
             size += s.getSize();
         }
-        } while (objectListing.isTruncated());
+    } while (objectListing.isTruncated());
     return size;
 }
 
@@ -143,7 +142,7 @@ Suite.metaClass.getOssAllDirSizeWithPrefix = { OSS client, String bucketName, St
                 logger.info(s.getKey() + " : " + (s.getSize() / (1024 * 1024 * 1024)) + "GB");
             }
         } while (objectListing.isTruncated());
-        
+
     } catch (OSSException oe) {
         logger.error("Caught an OSSException, which means your request made it to OSS, "
                 + "but was rejected with an error response for some reason.");
@@ -164,6 +163,3 @@ Suite.metaClass.getOssAllDirSizeWithPrefix = { OSS client, String bucketName, St
         logger.info("Done!")
     }
 }
-
-
-

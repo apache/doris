@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -234,7 +235,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterClause instanceof DropColumnOp
                     || alterClause instanceof ModifyColumnOp
                     || alterClause instanceof ReorderColumnsOp
-                    || alterClause instanceof ModifyEngineOp) {
+                    || alterClause instanceof ModifyEngineOp
+                    || alterClause instanceof ModifyTablePropertiesOp) {
                 alterTableOps.add(alterClause);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "

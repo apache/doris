@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 
 public class MetaCache<T> {
     private LoadingCache<String, List<Pair<String, String>>> namesCache;
+    //Pair<String, String> : <Remote name, Local name>
     private Map<Long, String> idToName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
@@ -101,29 +102,29 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
-    public void updateCache(String objName, T obj, long id) {
-        metaObjCache.put(objName, Optional.of(obj));
+    public void updateCache(String remoteName, String localName, T obj, long id) {
+        metaObjCache.put(localName, Optional.of(obj));
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
-                return Lists.newArrayList(Pair.of(objName, objName));
+                return Lists.newArrayList(Pair.of(remoteName, localName));
             } else {
-                v.add(Pair.of(objName, objName));
+                v.add(Pair.of(remoteName, localName));
                 return v;
             }
         });
-        idToName.put(id, objName);
+        idToName.put(id, localName);
     }
 
-    public void invalidate(String objName, long id) {
+    public void invalidate(String localName, long id) {
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
             } else {
-                v.remove(objName);
+                v.removeIf(pair -> pair.value().equals(localName));
                 return v;
             }
         });
-        metaObjCache.invalidate(objName);
+        metaObjCache.invalidate(localName);
         idToName.remove(id);
     }
 

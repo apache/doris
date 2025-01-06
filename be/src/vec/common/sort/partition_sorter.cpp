@@ -66,7 +66,7 @@ Status PartitionSorter::prepare_for_read() {
     auto& blocks = _state->get_sorted_block();
     auto& priority_queue = _state->get_priority_queue();
     for (auto& block : blocks) {
-        priority_queue.push(MergeSortCursorImpl::create_shared(block, _sort_description));
+        priority_queue.emplace(MergeSortCursorImpl::create_shared(block, _sort_description));
     }
     blocks.clear();
     return Status::OK();
@@ -102,10 +102,6 @@ Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 
 Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int batch_size) {
     auto& priority_queue = _state->get_priority_queue();
-    if (priority_queue.empty()) {
-        *eos = true;
-        return Status::OK();
-    }
     const auto& sorted_block = priority_queue.top().impl->block;
     size_t num_columns = sorted_block->columns();
     MutableBlock m_block =

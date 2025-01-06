@@ -226,7 +226,11 @@ private:
         static size_t num_proxies = 1;
         static std::atomic<size_t> index(0);
         static std::unique_ptr<MetaServiceProxy[]> proxies;
-
+        if (config::meta_service_endpoint.empty()) {
+            return Status::InvalidArgument(
+                    "Meta service endpoint is empty. Please configure manually or wait for "
+                    "heartbeat to obtain.");
+        }
         std::call_once(
                 proxies_flag, +[]() {
                     if (config::meta_service_connection_pooled) {
