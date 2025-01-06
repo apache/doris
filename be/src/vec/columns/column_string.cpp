@@ -356,8 +356,8 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
 template <typename T>
 StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    uint32_t string_size(size_at(n));
-    uint32_t offset(offset_at(n));
+    auto string_size(size_at(n));
+    auto offset(offset_at(n));
 
     StringRef res;
     res.size = sizeof(string_size) + string_size;
@@ -399,8 +399,8 @@ template <typename T>
 void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                  size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        uint32_t offset(offset_at(i));
-        uint32_t string_size(size_at(i));
+        auto offset(offset_at(i));
+        auto string_size(size_at(i));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
         memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
@@ -414,8 +414,8 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
                                                const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            uint32_t offset(offset_at(i));
-            uint32_t string_size(size_at(i));
+            auto offset(offset_at(i));
+            auto string_size(size_at(i));
 
             auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
             memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
