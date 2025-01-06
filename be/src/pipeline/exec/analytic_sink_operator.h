@@ -162,7 +162,6 @@ private:
     const bool _require_bucket_distribution;
     const std::vector<TExpr> _partition_exprs;
 
-    AnalyticFnScope _fn_scope;
     TAnalyticWindow _window;
     bool _has_window;
     bool _has_range_window;
