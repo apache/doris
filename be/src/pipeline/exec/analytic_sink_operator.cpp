@@ -366,26 +366,28 @@ Status AnalyticSinkLocalState::_get_next_for_range_between() {
             LOG(INFO) << _order_by_pose.start << " " << _order_by_pose.end << " "
                       << _partition_by_pose.start << " " << _partition_by_pose.end;
             while (_current_row_position < _partition_by_pose.end) {
-                _update_order_by_range();
-                if (_current_row_position == _order_by_pose.start) {
-                    LOG(INFO) << "asd1: " << _partition_by_pose.start << " "
-                              << _partition_by_pose.end << " " << _order_by_pose.start << " "
-                              << _order_by_pose.end;
-                    _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end,
-                                          _order_by_pose.start, _order_by_pose.end);
+                _reset_agg_status();
+                if (!_parent->cast<AnalyticSinkOperatorX>()._window.__isset.window_start) {
+                    _order_by_pose.start = _partition_by_pose.start;
+                } else {
+                    _order_by_pose.start = find_first_not_equal(
+                            _range_result_columns[0].get(), _order_by_columns[0].get(),
+                            _current_row_position, _order_by_pose.start, _partition_by_pose.end);
                 }
-                auto previous_window_frame_width = _current_row_position - current_block_base_pos;
-                auto current_window_frame_width = _order_by_pose.end - current_block_base_pos;
-                current_window_frame_width =
-                        std::min<int64_t>(current_window_frame_width, batch_size);
-                auto real_deal_with_width =
-                        current_window_frame_width - previous_window_frame_width;
 
-                _insert_result_info(real_deal_with_width);
-                _current_row_position += real_deal_with_width;
-                LOG(INFO) << "asd2: " << previous_window_frame_width << " "
-                          << current_window_frame_width << " " << real_deal_with_width << " "
-                          << _current_row_position;
+                if (!_parent->cast<AnalyticSinkOperatorX>()._window.__isset.window_end) {
+                    _order_by_pose.end = _partition_by_pose.end;
+                } else {
+                    _order_by_pose.end = find_first_not_equal(
+                            _range_result_columns[1].get(), _order_by_columns[0].get(),
+                            _current_row_position, _order_by_pose.end, _partition_by_pose.end);
+                }
+                // Make sure range_start <= range_end
+                // current_row_start = std::min(current_row_start, current_row_end);
+                _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end,
+                                      _order_by_pose.start, _order_by_pose.end);
+                _insert_result_info(1);
+                _current_row_position++;
                 if (_current_row_position - current_block_base_pos >= batch_size) {
                     break;
                 }
@@ -398,6 +400,8 @@ Status AnalyticSinkLocalState::_get_next_for_range_between() {
             }
             if (_current_row_position == _partition_by_pose.end) {
                 _reset_state_for_next_partition();
+                _order_by_pose.start = _partition_by_pose.start;
+                _order_by_pose.end = _partition_by_pose.end;
             }
         }
     }
@@ -554,7 +558,7 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
     }
 
     const auto start = _partition_by_pose.end;
-    const auto target = (_partition_by_pose.end || _partition_by_pose.end == 0)
+    const auto target = (_partition_by_pose.is_ended || _partition_by_pose.end == 0)
                                 ? _partition_by_pose.end
                                 : _partition_by_pose.end - 1;
     DCHECK(_partition_exprs_size > 0);
