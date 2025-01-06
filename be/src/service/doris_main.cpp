@@ -92,6 +92,10 @@ void __lsan_do_leak_check();
 int __llvm_profile_write_file();
 }
 
+namespace bvar {
+DECLARE_int32(bvar_max_dump_multi_dimension_metric_number);
+} // namespace bvar
+
 namespace doris {
 
 void signal_handler(int signal) {
@@ -379,6 +383,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
+
+    bvar::FLAGS_bvar_max_dump_multi_dimension_metric_number = doris::config::bvar_max_dump_multi_dimension_metric_number;
 
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
     google::ParseCommandLineFlags(&argc, &argv, true);

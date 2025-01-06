@@ -1505,6 +1505,9 @@ DECLARE_String(test_s3_bucket);
 DECLARE_String(test_s3_prefix);
 #endif
 
+// enable mbvar
+DECLARE_mInt32(bvar_max_dump_multi_dimension_metric_number);
+
 class Register {
 public:
     struct Field {

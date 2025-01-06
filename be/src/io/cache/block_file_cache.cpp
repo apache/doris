@@ -29,6 +29,9 @@
 #include <sys/statfs.h>
 #endif
 
+#include <bvar/multi_dimension.h>
+#include <bvar/status.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <mutex>
 #include <ranges>
@@ -48,16 +51,21 @@
 
 namespace doris::io {
 
+bvar::MultiDimension<bvar::Status<size_t>> _cache_capacity_md_metrics("file_cache_capacity",
+                                                                      {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_cache_size_md_metrics("file_cache_cache_size",
+                                                                      {"path"});
+
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size),
           _max_query_cache_size(cache_settings.max_query_cache_size) {
-    _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
-                                                                     "file_cache_cache_size", 0);
-    _cache_capacity_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_capacity", _capacity);
+    _cache_capacity_metrics = _cache_capacity_md_metrics.get_stats({_cache_base_path});
+    _cache_capacity_metrics->set_value(_capacity);
+    _cur_cache_size_metrics = _cur_cache_size_md_metrics.get_stats({_cache_base_path});
+    _cur_cache_size_metrics->set_value(0);
     _cur_ttl_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_ttl_cache_size", 0);
     _cur_normal_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -221,6 +229,19 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     }
 
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
+}
+
+BlockFileCache::~BlockFileCache() {
+    {
+        std::lock_guard lock(_close_mtx);
+        _close = true;
+    }
+    _close_cv.notify_all();
+    if (_cache_background_thread.joinable()) {
+        _cache_background_thread.join();
+    }
+    _cache_capacity_md_metrics.delete_stats({_cache_base_path});
+    _cur_cache_size_md_metrics.delete_stats({_cache_base_path});
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {

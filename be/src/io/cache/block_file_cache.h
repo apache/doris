@@ -89,16 +89,7 @@ public:
 
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
-    ~BlockFileCache() {
-        {
-            std::lock_guard lock(_close_mtx);
-            _close = true;
-        }
-        _close_cv.notify_all();
-        if (_cache_background_thread.joinable()) {
-            _cache_background_thread.join();
-        }
-    }
+    ~BlockFileCache();
 
     /// Restore cache from local filesystem.
     Status initialize();
@@ -498,8 +489,8 @@ private:
     std::shared_ptr<boost::lockfree::spsc_queue<FileCacheKey>> _recycle_keys;
 
     // metrics
-    std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
+    bvar::Status<size_t>* _cache_capacity_metrics;
+    bvar::Status<size_t>* _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_metrics;
