@@ -20,7 +20,7 @@ package org.apache.doris.mtmv;
 import java.util.Optional;
 
 public class MTMVPartitionSyncConfig {
-    public final static int DEFAULT_SYNC_LIMIT = -1;
+    public static final int DEFAULT_SYNC_LIMIT = -1;
     private int syncLimit;
     private MTMVPartitionSyncTimeUnit timeUnit;
     private Optional<String> dateFormat;
