@@ -25,6 +25,7 @@ import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.common.util.concurrent.Uninterruptibles
 import com.google.gson.Gson
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -699,6 +700,23 @@ class Suite implements GroovyInterceptable {
                 return sb.toString()
             }).collect(Collectors.joining("\nUNION ALL\n"))
         return sql
+    }
+
+    <T> T retry(int executeTimes = 3, int intervalMillis = 1000, Closure<T> closure) {
+        Throwable throwable = null
+        for (int i = 1; i <= executeTimes; ++i) {
+            try {
+                return closure()
+            } catch (Throwable t) {
+                logger.warn("Retry failed: $t", t)
+                throwable = t
+                Uninterruptibles.sleepUninterruptibly(intervalMillis, TimeUnit.MILLISECONDS)
+            }
+        }
+        if (throwable != null) {
+            throw throwable
+        }
+        return null
     }
 
     void explain(Closure actionSupplier) {
