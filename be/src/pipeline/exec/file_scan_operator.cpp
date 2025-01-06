@@ -65,15 +65,19 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
             config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
     if (wg_ptr) {
         const auto total_slots = wg_ptr->total_query_slot_count();
-        const auto query_slots = state->get_query_ctx()->get_slot_count();
-        _max_scanners = _max_scanners * query_slots / total_slots;
+        if (total_slots > 0) {
+            const auto query_slots = std::max<int32_t>(state->get_query_ctx()->get_slot_count(), 1);
+            _max_scanners = _max_scanners * query_slots / total_slots;
+        }
     }
 
     const auto parallel_scan_max_scanners_count = state->parallel_scan_max_scanners_count();
     if (parallel_scan_max_scanners_count > 0) {
-        _max_scanners =
-                std::max(std::min(_max_scanners, state->parallel_scan_max_scanners_count()), 1);
+        _max_scanners = std::min(_max_scanners, state->parallel_scan_max_scanners_count());
     }
+
+    _max_scanners = std::max(_max_scanners, 1);
+    DCHECK_GT(_max_scanners, 0);
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
         _max_scanners = 1;
