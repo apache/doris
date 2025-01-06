@@ -72,7 +72,11 @@ public:
         int64_t _init_connector_timer = 0;
         int64_t _get_data_timer = 0;
         int64_t _get_block_address_timer = 0;
+        int64_t _jni_setup_timer = 0;
+        int64_t _has_next_timer = 0;
+        int64_t _prepare_params_timer = 0;
         int64_t _fill_block_timer = 0;
+        int64_t _cast_timer = 0;
         int64_t _check_type_timer = 0;
         int64_t _execte_read_timer = 0;
         int64_t _connector_close_timer = 0;

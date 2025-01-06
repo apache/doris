@@ -164,7 +164,11 @@ void NewJdbcScanner::_init_profile(const std::shared_ptr<RuntimeProfile>& profil
     _check_type_timer = ADD_TIMER(profile, "CheckTypeTime");
     _get_data_timer = ADD_TIMER(profile, "GetDataTime");
     _get_block_address_timer = ADD_CHILD_TIMER(profile, "GetBlockAddressTime", "GetDataTime");
+    _jni_setup_timer = ADD_CHILD_TIMER(profile, "JniSetupTime", "GetDataTime");
+    _has_next_timer = ADD_CHILD_TIMER(profile, "HasNextTime", "GetDataTime");
+    _prepare_params_timer = ADD_CHILD_TIMER(profile, "PrepareParamsTime", "GetDataTime");
     _fill_block_timer = ADD_CHILD_TIMER(profile, "FillBlockTime", "GetDataTime");
+    _cast_timer = ADD_CHILD_TIMER(profile, "CastTime", "GetDataTime");
     _execte_read_timer = ADD_TIMER(profile, "ExecteReadTime");
     _connector_close_timer = ADD_TIMER(profile, "ConnectorCloseTime");
 }
@@ -175,8 +179,12 @@ void NewJdbcScanner::_update_profile() {
     COUNTER_UPDATE(_init_connector_timer, jdbc_statistic._init_connector_timer);
     COUNTER_UPDATE(_check_type_timer, jdbc_statistic._check_type_timer);
     COUNTER_UPDATE(_get_data_timer, jdbc_statistic._get_data_timer);
+    COUNTER_UPDATE(_jni_setup_timer, jdbc_statistic._jni_setup_timer);
+    COUNTER_UPDATE(_has_next_timer, jdbc_statistic._has_next_timer);
+    COUNTER_UPDATE(_prepare_params_timer, jdbc_statistic._prepare_params_timer);
     COUNTER_UPDATE(_get_block_address_timer, jdbc_statistic._get_block_address_timer);
     COUNTER_UPDATE(_fill_block_timer, jdbc_statistic._fill_block_timer);
+    COUNTER_UPDATE(_cast_timer, jdbc_statistic._cast_timer);
     COUNTER_UPDATE(_execte_read_timer, jdbc_statistic._execte_read_timer);
     COUNTER_UPDATE(_connector_close_timer, jdbc_statistic._connector_close_timer);
 }
