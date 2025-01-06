@@ -467,6 +467,7 @@ public class SqlCacheContext {
         }
     }
 
+    /** TableVersion */
     @lombok.Data
     @lombok.AllArgsConstructor
     public static class TableVersion {
