@@ -36,6 +36,7 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.batch.BlobBatch;
 import com.azure.storage.blob.batch.BlobBatchClient;
 import com.azure.storage.blob.batch.BlobBatchClientBuilder;
+import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
@@ -196,6 +197,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.info("delete file " + remotePath + " success");
             return Status.OK;
         } catch (BlobStorageException e) {
+            if (e.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+                return Status.OK;
+            }
             return new Status(
                     Status.ErrCode.COMMON_ERROR,
                     "get file from azure error: " + e.getServiceMessage());
@@ -315,7 +319,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return globPattern.substring(0, earliestSpecialCharIndex);
     }
 
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
         long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
@@ -348,8 +352,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     }
                     matchCnt++;
                     RemoteFile remoteFile = new RemoteFile(
-                            fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                    uri.getBucket()),
+                            constructS3Path(blobPath.toString(), uri.getBucket()),
                             !blobItem.isPrefix(),
                             blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
                             blobItem.getProperties().getContentLength(),
@@ -369,9 +372,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, roundCnt, matchCnt,
-                    duration / 1000);
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, result {} take {} "
+                    + "micro second",
+                    remotePath, elementCnt, roundCnt, matchCnt, result.size(), duration / 1000);
         }
         return st;
     }

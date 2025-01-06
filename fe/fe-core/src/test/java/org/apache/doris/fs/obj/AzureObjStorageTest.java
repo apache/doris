@@ -97,9 +97,8 @@ public class AzureObjStorageTest {
         inputs.stream().forEach(i -> {
             AzureObjStorage azs = new AzureObjStorage(props);
             List<RemoteFile> result = new ArrayList<RemoteFile>();
-            boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
-            Status st = azs.globList(i.pattern, result, fileNameOnly);
+            Status st = azs.globList(i.pattern, result);
             Assertions.assertTrue(st.ok());
             Assertions.assertEquals(i.expectedMatchSize, result.size());
         });
@@ -117,9 +116,8 @@ public class AzureObjStorageTest {
         inputs.stream().forEach(i -> {
             AzureObjStorage azs = genMockedAzureObjStorage(4/*numBatches, numContinuations*/);
             List<RemoteFile> result = new ArrayList<RemoteFile>();
-            boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
-            Status st = azs.globList(i.pattern, result, fileNameOnly);
+            Status st = azs.globList(i.pattern, result);
             Assertions.assertTrue(st.ok());
             Assertions.assertEquals(i.expectedMatchSize, result.size());
             for (int j = 0; j < result.size() && j < 10; ++j) {
@@ -169,8 +167,7 @@ public class AzureObjStorageTest {
     public void testMockObj() {
         AzureObjStorage azs = genMockedAzureObjStorage(2);
         List<RemoteFile> result = new ArrayList<RemoteFile>();
-        boolean fileNameOnly = false;
-        Status st = azs.globList("s3://gavin-test-jp/azure-test/1/*", result, fileNameOnly);
+        Status st = azs.globList("s3://gavin-test-jp/azure-test/1/*", result);
         Assertions.assertTrue(st.ok());
         // for (RemoteFile i : result) {
         //     System.out.println(i.getName());

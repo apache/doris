@@ -649,7 +649,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     // List files in remotePath
     @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
         // get a proper broker
         Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBroker();
         if (pair == null) {
@@ -663,7 +663,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         try {
             TBrokerListPathRequest req = new TBrokerListPathRequest(TBrokerVersion.VERSION_ONE, remotePath,
                     false /* not recursive */, properties);
-            req.setFileNameOnly(fileNameOnly);
+            req.setFileNameOnly(false);
             TBrokerListResponse rep = client.listPath(req);
             TBrokerOperationStatus opst = rep.getOpStatus();
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {

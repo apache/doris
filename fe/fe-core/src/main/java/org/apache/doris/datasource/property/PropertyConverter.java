@@ -265,7 +265,7 @@ public class PropertyConverter {
         }
         if (Strings.isNullOrEmpty(region)) {
             String errorMsg = String.format("No '%s' info found, using SDK default region: us-east-1", regionKey);
-            LOG.warn(errorMsg);
+            LOG.info(errorMsg);
             return "us-east-1";
         }
         return region;

@@ -108,7 +108,7 @@ public class S3FileSystemTest {
             fileSystem = new S3FileSystem(mockedStorage);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
-                public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+                public Status globList(String remotePath, List<RemoteFile> result) {
                     try {
                         S3URI uri = S3URI.create(remotePath, false);
                         ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder().bucket(uri.getBucket());

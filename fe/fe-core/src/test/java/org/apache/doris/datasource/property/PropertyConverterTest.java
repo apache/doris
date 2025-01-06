@@ -195,7 +195,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {
