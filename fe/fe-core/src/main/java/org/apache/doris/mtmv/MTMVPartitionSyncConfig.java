@@ -20,17 +20,13 @@ package org.apache.doris.mtmv;
 import java.util.Optional;
 
 public class MTMVPartitionSyncConfig {
-    // -1 not config, sync all
     private int syncLimit;
-    // -1 not config, not persist history partition; 0 persistent reservation
-    private int historyLimit;
     private MTMVPartitionSyncTimeUnit timeUnit;
     private Optional<String> dateFormat;
 
-    public MTMVPartitionSyncConfig(int syncLimit, int historyLimit, MTMVPartitionSyncTimeUnit timeUnit,
+    public MTMVPartitionSyncConfig(int syncLimit, MTMVPartitionSyncTimeUnit timeUnit,
             Optional<String> dateFormat) {
         this.syncLimit = syncLimit;
-        this.historyLimit = historyLimit;
         this.timeUnit = timeUnit;
         this.dateFormat = dateFormat;
     }
@@ -57,13 +53,5 @@ public class MTMVPartitionSyncConfig {
 
     public void setDateFormat(Optional<String> dateFormat) {
         this.dateFormat = dateFormat;
-    }
-
-    public boolean needKeepAllHistoryPartitions() {
-        return historyLimit == 0;
-    }
-
-    public boolean notKeepAnyHistoryPartitions() {
-        return historyLimit == -1;
     }
 }

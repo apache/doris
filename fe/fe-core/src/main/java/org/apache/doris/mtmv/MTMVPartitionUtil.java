@@ -138,12 +138,7 @@ public class MTMVPartitionUtil {
     }
 
     private static boolean needKeep(PartitionKeyDesc partitionKeyDesc, MTMVPartitionSyncConfig partitionSyncConfig) {
-        if (partitionSyncConfig.needKeepAllHistoryPartitions()) {
-            return true;
-        }
-        if (partitionSyncConfig.notKeepAnyHistoryPartitions()) {
-            return false;
-        }
+
         // todo: check time
         return true;
     }
@@ -155,8 +150,6 @@ public class MTMVPartitionUtil {
 
     public static MTMVPartitionSyncConfig getPartitionSyncConfig(
             Map<String, String> mvProperties) {
-        int historyLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_HISTORY_LIMIT)) ? -1
-                : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_HISTORY_LIMIT));
         int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
                 : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
         MTMVPartitionSyncTimeUnit timeUnit =
@@ -167,7 +160,7 @@ public class MTMVPartitionUtil {
                 StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT))
                         ? Optional.empty()
                         : Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT));
-        return new MTMVPartitionSyncConfig(syncLimit, historyLimit, timeUnit, dateFormat);
+        return new MTMVPartitionSyncConfig(syncLimit, timeUnit, dateFormat);
     }
 
     /**
