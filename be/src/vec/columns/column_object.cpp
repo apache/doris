@@ -361,6 +361,7 @@ void get_field_info(const Field& field, FieldInfo* info) {
 constexpr int CURRENT_SERIALIZE_NESTING_LEVEL = 2;
 
 DataTypeSerDeSPtr ColumnObject::Subcolumn::generate_data_serdes(DataTypePtr type, bool is_root) {
+    // For the root column, there is no path, so there is no need to add extra '"'
     if (is_root) {
         return type->get_serde(CURRENT_SERIALIZE_NESTING_LEVEL - 1);
     } else {
@@ -675,9 +676,6 @@ void ColumnObject::resize(size_t n) {
 }
 
 void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
-    // if (is_finalized()) {
-    //     return;
-    // }
     if (!is_root && data.size() == 1 && num_of_defaults_in_prefix == 0) {
         data[0] = data[0]->convert_to_full_column_if_const();
         return;
@@ -850,6 +848,7 @@ void ColumnObject::check_consistency() const {
                                serialized_sparse_column->size());
     }
 
+#ifdef NDEBUG
     bool error = false;
     auto [path, value] = get_sparse_data_paths_and_values();
 
@@ -873,6 +872,7 @@ void ColumnObject::check_consistency() const {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "path {} both exists in subcolumn and sparse columns");
     }
+#endif
 }
 
 size_t ColumnObject::size() const {
@@ -942,10 +942,8 @@ void ColumnObject::try_insert(const Field& field) {
             return;
         }
         auto* root = get_subcolumn({});
-        // Insert to an emtpy ColumnObject may result root null,
-        // so create a root column of Variant is expected.
         if (root == nullptr) {
-            CHECK(false);
+            CHECK(false) << "column object has no root column";
         }
         root->insert(field);
     } else {
@@ -1297,27 +1295,12 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
 }
 
 void ColumnObject::set_num_rows(size_t n) {
-    // for (auto& entry : subcolumns) {
-    //     if (auto size = entry->data.size(); size < n) {
-    //         entry->data.insert_many_defaults(n - size);
-    //     } else if (size > n) {
-    //         CHECK(false) << entry->path.get_path() << " has more data";
-    //     }
-    // }
-    // if (auto size = serialized_sparse_column->size(); size < n) {
-    //     serialized_sparse_column->insert_many_defaults(n - size);
-    // } else if (size > n) {
-    //     CHECK(false) << " sparse column has more data";
-    // }
-    // check
     num_rows = n;
-    // ENABLE_CHECK_CONSISTENCY(this);
 }
 
 bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
-    bool no_root = subcolumns.get_root() == nullptr;
-    if (no_root || path.empty()) {
-        CHECK(false);
+    if (subcolumns.get_root() == nullptr || path.empty()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no rooot or path is empty");
     }
     if (subcolumns.size() < config::variant_max_subcolumns_count + 1) {
         return add_sub_column(path, num_rows);
@@ -1337,10 +1320,6 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
     std::map<std::string_view, Subcolumn> src_path_and_subcoumn_for_sparse_column;
     for (const auto& entry : src_object.subcolumns) {
         // Check if we already have such dense column path.
-        if (entry->data.is_root) {
-            subcolumns.get_mutable_root()->data.insert_range_from(entry->data, start, length);
-            continue;
-        }
         if (auto* subcolumn = get_subcolumn(entry->path); subcolumn != nullptr) {
             subcolumn->insert_range_from(entry->data, start, length);
         } else if (try_add_new_subcolumn(entry->path)) {
@@ -1518,8 +1497,6 @@ size_t ColumnObject::Subcolumn::serialize_text_json(size_t n, BufferWritable& ou
 
     ind -= num_of_defaults_in_prefix;
     DataTypeSerDe::FormatOptions opt;
-    //opt.converted_from_string = true;
-    // opt.escape_char = '\\';
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
         const auto& part_type_serde = data_serdes[i];
@@ -2053,9 +2030,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
             }
         }
 
-#ifndef NDEBUG
-        check_consistency();
-#endif
+        ENABLE_CHECK_CONSISTENCY(this);
         clear_sparse_column();
 
         RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
@@ -2174,6 +2149,7 @@ void ColumnObject::clear_column_data() {
 
 void ColumnObject::clear() {
     Subcolumns empty;
+    // we must keep root column exist
     empty.create_root(Subcolumn(0, is_nullable, true));
     std::swap(empty, subcolumns);
     serialized_sparse_column->clear();
