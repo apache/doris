@@ -17,9 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,6 +42,8 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.query.QueryStatsUtil;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -69,6 +81,9 @@ public class ShowTabletIdCommand extends ShowCommand {
         return builder.build();
     }
 
+    /**
+     * handle show tablet
+     */
     public List<List<String>> handleShowTablet() {
 
         List<List<String>> rows = Lists.newArrayList();
@@ -155,14 +170,13 @@ public class ShowTabletIdCommand extends ShowCommand {
         } while (false);
 
         String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
-            dbId, tableId, partitionId, indexId, tabletId);
+                dbId, tableId, partitionId, indexId, tabletId);
         rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
-            dbId.toString(), tableId.toString(),
-            partitionId.toString(), indexId.toString(),
-            isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
+                dbId.toString(), tableId.toString(),
+                partitionId.toString(), indexId.toString(),
+                isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
         return rows;
     }
-
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
