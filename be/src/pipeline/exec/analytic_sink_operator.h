@@ -43,7 +43,8 @@ public:
 private:
     friend class AnalyticSinkOperatorX;
     Status _get_next_for_partition();
-    Status _get_next_for_range();
+    Status _get_next_for_unbounded_range();
+    Status _get_next_for_range_between();
     Status _get_next_for_unbounded_rows();
     Status _get_next_for_sliding_rows();
 
@@ -63,15 +64,22 @@ private:
     bool _has_input_data() { return _output_block_index < _input_blocks.size(); }
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);
     void _reset_state_for_next_partition();
-    int64_t find_first_not_equal(vectorized::IColumn* column, int64_t target, int64_t start, int64_t end);
+    int64_t find_first_not_equal(vectorized::IColumn* reference_column,
+                                 vectorized::IColumn* compared_column, int64_t target,
+                                 int64_t start, int64_t end);
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
     vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
     vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
+    std::vector<std::vector<vectorized::MutableColumnPtr>> _agg_input_columns;
+    std::vector<vectorized::MutableColumnPtr> _partition_by_columns;
+    std::vector<vectorized::MutableColumnPtr> _order_by_columns;
+    std::vector<vectorized::MutableColumnPtr> _range_result_columns;
     size_t _partition_exprs_size = 0;
     size_t _order_by_exprs_size = 0;
 
     size_t _agg_functions_size = 0;
+    bool _agg_functions_created = false;
     vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
@@ -82,7 +90,6 @@ private:
     };
     executor _executor;
 
-    bool _agg_functions_created = false;
     bool _current_window_empty = false;
     int64_t _output_block_index = 0;
     std::vector<vectorized::MutableColumnPtr> _result_window_columns;
@@ -97,14 +104,12 @@ private:
     bool _input_eos = false;
     std::vector<int64_t> _input_col_ids;
     std::vector<int64_t> _input_block_first_row_positions;
-    std::vector<std::vector<vectorized::MutableColumnPtr>> _agg_input_columns;
-    std::vector<vectorized::MutableColumnPtr> _partition_by_columns;
-    std::vector<vectorized::MutableColumnPtr> _order_by_columns;
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
     RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
+    RuntimeProfile::Counter* _compute_order_by_function_timer = nullptr;
     RuntimeProfile::Counter* _execute_timer = nullptr;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _get_result_timer = nullptr;

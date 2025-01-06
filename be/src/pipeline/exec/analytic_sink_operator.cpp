@@ -37,6 +37,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
     _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
     _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
+    _compute_order_by_function_timer = ADD_TIMER(profile(), "ComputeOrderByFunctionTime");
     _execute_timer = ADD_TIMER(profile(), "ExecuteTime");
     _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
     _get_result_timer = ADD_TIMER(profile(), "GetResultsTime");
@@ -52,9 +53,9 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             if (!p._has_window_start &&
                 p._window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
                 // For window frame `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
-                _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_range;
+                _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_range;
             } else {
-                _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
+                _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_range_between;
             }
         }
     } else {
@@ -136,6 +137,14 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     for (size_t i = 0; i < _order_by_exprs_size; i++) {
         RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
         _order_by_columns[i] = _order_by_eq_expr_ctxs[i]->root()->data_type()->create_column();
+    }
+
+    // only support one order by column, so need two columns upper and lower bound
+    _range_result_columns.resize(2);
+    // should change the order by exprs to range column, IF FE have support range window
+    for (size_t i = 0; i < _order_by_exprs_size; i++) {
+        RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
+        _range_result_columns[i] = _order_by_eq_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(p._total_size_of_aggregate_states,
@@ -287,7 +296,7 @@ Status AnalyticSinkLocalState::_get_next_for_partition() {
     return Status::OK();
 }
 
-Status AnalyticSinkLocalState::_get_next_for_range() {
+Status AnalyticSinkLocalState::_get_next_for_unbounded_range() {
     while (_has_input_data()) {
         {
             SCOPED_TIMER(_evaluation_timer);
@@ -298,8 +307,62 @@ Status AnalyticSinkLocalState::_get_next_for_range() {
             _init_result_columns();
             auto batch_size = _input_blocks[_output_block_index].rows();
             auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
-            LOG(INFO) << "asd _get_next_for_range: " << _current_row_position << " " << batch_size
-                      << " " << current_block_base_pos;
+            LOG(INFO) << "asd _get_next_for_unbounded_range: " << _current_row_position << " "
+                      << batch_size << " " << current_block_base_pos;
+            LOG(INFO) << _order_by_pose.start << " " << _order_by_pose.end << " "
+                      << _partition_by_pose.start << " " << _partition_by_pose.end;
+            while (_current_row_position < _partition_by_pose.end) {
+                _update_order_by_range();
+                if (_current_row_position == _order_by_pose.start) {
+                    LOG(INFO) << "asd1: " << _partition_by_pose.start << " "
+                              << _partition_by_pose.end << " " << _order_by_pose.start << " "
+                              << _order_by_pose.end;
+                    _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end,
+                                          _order_by_pose.start, _order_by_pose.end);
+                }
+                auto previous_window_frame_width = _current_row_position - current_block_base_pos;
+                auto current_window_frame_width = _order_by_pose.end - current_block_base_pos;
+                current_window_frame_width =
+                        std::min<int64_t>(current_window_frame_width, batch_size);
+                auto real_deal_with_width =
+                        current_window_frame_width - previous_window_frame_width;
+
+                _insert_result_info(real_deal_with_width);
+                _current_row_position += real_deal_with_width;
+                LOG(INFO) << "asd2: " << previous_window_frame_width << " "
+                          << current_window_frame_width << " " << real_deal_with_width << " "
+                          << _current_row_position;
+                if (_current_row_position - current_block_base_pos >= batch_size) {
+                    break;
+                }
+            }
+
+            if (_current_row_position - current_block_base_pos >= batch_size) {
+                vectorized::Block block;
+                RETURN_IF_ERROR(output_current_block(&block));
+                _refresh_buffer_and_dependency_state(&block);
+            }
+            if (_current_row_position == _partition_by_pose.end) {
+                _reset_state_for_next_partition();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status AnalyticSinkLocalState::_get_next_for_range_between() {
+    while (_has_input_data()) {
+        {
+            SCOPED_TIMER(_evaluation_timer);
+            _get_partition_by_end();
+            if (!_partition_by_pose.is_ended) {
+                break;
+            }
+            _init_result_columns();
+            auto batch_size = _input_blocks[_output_block_index].rows();
+            auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
+            LOG(INFO) << "asd _get_next_for_unbounded_range: " << _current_row_position << " "
+                      << batch_size << " " << current_block_base_pos;
             LOG(INFO) << _order_by_pose.start << " " << _order_by_pose.end << " "
                       << _partition_by_pose.start << " " << _partition_by_pose.end;
             while (_current_row_position < _partition_by_pose.end) {
@@ -437,6 +500,7 @@ void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(vectorized::Bl
     // buffer have push data, could signal the source to read
     _dependency->set_ready_to_read();
 }
+
 void AnalyticSinkLocalState::_reset_state_for_next_partition() {
     _partition_by_pose.start = _partition_by_pose.end;
     _current_row_position = _partition_by_pose.start;
@@ -457,9 +521,9 @@ void AnalyticSinkLocalState::_update_order_by_range() {
     {
         if (_order_by_pose.start < _order_by_pose.end) {
             for (size_t i = 0; i < _order_by_exprs_size; ++i) {
-                _order_by_pose.end =
-                        find_first_not_equal(_order_by_columns[i].get(), _order_by_pose.start,
-                                             _order_by_pose.start, _order_by_pose.end);
+                _order_by_pose.end = find_first_not_equal(
+                        _order_by_columns[i].get(), _order_by_columns[i].get(),
+                        _order_by_pose.start, _order_by_pose.start, _order_by_pose.end);
             }
         }
     }
@@ -501,7 +565,8 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
         if (start < _partition_by_pose.end) {
             for (size_t i = 0; i < _partition_exprs_size; ++i) {
                 _partition_by_pose.end = find_first_not_equal(
-                        _partition_by_columns[i].get(), target, start, _partition_by_pose.end);
+                        _partition_by_columns[i].get(), _partition_by_columns[i].get(), target,
+                        start, _partition_by_pose.end);
             }
         }
     }
@@ -516,17 +581,19 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
     _partition_by_pose.is_ended = _input_eos;
 }
 
-int64_t AnalyticSinkLocalState::find_first_not_equal(vectorized::IColumn* column, int64_t target,
-                                                     int64_t start, int64_t end) {
+// Compares (*this)[n] and rhs[m]
+int64_t AnalyticSinkLocalState::find_first_not_equal(vectorized::IColumn* reference_column,
+                                                     vectorized::IColumn* compared_column,
+                                                     int64_t target, int64_t start, int64_t end) {
     while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
-        if (column->compare_at(target, mid, *column, 1) == 0) {
+        if (reference_column->compare_at(target, mid, *compared_column, 1) == 0) {
             start = mid;
         } else {
             end = mid;
         }
     }
-    if (column->compare_at(target, end - 1, *column, 1) == 0) {
+    if (reference_column->compare_at(target, end - 1, *compared_column, 1) == 0) {
         return end;
     }
     return end - 1;
@@ -710,6 +777,16 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
         for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
             RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
                                                  local_state._order_by_columns[i].get(),
+                                                 block_rows));
+        }
+    }
+
+    {
+        SCOPED_TIMER(local_state._compute_order_by_function_timer);
+        // should change the order by exprs to range column, IF FE have support range window
+        for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
+            RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
+                                                 local_state._range_result_columns[i].get(),
                                                  block_rows));
         }
     }
