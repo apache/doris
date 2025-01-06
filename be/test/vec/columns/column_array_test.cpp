@@ -349,6 +349,51 @@ protected:
 };
 
 //////////////////////// basic function from column.h ////////////////////////
+TEST_F(ColumnArrayTest, InsertManyFixLengthDataTest) {
+    auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+        for (auto& col : array_columns) {
+            EXPECT_ANY_THROW(col->insert_many_fix_len_data(nullptr, 0));
+        }
+    };
+    assert_insert_many_fix_len_data(array_columns, serdes, callback);
+}
+
+TEST_F(ColumnArrayTest, InsertManyDictDataTest) {
+    auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+        for (auto& col : array_columns) {
+            EXPECT_ANY_THROW(col->insert_many_dict_data(nullptr, 0, nullptr, 0));
+        }
+    };
+    assert_insert_many_dict_data(array_columns, serdes, callback);
+}
+// test assert_insert_many_continuous_binary_data
+TEST_F(ColumnArrayTest, InsertManyContinuousBinaryDataTest) {
+    auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+        for (auto& col : array_columns) {
+            EXPECT_ANY_THROW(col->insert_many_continuous_binary_data(nullptr, 0, 0));
+        }
+    };
+    assert_insert_many_continuous_binary_data(array_columns, serdes, callback);
+}
+
+TEST_F(ColumnArrayTest, InsertManyStringsOverflowTest) {
+    assert_insert_many_strings_overflow(array_columns, serdes, nullptr);
+}
+
+TEST_F(ColumnArrayTest, InsertManyStringsTest) {
+    assert_insert_many_strings(array_columns, serdes, nullptr);
+}
+
+// test insert_from
+TEST_F(ColumnArrayTest, InsertFromTest) {
+    assert_insert_from_callback(array_columns, serdes);
+}
+
+// test assert_insert_from_multi_column_callback
+TEST_F(ColumnArrayTest, InsertFromMultiColumnTest) {
+    assert_insert_from_multi_column_callback(array_columns, serdes);
+}
+
 TEST_F(ColumnArrayTest, InsertRangeFromTest) {
     assert_insert_range_from_callback(array_columns, serdes);
 }
@@ -371,7 +416,12 @@ TEST_F(ColumnArrayTest, InsertManyDefaultsTest) {
 
 TEST_F(ColumnArrayTest, InsertDataTest) {
     // we expect insert_data will throw exception
-    EXPECT_ANY_THROW(assert_insert_data_from_callback(array_columns, serdes));
+    EXPECT_ANY_THROW(assert_insert_data_callback(array_columns, serdes));
+}
+
+TEST_F(ColumnArrayTest, InsertManyRawDataTest) {
+    // we expect insert_many_row_data will throw exception
+    EXPECT_ANY_THROW(assert_insert_many_raw_data_from_callback(array_columns, serdes));
 }
 
 TEST_F(ColumnArrayTest, GetDataAtTest) {
@@ -397,6 +447,18 @@ TEST_F(ColumnArrayTest, GetBoolTest) {
 
 TEST_F(ColumnArrayTest, GetIntTest) {
     EXPECT_ANY_THROW({ array_columns[0]->get_int(0); });
+}
+
+TEST_F(ColumnArrayTest, GetNameTest) {
+    for (auto& col : array_columns) {
+        // name should contains "Array"
+        EXPECT_TRUE(col->get_name().find("Array") != std::string::npos);
+    }
+}
+
+// test get_ratio_of_default_rows
+TEST_F(ColumnArrayTest, GetRatioOfDefaultRowsTest) {
+    assert_get_ratio_of_default_rows(array_columns, serdes);
 }
 
 TEST_F(ColumnArrayTest, SerDeVecTest) {
@@ -428,8 +490,19 @@ TEST_F(ColumnArrayTest, CloneTest) {
     assert_clone_resized_callback(array_columns, serdes);
 }
 
+// test assert_clone_empty
+TEST_F(ColumnArrayTest, CloneEmptyTest) {
+    for (auto& col : array_columns) {
+        assert_clone_empty(*col);
+    }
+}
+
 TEST_F(ColumnArrayTest, CutTest) {
     assert_cut_callback(array_columns, serdes);
+}
+
+TEST_F(ColumnArrayTest, ShrinkTest) {
+    assert_shrink_callback(array_columns, serdes);
 }
 
 TEST_F(ColumnArrayTest, ResizeTest) {
@@ -508,6 +581,46 @@ TEST_F(ColumnArrayTest, HashTest) {
     // SipHash
     assert_update_siphashes_with_value_callback(array_columns, serdes);
 };
+
+// test assert_convert_to_full_column_if_const_callback
+TEST_F(ColumnArrayTest, ConvertToFullColumnIfConstTest) {
+    assert_convert_to_full_column_if_const_callback(array_columns, array_types, nullptr);
+}
+
+// test assert_convert_column_if_overflow_callback
+TEST_F(ColumnArrayTest, ConvertColumnIfOverflowTest) {
+    assert_convert_column_if_overflow_callback(array_columns, serdes);
+}
+
+// test assert_convert_to_predicate_column_if_dictionary_callback
+TEST_F(ColumnArrayTest, ConvertToPredicateColumnIfDictionaryTest) {
+    assert_convert_to_predicate_column_if_dictionary_callback(array_columns, array_types, nullptr);
+}
+
+// test assert_convert_dict_codes_if_necessary_callback
+TEST_F(ColumnArrayTest, ConvertDictCodesIfNecessaryTest) {
+    assert_convert_dict_codes_if_necessary_callback(array_columns, nullptr);
+}
+
+// test assert_copy_date_types_callback
+TEST_F(ColumnArrayTest, CopyDateTypesTest) {
+    assert_copy_date_types_callback(array_columns);
+}
+
+// test assert_column_nullable_funcs
+TEST_F(ColumnArrayTest, ColumnNullableFuncsTest) {
+    assert_column_nullable_funcs(array_columns, nullptr);
+}
+
+// test assert_column_string_funcs
+TEST_F(ColumnArrayTest, ColumnStringFuncsTest) {
+    assert_column_string_funcs(array_columns);
+}
+
+// test shrink_padding_chars_callback
+TEST_F(ColumnArrayTest, ShrinkPaddingCharsTest) {
+    shrink_padding_chars_callback(array_columns, serdes);
+}
 
 //////////////////////// special function from column_array.h ////////////////////////
 TEST_F(ColumnArrayTest, CreateArrayTest) {
@@ -641,23 +754,26 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
 }
 
 TEST_F(ColumnArrayTest, IsExclusiveTest) {
-    for (int i = 0; i < array_columns.size(); i++) {
-        auto column = check_and_get_column<ColumnArray>(
-                remove_nullable(array_columns[i]->assume_mutable()).get());
-        auto cloned = array_columns[i]->clone_resized(1);
-        // test expect true
-        EXPECT_TRUE(column->is_exclusive());
-        // new column with different data column
-        const ColumnPtr new_data_column =
-                column->get_data_ptr()->clone_resized(0)->convert_column_if_overflow();
-        auto new_array_column = ColumnArray::create(new_data_column);
-        EXPECT_FALSE(new_array_column->is_exclusive());
-        // new column with different offsets column
-        const ColumnPtr new_offsets_column =
-                column->get_offsets_ptr()->clone_resized(0)->convert_column_if_overflow();
-        new_array_column = ColumnArray::create(column->get_data_ptr(), new_offsets_column);
-        EXPECT_FALSE(new_array_column->is_exclusive());
-    }
+    auto callback = [&](const MutableColumns& columns, const DataTypeSerDeSPtrs& serdes) {
+        for (int i = 0; i < columns.size(); i++) {
+            auto column = check_and_get_column<ColumnArray>(
+                    remove_nullable(columns[i]->assume_mutable()).get());
+            auto cloned = columns[i]->clone_resized(1);
+            // test expect true
+            EXPECT_TRUE(column->is_exclusive());
+            // new column with different data column
+            const ColumnPtr new_data_column =
+                    column->get_data_ptr()->clone_resized(0)->convert_column_if_overflow();
+            auto new_array_column = ColumnArray::create(new_data_column);
+            EXPECT_FALSE(new_array_column->is_exclusive());
+            // new column with different offsets column
+            const ColumnPtr new_offsets_column =
+                    column->get_offsets_ptr()->clone_resized(0)->convert_column_if_overflow();
+            new_array_column = ColumnArray::create(column->get_data_ptr(), new_offsets_column);
+            EXPECT_FALSE(new_array_column->is_exclusive());
+        }
+    };
+    assert_is_exclusive(array_columns, serdes, callback);
 }
 
 TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
