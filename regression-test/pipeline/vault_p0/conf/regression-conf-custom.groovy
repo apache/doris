@@ -34,3 +34,11 @@ extHiveHmsPort = 7004
 extHdfsPort = 8020
 extHiveServerPort= 7001
 extHiveHmsUser = "root"
+
+// for case test_minio_storage_vault.groovy
+extMinioHost = "127.0.0.1"
+extMinioPort = 19000
+extMinioAk = "minioadmin"
+extMinioSk = "minioadmin"
+extMinioRegion = "us-east-1"
+extMinioBucket = "test-bucket"
