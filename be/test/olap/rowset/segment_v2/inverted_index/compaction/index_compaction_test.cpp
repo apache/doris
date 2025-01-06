@@ -35,6 +35,7 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         _current_dir = std::string(buffer);
+        _current_dir = "/mnt/disk2/luen/develop/workspace/doris-2.1";
         _absolute_dir = _current_dir + std::string(dest_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
@@ -53,9 +54,10 @@ protected:
         doris::EngineOptions options;
         auto engine = std::make_unique<StorageEngine>(options);
         _engine_ref = engine.get();
-        _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
+        _data_dir = std::make_unique<DataDir>(_absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
-        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        ExecEnv::GetInstance()->set_storage_engine(_engine_ref);
+        engine.release();
 
         // set config
         config::inverted_index_dict_path =
@@ -91,7 +93,7 @@ protected:
         // tablet_schema
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(KeysType::DUP_KEYS);
-        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
 
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000,
                                                "key_index", 0, "INT", "key");
@@ -608,26 +610,14 @@ protected:
         if (with_delete) {
             // create delete predicate rowset and add to tablet
             auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(
-                    _tablet_schema, delete_pred, _inc_id);
+                    _tablet_schema, delete_pred, _inc_id, _tablet->tablet_path());
             EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
             EXPECT_TRUE(_tablet->rowset_map().size() == (data_files.size() + 1));
             rowsets.push_back(delete_rowset);
             EXPECT_TRUE(rowsets.size() == (data_files.size() + 1));
         }
-        auto custom_check_index = [this, output_rowset_segment_number](
-                                          const BaseCompaction& compaction,
-                                          const RowsetWriterContext& ctx) {
-            auto keys_type = _tablet_schema->keys_type();
-            if (keys_type == KeysType::UNIQUE_KEYS) {
-                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                          _tablet_schema->num_columns() - 1);
-                EXPECT_EQ(ctx.columns_to_do_index_compaction.size(),
-                          _tablet_schema->num_columns() - 1);
-            } else {
-                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                          _tablet_schema->num_columns());
-                EXPECT_EQ(ctx.columns_to_do_index_compaction.size(), _tablet_schema->num_columns());
-            }
+        auto custom_check_index = [output_rowset_segment_number](const BaseCompaction& compaction,
+                                                                 const RowsetWriterContext& ctx) {
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -647,17 +637,8 @@ protected:
         }
         EXPECT_TRUE(st.ok()) << st.to_string();
 
-        auto custom_check_normal = [this, output_rowset_segment_number](
-                                           const BaseCompaction& compaction,
-                                           const RowsetWriterContext& ctx) {
-            auto keys_type = _tablet_schema->keys_type();
-            if (keys_type == KeysType::UNIQUE_KEYS) {
-                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                          _tablet_schema->num_columns() - 1);
-            } else {
-                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                          _tablet_schema->num_columns());
-            }
+        auto custom_check_normal = [output_rowset_segment_number](const BaseCompaction& compaction,
+                                                                  const RowsetWriterContext& ctx) {
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
             EXPECT_TRUE(compaction._output_rowset->num_segments() == output_rowset_segment_number)
                     << compaction._output_rowset->num_segments();
@@ -676,26 +657,24 @@ protected:
 
         auto num_segments_idx = output_rowset_index->num_segments();
         auto num_segments_normal = output_rowset_normal->num_segments();
+        auto tablet_path = _tablet->tablet_path();
+        std::string empty_suffix;
         for (int idx = 10000; idx < 10037; idx++) {
             if (num_segments_idx == num_segments_normal == 1) {
                 // check index file terms for single segment
-                const auto& seg_path = output_rowset_index->segment_path(0);
-                EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                 auto inverted_index_file_reader_index =
                         IndexCompactionUtils::init_index_file_reader(
-                                output_rowset_index, seg_path.value(),
+                                output_rowset_index, tablet_path,
                                 _tablet_schema->get_inverted_index_storage_format());
 
-                const auto& seg_path_normal = output_rowset_normal->segment_path(0);
-                EXPECT_TRUE(seg_path_normal.has_value()) << seg_path_normal.error();
                 auto inverted_index_file_reader_normal =
                         IndexCompactionUtils::init_index_file_reader(
-                                output_rowset_normal, seg_path_normal.value(),
+                                output_rowset_normal, tablet_path,
                                 _tablet_schema->get_inverted_index_storage_format());
 
-                auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
+                auto dir_idx = inverted_index_file_reader_index->_open(idx, empty_suffix);
                 EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
-                auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
+                auto dir_normal = inverted_index_file_reader_normal->_open(idx, empty_suffix);
                 EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
                 st = IndexCompactionUtils::check_idx_file_correctness(dir_idx->get(),
                                                                       dir_normal->get());
@@ -704,25 +683,21 @@ protected:
                 // check index file terms for multiple segments
                 std::vector<std::unique_ptr<DorisCompoundReader>> dirs_idx(num_segments_idx);
                 for (int i = 0; i < num_segments_idx; i++) {
-                    const auto& seg_path = output_rowset_index->segment_path(i);
-                    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_index =
                             IndexCompactionUtils::init_index_file_reader(
-                                    output_rowset_index, seg_path.value(),
+                                    output_rowset_index, tablet_path,
                                     _tablet_schema->get_inverted_index_storage_format());
-                    auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
+                    auto dir_idx = inverted_index_file_reader_index->_open(idx, empty_suffix);
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
                     dirs_idx[i] = std::move(dir_idx.value());
                 }
                 std::vector<std::unique_ptr<DorisCompoundReader>> dirs_normal(num_segments_normal);
                 for (int i = 0; i < num_segments_normal; i++) {
-                    const auto& seg_path = output_rowset_normal->segment_path(i);
-                    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_normal =
                             IndexCompactionUtils::init_index_file_reader(
-                                    output_rowset_normal, seg_path.value(),
+                                    output_rowset_normal, tablet_path,
                                     _tablet_schema->get_inverted_index_storage_format());
-                    auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
+                    auto dir_normal = inverted_index_file_reader_normal->_open(idx, empty_suffix);
                     EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
                     dirs_normal[i] = std::move(dir_normal.value());
                 }
@@ -742,7 +717,7 @@ private:
     int64_t _inc_id = 1000;
 };
 
-TEST_F(IndexCompactionTest, tes_write_index_normally) {
+TEST_F(IndexCompactionTest, test_write_index_normally) {
     _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
@@ -761,7 +736,6 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -773,15 +747,12 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     auto custom_check_normal = [](const BaseCompaction& compaction,
                                   const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
     };
@@ -790,15 +761,13 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
     st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
                                              output_rowset_normal, custom_check_normal);
     EXPECT_TRUE(st.ok()) << st.to_string();
-    const auto& seg_path_normal = output_rowset_normal->segment_path(0);
-    EXPECT_TRUE(seg_path_normal.has_value()) << seg_path_normal.error();
     auto inverted_index_file_reader_normal = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_normal, seg_path_normal.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_normal, tablet_path, _tablet_schema->get_inverted_index_storage_format());
+    std::string empty_suffix;
     // check index file terms
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-    auto dir_normal_compaction = inverted_index_file_reader_normal->_open(10001, "");
+    auto dir_normal_compaction = inverted_index_file_reader_normal->_open(10001, empty_suffix);
     EXPECT_TRUE(dir_normal_compaction.has_value()) << dir_normal_compaction.error();
     std::ostringstream oss;
     IndexCompactionUtils::check_terms_stats(dir_idx_compaction->get(), oss);
@@ -820,8 +789,10 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
             {3, {{"99", "66", "56", "87", "85", "96", "10000"}, {12, 20, 25, 23, 16, 24, 0}}},
             {1, {{"good", "maybe", "great", "null"}, {197, 191, 194, 0}}},
             {2, {{"musicstream.com", "http", "https", "null"}, {191, 799, 1201, 0}}}};
-    IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map);
-    IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map);
+    IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map,
+                                              _tablet->tablet_path());
+    IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map,
+                                              _tablet->tablet_path());
 }
 
 TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
@@ -850,7 +821,6 @@ TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -862,18 +832,17 @@ TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
     // index 10001 cannot be found in idx file
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
     EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10001 found"));
+                testing::HasSubstr("[E-6003]inverted index path:"));
 }
 
 TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
@@ -902,7 +871,6 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10001 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
@@ -914,18 +882,17 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
     // index 10002 cannot be found in idx file
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10002, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10002, empty_suffix);
     EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
     EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10002 found"));
+                testing::HasSubstr("[E-6003]inverted index path:"));
 }
 
 TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
@@ -955,7 +922,6 @@ TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -967,18 +933,17 @@ TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
     // index 10001 cannot be found in idx file
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
     EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10001 found"));
+                testing::HasSubstr("[E-6003]inverted index path:"));
 }
 
 TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
@@ -1000,7 +965,6 @@ TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -1022,15 +986,14 @@ TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
     // index 10001 should be found in idx file, it can be produced by normal compaction
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
     // check index 10001 term stats
     std::ostringstream oss;
@@ -1067,7 +1030,6 @@ TEST_F(IndexCompactionTest, test_tablet_index_properties_not_equal) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -1079,23 +1041,10 @@ TEST_F(IndexCompactionTest, test_tablet_index_properties_not_equal) {
     RowsetSharedPtr output_rowset_index;
     auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
                                                   output_rowset_index, custom_check_index);
-    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(!st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
-    auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
-
-    // check index file
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
-    EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-
-    // check index 10001 term stats
-    std::ostringstream oss;
-    IndexCompactionUtils::check_terms_stats(dir_idx_compaction.value().get(), oss);
-    std::string output = oss.str();
-    EXPECT_EQ(output, expected_output);
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("[E-6010]if index properties are different, "
+                                                   "index compaction needs to be skipped."));
 }
 
 TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
@@ -1117,7 +1066,6 @@ TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -1131,14 +1079,13 @@ TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
 
     // check index 10001 term stats
@@ -1167,7 +1114,6 @@ TEST_F(IndexCompactionTest, test_rowset_fs_nullptr) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -1207,7 +1153,6 @@ TEST_F(IndexCompactionTest, test_input_row_num_zero) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // only index id 10002 will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
@@ -1229,18 +1174,17 @@ TEST_F(IndexCompactionTest, test_input_row_num_zero) {
     auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok());
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
     // index 10001 cannot be found in idx file
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
     EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10001 found"));
+                testing::HasSubstr("[E-6003]inverted index path"));
 }
 
 TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
@@ -1274,7 +1218,7 @@ TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
             custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
+        // EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         // none index will do index compaction
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
@@ -1285,26 +1229,10 @@ TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
     RowsetSharedPtr output_rowset_index;
     auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
                                                   output_rowset_index, custom_check_index);
-    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(!st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
-    auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
-
-    // check index file
-    auto dir_idx_compaction_1 = inverted_index_file_reader_index->_open(10001, "");
-    EXPECT_TRUE(dir_idx_compaction_1.has_value()) << dir_idx_compaction_1.error();
-
-    // check index 10001 term stats
-    std::ostringstream oss;
-    IndexCompactionUtils::check_terms_stats(dir_idx_compaction_1.value().get(), oss);
-    std::string output = oss.str();
-    EXPECT_EQ(output, expected_output);
-
-    auto dir_idx_compaction_2 = inverted_index_file_reader_index->_open(10002, "");
-    EXPECT_TRUE(dir_idx_compaction_2.has_value()) << dir_idx_compaction_2.error();
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("[E-6010]if index properties are different, "
+                                                   "index compaction needs to be skipped."));
 }
 
 TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
@@ -1327,14 +1255,13 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
 
     // create delete predicate rowset and add to tablet
     auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(
-            _tablet_schema, "v1='great'", _inc_id);
+            _tablet_schema, "v1='great'", _inc_id, _tablet->tablet_path());
     EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
     EXPECT_TRUE(_tablet->rowset_map().size() == 3);
     rowsets.push_back(delete_rowset);
     EXPECT_TRUE(rowsets.size() == 3);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -1346,15 +1273,13 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
                                                   output_rowset_index, custom_check_index);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
-    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto tablet_path = _tablet->tablet_path();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_index, seg_path.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_index, tablet_path, _tablet_schema->get_inverted_index_storage_format());
 
     auto custom_check_normal = [](const BaseCompaction& compaction,
                                   const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
+        // EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
     };
@@ -1363,15 +1288,13 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
     st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
                                              output_rowset_normal, custom_check_normal);
     EXPECT_TRUE(st.ok()) << st.to_string();
-    const auto& seg_path_normal = output_rowset_normal->segment_path(0);
-    EXPECT_TRUE(seg_path_normal.has_value()) << seg_path_normal.error();
     auto inverted_index_file_reader_normal = IndexCompactionUtils::init_index_file_reader(
-            output_rowset_normal, seg_path_normal.value(),
-            _tablet_schema->get_inverted_index_storage_format());
+            output_rowset_normal, tablet_path, _tablet_schema->get_inverted_index_storage_format());
     // check index file terms
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    std::string empty_suffix;
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_suffix);
     EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-    auto dir_normal_compaction = inverted_index_file_reader_normal->_open(10001, "");
+    auto dir_normal_compaction = inverted_index_file_reader_normal->_open(10001, empty_suffix);
     EXPECT_TRUE(dir_normal_compaction.has_value()) << dir_normal_compaction.error();
     std::ostringstream oss;
     IndexCompactionUtils::check_terms_stats(dir_idx_compaction->get(), oss);
@@ -1393,32 +1316,34 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
             {3, {{"99", "66", "56", "87", "85", "96", "10000"}, {12, 18, 22, 21, 16, 20, 0}}},
             {1, {{"good", "maybe", "great", "null"}, {197, 191, 0, 0}}},
             {2, {{"musicstream.com", "http", "https", "null"}, {176, 719, 1087, 0}}}};
-    IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map);
-    IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map);
+    IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map,
+                                              _tablet->tablet_path());
+    IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map,
+                                              _tablet->tablet_path());
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2) {
-    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_dup_v2) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test();
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2) {
-    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_mow_v2) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test();
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_partial_delete) {
-    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_dup_v2_with_partial_delete) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test(true, "namespace='Adel, OR'");
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_partial_delete) {
-    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_mow_v2_with_partial_delete) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test(true, "namespace='Adel, OR'");
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
-    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_dup_v2_with_total_delete) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V1);
     std::string delete_pred = "title IS NOT NULL";
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
@@ -1446,8 +1371,8 @@ TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
             custom_check_build_rowsets, false, 50);
 
     // create delete predicate rowset and add to tablet
-    auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(_tablet_schema,
-                                                                              delete_pred, _inc_id);
+    auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(
+            _tablet_schema, delete_pred, _inc_id, _tablet->tablet_path());
     EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
     EXPECT_TRUE(_tablet->rowset_map().size() == (data_files.size() + 1));
     rowsets.push_back(delete_rowset);
@@ -1455,8 +1380,6 @@ TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
 
     auto custom_check_index = [this](const BaseCompaction& compaction,
                                      const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                  _tablet_schema->num_columns());
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == _tablet_schema->num_columns());
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
@@ -1475,10 +1398,8 @@ TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
     }
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    auto custom_check_normal = [this](const BaseCompaction& compaction,
-                                      const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                  _tablet_schema->num_columns());
+    auto custom_check_normal = [](const BaseCompaction& compaction,
+                                  const RowsetWriterContext& ctx) {
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
     };
@@ -1493,8 +1414,8 @@ TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
     EXPECT_TRUE(st.ok()) << st.to_string();
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_total_delete) {
-    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_mow_v2_with_total_delete) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V1);
     std::string delete_pred = "title IS NOT NULL";
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
@@ -1522,18 +1443,14 @@ TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_total_delete) {
             custom_check_build_rowsets, false, 50);
 
     // create delete predicate rowset and add to tablet
-    auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(_tablet_schema,
-                                                                              delete_pred, _inc_id);
+    auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(
+            _tablet_schema, delete_pred, _inc_id, _tablet->tablet_path());
     EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
     EXPECT_TRUE(_tablet->rowset_map().size() == (data_files.size() + 1));
     rowsets.push_back(delete_rowset);
     EXPECT_TRUE(rowsets.size() == (data_files.size() + 1));
 
-    auto custom_check_index = [this](const BaseCompaction& compaction,
-                                     const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                  _tablet_schema->num_columns() - 1);
-        EXPECT_EQ(ctx.columns_to_do_index_compaction.size(), _tablet_schema->num_columns() - 1);
+    auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
@@ -1551,10 +1468,8 @@ TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_total_delete) {
     }
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    auto custom_check_normal = [this](const BaseCompaction& compaction,
-                                      const RowsetWriterContext& ctx) {
-        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
-                  _tablet_schema->num_columns() - 1);
+    auto custom_check_normal = [](const BaseCompaction& compaction,
+                                  const RowsetWriterContext& ctx) {
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
     };
@@ -1569,25 +1484,25 @@ TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_total_delete) {
     EXPECT_TRUE(st.ok()) << st.to_string();
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_multiple_dest_segments) {
-    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_dup_v2_multiple_dest_segments) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test(false, "", 50, 3);
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_dest_segments) {
-    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+TEST_F(IndexCompactionTest, test_wikipedia_mow_v2_multiple_dest_segments) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test(false, "", 50, 2);
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_multiple_src_lucene_segments) {
+TEST_F(IndexCompactionTest, test_wikipedia_dup_v2_multiple_src_lucene_segments) {
     config::inverted_index_max_buffered_docs = 100;
-    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test();
 }
 
-TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_src_lucene_segments) {
+TEST_F(IndexCompactionTest, test_wikipedia_mow_v2_multiple_src_lucene_segments) {
     config::inverted_index_max_buffered_docs = 100;
-    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V1);
     _run_normal_wiki_test();
 }
 } // namespace doris

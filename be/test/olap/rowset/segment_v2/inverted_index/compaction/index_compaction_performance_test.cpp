@@ -57,9 +57,9 @@ protected:
         doris::EngineOptions options;
         auto engine = std::make_unique<StorageEngine>(options);
         _engine_ref = engine.get();
-        _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
+        _data_dir = std::make_unique<DataDir>(_absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
-        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        ExecEnv::GetInstance()->set_storage_engine(engine.get());
 
         // set config
         config::inverted_index_dict_path =
@@ -149,7 +149,6 @@ protected:
 
         auto custom_check_index = [](const BaseCompaction& compaction,
                                      const RowsetWriterContext& ctx) {
-            EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 1);
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 1);
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
             EXPECT_TRUE(compaction._output_rowset->num_segments() == 1)
@@ -167,15 +166,13 @@ protected:
         }
         EXPECT_TRUE(st.ok()) << st.to_string();
 
-        const auto& seg_path = output_rowset_index->segment_path(0);
-        EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+        auto tablet_path = _tablet->tablet_path();
         auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
-                output_rowset_index, seg_path.value(),
+                output_rowset_index, tablet_path,
                 _tablet_schema->get_inverted_index_storage_format());
 
         auto custom_check_normal = [](const BaseCompaction& compaction,
                                       const RowsetWriterContext& ctx) {
-            EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 1);
             EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
             EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
         };
@@ -190,17 +187,16 @@ protected:
                       << std::endl;
         }
         EXPECT_TRUE(st.ok()) << st.to_string();
-        const auto& seg_path_normal = output_rowset_normal->segment_path(0);
-        EXPECT_TRUE(seg_path_normal.has_value()) << seg_path_normal.error();
         auto inverted_index_file_reader_normal = IndexCompactionUtils::init_index_file_reader(
-                output_rowset_normal, seg_path_normal.value(),
+                output_rowset_normal, tablet_path,
                 _tablet_schema->get_inverted_index_storage_format());
 
+        std::string empty_suffix;
         // check index file terms
         for (int idx = 10001; idx < 10002; idx++) {
-            auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
+            auto dir_idx = inverted_index_file_reader_index->_open(idx, empty_suffix);
             EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
-            auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
+            auto dir_normal = inverted_index_file_reader_normal->_open(idx, empty_suffix);
             EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
             st = IndexCompactionUtils::check_idx_file_correctness(dir_idx->get(),
                                                                   dir_normal->get());

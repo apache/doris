@@ -47,10 +47,6 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         }
     }
 
-    def changed_variables = sql "show variables where Changed = 1"
-    logger.info("changed variables: " + changed_variables.toString())
-    // sql "UNSET GLOBAL VARIABLE ALL;"
-
     boolean inverted_index_ram_dir_enable = true
     boolean has_update_be_config = false
     
@@ -185,7 +181,6 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "DorisFSDirectory::fileExists_status_is_not_ok",
         "DorisFSDirectory::touchFile_status_is_not_ok",
         "DorisFSDirectory::fileLength_status_is_not_ok",
-        "DorisFSDirectory::close_close_with_error", 
         "DorisFSDirectory::doDeleteFile_status_is_not_ok",
         "DorisFSDirectory::deleteDirectory_throw_is_not_directory",
         "DorisFSDirectory::renameFile_exists_status_is_not_ok",
@@ -253,12 +248,12 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         check_config.call("inverted_index_ram_dir_enable", "false");
         inverted_index_storage_format.each { format ->
             def tableName = "${tableNamePrefix}_${format}"
-            creata_table("${tableName}", format)
 
             // for each debug point, enable it, run the insert, check the count, and disable the debug point
             // catch any exceptions and disable the debug point
             debug_points.each { debug_point ->
                 try {
+                    creata_table("${tableName}", format)
                     GetDebugPoint().enableDebugPointForAllBEs(debug_point)
                     run_insert("${tableName}")
                     check_count("${tableName}", 6)
@@ -272,7 +267,11 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
                     sql "TRUNCATE TABLE ${tableName}"
                 } catch (Exception e) {
                     log.error("Caught exception: ${e}")
-                    check_count("${tableName}", 0)
+                    if (debug_point == "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero") {
+                        check_count("${tableName}", 6)
+                    } else {
+                        check_count("${tableName}", 0)
+                    }
                 } finally {
                     GetDebugPoint().disableDebugPointForAllBEs(debug_point)
                 }

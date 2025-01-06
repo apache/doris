@@ -75,6 +75,8 @@ protected:
 
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
+    // merge inverted index files
+    Status do_inverted_index_compaction(const RowsetWriterContext& ctx, Merger::Statistics& stats);
     // mark all columns in columns_to_do_index_compaction to skip index compaction next time.
     void mark_skip_index_compaction(const RowsetWriterContext& context,
                                     const std::function<void(int64_t, int64_t)>& error_handler);

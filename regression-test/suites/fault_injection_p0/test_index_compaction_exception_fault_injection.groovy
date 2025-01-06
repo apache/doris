@@ -24,9 +24,6 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def changed_variables = sql "show variables where Changed = 1"
-    logger.info("changed variables: " + changed_variables.toString())
-    // sql "UNSET GLOBAL VARIABLE ALL;"
     sql "SET global enable_match_without_inverted_index = false"
 
     boolean disableAutoCompaction = false
@@ -182,25 +179,27 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         "compact_column_indexCompaction_error",
         "compact_column_index_writer_close_error",
         "compact_column_delete_tmp_path_error",
-        "Compaction::do_inverted_index_compaction_find_rowset_error",
-        "Compaction::do_inverted_index_compaction_get_fs_error",
-        "Compaction::do_inverted_index_compaction_can_not_find_index_meta",
         "Compaction::do_inverted_index_compaction_rowid_conversion_null",
-        "Compaction::do_inverted_index_compaction_seg_path_nullptr",
-        "Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
-        "Compaction::do_inverted_index_compaction_inverted_index_file_writers_size_error"
+        "Compaction::do_inverted_index_compaction_get_fs_error",
+        "Compaction::do_inverted_index_compaction_init_src_inverted_index_file_reader",
+        "Compaction::do_inverted_index_compaction_init_dest_inverted_index_file_reader",
+        "Compaction::do_inverted_index_compaction_inverted_index_file_reader_get_directories_error",
+        "Compaction::do_inverted_index_compaction_inverted_index_file_writer_init_error",
+        "Compaction::do_inverted_index_compaction_can_not_find_index_meta",
+        "Compaction::do_inverted_index_compaction_tablet_index_is_nullptr",
+        "Compaction::do_inverted_index_compaction_index_properties_different"
     ]
 
     def debug_points_normal_compaction = [
         "Compaction::construct_skip_inverted_index_is_skip_index_compaction",
         "Compaction::construct_skip_inverted_index_get_fs_error",
         "Compaction::construct_skip_inverted_index_index_meta_nullptr",
-        "Compaction::construct_skip_inverted_index_seg_path_nullptr",
-        "Compaction::do_inverted_index_compaction_index_properties_different",
+        "Compaction::do_inverted_index_compaction_dest_segment_num_is_zero",
         "Compaction::construct_skip_inverted_index_index_files_count",
         "Compaction::construct_skip_inverted_index_index_reader_close_error",
         "Compaction::construct_skip_inverted_index_index_file_reader_init_status_not_ok",
-        "Compaction::construct_skip_inverted_index_index_file_reader_open_error"
+        "Compaction::construct_skip_inverted_index_index_file_reader_open_error",
+        "Compaction::do_inverted_index_compaction_init_dest_inverted_index_file_reader_file_not_found"
     ]
 
     def run_test = { tablets, debug_point, abnormal ->
@@ -256,7 +255,14 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
             assert (rowsetCount == 1 * replicaNum)
         }
 
-        run_sql.call()
+        try {
+            run_sql.call()
+        } catch (Exception e) {
+            if (debug_point != "Compaction::do_inverted_index_compaction_dest_segment_num_is_zero") {
+                assertFalse("Should not reach here, exception: ${e}")
+            }
+            logger.info("Exception: ${e}")
+        }
         
         if (debug_point == "compact_column_delete_tmp_path_error") {
             set_be_config.call("inverted_index_ram_dir_enable", "true")
