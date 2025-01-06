@@ -360,13 +360,13 @@ public class MTMV extends OlapTable {
     /**
      * generateMvPartitionDescs
      *
-     * @return mvPartitionName ==> mvPartitionKeyDesc
+     * @return Pair<String, PartitionItem> ==> mvPartitionKeyDesc
      */
-    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
+    public Map<Pair<String, PartitionItem>, PartitionKeyDesc> generateMvPartitionDescs() {
         Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
-        Map<String, PartitionKeyDesc> result = Maps.newHashMap();
+        Map<Pair<String, PartitionItem>, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
+            result.put(Pair.of(entry.getKey(), entry.getValue()), entry.getValue().toPartitionKeyDesc());
         }
         return result;
     }

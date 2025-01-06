@@ -23,7 +23,10 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -35,6 +38,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -61,6 +65,8 @@ public class MTMVPartitionUtilTest {
     private MTMVRefreshContext context;
     @Mocked
     private MTMVBaseVersions versions;
+    @Mocked
+    private DateTimeAcquire dateTimeAcquire;
 
     private Set<BaseTableInfo> baseTables = Sets.newHashSet();
 
@@ -217,5 +223,60 @@ public class MTMVPartitionUtilTest {
         );
         String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
         Assert.assertEquals("p_1_2", rangeName);
+    }
+
+    @Test
+    public void testGetNowTruncSubSec() throws AnalysisException {
+        DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2020-02-03 20:10:10");
+        new Expectations() {
+            {
+                dateTimeAcquire.now();
+                minTimes = 0;
+                result = dateTimeLiteral;
+            }
+        };
+        long nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 1);
+        // 2020-02-03
+        Assert.assertEquals(1580659200L, nowTruncSubSec);
+        nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 1);
+        // 2020-02-01
+        Assert.assertEquals(1580486400L, nowTruncSubSec);
+        nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.YEAR, 1);
+        // 2020-01-01
+        Assert.assertEquals(1577808000L, nowTruncSubSec);
+        nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 3);
+        // 2019-12-01
+        Assert.assertEquals(1575129600L, nowTruncSubSec);
+        nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
+        // 2020-01-31
+        Assert.assertEquals(1580400000L, nowTruncSubSec);
+    }
+
+    @Test
+    public void testGenerateMTMVPartitionSyncConfigByProperties() throws AnalysisException {
+        Map<String, String> mvProperties = Maps.newHashMap();
+        MTMVPartitionSyncConfig config = MTMVPartitionUtil
+                .generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assert.assertEquals(-1, config.getSyncLimit());
+        Assert.assertFalse(config.getDateFormat().isPresent());
+        Assert.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT, "1");
+        config = MTMVPartitionUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assert.assertEquals(1, config.getSyncLimit());
+        Assert.assertFalse(config.getDateFormat().isPresent());
+        Assert.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT, "month");
+        config = MTMVPartitionUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assert.assertEquals(1, config.getSyncLimit());
+        Assert.assertFalse(config.getDateFormat().isPresent());
+        Assert.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT, "%Y%m%d");
+        config = MTMVPartitionUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assert.assertEquals(1, config.getSyncLimit());
+        Assert.assertEquals("%Y%m%d", config.getDateFormat().get());
+        Assert.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
     }
 }

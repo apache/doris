@@ -19,13 +19,6 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.Maps;
 
@@ -42,11 +35,11 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult) throws AnalysisException {
         Map<String, PartitionItem> partitionItems = lastResult.getItems();
-        MTMVPartitionSyncConfig config = generateMTMVPartitionSyncConfigByProperties(mvProperties);
-        if (config.getSyncLimit() <= 0) {
+        MTMVPartitionSyncConfig config = MTMVPartitionUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        if (config.isDefaultConfig()) {
             return;
         }
-        long nowTruncSubSec = getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
+        long nowTruncSubSec = MTMVPartitionUtil.getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
         Optional<String> dateFormat = config.getDateFormat();
         Map<String, PartitionItem> res = Maps.newHashMap();
         int relatedColPos = mvPartitionInfo.getRelatedColPos();
@@ -58,74 +51,4 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
         lastResult.setItems(res);
     }
 
-    /**
-     * Generate MTMVPartitionSyncConfig based on mvProperties
-     *
-     * @param mvProperties
-     * @return
-     */
-    public MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
-            Map<String, String> mvProperties) {
-        return MTMVPartitionUtil.getPartitionSyncConfig(mvProperties);
-    }
-
-    /**
-     * Obtain the minimum second from `syncLimit` `timeUnit` ago
-     *
-     * @param timeUnit
-     * @param syncLimit
-     * @return
-     * @throws AnalysisException
-     */
-    public long getNowTruncSubSec(MTMVPartitionSyncTimeUnit timeUnit, int syncLimit)
-            throws AnalysisException {
-        if (syncLimit < 1) {
-            throw new AnalysisException("Unexpected syncLimit, syncLimit: " + syncLimit);
-        }
-        // get current time
-        Expression now = DateTimeAcquire.now();
-        if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("now() should return DateTimeLiteral, now: " + now);
-        }
-        DateTimeLiteral nowLiteral = (DateTimeLiteral) now;
-        // date trunc
-        now = DateTimeExtractAndTransform
-                .dateTrunc(nowLiteral, new VarcharLiteral(timeUnit.name()));
-        if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("dateTrunc() should return DateTimeLiteral, now: " + now);
-        }
-        nowLiteral = (DateTimeLiteral) now;
-        // date sub
-        if (syncLimit > 1) {
-            nowLiteral = dateSub(nowLiteral, timeUnit, syncLimit - 1);
-        }
-        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue();
-    }
-
-
-    private DateTimeLiteral dateSub(
-            org.apache.doris.nereids.trees.expressions.literal.DateLiteral date, MTMVPartitionSyncTimeUnit timeUnit,
-            int num)
-            throws AnalysisException {
-        IntegerLiteral integerLiteral = new IntegerLiteral(num);
-        Expression result;
-        switch (timeUnit) {
-            case DAY:
-                result = DateTimeArithmetic.dateSub(date, integerLiteral);
-                break;
-            case YEAR:
-                result = DateTimeArithmetic.yearsSub(date, integerLiteral);
-                break;
-            case MONTH:
-                result = DateTimeArithmetic.monthsSub(date, integerLiteral);
-                break;
-            default:
-                throw new AnalysisException(
-                        "async materialized view partition limit not support timeUnit: " + timeUnit.name());
-        }
-        if (!(result instanceof DateTimeLiteral)) {
-            throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
-        }
-        return (DateTimeLiteral) result;
-    }
 }

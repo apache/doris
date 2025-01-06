@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -28,13 +29,23 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -116,17 +127,14 @@ public class MTMVPartitionUtil {
      */
     public static void alignMvPartition(MTMV mtmv)
             throws DdlException, AnalysisException {
-        Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
+        Map<Pair<String, PartitionItem>, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
                 mtmv.getMvProperties()).keySet();
-        MTMVPartitionSyncConfig partitionSyncConfig = getPartitionSyncConfig(mtmv.getMvProperties());
         // drop partition of mtmv
-        for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
-            if (!relatedPartitionDescs.contains(entry.getValue())) {
-                if (!needKeep(entry.getValue(), partitionSyncConfig) || hasConflict(entry.getValue(), relatedPartitionDescs)) {
-                    dropPartition(mtmv, entry.getKey());
-                }
-            }
+        List<String> needDropPartitionNames = getNeedDropPartitionNames(mtmv, mtmvPartitionDescs,
+                relatedPartitionDescs);
+        for (String partitionName : needDropPartitionNames) {
+            dropPartition(mtmv, partitionName);
         }
         // add partition for mtmv
         HashSet<PartitionKeyDesc> mtmvPartitionDescsSet = Sets.newHashSet(mtmvPartitionDescs.values());
@@ -137,20 +145,133 @@ public class MTMVPartitionUtil {
         }
     }
 
-    private static boolean needKeep(PartitionKeyDesc partitionKeyDesc, MTMVPartitionSyncConfig partitionSyncConfig) {
-
-        // todo: check time
-        return true;
+    private static List<String> getNeedDropPartitionNames(MTMV mtmv,
+            Map<Pair<String, PartitionItem>, PartitionKeyDesc> mtmvPartitionDescs,
+            Set<PartitionKeyDesc> relatedPartitionDescs) throws AnalysisException {
+        List<String> res = Lists.newArrayList();
+        MTMVPartitionSyncConfig partitionSyncConfig = generateMTMVPartitionSyncConfigByProperties(
+                mtmv.getMvProperties());
+        long nowTruncSubSec = getNowTruncSubSec(partitionSyncConfig.getTimeUnit(), partitionSyncConfig.getSyncLimit());
+        int relatedColPos = mtmv.getMvPartitionInfo().getRelatedColPos();
+        for (Entry<Pair<String, PartitionItem>, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
+            if (needDrop(mtmv,entry,relatedPartitionDescs,partitionSyncConfig,nowTruncSubSec,relatedColPos)) {
+                res.add(entry.getKey().first);
+            }
+        }
+        return res;
     }
 
-    private static boolean hasConflict(PartitionKeyDesc partitionKeyDesc, Set<PartitionKeyDesc> relatedPartitionDescs) {
-        // TODO: 2025/1/2 dd
-        return true;
+    private static boolean needDrop(MTMV mtmv, Entry<Pair<String, PartitionItem>, PartitionKeyDesc> entry,
+            Set<PartitionKeyDesc> relatedPartitionDescs, MTMVPartitionSyncConfig partitionSyncConfig,
+            long nowTruncSubSec, int relatedColPos)
+            throws AnalysisException {
+        // if related table has this partition,mtmv need also;
+        if (relatedPartitionDescs.contains(entry.getValue())) {
+            return false;
+        }
+        // if not config, partitions of mtmv need sync with related table, so need drop
+        if (partitionSyncConfig.isDefaultConfig()) {
+            return true;
+        }
+        // if config, and time > syncLimit, need drop
+        if (!entry.getKey().second.isGreaterThanSpecifiedTime(relatedColPos,
+                partitionSyncConfig.getDateFormat(), nowTruncSubSec)) {
+            return true;
+        }
+        // if has conflict, need Drop
+        return hasConflict(mtmv, entry.getValue(), relatedPartitionDescs);
     }
 
-    public static MTMVPartitionSyncConfig getPartitionSyncConfig(
+    /**
+     * Obtain the minimum second from `syncLimit` `timeUnit` ago
+     *
+     * @param timeUnit
+     * @param syncLimit
+     * @return
+     * @throws AnalysisException
+     */
+    public static long getNowTruncSubSec(MTMVPartitionSyncTimeUnit timeUnit, int syncLimit)
+            throws AnalysisException {
+        if (syncLimit < 1) {
+            throw new AnalysisException("Unexpected syncLimit, syncLimit: " + syncLimit);
+        }
+        // get current time
+        Expression now = DateTimeAcquire.now();
+        if (!(now instanceof DateTimeLiteral)) {
+            throw new AnalysisException("now() should return DateTimeLiteral, now: " + now);
+        }
+        DateTimeLiteral nowLiteral = (DateTimeLiteral) now;
+        // date trunc
+        now = DateTimeExtractAndTransform
+                .dateTrunc(nowLiteral, new VarcharLiteral(timeUnit.name()));
+        if (!(now instanceof DateTimeLiteral)) {
+            throw new AnalysisException("dateTrunc() should return DateTimeLiteral, now: " + now);
+        }
+        nowLiteral = (DateTimeLiteral) now;
+        // date sub
+        if (syncLimit > 1) {
+            nowLiteral = dateSub(nowLiteral, timeUnit, syncLimit - 1);
+        }
+        return ((IntegerLiteral) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue();
+    }
+
+    private static DateTimeLiteral dateSub(
+            org.apache.doris.nereids.trees.expressions.literal.DateLiteral date, MTMVPartitionSyncTimeUnit timeUnit,
+            int num)
+            throws AnalysisException {
+        IntegerLiteral integerLiteral = new IntegerLiteral(num);
+        Expression result;
+        switch (timeUnit) {
+            case DAY:
+                result = DateTimeArithmetic.dateSub(date, integerLiteral);
+                break;
+            case YEAR:
+                result = DateTimeArithmetic.yearsSub(date, integerLiteral);
+                break;
+            case MONTH:
+                result = DateTimeArithmetic.monthsSub(date, integerLiteral);
+                break;
+            default:
+                throw new AnalysisException(
+                        "async materialized view partition limit not support timeUnit: " + timeUnit.name());
+        }
+        if (!(result instanceof DateTimeLiteral)) {
+            throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
+        }
+        return (DateTimeLiteral) result;
+    }
+
+    private static boolean hasConflict(MTMV mtmv, PartitionKeyDesc partitionKeyDesc,
+            Set<PartitionKeyDesc> relatedPartitionDescs)
+            throws AnalysisException {
+        if (mtmv.getPartitionType().equals(PartitionType.RANGE)) {
+            // TODO: 2025/1/6 less than
+            Type type = mtmv.getPartitionInfo().getPartitionColumns().get(0).getType();
+            for (PartitionKeyDesc existPartitionKeyDesc : relatedPartitionDescs) {
+                if (partitionKeyDesc.getLowerValues().get(0).getValue(type)
+                        .compareTo(existPartitionKeyDesc.getLowerValues().get(0).getValue(type))
+                        != partitionKeyDesc.getUpperValues().get(0).getValue(type)
+                        .compareTo(existPartitionKeyDesc.getUpperValues().get(0).getValue(type))) {
+                    return true;
+                }
+            }
+        } else if (mtmv.getPartitionType().equals(PartitionType.LIST)) {
+            Set<PartitionValue> inValues = Sets.newHashSet(partitionKeyDesc.getInValues().get(0));
+            for (PartitionKeyDesc existPartitionKeyDesc : relatedPartitionDescs) {
+                for (PartitionValue existPartitionValue : existPartitionKeyDesc.getInValues().get(0)) {
+                    if (inValues.contains(existPartitionValue)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    public static MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
             Map<String, String> mvProperties) {
-        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
+        int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT))
+                ? MTMVPartitionSyncConfig.DEFAULT_SYNC_LIMIT
                 : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
         MTMVPartitionSyncTimeUnit timeUnit =
                 StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
