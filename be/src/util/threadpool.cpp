@@ -273,7 +273,7 @@ ThreadPool::~ThreadPool() {
     shutdown();
 }
 
-Status ThreadPool::try_create_thread(int thread_num) {
+Status ThreadPool::try_create_thread(int thread_num, std::lock_guard<std::mutex>&) {
     for (int i = 0; i < thread_num; i++) {
         Status status = create_thread();
         if (status.ok()) {
@@ -296,7 +296,7 @@ Status ThreadPool::init() {
         std::lock_guard<std::mutex> l(_lock);
         // create thread failed should not cause threadpool init failed,
         // because thread can be created later such as when submit a task.
-        static_cast<void>(try_create_thread(_min_threads));
+        static_cast<void>(try_create_thread(_min_threads, l));
     }
 
     // _id of thread pool is used to make sure when we create thread pool with same name, we can
@@ -701,7 +701,7 @@ Status ThreadPool::set_min_threads(int min_threads) {
     _min_threads = min_threads;
     if (min_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = min_threads - _num_threads - _num_threads_pending_start;
-        RETURN_IF_ERROR(try_create_thread(addition_threads));
+        RETURN_IF_ERROR(try_create_thread(addition_threads, l));
     }
     return Status::OK();
 }
@@ -717,7 +717,7 @@ Status ThreadPool::set_max_threads(int max_threads) {
     if (_max_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = _max_threads - _num_threads - _num_threads_pending_start;
         addition_threads = std::min(addition_threads, _total_queued_tasks);
-        RETURN_IF_ERROR(try_create_thread(addition_threads));
+        RETURN_IF_ERROR(try_create_thread(addition_threads, l));
     }
     return Status::OK();
 }
