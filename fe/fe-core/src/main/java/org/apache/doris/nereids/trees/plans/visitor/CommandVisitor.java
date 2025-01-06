@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -128,6 +129,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
@@ -138,6 +140,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatComm
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
@@ -148,6 +151,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -374,6 +378,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropCatalogRecycleBinCommand, context);
     }
 
+    default R visitShowStagesCommand(ShowStagesCommand showStagesCommand, C context) {
+        return visitCommand(showStagesCommand, context);
+    }
+
     default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {
         return visitCommand(unsupportedCommand, context);
     }
@@ -409,6 +417,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitSetUserPropertiesCommand(SetUserPropertiesCommand setUserPropertiesCommand, C context) {
         return visitCommand(setUserPropertiesCommand, context);
+    }
+
+    default R visitAlterCatalogRenameCommand(AlterCatalogRenameCommand alterCatalogRenameCommand, C context) {
+        return visitCommand(alterCatalogRenameCommand, context);
     }
 
     default R visitSetDefaultStorageVault(SetDefaultStorageVaultCommand setDefaultStorageVaultCommand, C context) {
@@ -678,6 +690,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showPrivilegesCommand, context);
     }
 
+    default R visitShowUserPropertyCommand(ShowUserPropertyCommand showUserpropertyCommand, C context) {
+        return visitCommand(showUserpropertyCommand, context);
+    }
+
     default R visitShowTabletsBelongCommand(ShowTabletsBelongCommand showTabletBelongCommand, C context) {
         return visitCommand(showTabletBelongCommand, context);
     }
@@ -726,5 +742,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitUseCommand(UseCommand useCommand, C context) {
         return visitCommand(useCommand, context);
+    }
+
+    default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
+        return visitCommand(alterDatabaseRenameCommand, context);
     }
 }

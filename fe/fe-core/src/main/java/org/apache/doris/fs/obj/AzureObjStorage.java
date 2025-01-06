@@ -295,7 +295,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     // It assumes the path starts with 'S3://${containerName}'
     // So here the path needs to be constructed in a format that BE can parse.
     private String constructS3Path(String fileName, String bucket) throws UserException {
-        LOG.info("the path is {}", String.format("s3://%s/%s", bucket, fileName));
+        LOG.debug("the path is {}", String.format("s3://%s/%s", bucket, fileName));
         return String.format("s3://%s/%s", bucket, fileName);
     }
 
@@ -337,8 +337,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             String newContinuationToken = null;
             do {
                 roundCnt++;
-                PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
-                PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
+                PagedResponse<BlobItem> pagedResponse = getPagedBlobItems(client, options, newContinuationToken);
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
                     elementCnt++;
@@ -371,9 +370,15 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
             LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, matchCnt, roundCnt,
+                    remotePath, elementCnt, roundCnt, matchCnt,
                     duration / 1000);
         }
         return st;
+    }
+
+    public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
+                                                     String newContinuationToken) {
+        PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
+        return pagedBlobs.iterableByPage().iterator().next();
     }
 }

@@ -203,7 +203,9 @@ supportedCreateStatement
 
 supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
-        AS query                                                                            #alterView
+        AS query                                                          #alterView
+    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename    
+    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER ROLE role=identifier commentSpec                                                #alterRole
     | ALTER WORKLOAD GROUP name=identifierOrText
@@ -212,6 +214,7 @@ supportedAlterStatement
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
+    | ALTER DATABASE name=identifier RENAME newName=identifier                              #alterDatabaseRename
     | ALTER ROLE role=identifier commentSpec                                                #alterRole
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
@@ -270,6 +273,8 @@ supportedShowStatement
     | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
+    | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
+    | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
@@ -279,6 +284,7 @@ supportedShowStatement
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWarningErrorCount
     | SHOW BACKENDS                                                                 #showBackends
+    | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
@@ -336,7 +342,6 @@ lockTable
 unsupportedShowStatement
     : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
-    | SHOW STAGES                                                                   #showStages
     | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
@@ -366,8 +371,6 @@ unsupportedShowStatement
         wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
-    | SHOW PROPERTY (FOR user=identifierOrText)? wildWhere?                         #showUserProperties
-    | SHOW ALL PROPERTIES wildWhere?                                                #showAllProperties
     | SHOW BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
     | SHOW BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
@@ -590,10 +593,8 @@ unsupportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                #alterSystem
     | ALTER DATABASE name=identifier SET (DATA |REPLICA | TRANSACTION)
         QUOTA INTEGER_VALUE identifier?                                             #alterDatabaseSetQuota
-    | ALTER DATABASE name=identifier RENAME newName=identifier                      #alterDatabaseRename
     | ALTER DATABASE name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
-    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterCatalogProperties
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource

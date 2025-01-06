@@ -2957,7 +2957,7 @@ public class Config extends ConfigBase {
             "Whether to advance the ID generator after becoming Master to ensure that the id "
                     + "generator will not be rolled back even when metadata is rolled back."
     })
-    public static boolean enable_advance_next_id = false;
+    public static boolean enable_advance_next_id = true;
 
     // The count threshold to do manual GC when doing checkpoint but not enough memory.
     // Set zero to disable it.
@@ -3362,4 +3362,8 @@ public class Config extends ConfigBase {
             "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
     public static String block_sql_ast_names = "";
+
+    public static long meta_service_rpc_reconnect_interval_ms = 5000;
+
+    public static long meta_service_rpc_retry_cnt = 10;
 }

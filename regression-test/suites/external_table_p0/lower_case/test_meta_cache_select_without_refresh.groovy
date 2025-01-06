@@ -18,11 +18,15 @@
 suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_docker,external_docker_doris") {
 
     String jdbcUrl = context.config.jdbcUrl
-    String jdbcUser = context.config.jdbcUser
-    String jdbcPassword = context.config.jdbcPassword
+    String jdbcUser = "test_meta_cache_select_without_refresh_user"
+    String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+
+    try_sql """drop user ${jdbcUser}"""
+    sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+    sql """grant all on *.*.* to ${jdbcUser}"""
 
     sql """ drop database if exists internal.external_lower_select_without_refresh; """
     sql """create database if not exists internal.external_lower_select_without_refresh;"""
@@ -89,4 +93,6 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
     sql """drop catalog if exists test_meta_cache_lower_true_select_without_refresh """
     sql """drop catalog if exists test_meta_cache_lower_false_select_without_refresh """
     sql """drop database if exists internal.external_lower_select_without_refresh; """
+
+    try_sql """drop user ${jdbcUser}"""
 }
