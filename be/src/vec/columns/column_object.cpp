@@ -1300,7 +1300,7 @@ void ColumnObject::set_num_rows(size_t n) {
 
 bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
     if (subcolumns.get_root() == nullptr || path.empty()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no rooot or path is empty");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
     if (subcolumns.size() < config::variant_max_subcolumns_count + 1) {
         return add_sub_column(path, num_rows);
