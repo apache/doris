@@ -123,7 +123,7 @@ suite("test_schema_change_ck") {
     /****** TODO does not support drop cluster key ******/
     test {
         sql """ alter table ${tableName} drop column c3; """
-        exception "Can not drop key column c3 in unique data model table"
+        exception "Can not drop cluster key column in Unique data model table"
     }
 
     /****** reorder ******/
