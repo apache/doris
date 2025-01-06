@@ -20,7 +20,7 @@ import java.util.stream.Collectors
 suite("parse_sql_from_sql_cache") {
     def assertHasCache = { String sqlStr ->
         retry(120, 1000) { i ->
-            if (i > 0) {
+            if (i > 1) {
                 sql sqlStr
             }
             explain {

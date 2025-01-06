@@ -706,7 +706,7 @@ class Suite implements GroovyInterceptable {
         Throwable throwable = null
         for (int i = 1; i <= executeTimes; ++i) {
             try {
-                return closure()
+                return closure(i) as T
             } catch (Throwable t) {
                 logger.warn("Retry failed: $t", t)
                 throwable = t
