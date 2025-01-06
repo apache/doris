@@ -175,10 +175,10 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
             long indexId = entry.getKey();
+            String indexName = olapTable.getIndexNameById(indexId);
             try {
                 if (indexId != baseIndexId) {
                     MaterializedIndexMeta meta = entry.getValue();
-                    String indexName = olapTable.getIndexNameById(indexId);
                     String createMvSql;
                     if (meta.getDefineStmt() != null) {
                         // get the original create mv sql
@@ -211,8 +211,9 @@ public class InitMaterializationContextHook implements PlannerHook {
                     }
                 }
             } catch (Exception exception) {
-                LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s",
-                        entry.getValue(), entry.getValue()), exception);
+                LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s, "
+                                + "table name is %s", entry.getValue(), indexName, olapTable.getQualifiedName()),
+                        exception);
             }
         }
         return contexts;
