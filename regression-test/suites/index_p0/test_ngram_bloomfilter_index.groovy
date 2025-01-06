@@ -81,7 +81,7 @@ suite("test_ngram_bloomfilter_index") {
         DISTRIBUTED BY HASH(`key_id`) BUCKETS 3
         PROPERTIES("replication_num" = "1");
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = invalid ngram bf index params:errCode = 2, detailMessage = 'bf_size' should be an integer between 64 and 65535."
+        exception "java.sql.SQLException: errCode = 2, detailMessage = bf_size should be integer and between 64 and 65535"
     }
 
     def tableName3 = 'test_ngram_bloomfilter_index3'
