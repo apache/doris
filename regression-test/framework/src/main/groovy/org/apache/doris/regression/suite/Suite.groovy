@@ -1549,6 +1549,12 @@ class Suite implements GroovyInterceptable {
         // Need to analyze materialized view for cbo to choose the materialized view accurately
         logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
         sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
+        String db = result.last().get(6)
+        String table = result.last().get(5)
+        result = sql("show table stats ${db}.${table}")
+        logger.info("table stats: " + result.toString())
+        result = sql("show index stats ${db}.${table} ${table}")
+        logger.info("index stats: " + result.toString())
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
