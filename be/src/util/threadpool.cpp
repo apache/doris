@@ -292,9 +292,12 @@ Status ThreadPool::init() {
     }
     _pool_status = Status::OK();
 
-    // create thread failed should not cause threadpool init failed,
-    // because thread can be created later such as when submit a task.
-    static_cast<void>(try_create_thread(_min_threads));
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        // create thread failed should not cause threadpool init failed,
+        // because thread can be created later such as when submit a task.
+        static_cast<void>(try_create_thread(_min_threads));
+    }
 
     // _id of thread pool is used to make sure when we create thread pool with same name, we can
     // get different _metric_entity
