@@ -381,7 +381,11 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
         return Status::OK();
     }
 
-    // check limit should ignore memtable size, because it is treated as a cache
+    // If reserve not enabled, then should check limit here to kill the query when limit exceed.
+    // For insert into select or pure load job, its memtable is accounted in a seperate memtracker limiter,
+    // and its reserve is set to true. So that it will not reach this logic.
+    // Only query and load job has exec_mem_limit and the _limit > 0, other memtracker limiter's _limit is -1 so
+    // it will not take effect.
     if (_limit > 0 && consumption() + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
