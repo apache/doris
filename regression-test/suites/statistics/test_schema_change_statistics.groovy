@@ -73,7 +73,9 @@ suite("test_schema_change_statistics") {
         DISTRIBUTED BY HASH(`key1`) BUCKETS 2
         PROPERTIES ("replication_num" = "1");
     """
-    
+    createMV("create materialized view mv1 as select key1,value1,value2 from change;")
+    sql """insert into change values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
+
     sql """analyze table change with sync;"""
     def result = sql """show column stats change"""
     assertEquals(8, result.size())
