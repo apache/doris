@@ -235,7 +235,7 @@ public class StatementContext implements Closeable {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
             if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+                this.sqlCacheContext.setNormalizedSql(originStatement.originStmt);
             }
         } else {
             this.sqlCacheContext = null;
@@ -324,7 +324,7 @@ public class StatementContext implements Closeable {
     public void setOriginStatement(OriginStatement originStatement) {
         this.originStatement = originStatement;
         if (originStatement != null && sqlCacheContext != null) {
-            sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+            sqlCacheContext.setNormalizedSql(originStatement.originStmt.trim());
         }
     }
 

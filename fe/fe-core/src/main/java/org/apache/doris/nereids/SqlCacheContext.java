@@ -28,6 +28,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.util.Utils;
@@ -58,7 +59,7 @@ public class SqlCacheContext {
     private final TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
-    private volatile String originSql;
+    private volatile String normalizedSql;
     private volatile String physicalPlan;
     private volatile long latestPartitionId = -1;
     private volatile long latestPartitionTime = -1;
@@ -345,7 +346,7 @@ public class SqlCacheContext {
 
     /** getOrComputeCacheKeyMd5 */
     public PUniqueId getOrComputeCacheKeyMd5() {
-        if (cacheKeyMd5 == null && originSql != null) {
+        if (cacheKeyMd5 == null && normalizedSql != null) {
             synchronized (this) {
                 if (cacheKeyMd5 != null) {
                     return cacheKeyMd5;
@@ -358,7 +359,7 @@ public class SqlCacheContext {
 
     /** doComputeCacheKeyMd5 */
     public synchronized PUniqueId doComputeCacheKeyMd5(Set<Variable> usedVariables) {
-        StringBuilder cacheKey = new StringBuilder(originSql);
+        StringBuilder cacheKey = new StringBuilder(normalizedSql);
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
                     .append(entry.getKey())
@@ -401,8 +402,8 @@ public class SqlCacheContext {
         return CacheProxy.getMd5(cacheKey.toString());
     }
 
-    public void setOriginSql(String originSql) {
-        this.originSql = originSql.trim();
+    public void setNormalizedSql(String originSql) {
+        this.normalizedSql = NereidsParser.removeCommentAndTrimBlank(originSql.trim());
     }
 
     public Optional<ResultSet> getResultSetInFe() {
