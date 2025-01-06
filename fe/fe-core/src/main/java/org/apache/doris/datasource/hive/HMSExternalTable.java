@@ -157,6 +157,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
+    @SerializedName(value = "dlaTable")
     private HMSDlaTable dlaTable;
 
     // record the event update time when enable hms event listener
