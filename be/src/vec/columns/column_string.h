@@ -92,7 +92,9 @@ private:
 
     // Size of i-th element, including terminating zero.
     // assume that the length of a single element is less than 32-bit
-    uint32_t ALWAYS_INLINE size_at(ssize_t i) const { return uint32_t(offsets[i] - offsets[i - 1]); }
+    uint32_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return uint32_t(offsets[i] - offsets[i - 1]);
+    }
 
     template <bool positive>
     struct less;
