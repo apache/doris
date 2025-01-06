@@ -246,13 +246,13 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
         }
         if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
             size > doris::config::crash_in_alloc_large_memory_bytes) {
-            LOG(FATAL) << fmt::format(
+            throw Exception(Status::FatalError(
                     "alloc large memory: {}, {}, crash generate core dumpsto help analyze, "
                     "stacktrace:\n{}",
                     size,
                     is_attach_query() ? "in query or load: " + print_id(_query_id)
                                       : "not in query or load",
-                    get_stack_trace());
+                    get_stack_trace()));
         }
     }
 }

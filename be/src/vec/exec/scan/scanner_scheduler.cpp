@@ -268,7 +268,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            size_t raw_bytes_read = 0; bool first_read = true;
+            size_t raw_bytes_read = 0; bool first_read = true; int64_t limit = scanner->limit();
             while (!eos && raw_bytes_read < raw_bytes_threshold) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
@@ -283,8 +283,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     break;
                 }
                 // We got a new created block or a reused block.
-                ctx->update_peak_memory_usage(free_block->allocated_bytes());
-                ctx->update_peak_memory_usage(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {
@@ -293,7 +291,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
-                ctx->update_peak_memory_usage(free_block_bytes);
                 raw_bytes_read += free_block_bytes;
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
@@ -301,9 +298,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
                     vectorized::MutableBlock mutable_block(
                             scan_task->cached_blocks.back().first.get());
-                    ctx->update_peak_memory_usage(-mutable_block.allocated_bytes());
                     status = mutable_block.merge(*free_block);
-                    ctx->update_peak_memory_usage(mutable_block.allocated_bytes());
                     if (!status.ok()) {
                         LOG(WARNING) << "Block merge failed: " << status.to_string();
                         break;
@@ -313,7 +308,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                             std::move(mutable_block.mutable_columns()));
 
                     // Return block succeed or not, this free_block is not used by this scan task any more.
-                    ctx->update_peak_memory_usage(-free_block_bytes);
                     // If block can be reused, its memory usage will be added back.
                     ctx->return_free_block(std::move(free_block));
                     ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
@@ -321,6 +315,17 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 } else {
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
+                }
+                if (limit > 0 && limit < ctx->batch_size()) {
+                    // If this scanner has limit, and less than batch size,
+                    // return immediately and no need to wait raw_bytes_threshold.
+                    // This can save time that each scanner may only return a small number of rows,
+                    // but rows are enough from all scanners.
+                    // If not break, the query like "select * from tbl where id=1 limit 10"
+                    // may scan a lot data when the "id=1"'s filter ratio is high.
+                    // If limit is larger than batch size, this rule is skipped,
+                    // to avoid user specify a large limit and causing too much small blocks.
+                    break;
                 }
             } // end for while
 

@@ -103,7 +103,8 @@ import java.util.stream.Collectors;
  */
 public class CreateMTMVInfo {
     public static final Logger LOG = LogManager.getLogger(CreateMTMVInfo.class);
-    public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION";
+    public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,"
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM";
     private final boolean ifNotExists;
     private final TableNameInfo mvName;
     private List<String> keys;
@@ -155,6 +156,9 @@ public class CreateMTMVInfo {
         mvName.analyze(ctx);
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(mvName.getCtl())) {
             throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
+        }
+        if (ctx.getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Create materialized view fail, because is in debug mode");
         }
         try {
             FeNameFormat.checkTableName(mvName.getTbl());
@@ -246,31 +250,43 @@ public class CreateMTMVInfo {
     /**
      * analyzeQuery
      */
-    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) throws Exception {
-        // create table as select
-        StatementContext statementContext = ctx.getStatementContext();
-        NereidsPlanner planner = new NereidsPlanner(statementContext);
-        // this is for expression column name infer when not use alias
-        LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
-        // must disable constant folding by be, because be constant folding may return wrong type
-        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-        Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        // can not contain VIEW or MTMV
-        analyzeBaseTables(planner.getAnalyzedPlan());
-        // can not contain Random function
-        analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
-        // can not contain partition or tablets
-        boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(planner.getAnalyzedPlan());
-        if (containTableQueryOperator) {
-            throw new AnalysisException("can not contain invalid expression");
-        }
-        getRelation(planner);
-        this.mvPartitionInfo = mvPartitionDefinition
-                .analyzeAndTransferToMTMVPartitionInfo(planner, ctx, logicalQuery);
-        this.partitionDesc = generatePartitionDesc(ctx);
-        getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
-        analyzeKeys();
+    public void analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties) {
+        try (StatementContext statementContext = ctx.getStatementContext()) {
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            // this is for expression column name infer when not use alias
+            LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
+            // Should not make table without data to empty relation when analyze the related table,
+            // so add disable rules
+            Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+            ctx.getSessionVariable().setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+            statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+            Plan plan;
+            try {
+                // must disable constant folding by be, because be constant folding may return wrong type
+                ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
+                plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+            } finally {
+                // after operate, roll back the disable rules
+                ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
+                statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+            }
+            // can not contain VIEW or MTMV
+            analyzeBaseTables(planner.getAnalyzedPlan());
+            // can not contain Random function
+            analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
+            // can not contain partition or tablets
+            boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(
+                    planner.getAnalyzedPlan());
+            if (containTableQueryOperator) {
+                throw new AnalysisException("can not contain invalid expression");
+            }
 
+            getRelation(Sets.newHashSet(statementContext.getTables().values()), ctx);
+            this.mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
+            this.partitionDesc = generatePartitionDesc(ctx);
+            getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
+            analyzeKeys();
+        }
     }
 
     private void analyzeKeys() {
@@ -311,24 +327,9 @@ public class CreateMTMVInfo {
         }
     }
 
-    private void getRelation(NereidsPlanner planner) {
-        // Should not make table without data to empty relation when analyze the related table,
-        // so add disable rules
-        ConnectContext ctx = planner.getCascadesContext().getConnectContext();
-        SessionVariable sessionVariable = ctx.getSessionVariable();
-        Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
-        sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
-        if (ctx.getStatementContext() != null) {
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
-        Plan plan;
-        try {
-            plan = planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
-        } finally {
-            sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
-        this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
+    // Should use analyzed plan for collect views and tables
+    private void getRelation(Set<TableIf> tables, ConnectContext ctx) {
+        this.relation = MTMVPlanUtil.generateMTMVRelation(tables, ctx);
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
@@ -351,7 +352,7 @@ public class CreateMTMVInfo {
                     allPartitionDescs.size(), ctx.getSessionVariable().getCreateTablePartitionMaxNum()));
         }
         try {
-            PartitionType type = relatedTable.getPartitionType();
+            PartitionType type = relatedTable.getPartitionType(Optional.empty());
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
                         allPartitionDescs);

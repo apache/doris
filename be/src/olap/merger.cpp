@@ -86,7 +86,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
     reader_params.tablet_schema = merge_tablet_schema;
-    if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
+    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
     }
 
@@ -173,8 +173,8 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         if (delete_sign_idx != -1) {
             key_columns.emplace_back(delete_sign_idx);
         }
-        if (!tablet_schema.cluster_key_idxes().empty()) {
-            for (const auto& cid : tablet_schema.cluster_key_idxes()) {
+        if (!tablet_schema.cluster_key_uids().empty()) {
+            for (const auto& cid : tablet_schema.cluster_key_uids()) {
                 auto idx = tablet_schema.field_index(cid);
                 DCHECK(idx >= 0) << "could not find cluster key column with unique_id=" << cid
                                  << " in tablet schema, table_id=" << tablet_schema.table_id();
@@ -186,7 +186,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
             // cluster key unique ids: [3, 1, 4]
             // the key_columns should be [0, 1, 3, 5]
             // the key_group_cluster_key_idxes should be [2, 1, 3]
-            for (const auto& cid : tablet_schema.cluster_key_idxes()) {
+            for (const auto& cid : tablet_schema.cluster_key_uids()) {
                 auto idx = tablet_schema.field_index(cid);
                 for (auto i = 0; i < key_columns.size(); ++i) {
                     if (idx == key_columns[i]) {
@@ -201,7 +201,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
     if (!key_columns.empty()) {
-        column_groups->emplace_back(std::move(key_columns));
+        column_groups->emplace_back(key_columns);
     }
 
     std::vector<uint32_t> value_columns;
@@ -261,7 +261,7 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.tablet_schema = merge_tablet_schema;
     bool has_cluster_key = false;
-    if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
+    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
         has_cluster_key = true;
     }

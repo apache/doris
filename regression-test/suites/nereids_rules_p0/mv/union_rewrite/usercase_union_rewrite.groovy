@@ -90,6 +90,9 @@ suite ("usercase_union_rewrite") {
     sql """analyze table orders_user with sync;"""
     sql """analyze table lineitem_user with sync;"""
 
+    sql """alter table orders_user modify column o_comment set stats ('row_count'='4');"""
+    sql """alter table lineitem_user modify column l_comment set stats ('row_count'='3');"""
+
     def create_mv_orders = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
         sql """DROP TABLE IF EXISTS ${mv_name}"""

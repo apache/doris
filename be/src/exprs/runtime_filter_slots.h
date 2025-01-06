@@ -62,9 +62,8 @@ public:
     }
 
     // use synced size when this rf has global merged
-    static uint64_t get_real_size(IRuntimeFilter* runtime_filter, uint64_t hash_table_size) {
-        return runtime_filter->isset_synced_size() ? runtime_filter->get_synced_size()
-                                                   : hash_table_size;
+    static uint64_t get_real_size(IRuntimeFilter* filter, uint64_t hash_table_size) {
+        return filter->need_sync_filter_size() ? filter->get_synced_size() : hash_table_size;
     }
 
     Status ignore_filters(RuntimeState* state) {
@@ -119,10 +118,6 @@ public:
             }
 
             if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-                if (filter->need_sync_filter_size() != filter->isset_synced_size()) {
-                    return Status::InternalError("sync filter size meet error, filter: {}",
-                                                 filter->debug_string());
-                }
                 RETURN_IF_ERROR(filter->init_bloom_filter(
                         get_real_size(filter.get(), local_hash_table_size)));
             }

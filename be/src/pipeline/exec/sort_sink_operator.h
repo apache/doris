@@ -23,6 +23,7 @@
 #include "vec/core/field.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -109,4 +110,5 @@ private:
     const bool _reuse_mem;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

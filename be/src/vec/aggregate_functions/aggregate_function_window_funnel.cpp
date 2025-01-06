@@ -29,6 +29,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
                                                              const DataTypes& argument_types,

@@ -20,9 +20,7 @@ package org.apache.doris.datasource.hudi.source;
 import org.apache.doris.spi.Split;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.GlobPattern;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
@@ -34,6 +32,8 @@ import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
+import org.apache.hudi.metadata.HoodieTableMetadataUtil;
+import org.apache.hudi.storage.StoragePathInfo;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -54,7 +54,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
     private final boolean endInstantArchived;
     private final List<HoodieInstant> includedCommits;
     private final List<HoodieCommitMetadata> commitsMetadata;
-    private final FileStatus[] affectedFilesInCommits;
+    private final List<StoragePathInfo> affectedFilesInCommits;
     private final boolean fullTableScan;
     private final String globPattern;
     private final boolean includeStartTime;
@@ -96,7 +96,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
         includedCommits = getIncludedCommits();
         commitsMetadata = getCommitsMetadata();
         affectedFilesInCommits = HoodieInputFormatUtils.listAffectedFilesForCommits(configuration,
-                new Path(metaClient.getBasePath()), commitsMetadata);
+                metaClient.getBasePathV2(), commitsMetadata);
         fullTableScan = shouldFullTableScan();
         if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME && fullTableScan) {
             throw new HoodieException("Cannot use stateTransitionTime while enables full table scan");
@@ -152,8 +152,8 @@ public class MORIncrementalRelation implements IncrementalRelation {
         if (should) {
             return true;
         }
-        for (FileStatus fileStatus : affectedFilesInCommits) {
-            if (!metaClient.getFs().exists(fileStatus.getPath())) {
+        for (StoragePathInfo fileStatus : affectedFilesInCommits) {
+            if (!metaClient.getRawHoodieStorage().exists(fileStatus.getPath())) {
                 return true;
             }
         }
@@ -199,7 +199,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
         String latestCommit = includedCommits.get(includedCommits.size() - 1).getTimestamp();
         HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
                 affectedFilesInCommits);
-        Stream<FileSlice> fileSlices = HoodieInputFormatUtils.getWritePartitionPaths(commitsMetadata)
+        Stream<FileSlice> fileSlices = HoodieTableMetadataUtil.getWritePartitionPaths(commitsMetadata)
                 .stream().flatMap(relativePartitionPath ->
                         fsView.getLatestMergedFileSlicesBeforeOrOn(relativePartitionPath, latestCommit));
         if ("".equals(globPattern)) {

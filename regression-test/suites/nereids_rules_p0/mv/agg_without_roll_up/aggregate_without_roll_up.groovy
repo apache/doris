@@ -36,7 +36,8 @@ suite("aggregate_without_roll_up") {
       o_orderpriority  CHAR(15) NOT NULL,  
       o_clerk          CHAR(15) NOT NULL, 
       o_shippriority   INTEGER NOT NULL,
-      o_comment        VARCHAR(79) NOT NULL
+      o_comment        VARCHAR(79) NOT NULL,
+      public_col       INT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
@@ -44,11 +45,9 @@ suite("aggregate_without_roll_up") {
       "replication_num" = "1"
     );
     """
-
     sql """
     drop table if exists lineitem
     """
-
     sql"""
     CREATE TABLE IF NOT EXISTS lineitem (
       l_orderkey    INTEGER NOT NULL,
@@ -66,7 +65,8 @@ suite("aggregate_without_roll_up") {
       l_receiptdate DATE NOT NULL,
       l_shipinstruct CHAR(25) NOT NULL,
       l_shipmode     CHAR(10) NOT NULL,
-      l_comment      VARCHAR(44) NOT NULL
+      l_comment      VARCHAR(44) NOT NULL,
+      public_col       INT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
@@ -74,18 +74,17 @@ suite("aggregate_without_roll_up") {
       "replication_num" = "1"
     )
     """
-
     sql """
     drop table if exists partsupp
     """
-
     sql """
     CREATE TABLE IF NOT EXISTS partsupp (
       ps_partkey     INTEGER NOT NULL,
       ps_suppkey     INTEGER NOT NULL,
       ps_availqty    INTEGER NOT NULL,
       ps_supplycost  DECIMALV3(15,2)  NOT NULL,
-      ps_comment     VARCHAR(199) NOT NULL 
+      ps_comment     VARCHAR(199) NOT NULL,
+      public_col       INT NULL 
     )
     DUPLICATE KEY(ps_partkey, ps_suppkey)
     DISTRIBUTED BY HASH(ps_partkey) BUCKETS 3
@@ -96,30 +95,36 @@ suite("aggregate_without_roll_up") {
 
     sql """
     insert into lineitem values
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy', 1),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy', null),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy', 2),
+    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy', null),
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx', 3);
     """
 
     sql """
     insert into orders values
-    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
-    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
+    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy', 1),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy', null),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy', 2),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy', null),
+    (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy', 3),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm', null),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi', 4),
+    (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi', null);  
     """
 
     sql """
     insert into partsupp values
-    (2, 3, 9, 10.01, 'supply1'),
-    (2, 3, 10, 11.01, 'supply2');
+    (2, 3, 9, 10.01, 'supply1', 1),
+    (2, 3, 10, 11.01, 'supply2', null);
     """
+
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // single table
     // with filter
@@ -367,7 +372,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end))  as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -565,7 +570,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -655,7 +660,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -1356,4 +1361,615 @@ suite("aggregate_without_roll_up") {
     """
     async_mv_rewrite_fail(db, mv27_0, query27_0, "mv27_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv27_0"""
+
+
+   // query and mv has the same filter but position is different, should rewrite successfully
+    def mv28_0 = """
+    select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey, 
+      orders.public_col as col1, 
+      l_orderkey, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey + l_orderkey + ps_partkey * 2, 
+      sum(
+        o_orderkey + l_orderkey + ps_partkey * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          l_orderkey is null 
+          or l_orderkey <> 8
+      ) lineitem on l_orderkey = o_orderkey 
+      inner join (
+        select 
+          ps_partkey, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on ps_partkey = o_orderkey 
+    where 
+      l_orderkey is null 
+      or l_orderkey <> 8
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    def query28_0 = """
+    select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey, 
+      orders.public_col as col1, 
+      l_orderkey, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey + l_orderkey + ps_partkey * 2, 
+      sum(
+        o_orderkey + l_orderkey + ps_partkey * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          l_orderkey is null 
+          or l_orderkey <> 8
+      ) lineitem on l_orderkey = o_orderkey 
+      inner join (
+        select 
+          ps_partkey, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on ps_partkey = o_orderkey 
+    where 
+      l_orderkey is null 
+      or l_orderkey <> 8 
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    order_qt_query28_0_before "${query28_0}"
+    async_mv_rewrite_success(db, mv28_0, query28_0, "mv28_0")
+    order_qt_query28_0_after "${query28_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv28_0"""
+
+
+
+    // query and mv has the same filter but position is different, should rewrite successfully
+    def mv29_0 = """
+      select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey, 
+      orders.public_col as col1, 
+      l_orderkey, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey + l_orderkey + ps_partkey * 2, 
+      sum(
+        o_orderkey + l_orderkey + ps_partkey * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          lineitem.public_col is null 
+          or lineitem.public_col <> 1
+      ) lineitem on l_orderkey = o_orderkey 
+      inner join (
+        select 
+          ps_partkey, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on ps_partkey = o_orderkey
+    where 
+      lineitem.public_col is null 
+      or lineitem.public_col <> 1 
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    def query29_0 = """
+      select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey, 
+      orders.public_col as col1, 
+      l_orderkey, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey + l_orderkey + ps_partkey * 2, 
+      sum(
+        o_orderkey + l_orderkey + ps_partkey * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          lineitem.public_col is null 
+          or lineitem.public_col <> 1
+      ) lineitem on l_orderkey = o_orderkey 
+      inner join (
+        select 
+          ps_partkey, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on ps_partkey = o_orderkey
+    where 
+      lineitem.public_col is null 
+      or lineitem.public_col <> 1 
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    order_qt_query29_0_before "${query29_0}"
+    async_mv_rewrite_success(db, mv29_0, query29_0, "mv29_0")
+    order_qt_query29_0_after "${query29_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_0"""
+
+
+    // query and mv has the same filter but position is different, should rewrite successfully
+    // mv join condition has alias
+    def mv30_0 = """
+      select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey_alias, 
+      orders.public_col as col1, 
+      l_orderkey_alias, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey_alias, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey_alias + l_orderkey_alias + ps_partkey_alias * 2, 
+      sum(
+        o_orderkey_alias + l_orderkey_alias + ps_partkey_alias * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey as o_orderkey_alias, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey as l_orderkey_alias, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          lineitem.public_col is null 
+          or lineitem.public_col <> 1
+      ) lineitem on lineitem.l_orderkey_alias = orders.o_orderkey_alias 
+      inner join (
+        select 
+          ps_partkey as ps_partkey_alias, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on partsupp.ps_partkey_alias = orders.o_orderkey_alias
+    where 
+      lineitem.public_col is null 
+      or lineitem.public_col <> 1 
+      and o_orderkey_alias = 2
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    def query30_0 = """
+      select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey, 
+      orders.public_col as col1, 
+      l_orderkey, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey + l_orderkey + ps_partkey * 2, 
+      sum(
+        o_orderkey + l_orderkey + ps_partkey * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          lineitem.public_col is null 
+          or lineitem.public_col <> 1
+      ) lineitem on l_orderkey = o_orderkey 
+      inner join (
+        select 
+          ps_partkey, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on ps_partkey = o_orderkey
+    where 
+      lineitem.public_col is null 
+      or lineitem.public_col <> 1 
+      and o_orderkey = 2
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    order_qt_query30_0_before "${query30_0}"
+    async_mv_rewrite_success(db, mv30_0, query30_0, "mv30_0")
+    order_qt_query30_0_after "${query30_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv30_0"""
+
+
+    // query and mv has the same filter but position is different, should rewrite successfully
+    // query join condition has alias
+    def mv31_0 = """
+      select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey, 
+      orders.public_col as col1, 
+      l_orderkey, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey + l_orderkey + ps_partkey * 2, 
+      sum(
+        o_orderkey + l_orderkey + ps_partkey * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          lineitem.public_col is null 
+          or lineitem.public_col <> 1
+      ) lineitem on l_orderkey = o_orderkey 
+      inner join (
+        select 
+          ps_partkey, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on ps_partkey = o_orderkey
+    where 
+      lineitem.public_col is null 
+      or lineitem.public_col <> 1 
+      and o_orderkey = 2
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    def query31_0 = """
+select 
+      o_custkey, 
+      o_orderdate, 
+      o_shippriority, 
+      o_comment, 
+      o_orderkey_alias, 
+      orders.public_col as col1, 
+      l_orderkey_alias, 
+      l_partkey, 
+      l_suppkey, 
+      lineitem.public_col as col2, 
+      ps_partkey_alias, 
+      ps_suppkey, 
+      partsupp.public_col as col3, 
+      partsupp.public_col * 2 as col4, 
+      o_orderkey_alias + l_orderkey_alias + ps_partkey_alias * 2, 
+      sum(
+        o_orderkey_alias + l_orderkey_alias + ps_partkey_alias * 2
+      ), 
+      count() as count_all 
+    from 
+      (
+        select 
+          o_custkey, 
+          o_orderdate, 
+          o_shippriority, 
+          o_comment, 
+          o_orderkey as o_orderkey_alias, 
+          orders.public_col as public_col 
+        from 
+          orders
+      ) orders 
+      left join (
+        select 
+          l_orderkey as l_orderkey_alias, 
+          l_partkey, 
+          l_suppkey, 
+          lineitem.public_col as public_col 
+        from 
+          lineitem 
+        where 
+          lineitem.public_col is null 
+          or lineitem.public_col <> 1
+      ) lineitem on lineitem.l_orderkey_alias = orders.o_orderkey_alias 
+      inner join (
+        select 
+          ps_partkey as ps_partkey_alias, 
+          ps_suppkey, 
+          partsupp.public_col as public_col 
+        from 
+          partsupp
+      ) partsupp on partsupp.ps_partkey_alias = orders.o_orderkey_alias
+    where 
+      lineitem.public_col is null 
+      or lineitem.public_col <> 1 
+      and o_orderkey_alias = 2
+    group by 
+      1, 
+      2, 
+      3, 
+      4, 
+      5, 
+      6, 
+      7, 
+      8, 
+      9, 
+      10, 
+      11, 
+      12, 
+      13, 
+      14;
+    """
+    order_qt_query31_0_before "${query31_0}"
+    async_mv_rewrite_success(db, mv31_0, query31_0, "mv31_0")
+    order_qt_query31_0_after "${query31_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_0"""
 }

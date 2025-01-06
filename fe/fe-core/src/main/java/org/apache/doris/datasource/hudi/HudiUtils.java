@@ -17,24 +17,35 @@
 
 package org.apache.doris.datasource.hudi;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
 
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.util.Option;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class HudiUtils {
@@ -86,7 +97,7 @@ public class HudiUtils {
             case LONG:
                 if (logicalType instanceof LogicalTypes.TimestampMillis
                         || logicalType instanceof LogicalTypes.TimestampMicros) {
-                    return logicalType.getName();
+                    return "timestamp";
                 }
                 if (logicalType instanceof LogicalTypes.TimeMicros) {
                     return handleUnsupportedType(schema);
@@ -230,5 +241,44 @@ public class HudiUtils {
             return fromAvroHudiTypeToDorisType(nonNullMembers.get(0));
         }
         return Type.UNSUPPORTED;
+    }
+
+    public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
+            HMSExternalTable hmsTable) {
+        TablePartitionValues partitionValues = new TablePartitionValues();
+        if (hmsTable.getPartitionColumns().isEmpty()) {
+            //isn't partition table.
+            return partitionValues;
+        }
+
+        HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
+        HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
+                .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
+        boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
+
+        if (tableSnapshot.isPresent()) {
+            if (tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION) {
+                // Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`";
+                return partitionValues;
+            }
+            String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
+
+            partitionValues =
+                    HiveMetaStoreClientHelper.ugiDoAs(
+                            HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                            () -> processor.getSnapshotPartitionValues(
+                                    hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+        } else {
+            HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+            if (!snapshotInstant.isPresent()) {
+                return partitionValues;
+            }
+            partitionValues =
+                    HiveMetaStoreClientHelper.ugiDoAs(
+                            HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                            () -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+        }
+        return partitionValues;
     }
 }

@@ -155,7 +155,7 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     // 1. deserialize num of subcolumns
     uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
-
+    bool root_added = false;
     // 2. deserialize each subcolumn in a loop
     for (uint32_t i = 0; i < num_subcolumns; i++) {
         // 2.1 deserialize subcolumn column path (str size + str data)
@@ -175,6 +175,8 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
         PathInData key;
         if (!column_meta_pb.name().empty()) {
             key = PathInData {column_meta_pb.name()};
+        } else {
+            root_added = true;
         }
         column_object->add_sub_column(key, std::move(sub_column), type);
     }
@@ -191,6 +193,10 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     MutableColumnPtr sparse_column = ColumnObject::get_sparse_column_type()->create_column();
     buf = ColumnObject::get_sparse_column_type()->deserialize(buf, &sparse_column, be_exec_version);
     column_object->set_sparse_column(std::move(sparse_column));
+
+    if (!root_added && column_object->get_subcolumn({})) {
+        column_object->get_subcolumn({})->insert_many_defaults(num_rows);
+    }
 
     column_object->finalize();
 #ifndef NDEBUG

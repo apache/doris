@@ -45,7 +45,7 @@ suite("test_auto_partition_load") {
     sql """ insert into load_table1 values (14, '2002-12-12 12:12:12.123', '2001-11-14 12:12:12.123456') """
 
     qt_select1 "select * from load_table1 order by k1"
-    result1 = sql "show partitions from load_table1"
+    def result1 = sql "show partitions from load_table1"
     logger.info("${result1}")
     assertEquals(result1.size(), 8)
 
@@ -79,7 +79,7 @@ suite("test_auto_partition_load") {
     sql """ insert into load_table2 values (14, '12', '2123-11-14 12:12:12.123456') """
 
     qt_select2 "select * from load_table2 order by k1"
-    result2 = sql "show partitions from load_table2"
+    def result2 = sql "show partitions from load_table2"
     logger.info("${result2}")
     assertEquals(result2.size(), 11)
 }

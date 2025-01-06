@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_pull_up_predicate_set_op") {
+suite("pull_up_predicate_set_op") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""

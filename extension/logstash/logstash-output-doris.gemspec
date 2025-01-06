@@ -38,7 +38,6 @@ Gem::Specification.new do |s|
 
   # Gem dependencies
   s.add_runtime_dependency "logstash-core-plugin-api", ">= 1.60", "<= 2.99"
-  s.add_runtime_dependency 'mini_cache', ">= 1.0.0", "< 2.0.0"
   s.add_runtime_dependency "rest-client", '~> 2.1'
 
   s.add_development_dependency 'logstash-devutils', '~> 1.3'

@@ -55,7 +55,7 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
     sql """CREATE USER ${userName} identified by '${userPassword}' DEFAULT ROLE '${roleName}'"""
     sql """GRANT create_priv ON *.*.* TO '${userName}'; """
 
-    connect(user = userName, password = userPassword, url = context.config.jdbcUrl) {
+    connect(userName, userPassword, context.config.jdbcUrl) {
         expectExceptionLike({
             sql """
                 CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
@@ -74,7 +74,7 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
 
     sql """ GRANT usage_priv ON STORAGE VAULT '${vaultName}' TO ROLE '${roleName}';"""
 
-    connect(user = userName, password = userPassword, url = context.config.jdbcUrl) {
+    connect(userName, userPassword, context.config.jdbcUrl) {
         sql """
             CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
                     C_CUSTKEY     INTEGER NOT NULL,
@@ -93,7 +93,7 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
         REVOKE usage_priv ON STORAGE VAULT '${vaultName}' FROM ROLE '${roleName}';
     """
 
-    connect(user = userName, password = userPassword, url = context.config.jdbcUrl) {
+    connect(userName, userPassword, context.config.jdbcUrl) {
         expectExceptionLike({
             sql """
                 CREATE TABLE IF NOT EXISTS ${dbName}.${tableName}_2 (

@@ -36,7 +36,6 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -59,7 +58,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     ExternalTable tbl = scan.getTable();
 
                     SelectedPartitions selectedPartitions;
-                    if (tbl.supportPartitionPruned()) {
+                    if (tbl.supportInternalPartitionPruned()) {
                         selectedPartitions = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
                     } else {
                         // set isPruned so that it won't go pass the partition prune again
@@ -74,8 +73,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
     private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
-        // todo: real snapshotId
-        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(OptionalLong.empty()))) {
+        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
+                ctx.getStatementContext().getSnapshot(externalTable)))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -83,15 +82,15 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
-        // todo: real snapshotId
-        List<Slot> partitionSlots = externalTable.getPartitionColumns(OptionalLong.empty())
+        List<Slot> partitionSlots = externalTable.getPartitionColumns(
+                        ctx.getStatementContext().getSnapshot(externalTable))
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.HIVE));
+                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.EXTERNAL));
 
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));

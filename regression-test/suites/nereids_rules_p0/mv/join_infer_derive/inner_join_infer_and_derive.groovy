@@ -106,6 +106,9 @@ suite("inner_join_infer_and_derive") {
     sql """analyze table orders_inner with sync;"""
     sql """analyze table lineitem_inner with sync;"""
 
+    sql """alter table orders_inner modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_inner modify column l_comment set stats ('row_count'='7');"""
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt

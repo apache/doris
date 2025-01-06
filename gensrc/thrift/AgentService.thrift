@@ -44,7 +44,7 @@ struct TTabletSchema {
     16: optional bool store_row_column = false
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
-    19: optional list<i32> cluster_key_idxes
+    19: optional list<i32> cluster_key_uids
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
     21: optional i64 row_store_page_size = 16384
@@ -440,6 +440,7 @@ struct TCalcDeleteBitmapPartitionInfo {
     4: optional list<i64> base_compaction_cnts
     5: optional list<i64> cumulative_compaction_cnts
     6: optional list<i64> cumulative_points
+    7: optional list<i64> sub_txn_ids
 }
 
 struct TCalcDeleteBitmapRequest {

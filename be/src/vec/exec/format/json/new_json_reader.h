@@ -87,7 +87,8 @@ public:
     ~NewJsonReader() override = default;
 
     Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
-                               col_default_value_ctx);
+                               col_default_value_ctx,
+                       bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -128,7 +129,8 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+                                 const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
+                                 const std::string& column_name, DataTypeSerDeSPtr serde,
                                  bool* valid);
 
     Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
@@ -177,8 +179,10 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          SlotDescriptor* slot_desc,
-                                          vectorized::IColumn* column_ptr, bool* valid);
+                                          const TypeDescriptor& type_desc,
+                                          vectorized::IColumn* column_ptr,
+                                          const std::string& column_name, DataTypeSerDeSPtr serde,
+                                          bool* valid);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,
@@ -196,8 +200,8 @@ private:
             const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
                     col_default_value_ctx);
 
-    Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
-                                bool* valid);
+    Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
+                                vectorized::IColumn* column_ptr, bool* valid);
 
     // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
     // and the current load is a flexible partial update
@@ -292,6 +296,22 @@ private:
     std::unordered_map<std::string, std::string> _col_default_value_map;
 
     int32_t skip_bitmap_col_idx {-1};
+
+    bool _is_load = true;
+    //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
+    //If an illegal value is encountered during the load process, `_append_error_msg` should be called
+    //instead of directly returning `Status::DataQualityError`
+
+    bool _is_hive_table = false;
+    // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+    // Hive will not allow you to create columns with the same name but different case, including field names inside
+    // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
+    // to table, the column names in the data may be uppercase,and there may be multiple columns with
+    // the same name but different capitalization.We refer to the behavior of hive, convert all column names
+    // in the data to lowercase,and use the last one as the insertion value
+
+    DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _serde_options;
 };
 
 } // namespace vectorized

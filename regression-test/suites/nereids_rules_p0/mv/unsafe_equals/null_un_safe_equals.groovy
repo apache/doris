@@ -57,6 +57,8 @@ suite("null_unsafe_equals") {
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d', null, 'mi');  
     """
 
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+
     def mv1_0 =
             """
             select count(*), o_orderstatus, o_comment

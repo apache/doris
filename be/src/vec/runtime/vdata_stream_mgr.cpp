@@ -18,10 +18,12 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -141,9 +143,12 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
     bool eos = request->eos();
     if (request->has_block()) {
-        RETURN_IF_ERROR(recvr->add_block(
-                request->block(), request->sender_id(), request->be_number(), request->packet_seq(),
-                eos ? nullptr : done, wait_for_worker, cpu_time_stop_watch.elapsed_time()));
+        std::unique_ptr<PBlock> pblock_ptr {
+                const_cast<PTransmitDataParams*>(request)->release_block()};
+        RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
+                                         request->be_number(), request->packet_seq(),
+                                         eos ? nullptr : done, wait_for_worker,
+                                         cpu_time_stop_watch.elapsed_time()));
     }
 
     if (eos) {

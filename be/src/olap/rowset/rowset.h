@@ -33,6 +33,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -116,10 +117,8 @@ private:
     RowsetState _rowset_state;
 };
 
-class Rowset : public std::enable_shared_from_this<Rowset> {
+class Rowset : public std::enable_shared_from_this<Rowset>, public MetadataAdder<Rowset> {
 public:
-    virtual ~Rowset();
-
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
     //

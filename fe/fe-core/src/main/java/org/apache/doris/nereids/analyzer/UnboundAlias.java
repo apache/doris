@@ -59,7 +59,7 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("(" + child() + ")");
         alias.ifPresent(name -> stringBuilder.append(" AS " + name));

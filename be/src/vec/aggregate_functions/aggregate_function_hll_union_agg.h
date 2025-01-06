@@ -38,6 +38,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -58,8 +59,7 @@ struct AggregateFunctionHLLData {
 
     void write(BufferWritable& buf) const {
         std::string result(dst_hll.max_serialized_size(), '0');
-        int size = dst_hll.serialize((uint8_t*)result.c_str());
-        result.resize(size);
+        result.resize(dst_hll.serialize((uint8_t*)result.c_str()));
         write_binary(result, buf);
     }
 
@@ -149,3 +149,5 @@ AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
                                                    const bool result_is_nullable);
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

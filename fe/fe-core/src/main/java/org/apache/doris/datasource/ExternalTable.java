@@ -31,6 +31,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -55,7 +57,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -240,6 +241,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
+    public long getIndexLength() {
+        return 0;
+    }
+
+    @Override
     public long getCreateTime() {
         return 0;
     }
@@ -312,8 +318,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
-    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
         schemaUpdateTime = System.currentTimeMillis();
+        return initSchema(key);
+    }
+
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         return initSchema();
     }
 
@@ -373,17 +383,17 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     /**
      * Retrieve all partitions and initialize SelectedPartitions
      *
-     * @param snapshotId if not support mvcc, ignore this
+     * @param snapshot if not support mvcc, ignore this
      * @return
      */
-    public SelectedPartitions initSelectedPartitions(OptionalLong snapshotId) {
-        if (!supportPartitionPruned()) {
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        if (!supportInternalPartitionPruned()) {
             return SelectedPartitions.NOT_PRUNED;
         }
-        if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshotId))) {
+        if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
             return SelectedPartitions.NOT_PRUNED;
         }
-        Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshotId);
+        Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshot);
         return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
@@ -391,10 +401,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * get partition map
      * If partition related operations are supported, this method needs to be implemented in the subclass
      *
-     * @param snapshotId if not support mvcc, ignore this
+     * @param snapshot if not support mvcc, ignore this
      * @return partitionName ==> PartitionItem
      */
-    public Map<String, PartitionItem> getNameToPartitionItems(OptionalLong snapshotId) {
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Collections.emptyMap();
     }
 
@@ -402,19 +412,20 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * get partition column list
      * If partition related operations are supported, this method needs to be implemented in the subclass
      *
-     * @param snapshotId if not support mvcc, ignore this
+     * @param snapshot if not support mvcc, ignore this
      * @return
      */
-    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         return Collections.emptyList();
     }
 
     /**
-     * Does it support partition cpruned， If so, this method needs to be overridden in subclasses
+     * Does it support Internal partition pruned, If so, this method needs to be overridden in subclasses
+     * Internal partition pruned : Implement partition pruning logic without relying on external APIs.
      *
      * @return
      */
-    public boolean supportPartitionPruned() {
+    public boolean supportInternalPartitionPruned() {
         return false;
     }
 }

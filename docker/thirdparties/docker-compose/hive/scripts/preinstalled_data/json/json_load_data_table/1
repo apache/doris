@@ -1,0 +1,13 @@
+{"id":1,"col1":10,"col2":{"col2a":10,"col2b":"string1"},"col3":{"1":"string10"}}
+{"id":2,"col1":10,"col1":20,"col2":{"col2b":"string2","col2a":0,"Col2A":20},"col3":{"2":"string2"}}
+{"id":3,"col1":10,"col1":20,"COL1":30,"COL2":{"col2a":30,"col2b":"string3"}}
+{"id":4,"COL1":40,"col2":{"col2a":10,"col2b":"string4","new_col":"new_val","col2a":40},"col3":{"4":"string4"}}
+{"id":5}
+{"id":6,"col1":60,"col2":{"COL2a":60,"col2b":600},"col3":{"6":600}}
+{"id":7,"col1":70,"col3":{"7":"string7"},"col2":{"col2b":"string7","col2a":70}}
+
+
+
+
+{}
+{"a":5}

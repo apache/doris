@@ -95,7 +95,7 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(frameUnits + " ");
         if (rightBoundary != null) {

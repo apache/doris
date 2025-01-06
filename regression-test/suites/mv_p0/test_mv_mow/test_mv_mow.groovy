@@ -50,5 +50,6 @@ suite ("test_mv_mow") {
     qt_select_mv "select mv_k1 from `u_table` index `k123p` order by 1;"
     qt_select_mv "select `mv_(k2 + k3)` from `u_table` index `k123p` order by 1;"
     sql """set enable_stats=true;"""
+    sql """alter table u_table modify column k1 set stats ('row_count'='2');"""
     mv_rewrite_success("select k1,k2+k3 from u_table order by k1;", "k123p")
 }

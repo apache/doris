@@ -28,7 +28,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct NameBitCount {
     static constexpr auto name = "bit_count";
 };
@@ -43,7 +43,9 @@ struct BitCountImpl {
         if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, Int64> ||
                       std::is_same_v<T, Int32> || std::is_same_v<T, Int16> ||
                       std::is_same_v<T, Int8>) {
-            return std::popcount(static_cast<std::make_unsigned_t<T>>(a));
+            // ResultType already check the length
+            return cast_set<ResultType, int, false>(
+                    std::popcount(static_cast<std::make_unsigned_t<T>>(a)));
         } else {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "bit_count only support using INTEGER as operator");

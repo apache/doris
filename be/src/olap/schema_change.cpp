@@ -198,6 +198,21 @@ public:
                         pushed_row_refs.push_back(row_refs[i]);
                     }
                 }
+                if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
+                    std::vector<uint32_t> ids;
+                    for (const auto& cid : _tablet->tablet_schema()->cluster_key_uids()) {
+                        auto index = _tablet->tablet_schema()->field_index(cid);
+                        if (index == -1) {
+                            return Status::InternalError(
+                                    "could not find cluster key column with unique_id=" +
+                                    std::to_string(cid) + " in tablet schema");
+                        }
+                        ids.push_back(index);
+                    }
+                    // sort by cluster key
+                    std::stable_sort(pushed_row_refs.begin(), pushed_row_refs.end(),
+                                     ClusterKeyRowRefComparator(ids));
+                }
             }
 
             // update real inserted row number
@@ -246,6 +261,20 @@ private:
         }
 
         const size_t _num_columns;
+    };
+
+    struct ClusterKeyRowRefComparator {
+        ClusterKeyRowRefComparator(std::vector<uint32_t> columns) : _columns(columns) {}
+
+        int compare(const RowRef& lhs, const RowRef& rhs) const {
+            return lhs.block->compare_at(lhs.position, rhs.position, &_columns, *rhs.block, -1);
+        }
+
+        bool operator()(const RowRef& lhs, const RowRef& rhs) const {
+            return compare(lhs, rhs) < 0;
+        }
+
+        const std::vector<uint32_t> _columns;
     };
 
     BaseTabletSPtr _tablet;
@@ -307,7 +336,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             int result_tmp_column_idx = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_tmp_column_idx));
             auto& result_tmp_column_def = ref_block->get_by_position(result_tmp_column_idx);
-            if (result_tmp_column_def.column == nullptr) {
+            if (!result_tmp_column_def.column) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result column={} is nullptr, input expr={}", result_tmp_column_def.name,
                         apache::thrift::ThriftDebugString(*expr));
@@ -400,7 +429,7 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
             const auto* ref_null_map =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column.get())
                             ->get_null_map_column()
                             .get_data()
                             .data();
@@ -416,10 +445,12 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
             }
         } else {
             const auto& null_map_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                            output_column.get())
                             ->get_null_map_column();
             const auto& nested_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                            output_column.get())
                             ->get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
 
@@ -451,12 +482,12 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
         const auto* ref_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column)
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column.get())
                         ->get_null_map_column()
                         .get_data()
                         .data();
         const auto* new_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column)
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column.get())
                         ->get_null_map_column()
                         .get_data()
                         .data();
@@ -836,6 +867,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     for (int i = 0; i < num_cols; ++i) {
         return_columns[i] = i;
     }
+    std::vector<uint32_t> cluster_key_idxes;
+
+    DBUG_EXECUTE_IF("SchemaChangeJob::_do_process_alter_tablet.block", DBUG_BLOCK);
 
     // begin to find deltas to convert from base tablet to new tablet so that
     // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
@@ -950,6 +984,14 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
+            if (!_base_tablet_schema->cluster_key_uids().empty()) {
+                for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+                    cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+                }
+                reader_context.read_orderby_key_columns = &cluster_key_idxes;
+                reader_context.is_unique = false;
+                reader_context.sequence_id_idx = -1;
+            }
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
@@ -1157,6 +1199,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
         auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
             res = Status::Error<ROWSET_BUILDER_INIT>("create_rowset_writer failed, reason={}",

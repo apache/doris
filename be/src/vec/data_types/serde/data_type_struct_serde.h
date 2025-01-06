@@ -172,6 +172,8 @@ public:
         }
     }
 
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
+
 private:
     std::optional<size_t> try_get_position_by_name(const String& name) const;
 

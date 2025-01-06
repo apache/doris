@@ -70,7 +70,7 @@ PhysicalResultSink
 
 -- !pushdown_left_outer_join_subquery --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN]((cast(id as BIGINT) = (sum(id) - 1)) OR id IS NULL)
+--NestedLoopJoin[INNER_JOIN]OR[(cast(id as BIGINT) = (sum(id) - 1)),id IS NULL]
 ----PhysicalOlapScan[t1]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]

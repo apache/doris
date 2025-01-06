@@ -323,7 +323,6 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     }
 
     COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
-    COUNTER_SET(local_state._peak_memory_usage_counter, local_state._memory_used_counter->value());
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
     //so the memory could reuse, no need to new/delete again;

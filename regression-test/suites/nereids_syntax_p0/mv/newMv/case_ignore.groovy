@@ -36,6 +36,7 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 2,2,2,'b';"
     sql "insert into case_ignore select 3,-3,null,'c';"
 
+
     createMV ("create materialized view k12a as select K1,abs(K2) from case_ignore;")
     sleep(3000)
 
@@ -55,6 +56,7 @@ suite ("case_ignore") {
     order_qt_select_mv "select K1,abs(K2) from case_ignore order by K1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table case_ignore modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,abs(k2) from case_ignore order by k1;", "k12a")
 
     mv_rewrite_success("select K1,abs(K2) from case_ignore order by K1;", "k12a")

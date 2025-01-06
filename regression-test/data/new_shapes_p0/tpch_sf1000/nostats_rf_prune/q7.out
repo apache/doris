@@ -24,7 +24,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[supplier] apply RFs: RF4
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer] apply RFs: RF3
-------------------NestedLoopJoin[INNER_JOIN](((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE')))
+------------------NestedLoopJoin[INNER_JOIN]OR[AND[(n1.n_name = 'FRANCE'),(n2.n_name = 'GERMANY')],AND[(n1.n_name = 'GERMANY'),(n2.n_name = 'FRANCE')]]
 --------------------PhysicalProject
 ----------------------filter(n_name IN ('FRANCE', 'GERMANY'))
 ------------------------PhysicalOlapScan[nation]

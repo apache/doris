@@ -48,6 +48,7 @@
 class SipHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class Block;
@@ -116,8 +117,6 @@ public:
     }
 
     bool is_variable_length() const override { return data->is_variable_length(); }
-
-    ColumnPtr remove_low_cardinality() const;
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
@@ -254,7 +253,6 @@ public:
     // ColumnConst is not nullable, but may be concrete nullable.
     bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
-    bool is_numeric() const override { return data->is_numeric(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
@@ -267,7 +265,8 @@ public:
 
     template <typename T>
     T get_value() const {
-        return get_field().safe_get<NearestFieldType<T>>();
+        // Here the cast is correct, relevant code is rather tricky.
+        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
@@ -276,3 +275,4 @@ public:
     }
 };
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

@@ -57,8 +57,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -83,28 +81,18 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "tablet_meta"}}));
-
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta(experimental)")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
-                         [this]() { return _tablet_meta_mem_tracker->consumption(); });
 }
 
-TabletManager::~TabletManager() {
-#ifndef BE_TEST
-    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
-#endif
-}
+TabletManager::~TabletManager() = default;
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force, RuntimeProfile* profile) {
@@ -242,10 +230,6 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
     _add_tablet_to_partition(tablet);
-    // TODO: remove multiply 2 of tablet meta mem size
-    // Because table schema will copy in tablet, there will be double mem cost
-    // so here multiply 2
-    _tablet_meta_mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
                    static_cast<int64_t>(watch.reset()));
@@ -599,7 +583,6 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
     }
 
     to_drop_tablet->deregister_tablet_from_dir();
-    _tablet_meta_mem_tracker->release(to_drop_tablet->tablet_meta()->mem_size() * 2);
     g_tablet_meta_schema_columns_count << -to_drop_tablet->tablet_meta()->tablet_columns_num();
     return Status::OK();
 }
@@ -736,6 +719,11 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablet_stat_list(*local_cache);
 }
 
+struct TabletScore {
+    TabletSharedPtr tablet_ptr;
+    int score;
+};
+
 std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
         const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
@@ -749,6 +737,9 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
     uint32_t single_compact_highest_score = 0;
     TabletSharedPtr best_tablet;
     TabletSharedPtr best_single_compact_tablet;
+    auto cmp = [](TabletScore left, TabletScore right) { return left.score > right.score; };
+    std::priority_queue<TabletScore, std::vector<TabletScore>, decltype(cmp)> top_tablets(cmp);
+
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
         if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
             LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
@@ -815,13 +806,33 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             }
         }
 
-        // tablet should do cumu or base compaction
-        if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
-            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                           cumulative_compaction_policy);
-            if (ret) {
-                highest_score = current_compaction_score;
-                best_tablet = tablet_ptr;
+        if (config::compaction_num_per_round > 1 && !tablet_ptr->should_fetch_from_peer()) {
+            TabletScore ts;
+            ts.score = current_compaction_score;
+            ts.tablet_ptr = tablet_ptr;
+            if ((top_tablets.size() >= config::compaction_num_per_round &&
+                 current_compaction_score > top_tablets.top().score) ||
+                top_tablets.size() < config::compaction_num_per_round) {
+                bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                               cumulative_compaction_policy);
+                if (ret) {
+                    top_tablets.push(ts);
+                    if (top_tablets.size() > config::compaction_num_per_round) {
+                        top_tablets.pop();
+                    }
+                    if (current_compaction_score > highest_score) {
+                        highest_score = current_compaction_score;
+                    }
+                }
+            }
+        } else {
+            if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
+                bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                               cumulative_compaction_policy);
+                if (ret) {
+                    highest_score = current_compaction_score;
+                    best_tablet = tablet_ptr;
+                }
             }
         }
     };
@@ -835,6 +846,16 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
                       << ", highest_score=" << highest_score
                       << ", fetch from peer: " << best_tablet->should_fetch_from_peer();
         picked_tablet.emplace_back(std::move(best_tablet));
+    }
+
+    std::vector<TabletSharedPtr> reverse_top_tablets;
+    while (!top_tablets.empty()) {
+        reverse_top_tablets.emplace_back(top_tablets.top().tablet_ptr);
+        top_tablets.pop();
+    }
+
+    for (auto it = reverse_top_tablets.rbegin(); it != reverse_top_tablets.rend(); ++it) {
+        picked_tablet.emplace_back(*it);
     }
 
     // pick single compaction tablet needs the highest score
@@ -1083,6 +1104,10 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         t_tablet_stat.__set_total_version_count(tablet_info.total_version_count);
         t_tablet_stat.__set_visible_version_count(tablet_info.visible_version_count);
         t_tablet_stat.__set_visible_version(tablet_info.version);
+        t_tablet_stat.__set_local_index_size(tablet_info.local_index_size);
+        t_tablet_stat.__set_local_segment_size(tablet_info.local_segment_size);
+        t_tablet_stat.__set_remote_index_size(tablet_info.remote_index_size);
+        t_tablet_stat.__set_remote_segment_size(tablet_info.remote_segment_size);
     };
     for_each_tablet(handler, filter_all_tablets);
 
@@ -1183,14 +1208,14 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             if (tablet_in_not_shutdown->tablet_path() != tablet->tablet_path()) {
                 LOG(INFO) << "tablet path not eq shutdown tablet path, move it to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
-                          << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
-                          << " shutdown tablet path=" << tablet->tablet_path();
+                          << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
+                          << ", shutdown tablet path=" << tablet->tablet_path();
                 return tablet->data_dir()->move_to_trash(tablet->tablet_path());
             } else {
                 LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
-                          << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
-                          << " shutdown tablet path=" << tablet->tablet_path();
+                          << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
+                          << ", shutdown tablet path=" << tablet->tablet_path();
                 return true;
             }
         }
@@ -1295,7 +1320,7 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
         // not found
         shard.tablets_under_transition[tablet_id] = std::make_tuple(reason, thread_id, 1);
         LOG(INFO) << "add tablet_id= " << tablet_id << " to map, reason=" << reason
-                  << " lock times=1 thread_id_in_map=" << thread_id;
+                  << ", lock times=1, thread_id_in_map=" << thread_id;
         return Status::OK();
     } else {
         // found
@@ -1303,15 +1328,15 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
         if (thread_id != thread_id_in_map) {
             // other thread, failed
             LOG(INFO) << "tablet_id = " << tablet_id << " is doing " << r
-                      << " thread_id_in_map=" << thread_id_in_map << " , add reason=" << reason
-                      << " thread_id=" << thread_id;
+                      << ", thread_id_in_map=" << thread_id_in_map << " , add reason=" << reason
+                      << ", thread_id=" << thread_id;
             return Status::InternalError<false>("{} failed try later, tablet_id={}", reason,
                                                 tablet_id);
         }
         // add lock times
         ++lock_times;
         LOG(INFO) << "add tablet_id= " << tablet_id << " to map, reason=" << reason
-                  << " lock times=" << lock_times << " thread_id_in_map=" << thread_id_in_map;
+                  << ", lock times=" << lock_times << ", thread_id_in_map=" << thread_id_in_map;
         return Status::OK();
     }
 }
@@ -1335,10 +1360,10 @@ void TabletManager::unregister_transition_tablet(int64_t tablet_id, std::string 
         --lock_times;
         if (lock_times != 0) {
             LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason
-                      << " left=" << lock_times << " thread_id_in_map=" << thread_id_in_map;
+                      << ", left=" << lock_times << ", thread_id_in_map=" << thread_id_in_map;
         } else {
             LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason
-                      << " thread_id_in_map=" << thread_id_in_map;
+                      << ", thread_id_in_map=" << thread_id_in_map;
             shard.tablets_under_transition.erase(tablet_id);
         }
     }

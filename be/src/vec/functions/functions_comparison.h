@@ -42,6 +42,7 @@
 //#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
   * The comparison functions always return 0 or 1 (UInt8).
@@ -441,7 +442,7 @@ private:
 
             if (c0_const_string) {
                 c0_const_chars = &c0_const_string->get_chars();
-                c0_const_size = c0_const_string->get_data_at(0).size;
+                c0_const_size = c0_const_string->get_offsets()[0];
             } else {
                 return Status::NotSupported("Illegal columns {}, of argument of function {}",
                                             c0->get_name(), name);
@@ -454,7 +455,7 @@ private:
 
             if (c1_const_string) {
                 c1_const_chars = &c1_const_string->get_chars();
-                c1_const_size = c1_const_string->get_data_at(0).size;
+                c1_const_size = c1_const_string->get_offsets()[0];
             } else {
                 return Status::NotSupported("Illegal columns {}, of argument of function {}",
                                             c1->get_name(), name);
@@ -637,8 +638,8 @@ public:
         WhichDataType which_left {left_type};
         WhichDataType which_right {right_type};
 
-        const bool left_is_num = col_left_untyped->is_numeric();
-        const bool right_is_num = col_right_untyped->is_numeric();
+        const bool left_is_num_can_compare = which_left.is_num_can_compare();
+        const bool right_is_num_can_compare = which_right.is_num_can_compare();
 
         const bool left_is_string = which_left.is_string_or_fixed_string();
         const bool right_is_string = which_right.is_string_or_fixed_string();
@@ -648,7 +649,7 @@ public:
         //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
         //                                 which_right.is_date_or_datetime();
 
-        if (left_is_num && right_is_num) {
+        if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
                                                col_right_untyped) ||
                   execute_num_left_type<UInt16>(block, result, col_left_untyped,
@@ -714,4 +715,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

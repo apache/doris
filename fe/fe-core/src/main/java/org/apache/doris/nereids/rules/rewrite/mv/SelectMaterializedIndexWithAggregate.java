@@ -625,9 +625,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         aggFuncsDiff(aggregateFunctions, aggRewriteResult), groupingExprs).isOn())
                 .collect(Collectors.toSet());
 
+        Set<MaterializedIndex> candidatesWithRewritingIndexes = candidatesWithRewriting.stream()
+                .map(result -> result.index)
+                .collect(Collectors.toSet());
+
         Set<MaterializedIndex> candidatesWithoutRewriting = indexesGroupByIsBaseOrNot
                 .getOrDefault(false, ImmutableList.of()).stream()
-                .filter(index -> !candidatesWithRewriting.contains(index))
+                .filter(index -> !candidatesWithRewritingIndexes.contains(index))
                 .filter(index -> preAggEnabledByHint(scan)
                         || checkPreAggStatus(scan, index.getId(), predicates, aggregateFunctions, groupingExprs).isOn())
                 .collect(Collectors.toSet());

@@ -155,6 +155,9 @@ suite ("partition_curd_union_rewrite_hive") {
         sql """create database if not exists ${db}"""
         sql """use ${db}"""
 
+        sql """alter table ${orders_tb_name} modify column o_comment set stats ('row_count'='3');"""
+sql """alter table ${lineitem_tb_name} modify column l_comment set stats ('row_count'='3');"""
+
         def mv_def_sql = """
             select l_shipdate, o_orderdate, l_partkey,
             l_suppkey, sum(o_totalprice) as sum_total

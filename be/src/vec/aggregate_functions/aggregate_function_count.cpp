@@ -26,6 +26,7 @@
 #include "vec/aggregate_functions/factory_helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_count(const std::string& name,
                                                      const DataTypes& argument_types,

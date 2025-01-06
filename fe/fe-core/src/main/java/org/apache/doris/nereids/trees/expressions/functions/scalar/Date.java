@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -84,7 +83,7 @@ public class Date extends ScalarFunction
     }
 
     @Override
-    public Expression withConstantArgs(Literal literal) {
+    public Expression withConstantArgs(Expression literal) {
         return new Date(literal);
     }
 }

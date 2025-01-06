@@ -518,7 +518,7 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
         column_ptr = _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-        DCHECK(column_ptr != nullptr);
+        DCHECK(column_ptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable

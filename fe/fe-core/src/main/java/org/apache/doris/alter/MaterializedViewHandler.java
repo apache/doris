@@ -944,14 +944,12 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             // drop data in memory
-            Set<Long> indexIdSet = new HashSet<>();
-            Set<String> rollupNameSet = new HashSet<>();
+            Map<Long, String> rollupNameMap = new HashMap<>();
             for (AlterClause alterClause : dropRollupClauses) {
                 DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
                 String rollupIndexName = dropRollupClause.getRollupName();
                 long rollupIndexId = dropMaterializedView(rollupIndexName, olapTable);
-                indexIdSet.add(rollupIndexId);
-                rollupNameSet.add(rollupIndexName);
+                rollupNameMap.put(rollupIndexId, rollupIndexName);
             }
 
             // batch log drop rollup operation
@@ -959,10 +957,10 @@ public class MaterializedViewHandler extends AlterHandler {
             long dbId = db.getId();
             long tableId = olapTable.getId();
             String tableName = olapTable.getName();
-            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, indexIdSet));
-            deleteIndexList = indexIdSet.stream().collect(Collectors.toList());
+            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, rollupNameMap));
+            deleteIndexList = rollupNameMap.keySet().stream().collect(Collectors.toList());
             LOG.info("finished drop rollup index[{}] in table[{}]",
-                    String.join("", rollupNameSet), olapTable.getName());
+                    String.join("", rollupNameMap.values()), olapTable.getName());
         } finally {
             olapTable.writeUnlock();
         }
@@ -982,8 +980,8 @@ public class MaterializedViewHandler extends AlterHandler {
             long mvIndexId = dropMaterializedView(mvName, olapTable);
             // Step3: log drop mv operation
             EditLog editLog = Env.getCurrentEnv().getEditLog();
-            editLog.logDropRollup(
-                    new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(), mvIndexId, false, false, 0));
+            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(),
+                    mvIndexId, mvName, false, false, 0));
             deleteIndexList.add(mvIndexId);
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {

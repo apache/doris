@@ -21,10 +21,10 @@
 #include <cctz/time_zone.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <list>
 #include <memory>
@@ -34,7 +34,6 @@
 #include "common/status.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
-#include "util/hash_util.hpp"
 
 namespace google::protobuf {
 class Closure;
@@ -98,13 +97,15 @@ struct GetArrowResultBatchCtx {
 // buffer used for result customer and producer
 class BufferControlBlock {
 public:
-    BufferControlBlock(const TUniqueId& id, int buffer_size, RuntimeState* state);
+    BufferControlBlock(TUniqueId id, int buffer_size, RuntimeState* state);
     ~BufferControlBlock();
 
     Status init();
+    // try to consume _waiting_rpc or make data waiting in _fe_result_batch_queue. try to combine block to reduce rpc first.
     Status add_batch(RuntimeState* state, std::unique_ptr<TFetchDataResult>& result);
     Status add_arrow_batch(RuntimeState* state, std::shared_ptr<vectorized::Block>& result);
 
+    // if there's Block waiting in _fe_result_batch_queue, send it(by on_data). otherwise make a rpc wait in _waiting_rpc.
     void get_batch(GetResultBatchCtx* ctx);
     // for ArrowFlightBatchLocalReader
     Status get_arrow_batch(std::shared_ptr<vectorized::Block>* result,
@@ -150,7 +151,7 @@ protected:
     const int _buffer_limit;
     int64_t _packet_num;
 
-    // blocking queue for batch
+    // Producer. blocking queue for result batch waiting to sent to FE by _waiting_rpc.
     FeResultQueue _fe_result_batch_queue;
     ArrowFlightResultQueue _arrow_flight_result_batch_queue;
     // for arrow flight
@@ -163,6 +164,7 @@ protected:
     // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
     std::condition_variable _arrow_data_arrival;
 
+    // Consumer. RPCs which FE waiting for result. when _fe_result_batch_queue filled, the rpc could be sent.
     std::deque<GetResultBatchCtx*> _waiting_rpc;
     std::deque<GetArrowResultBatchCtx*> _waiting_arrow_result_batch_rpc;
 

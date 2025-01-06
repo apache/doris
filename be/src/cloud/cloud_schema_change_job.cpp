@@ -169,6 +169,15 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
     reader_context.version = Version(0, start_resp.alter_version());
+    std::vector<uint32_t> cluster_key_idxes;
+    if (!_base_tablet_schema->cluster_key_uids().empty()) {
+        for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+            cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+        }
+        reader_context.read_orderby_key_columns = &cluster_key_idxes;
+        reader_context.is_unique = false;
+        reader_context.sequence_id_idx = -1;
+    }
 
     for (auto& split : rs_splits) {
         RETURN_IF_ERROR(split.rs_reader->init(&reader_context));
@@ -340,17 +349,23 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         int64_t num_output_rows = 0;
         int64_t size_output_rowsets = 0;
         int64_t num_output_segments = 0;
+        int64_t index_size_output_rowsets = 0;
+        int64_t segment_size_output_rowsets = 0;
         for (auto& rs : _output_rowsets) {
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
             size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
+            index_size_output_rowsets += rs->index_disk_size();
+            segment_size_output_rowsets += rs->data_disk_size();
         }
         sc_job->set_num_output_rows(num_output_rows);
         sc_job->set_size_output_rowsets(size_output_rowsets);
         sc_job->set_num_output_segments(num_output_segments);
         sc_job->set_num_output_rowsets(_output_rowsets.size());
+        sc_job->set_index_size_output_rowsets(index_size_output_rowsets);
+        sc_job->set_segment_size_output_rowsets(segment_size_output_rowsets);
     }
     _output_cumulative_point = std::min(_output_cumulative_point, sc_job->alter_version() + 1);
     sc_job->set_output_cumulative_point(_output_cumulative_point);

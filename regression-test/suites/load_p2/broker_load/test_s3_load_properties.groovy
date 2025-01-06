@@ -187,6 +187,19 @@ suite("test_s3_load_properties", "p2") {
 //                "", "", "", "","").addProperties("skip_lines", "10"))
 //    }
 
+    /* ========================================================== deprecated properties ========================================================== */
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
+                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", "")).addProperties("use_new_load_scan_node", "true")
+    }
+
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
+                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", "")).addProperties("use_new_load_scan_node", "false")
+    }
+
     /* ========================================================== wrong column sep ========================================================== */
     for (String table : basicTables) {
         attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",

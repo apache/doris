@@ -70,7 +70,7 @@ suite ("test_dup_mv_plus") {
     qt_select_mv "select k1,k2+1 from d_table order by k2;"
 
     sql """set enable_stats=true;"""
-
+    sql """alter table d_table modify column k4 set stats ('row_count'='3');"""
     mv_rewrite_success("select k1,k2+1 from d_table order by k1;", "k12p")
 
     mv_rewrite_success("select k2+1 from d_table order by k1;", "k12p")

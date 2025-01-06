@@ -686,7 +686,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             if (!isReplay) {
-                checkTablePatternExist(tblPattern);
+                checkTablePatternExist(tblPattern, privs);
             }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
@@ -706,8 +706,12 @@ public class Auth implements Writable {
         }
     }
 
-    private void checkTablePatternExist(TablePattern tablePattern) throws DdlException {
+    private void checkTablePatternExist(TablePattern tablePattern, PrivBitSet privs) throws DdlException {
         Objects.requireNonNull(tablePattern, "tablePattern can not be null");
+        Objects.requireNonNull(privs, "privs can not be null");
+        if (privs.containsPrivs(Privilege.CREATE_PRIV)) {
+            return;
+        }
         PrivLevel privLevel = tablePattern.getPrivLevel();
         if (privLevel == PrivLevel.GLOBAL) {
             return;
@@ -1019,6 +1023,10 @@ public class Auth implements Writable {
         createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
     }
 
+    public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
+        createRoleInternal(role, ignoreIfExists, comment, false);
+    }
+
     public void alterRole(AlterRoleStmt stmt) throws DdlException {
         alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
@@ -1221,6 +1229,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getResourceTags(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean isAllowResourceTagDowngrade(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.isAllowResourceTagDowngrade(qualifiedUser);
         } finally {
             readUnlock();
         }

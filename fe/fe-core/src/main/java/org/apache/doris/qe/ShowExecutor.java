@@ -1184,15 +1184,9 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showStmt.getDb());
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
-
-        mtmv.readLock();
-        try {
-            String mtmvDdl = Env.getMTMVDdl(mtmv);
-            rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-        } finally {
-            mtmv.readUnlock();
-        }
+        String mtmvDdl = Env.getMTMVDdl(mtmv);
+        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Describe statement

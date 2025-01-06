@@ -242,8 +242,8 @@ suite("test_schema_change_ck") {
         order_qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
 
         // restore
-        logger.info(""" RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """)
-        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """
+        logger.info(""" RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","reserve_replica" = "true" ) """)
+        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","reserve_replica" = "true" ) """
         syncer.waitAllRestoreFinish(context.dbName)
         result = sql """ show tablets from ${tableName}; """
         logger.info("tablets 1: ${result}")
@@ -255,7 +255,7 @@ suite("test_schema_change_ck") {
 
         // restore
         sql """ drop table ${tableName}; """
-        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """
+        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","reserve_replica" = "true" ) """
         syncer.waitAllRestoreFinish(context.dbName)
         result = sql """ show tablets from ${tableName}; """
         logger.info("tablets 2: ${result}")

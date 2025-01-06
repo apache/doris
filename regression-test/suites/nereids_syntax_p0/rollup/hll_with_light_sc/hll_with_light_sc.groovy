@@ -43,6 +43,7 @@ suite("hll_with_light_sc", "rollup") {
             "amt_count1")
 
     sql """set enable_stats=true;"""
+    sql """alter table test_materialized_view_hll_with_light_sc1 modify column record_id set stats ('row_count'='2');"""
     mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll_with_light_sc1 GROUP BY store_id;",
             "amt_count1")
 }

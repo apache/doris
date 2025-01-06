@@ -375,7 +375,11 @@ BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
 if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
     USE_JEMALLOC='OFF'
 elif [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_JEMALLOC='ON'
+    else
+        USE_JEMALLOC='OFF'
+    fi
 fi
 if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     # compatible with old thirdparty
@@ -538,6 +542,7 @@ fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("be-java-extensions/hudi-scanner")
+    modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
@@ -825,6 +830,7 @@ EOF
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hudi-scanner")
+    extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")

@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------------filter((store.s_number_employees <= 295) and (store.s_number_employees >= 200))
 --------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------filter(((household_demographics.hd_dep_count = 0) OR (household_demographics.hd_vehicle_count > 3)))
+--------------------------filter(OR[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count > 3)])
 ----------------------------PhysicalOlapScan[household_demographics]
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer]

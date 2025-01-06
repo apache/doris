@@ -89,8 +89,7 @@ class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper {
                 .rewrite()
                 .getPlan();
         Expression expression = plan.child(0).getExpressions().get(0).child(0);
-        Assertions.assertEquals("(array_contains([1], 0) OR "
-                        + "(array_contains([1], 1) AND arrays_overlap([1], [2, 3, 4])))",
+        Assertions.assertEquals("OR[array_contains([1], 0),AND[array_contains([1], 1),arrays_overlap([1], [2, 3, 4])]]",
                 expression.toSql());
     }
 }

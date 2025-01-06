@@ -591,7 +591,7 @@ static char* append_with_prefix(const char* str, int str_len, char prefix, int t
     return to + str_len;
 }
 
-int VecDateTimeValue::compute_format_len(const char* format, int len) {
+int VecDateTimeValue::compute_format_len(const char* format, size_t len) {
     int size = 0;
     const char* ptr = format;
     const char* end = format + len;
@@ -684,8 +684,8 @@ char* write_four_digits_to_string(int number, char* dst) {
     return dst + 4;
 }
 
-bool VecDateTimeValue::to_format_string_conservative(const char* format, int len, char* to,
-                                                     int max_valid_length) const {
+bool VecDateTimeValue::to_format_string_conservative(const char* format, size_t len, char* to,
+                                                     size_t max_valid_length) const {
     if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
         return false;
     }
@@ -3434,8 +3434,7 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t s
         date_v2_value_.second_ = second;
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        LOG(FATAL) << "Invalid operation 'set_time' for date!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Invalid operation 'set_time' for date!"));
     }
 }
 
@@ -3444,14 +3443,13 @@ void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Invalid operation 'set_microsecond' for date!"));
     }
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, char* to,
-                                                   int max_valid_length) const {
+bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
+                                                   size_t max_valid_length) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
     }

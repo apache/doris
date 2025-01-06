@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
@@ -95,8 +96,7 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
 }
 
 Status HierarchicalDataReader::seek_to_first() {
-    LOG(FATAL) << "Not implemented";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("Not implemented"));
 }
 
 Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
@@ -196,7 +196,7 @@ Status HierarchicalDataReader::_process_nested_columns(
     for (const auto& entry : nested_subcolumns) {
         MutableColumnPtr nested_object = ColumnObject::create(true);
         const auto* base_array =
-                check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
+                check_and_get_column<ColumnArray>(*remove_nullable(entry.second[0].column));
         MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
         auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
         // flatten nested arrays
@@ -265,9 +265,8 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
         container = ColumnObject::create(_root_reader->type, std::move(column));
     } else {
         auto root_type =
-                vectorized::DataTypeFactory::instance().create_data_type(TypeIndex::Nothing, true);
-        MutableColumnPtr column = root_type->create_column();
-        column->insert_many_defaults(nrows);
+                vectorized::DataTypeFactory::instance().create_data_type(TypeIndex::Nothing, false);
+        auto column = vectorized::ColumnNothing::create(nrows);
         container = ColumnObject::create(root_type, std::move(column));
     }
 

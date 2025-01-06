@@ -59,7 +59,7 @@ protected:
 
         construct_column(schema_pb.add_column(), 0, "DATE", "date_column");
         construct_column(schema_pb.add_column(), 1, "DATETIME", "datetime_column");
-
+        schema_pb.set_bf_fpp(0.05);
         _tablet_schema.reset(new TabletSchema);
         _tablet_schema->init_from_pb(schema_pb);
 
@@ -155,8 +155,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         const auto& reader = segment->_column_readers[0];
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true).ok());
-        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter, nullptr).ok());
         std::unique_ptr<BloomFilter> bf;
         EXPECT_TRUE(bf_iter->read_bloom_filter(0, &bf).ok());
         auto test = [&](const std::string& query_string, bool result) {
@@ -174,8 +174,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         const auto& reader = segment->_column_readers[1];
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true).ok());
-        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter, nullptr).ok());
         std::unique_ptr<BloomFilter> bf;
         EXPECT_TRUE(bf_iter->read_bloom_filter(0, &bf).ok());
         auto test = [&](const std::string& query_string, bool result) {

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
@@ -83,13 +85,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
+    private LogicalPlan originalLogicalQuery;
     private LogicalPlan logicalQuery;
     private Optional<String> labelName;
     /**
      * When source it's from job scheduler,it will be set.
      */
     private long jobId;
-    private Optional<InsertCommandContext> insertCtx;
+    private final Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
 
     /**
@@ -98,7 +101,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
                                   Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
-        this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
+        this.originalLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
+        this.logicalQuery = originalLogicalQuery;
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.insertCtx = insertCtx;
         this.cte = cte;
@@ -145,62 +149,95 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor stmtExecutor,
                                            boolean needBeginTransaction) throws Exception {
-        TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
-                        targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
-                        PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
-        }
+        List<String> qualifiedTargetTableName = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
 
-        AbstractInsertExecutor insertExecutor = null;
-        // should lock target table until we begin transaction.
+        AbstractInsertExecutor insertExecutor;
+        int retryTimes = 0;
+        while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            TableIf targetTableIf = RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+            // check auth
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
+                            targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
+            }
+            BuildInsertExecutorResult buildResult;
+            try {
+                buildResult = initPlanOnce(ctx, stmtExecutor, targetTableIf);
+            } catch (Throwable e) {
+                Throwables.throwIfInstanceOf(e, RuntimeException.class);
+                throw new IllegalStateException(e.getMessage(), e);
+            }
+            insertExecutor = buildResult.executor;
+            if (!needBeginTransaction) {
+                return insertExecutor;
+            }
+
+            // lock after plan and check does table's schema changed to ensure we lock table order by id.
+            TableIf newestTargetTableIf = RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+            newestTargetTableIf.readLock();
+            try {
+                if (targetTableIf.getId() != newestTargetTableIf.getId()) {
+                    LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
+                            retryTimes, DebugUtil.printId(ctx.queryId()),
+                            targetTableIf.getId(), newestTargetTableIf.getId());
+                    continue;
+                }
+                if (!targetTableIf.getFullSchema().equals(newestTargetTableIf.getFullSchema())) {
+                    LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
+                            retryTimes, DebugUtil.printId(ctx.queryId()),
+                            targetTableIf.getFullSchema(), newestTargetTableIf.getFullSchema());
+                    continue;
+                }
+                if (!insertExecutor.isEmptyInsert()) {
+                    insertExecutor.beginTransaction();
+                    insertExecutor.finalizeSink(
+                            buildResult.planner.getFragments().get(0), buildResult.dataSink,
+                            buildResult.physicalSink
+                    );
+                }
+                newestTargetTableIf.readUnlock();
+            } catch (Throwable e) {
+                newestTargetTableIf.readUnlock();
+                // the abortTxn in onFail need to acquire table write lock
+                if (insertExecutor != null) {
+                    insertExecutor.onFail(e);
+                }
+                Throwables.throwIfInstanceOf(e, RuntimeException.class);
+                throw new IllegalStateException(e.getMessage(), e);
+            }
+            stmtExecutor.setProfileType(ProfileType.LOAD);
+            // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
+            // so we need to set this here
+            insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
+            stmtExecutor.setCoord(insertExecutor.getCoordinator());
+            // for prepare and execute, avoiding normalization for every execute command
+            this.originalLogicalQuery = this.logicalQuery;
+            return insertExecutor;
+        }
+        LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
+        throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
+            StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
         targetTableIf.readLock();
         try {
-            // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
+            // process inline table (default values, empty values)
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(originalLogicalQuery, targetTableIf, insertCtx);
             if (cte.isPresent()) {
                 this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
             }
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, this.logicalQuery, this.insertCtx);
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
-
-            BuildInsertExecutorResult buildResult = planInsertExecutor(
-                    ctx, stmtExecutor, logicalPlanAdapter, targetTableIf
-            );
-
-            insertExecutor = buildResult.executor;
-
-            if (!needBeginTransaction) {
-                targetTableIf.readUnlock();
-                return insertExecutor;
-            }
-            if (!insertExecutor.isEmptyInsert()) {
-                insertExecutor.beginTransaction();
-                insertExecutor.finalizeSink(
-                        buildResult.planner.getFragments().get(0), buildResult.dataSink, buildResult.physicalSink
-                );
-            }
+        } finally {
             targetTableIf.readUnlock();
-        } catch (Throwable e) {
-            targetTableIf.readUnlock();
-            // the abortTxn in onFail need to acquire table write lock
-            if (insertExecutor != null) {
-                insertExecutor.onFail(e);
-            }
-            Throwables.propagateIfInstanceOf(e, RuntimeException.class);
-            throw new IllegalStateException(e.getMessage(), e);
         }
 
-        stmtExecutor.setProfileType(ProfileType.LOAD);
-        // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
-        // so we need to set this here
-        insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-        stmtExecutor.setCoord(insertExecutor.getCoordinator());
-        return insertExecutor;
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
+        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
     }
 
     // we should select the factory type first, but we can not initial InsertExecutor at this time,

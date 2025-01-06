@@ -23,13 +23,14 @@ suite("test_database_management_auth","p0,auth_call") {
     String user = 'test_database_management_auth_user'
     String pwd = 'C123_567p'
     String dbName = 'test_database_management_auth_db'
-
+    def String error_in_cloud = "denied"
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        error_in_cloud = "Unsupported"
     }
 
     try_sql("DROP USER ${user}")
@@ -39,7 +40,7 @@ suite("test_database_management_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW FRONTEND CONFIG"""
             exception "denied"
@@ -78,7 +79,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """SHOW REPLICA DISTRIBUTION FROM tbl;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """SHOW REPLICA STATUS FROM db1.tbl1;"""
@@ -94,7 +95,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN CHECK TABLET (10000, 10001) PROPERTIES("type" = "consistency");"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """SHOW TABLET DIAGNOSIS 0;"""
@@ -106,11 +107,11 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """show tablet storage format verbose;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """ADMIN CLEAN TRASH;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """RECOVER DATABASE db_name;"""
@@ -118,11 +119,11 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN REBALANCE DISK;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """ADMIN CANCEL REBALANCE DISK;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """UNSET GLOBAL VARIABLE ALL;"""

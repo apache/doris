@@ -64,7 +64,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q09 """SELECT * FROM ${table_name} WHERE struct_element(struct_element(address, 'coordinates'), 'latitude') BETWEEN 0 AND 100 AND struct_element(struct_element(address, 'coordinates'), 'longitude') BETWEEN 0 AND 100 ORDER BY event_time LIMIT 5;"""
 
         // Query records with ratings above a specific value and limit output
-        qt_q10 """SELECT * FROM ${table_name} WHERE rating > 4.5 ORDER BY rating DESC LIMIT 5;"""
+        qt_q10 """SELECT * FROM ${table_name} WHERE rating > 4.5 ORDER BY event_time DESC LIMIT 5;"""
 
         // Query all users' signup dates and limit output
         qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY signup_date DESC LIMIT 10;"""
@@ -79,13 +79,20 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q14 """SELECT * FROM ${table_name} WHERE signup_date = '2024-01-15' ORDER BY user_id LIMIT 5;"""
 
         // Query the total count of purchases for each user and limit output
-        qt_q15 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY purchase_count DESC LIMIT 5;"""
+        qt_q15 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY user_id LIMIT 5;"""
     }
 
-    test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
-    test_hudi_snapshot_querys("user_activity_log_cow_partition")
     test_hudi_snapshot_querys("user_activity_log_mor_non_partition")
     test_hudi_snapshot_querys("user_activity_log_mor_partition")
+    test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
+    test_hudi_snapshot_querys("user_activity_log_cow_partition")
+
+    sql """set force_jni_scanner=true;"""
+    test_hudi_snapshot_querys("user_activity_log_mor_non_partition")
+    test_hudi_snapshot_querys("user_activity_log_mor_partition")
+    test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
+    test_hudi_snapshot_querys("user_activity_log_cow_partition")
+    sql """set force_jni_scanner=false;"""
 
     sql """drop catalog if exists ${catalog_name};"""
 }

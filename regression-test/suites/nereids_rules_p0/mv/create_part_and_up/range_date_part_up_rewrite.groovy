@@ -113,6 +113,9 @@ suite("mtmv_range_date_part_up_rewrite") {
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-31'); 
     """
 
+    sql """alter table lineitem_range_date_union modify column l_comment set stats ('row_count'='7');"""
+    sql """alter table orders_range_date_union modify column o_comment set stats ('row_count'='10');"""
+
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv1;"""
     sql """CREATE MATERIALIZED VIEW ${mv_prefix}_mv1 BUILD IMMEDIATE REFRESH AUTO ON MANUAL partition by(date_trunc(`col1`, 'month')) DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') AS  
         select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from lineitem_range_date_union as t1 left join orders_range_date_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""

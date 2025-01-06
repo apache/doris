@@ -47,6 +47,10 @@ struct TTabletInfo {
     19: optional i64 cooldown_term
     20: optional Types.TUniqueId cooldown_meta_id
     21: optional i64 visible_version_count
+    22: optional i64 local_index_size = 0      // .idx
+    23: optional i64 local_segment_size = 0    // .dat
+    24: optional i64 remote_index_size = 0     // .idx
+    25: optional i64 remote_segment_size = 0   // .dat
 
     // For cloud
     1000: optional bool is_persistent

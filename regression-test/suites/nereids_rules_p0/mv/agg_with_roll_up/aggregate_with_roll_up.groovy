@@ -132,6 +132,9 @@ suite("aggregate_with_roll_up") {
     sql """analyze table partsupp with sync"""
     sql """analyze table lineitem with sync"""
     sql """analyze table orders with sync"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // multi table
     // filter inside + left + use roll up dimension

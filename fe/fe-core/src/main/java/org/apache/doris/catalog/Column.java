@@ -1019,7 +1019,7 @@ public class Column implements GsonPostProcessable {
             sb.append(" ON UPDATE ").append(defaultValue).append("");
         }
         if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
+            sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
         return sb.toString();
     }
@@ -1054,10 +1054,7 @@ public class Column implements GsonPostProcessable {
                 && isKey == other.isKey
                 && isAllowNull == other.isAllowNull
                 && isAutoInc == other.isAutoInc
-                && getDataType().equals(other.getDataType())
-                && getStrLen() == other.getStrLen()
-                && getPrecision() == other.getPrecision()
-                && getScale() == other.getScale()
+                && Objects.equals(type, other.type)
                 && Objects.equals(comment, other.comment)
                 && visible == other.visible
                 && Objects.equals(children, other.children)

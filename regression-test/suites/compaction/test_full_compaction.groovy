@@ -120,7 +120,7 @@ suite("test_full_compaction") {
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
-            times = 1
+            def times = 1
 
             do{
                 (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -177,6 +177,11 @@ suite("test_full_compaction") {
         // make sure all hidden data has been deleted
         // (1,100)(2,200)
         qt_select_final """select * from ${tableName} order by user_id"""
+
+        sql "SET skip_delete_predicate = false"
+        sql "SET skip_delete_sign = false"
+        sql "SET skip_delete_bitmap = false"
+        qt_select_final2 """select * from ${tableName} order by user_id"""
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

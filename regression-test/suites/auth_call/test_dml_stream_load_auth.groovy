@@ -59,7 +59,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
 
     def path_file = "${context.file.parent}/../../data/auth_call/stream_load_data.csv"
     def load_path = "${context.file.parent}/../../data/auth_call/stream_load_cm.sh"
-    def cm = """curl --location-trusted -u ${user}:${pwd} -H "column_separator:," -T ${path_file} http://${sql_ip}:${http_port}/api/${dbName}/${tableName}/_stream_load"""
+    def cm = """curl -v --location-trusted -u ${user}:${pwd} -H "column_separator:," -T ${path_file} http://${sql_ip}:${http_port}/api/${dbName}/${tableName}/_stream_load"""
     logger.info("cm: " + cm)
     write_to_file(load_path, cm)
     cm = "bash " + load_path
@@ -90,7 +90,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     int pos3 = sout.indexOf(":", pos1)
     def tsc_id = sout.substring(pos3+2, pos2)
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=${tsc_id};"""
             exception "denied"
@@ -105,7 +105,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
 
     sql """grant admin_priv on *.*.* to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def transaction_res = sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=${tsc_id};"""
         assertTrue(transaction_res.size() == 1)
     }
