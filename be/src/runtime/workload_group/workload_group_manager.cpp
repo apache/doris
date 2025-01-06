@@ -379,15 +379,15 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 // check if the reserve is too large, if it is too large,
                 // should set the query's limit only.
                 // Check the query's reserve with expected limit.
-                if (query_ctx->expected_mem_limit() <
+                if (query_ctx->adjusted_mem_limit() <
                     query_ctx->get_mem_tracker()->consumption() + query_it->reserve_size_) {
-                    query_ctx->set_mem_limit(query_ctx->expected_mem_limit());
+                    query_ctx->set_mem_limit(query_ctx->adjusted_mem_limit());
                     query_ctx->set_memory_sufficient(true);
                     LOG(INFO) << "Workload group memory reserve failed because "
                               << query_ctx->debug_string() << " reserve size "
                               << PrettyPrinter::print_bytes(query_it->reserve_size_)
                               << " is too large, set hard limit to "
-                              << PrettyPrinter::print_bytes(query_ctx->expected_mem_limit())
+                              << PrettyPrinter::print_bytes(query_ctx->adjusted_mem_limit())
                               << " and resume running.";
                     query_it = queries_list.erase(query_it);
                     continue;
@@ -866,7 +866,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         // memory failed and we did not hanle it.
         if (!query_ctx->is_pure_load_task()) {
             query_ctx->set_mem_limit(query_weighted_mem_limit);
-            query_ctx->set_expected_mem_limit(expected_query_weighted_mem_limit);
+            query_ctx->set_adjusted_mem_limit(expected_query_weighted_mem_limit);
         }
     }
     LOG_EVERY_T(INFO, 60) << debug_msg;

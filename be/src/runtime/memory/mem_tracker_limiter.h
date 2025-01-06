@@ -289,6 +289,7 @@ public:
     void add_address_sanitizers(void* buf, size_t size);
     void remove_address_sanitizers(void* buf, size_t size);
     bool is_group_commit_load {false};
+    void set_enable_reserve_memory(bool enabled) { _enable_reserve_memory = enabled; }
 
 private:
     // only for Type::QUERY or Type::LOAD.
@@ -323,6 +324,8 @@ private:
 
     MemCounter _mem_counter;
     MemCounter _reserved_counter;
+
+    bool _enable_reserve_memory = false;
 
     // Limit on memory consumption, in bytes.
     std::atomic<int64_t> _limit;
@@ -374,16 +377,16 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     // Do not enable check limit, because reserve process will check it.
-    /*
-    if (bytes <= 0 || _enable_overcommit) {
+    if (bytes <= 0 || _enable_reserve_memory) {
         return Status::OK();
     }
+
     // check limit should ignore memtable size, because it is treated as a cache
     if (_limit > 0 && consumption() + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
                                                        tracker_limit_exceeded_str()));
-    }*/
+    }
     return Status::OK();
 }
 
