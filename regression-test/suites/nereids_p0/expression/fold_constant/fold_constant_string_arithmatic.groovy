@@ -138,11 +138,14 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select ends_with('안녕하세요 세계こんにちは世界！', 'こんにちは世界！')")
     testFoldConst("select ends_with('안녕하세요 세계こんにちは世界', 'こんにちは世界')")
     testFoldConst("select ends_with('안녕하세요 세계こんにちは世界', 'こんにちは')")
-    testFoldConst("select ends_with('', '')")
     testFoldConst("select ends_with('Hello doris', '')")
     testFoldConst("select ends_with('', 'Hello doris')")
     testFoldConst("select ends_with(null, 'Hello doris')")
     testFoldConst("select ends_with('Hello doris', null)")
+    testFoldConst("select ends_with(' ', '')")
+    testFoldConst("select ends_with(' ', ' ')")
+    testFoldConst("select ends_with('', ' ')")
+    testFoldConst("select ends_with('', '')")
 
     // field
     testFoldConst("select field('b', 'a', 'b', 'c')")
