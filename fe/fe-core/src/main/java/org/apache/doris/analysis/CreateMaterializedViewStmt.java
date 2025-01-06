@@ -487,7 +487,9 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
                 column.setIsKey(true);
             }
             if (theBeginIndexOfValue == 0) {
-                throw new AnalysisException("The first column could not be float or double type, use decimal instead");
+                throw new AnalysisException(
+                    "The first column could not be float, double or complex "
+                    + "type like array, struct, map, json, variant.");
             }
             // supply value
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
