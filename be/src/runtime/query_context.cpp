@@ -147,7 +147,7 @@ void QueryContext::_init_query_mem_tracker() {
         query_mem_tracker->enable_print_log_usage();
     }
     query_mem_tracker->set_enable_reserve_memory(_query_options.__isset.enable_reserve_memory &&
-                                                         _query_options.enable_reserve_memory;);
+                                                 _query_options.enable_reserve_memory);
     _user_set_mem_limit = bytes_limit;
     _adjusted_mem_limit = bytes_limit;
 }
