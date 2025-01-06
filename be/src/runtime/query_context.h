@@ -34,6 +34,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
+#include "runtime/workload_management/resource_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "util/hash_util.hpp"
@@ -235,6 +236,8 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
+    std::shared_ptr<ResourceContext> resource_context;
+
     std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
@@ -283,6 +286,7 @@ private:
     std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_query_mem_tracker();
+    void _init_resource_context();
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;

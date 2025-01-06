@@ -17,16 +17,9 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <atomic>
-#include <memory>
-#include <queue>
-#include <shared_mutex>
-#include <string>
-
-#include "common/status.h"
+#include "common/factory_creator.h"
+#include "runtime/workload_management/io_throttle.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -34,57 +27,70 @@ class IOContext : public std::enable_shared_from_this<IOContext> {
     ENABLE_FACTORY_CREATOR(IOContext);
 
 public:
-    // Used to collect io execution stats.
-    class IOStats {
-    public:
-        IOStats() = default;
-        virtual ~IOStats() = default;
-        void merge(IOStats stats);
-        void reset();
-        std::string debug_string();
-        int64_t scan_rows() { return scan_rows_; }
-        int64_t scan_bytes() { return scan_bytes_; }
-        int64_t scan_bytes_from_local_storage() { return scan_bytes_from_local_storage_; }
-        int64_t scan_bytes_from_remote_storage() { return scan_bytes_from_remote_storage_; }
-        int64_t returned_rows() { return returned_rows_; }
-        int64_t shuffle_send_bytes() { return shuffle_send_bytes_; }
-        int64_t shuffle_send_rows() { return shuffle_send_rows_; }
+    /*
+    * --------------------------------
+    * |          Property            |
+    * --------------------------------
+    * 1. operate them thread-safe.
+    * 2. all tasks are unified.
+    * 3. should not be operated frequently, use local variables to update Counter.
+    */
 
-        int64_t incr_scan_rows(int64_t delta) { return scan_rows_ + delta; }
-        int64_t incr_scan_bytes(int64_t delta) { return scan_bytes_ + delta; }
-        int64_t incr_scan_bytes_from_local_storage(int64_t delta) {
-            return scan_bytes_from_local_storage_ + delta;
-        }
-        int64_t incr_scan_bytes_from_remote_storage(int64_t delta) {
-            return scan_bytes_from_remote_storage_ + delta;
-        }
-        int64_t incr_returned_rows(int64_t delta) { return returned_rows_ + delta; }
-        int64_t incr_shuffle_send_bytes(int64_t delta) { return shuffle_send_bytes_ + delta; }
-        int64_t incr_shuffle_send_rows(int64_t delta) { return shuffle_send_rows_ + delta; }
-        std::string debug_string();
+    RuntimeProfile::Counter* scan_rows_counter_;
+    RuntimeProfile::Counter* scan_bytes_counter_;
+    RuntimeProfile::Counter* scan_bytes_from_local_storage_counter_;
+    RuntimeProfile::Counter* scan_bytes_from_remote_storage_counter_;
+    // number rows returned by query.
+    // only set once by result sink when closing.
+    RuntimeProfile::Counter* returned_rows_counter_;
+    RuntimeProfile::Counter* shuffle_send_bytes_counter_;
+    RuntimeProfile::Counter* shuffle_send_rows_counter_;
+    RuntimeProfile* profile() { return profile_.get(); }
+    std::string debug_string() { return profile_->pretty_print(); }
 
-    private:
-        int64_t scan_rows_ = 0;
-        int64_t scan_bytes_ = 0;
-        int64_t scan_bytes_from_local_storage_ = 0;
-        int64_t scan_bytes_from_remote_storage_ = 0;
-        // number rows returned by query.
-        // only set once by result sink when closing.
-        int64_t returned_rows_ = 0;
-        int64_t shuffle_send_bytes_ = 0;
-        int64_t shuffle_send_rows_ = 0;
-    };
+    /*
+    * --------------------------------
+    * |           Action             |
+    * --------------------------------
+    */
 
-public:
-    IOContext() {}
-    virtual ~IOContext() = default;
     IOThrottle* io_throttle() {
-        // get io throttle from workload group
+        // TODO: get io throttle from workload group
+        return nullptr;
     }
-    IOStats* stats() { return &stats_; }
+
+protected:
+    IOContext() { init_profile(); }
+    virtual ~IOContext() = default;
+
 
 private:
-    IOStats stats_;
+    void init_profile() {
+        profile_ = std::make_unique<RuntimeProfile>("MemoryContext");
+        scan_rows_counter_ = ADD_COUNTER(profile_, "ScanRows", TUnit::UNIT);
+        scan_bytes_counter_ = ADD_COUNTER(profile_, "ScanBytes", TUnit::BYTES);
+        scan_bytes_from_local_storage_counter_ = ADD_COUNTER(profile_, "ScanBytesFromLocalStorage", TUnit::BYTES);
+        scan_bytes_from_remote_storage_counter_ = ADD_COUNTER(profile_, "ScanBytesFromRemoteStorage", TUnit::BYTES);
+        returned_rows_counter_ = ADD_COUNTER(profile_, "ReturnedRows", TUnit::UNIT);
+        shuffle_send_bytes_counter_ = ADD_COUNTER(profile_, "ShuffleSendBytes", TUnit::BYTES);
+        shuffle_send_rows_counter_ = ADD_COUNTER(profile_, "ShuffleSendRowsCounter_", TUnit::UNIT);
+    }
+
+    // Used to collect memory execution stats.
+    std::unique_ptr<RuntimeProfile> profile_;
 };
+
+class QueryIOContext : public IOContext {
+    QueryIOContext() = default;
+};
+
+class LoadIOContext : public IOContext {
+    LoadIOContext() = default;
+};
+
+class CompactionIOContext : public IOContext {
+    CompactionIOContext() = default;
+};
+
 
 } // namespace doris

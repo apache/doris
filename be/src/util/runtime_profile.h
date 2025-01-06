@@ -433,6 +433,11 @@ public:
     // Prints the counters in a name: value format.
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "") const;
+    std::string pretty_print() const {
+        std::stringstream ss;
+        pretty_print(&ss);
+        return ss.str();
+    };
 
     // Serializes profile to thrift.
     // Does not hold locks when it makes any function calls.

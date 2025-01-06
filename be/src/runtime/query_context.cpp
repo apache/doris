@@ -35,6 +35,10 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/workload_management/cpu_context.h"
+#include "runtime/workload_management/io_context.h"
+#include "runtime/workload_management/memory_context.h"
+#include "runtime/workload_management/task_controller.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
@@ -82,6 +86,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
           _query_source(query_source) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
+    _init_resource_context();
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
@@ -128,14 +133,31 @@ void QueryContext::_init_query_mem_tracker() {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
                 _bytes_limit);
-    } else { // EXTERNAL
+    } else if (_query_options.query_type == TQueryType::EXTERNAL) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::LOAD, fmt::format("External#Id={}", print_id(_query_id)),
+                MemTrackerLimiter::Type::QUERY, fmt::format("External#Id={}", print_id(_query_id)),
                 _bytes_limit);
+    } else {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
+}
+
+void QueryContext::_init_resource_context() {
+    if (_query_options.query_type == TQueryType::SELECT) {
+        resource_context = ResourceContext::CreateResourceContext<QueryCPUContext, QueryMemoryContext, QueryIOContext, WorkloadGroupContext, QueryTaskController>();
+    } else if (_query_options.query_type == TQueryType::LOAD) {
+        resource_context = ResourceContext::CreateResourceContext<LoadCPUContext, LoadMemoryContext, LoadIOContext, WorkloadGroupContext, LoadTaskController>();
+    } else if (_query_options.query_type == TQueryType::EXTERNAL) {
+        resource_context = ResourceContext::CreateResourceContext<QueryCPUContext, QueryMemoryContext, QueryIOContext, WorkloadGroupContext, QueryTaskController>();
+    } else {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
+    resource_context->memory_context()->set_memtracker_limiter(query_mem_tracker);
 }
 
 QueryContext::~QueryContext() {
