@@ -54,6 +54,10 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
+// Custom conf path is default the same as conf path, and configs will be append to it.
+// Otherwise, will a new custom conf file will be created.
+CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
