@@ -381,6 +381,7 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start rewrite plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> Rewriter.getWholeTreeRewriter(cascadesContext).execute());
+        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
         NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
