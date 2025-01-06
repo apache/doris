@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.scalar;
-
-/**
- * Encode_as_XXXInt
- */
-public interface EncodeStrToInteger {
+suite("test_explain_information_schema", "query,p0") {
+    def explainRes = sql """explain select * from information_schema.user_privileges where IS_GRANTABLE='NO';"""
+    logger.info("explainRes: " + explainRes.toString())
+    assertTrue(explainRes.toString().contains("PREDICATES"))
+    assertTrue(explainRes.toString().contains("IS_GRANTABLE"))
 }
