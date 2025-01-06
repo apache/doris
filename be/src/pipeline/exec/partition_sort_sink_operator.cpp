@@ -139,7 +139,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         for (auto& _value_place : local_state._value_places) {
             _value_place->create_or_reset_sorter_state();
             local_state._shared_state->partition_sorts.emplace_back(
-                    _value_place->_partition_topn_sorter);
+                    std::move(_value_place->_partition_topn_sorter));
         }
         // notice: need split two for loop, as maybe need check sorter early
         for (int i = 0; i < local_state._value_places.size(); ++i) {
