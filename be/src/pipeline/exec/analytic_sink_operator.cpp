@@ -140,10 +140,11 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     }
 
     // only support one order by column, so need two columns upper and lower bound
-    _range_result_columns.resize(2);
+    // _range_result_columns.resize(2);
+    _range_result_columns.resize(_order_by_exprs_size);
     // should change the order by exprs to range column, IF FE have support range window
     for (size_t i = 0; i < _order_by_exprs_size; i++) {
-        RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
+        // RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
         _range_result_columns[i] = _order_by_eq_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
