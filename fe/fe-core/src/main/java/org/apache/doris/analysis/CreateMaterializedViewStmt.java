@@ -476,7 +476,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
                     }
                     break;
                 }
-                if (column.getType().isFloatingPointType()) {
+                if (!column.getType().couldBeShortKey()) {
                     break;
                 }
                 if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {

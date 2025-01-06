@@ -375,16 +375,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                                 }
                                 break;
                             }
-                            if (columnDef.getType().isFloatingPointType()) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                                break;
-                            }
-                            if (columnDef.getType().isComplexType()) {
+                            if (!columnDef.getType().couldBeShortKey()) {
                                 break;
                             }
                             if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
