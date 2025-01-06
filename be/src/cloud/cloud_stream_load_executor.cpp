@@ -98,9 +98,11 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
+    if (ctx->load_type == TLoadType::ROUTINE_LOAD) {
+        return StreamLoadExecutor::commit_txn(ctx);
+    }
     // forward to fe to excute commit transaction for MoW table
-    if (ctx->is_mow_table() || !config::enable_stream_load_commit_txn_on_be ||
-        ctx->load_type == TLoadType::ROUTINE_LOAD) {
+    if (ctx->is_mow_table() || !config::enable_stream_load_commit_txn_on_be) {
         Status st;
         int retry_times = 0;
         while (retry_times < config::mow_stream_load_commit_retry_times) {
