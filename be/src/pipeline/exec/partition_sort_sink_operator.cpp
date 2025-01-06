@@ -138,8 +138,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         SCOPED_TIMER(local_state._sorted_data_timer);
         for (auto& _value_place : local_state._value_places) {
             _value_place->create_or_reset_sorter_state();
-            auto sorter = std::move(_value_place->_partition_topn_sorter);
-            local_state._shared_state->partition_sorts.push_back(std::move(sorter));
+            local_state._shared_state->partition_sorts.emplace_back(
+                    _value_place->_partition_topn_sorter);
         }
         // notice: need split two for loop, as maybe need check sorter early
         for (int i = 0; i < local_state._value_places.size(); ++i) {
@@ -147,6 +147,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
+            local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
             // iff one sorter have data, then could set source ready to read
             local_state._dependency->set_ready_to_read();
