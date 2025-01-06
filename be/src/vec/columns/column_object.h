@@ -188,6 +188,8 @@ public:
         void serialize_to_sparse_column(ColumnString* key, std::string_view path,
                                         ColumnString* value, size_t row);
 
+        static DataTypeSerDeSPtr generate_data_serdes(DataTypePtr type, bool is_root = false);
+
         friend class ColumnObject;
 
     private:
@@ -195,7 +197,7 @@ public:
         public:
             LeastCommonType() = default;
 
-            explicit LeastCommonType(DataTypePtr type_);
+            explicit LeastCommonType(DataTypePtr type_, bool is_root = false);
 
             const DataTypePtr& get() const { return type; }
 
@@ -269,14 +271,15 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
-    explicit ColumnObject(bool is_nullable_, bool create_root = true);
+    // always create root: data type nothing
+    explicit ColumnObject(bool is_nullable_);
 
-    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
-
-    // create without root, num_rows = size
+    // always create root: data type nothing
     explicit ColumnObject(size_t size = 0);
 
-    ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
+    explicit ColumnObject(DataTypePtr root_type, MutableColumnPtr&& root_column);
+
+    explicit ColumnObject(Subcolumns&& subcolumns_);
 
     ~ColumnObject() override = default;
 
@@ -309,6 +312,8 @@ public:
 
     static const DataTypePtr& get_most_common_type();
 
+    void clear_sparse_column();
+
     // root is null or type nothing
     bool is_null_root() const;
 
@@ -337,7 +342,7 @@ public:
 
     void incr_num_rows(size_t n) { num_rows += n; }
 
-    void set_num_rows(size_t n) { num_rows = n; }
+    void set_num_rows(size_t n);
 
     size_t rows() const { return num_rows; }
 

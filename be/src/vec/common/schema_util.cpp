@@ -231,8 +231,9 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                           "unexcepted data column type: {}, column name is: {}",
+                           data_type->get_name(), name);
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
