@@ -29,6 +29,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
@@ -89,8 +90,9 @@ private:
     // Start position of i-th element.
     T ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
-    /// Size of i-th element, including terminating zero.
-    T ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
+    // Size of i-th element, including terminating zero.
+    // assume that the length of a single element is less than 32-bit
+    uint32_t ALWAYS_INLINE size_at(ssize_t i) const { return uint32_t(offsets[i] - offsets[i - 1]); }
 
     template <bool positive>
     struct less;
@@ -357,7 +359,7 @@ public:
 
         for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
-            auto& src = dict[codeword];
+            const auto& src = dict[codeword];
             memcpy(chars.data() + old_size, src.data, src.size);
             old_size += src.size;
         }
