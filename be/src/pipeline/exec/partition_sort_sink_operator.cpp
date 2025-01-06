@@ -17,6 +17,8 @@
 
 #include "partition_sort_sink_operator.h"
 
+#include <glog/logging.h>
+
 #include <cstdint>
 
 #include "common/status.h"
@@ -142,8 +144,11 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     std::move(_value_place->_partition_topn_sorter));
         }
         // notice: need split two for loop, as maybe need check sorter early
+        DCHECK_EQ(local_state._value_places.size(),
+                  local_state._shared_state->partition_sorts.size());
         for (int i = 0; i < local_state._value_places.size(); ++i) {
             auto& sorter = local_state._shared_state->partition_sorts[i];
+            DCHECK(sorter != nullptr);
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
