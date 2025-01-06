@@ -129,10 +129,10 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                         assert_cast<vectorized::ColumnNullable&>(*mcol[i + _right_col_idx]);
                 mark_column.resize(size);
                 auto* null_map = mark_column.get_null_map_column().get_data().data();
-                memset(null_map, 0, size);
                 auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
                                      .get_data()
                                      .data();
+                std::fill(null_map, null_map + size, 0);
                 std::fill(data, data + size, 1);
             } else {
                 mcol[i + _right_col_idx]->insert_default();
