@@ -34,6 +34,7 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
 import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonMetadataCache;
 import org.apache.doris.datasource.paimon.PaimonMetadataCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
@@ -277,7 +278,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             List<Type> partitionColumnTypes;
             try {
-                partitionColumnTypes = table.getPartitionColumnTypes();
+                partitionColumnTypes = table.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(table));
             } catch (NotSupportedException e) {
                 LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
                 return;

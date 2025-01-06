@@ -36,6 +36,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.planner.OlapScanNode;
@@ -124,6 +125,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
+        Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -174,6 +176,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl2, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl2, "dbName", "hms_db");
         Deencapsulation.setField(tbl2, "name", "hms_tbl2");
+        Deencapsulation.setField(tbl2, "dlaTable", new HiveDlaTable(tbl2));
         new Expectations(tbl2) {
             {
                 tbl2.getId();
