@@ -17,7 +17,7 @@
 
 import java.util.stream.Collectors
 
-suite("parse_sql_from_sql_cache2") {
+suite("parse_sql_from_sql_cache") {
     def assertHasCache = { String sqlStr ->
         explain {
             sql ("physical plan ${sqlStr}")
