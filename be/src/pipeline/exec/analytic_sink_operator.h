@@ -27,7 +27,46 @@ namespace doris {
 #include "common/compile_check_begin.h"
 namespace pipeline {
 class AnalyticSinkOperatorX;
-enum AnalyticFnScope { PARTITION, RANGE, ROWS };
+
+struct BoundaryPose {
+    int64_t start = 0;
+    int64_t end = 0;
+    bool is_ended = false;
+};
+
+class SegmentStatistics {
+private:
+    // We will not perform loop search until processing enough segments
+    // segment cache partition or peer group
+    static constexpr int64_t MIN_SEGMENT_NUM = 16;
+
+    // Overhead of binary search is O(N/S logN), where S denote the average size of segment
+    // Overhead of loop search is O(N)
+    // The default chunk_size is 4096, then logN turns out to be log(4096) = 12
+    // Considering the error of estimation, we set the threshold to 8
+    static constexpr int64_t AVERAGE_SIZE_THRESHOLD = 8;
+
+public:
+    void update(int64_t segment_size) {
+        _count++;
+        _cumulative_size += segment_size;
+        _average_size = _cumulative_size / _count;
+    }
+
+    void reset() {
+        _count = 0;
+        _cumulative_size = 0;
+        _average_size = 0;
+    }
+
+    bool is_high_cardinality() const {
+        return _count > MIN_SEGMENT_NUM && _average_size < AVERAGE_SIZE_THRESHOLD;
+    }
+
+    int64_t _count = 0;
+    int64_t _cumulative_size = 0;
+    int64_t _average_size = 0;
+};
 
 class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
@@ -64,6 +103,8 @@ private:
     bool _has_input_data() { return _output_block_index < _input_blocks.size(); }
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);
     void _reset_state_for_next_partition();
+    void _find_candidate_partition_ends();
+    void _find_candidate_peer_group_ends();
     int64_t find_first_not_equal(vectorized::IColumn* reference_column,
                                  vectorized::IColumn* compared_column, int64_t target,
                                  int64_t start, int64_t end);
@@ -77,6 +118,12 @@ private:
     std::vector<vectorized::MutableColumnPtr> _range_result_columns;
     size_t _partition_exprs_size = 0;
     size_t _order_by_exprs_size = 0;
+    BoundaryPose _partition_by_pose;
+    BoundaryPose _order_by_pose;
+    SegmentStatistics _partition_statistics;
+    SegmentStatistics _peer_group_statistics;
+    std::queue<int64_t> _candidate_partition_ends;
+    std::queue<int64_t> _candidate_peer_group_ends;
 
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
@@ -96,8 +143,6 @@ private:
 
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
-    BoundaryPose _partition_by_pose;
-    BoundaryPose _order_by_pose;
     int64_t _current_row_position = 0;
     int64_t _input_total_rows = 0;
     std::vector<vectorized::Block> _input_blocks;

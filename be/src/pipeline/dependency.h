@@ -549,12 +549,6 @@ public:
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 
-struct BoundaryPose {
-    int64_t start = 0;
-    int64_t end = 0;
-    bool is_ended = false;
-};
-
 struct AnalyticSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AnalyticSharedState)
 
