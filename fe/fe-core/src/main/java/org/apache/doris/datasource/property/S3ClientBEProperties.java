@@ -85,6 +85,9 @@ public class S3ClientBEProperties {
         if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
             beProperties.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
         }
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            beProperties.put(S3Properties.PROVIDER, properties.get(S3Properties.PROVIDER));
+        }
         return beProperties;
     }
 }
