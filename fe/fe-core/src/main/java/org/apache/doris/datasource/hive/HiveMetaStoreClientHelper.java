@@ -727,6 +727,15 @@ public class HiveMetaStoreClientHelper {
             }
             return ScalarType.createDecimalV3Type(precision, scale);
         }
+        if (lowerCaseType.startsWith("bigint")) {
+            return Type.BIGINT;
+        }
+        if (lowerCaseType.startsWith("int")) {
+            return Type.INT;
+        }
+        if (lowerCaseType.startsWith("timestamp")) {
+            return ScalarType.createDatetimeV2Type(timeScale);
+        }
         if (lowerCaseType.startsWith("timestamp with local time zone")) {
             return enableMappingTimeStampTz ? ScalarType.createTimeStampTzType(timeScale)
                     : ScalarType.createDatetimeV2Type(timeScale);
