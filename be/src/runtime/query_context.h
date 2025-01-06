@@ -248,12 +248,13 @@ public:
 
     int64_t get_mem_limit() const { return query_mem_tracker->limit(); }
 
-    void set_expected_mem_limit(int64_t new_mem_limit) {
-        _expected_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
+    // The new memlimit should be less than user set memlimit.
+    void set_adjusted_mem_limit(int64_t new_mem_limit) {
+        _adjusted_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
     }
 
     // Expected mem limit is the limit when workload group reached limit.
-    int64_t expected_mem_limit() { return _expected_mem_limit; }
+    int64_t adjusted_mem_limit() { return _adjusted_mem_limit; }
 
     std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }
 
@@ -261,10 +262,6 @@ public:
         return _query_options.__isset.query_slot_count ? _query_options.query_slot_count : 1;
     }
 
-    bool enable_mem_overcommit() const {
-        return _query_options.__isset.enable_mem_overcommit ? _query_options.enable_mem_overcommit
-                                                            : false;
-    }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -395,7 +392,7 @@ private:
     std::atomic<int64_t> _paused_period_secs = 0;
     std::atomic<bool> _low_memory_mode = false;
     int64_t _user_set_mem_limit = 0;
-    std::atomic<int64_t> _expected_mem_limit = 0;
+    std::atomic<int64_t> _adjusted_mem_limit = 0;
 
     std::mutex _profile_mutex;
     timespec _query_arrival_timestamp;

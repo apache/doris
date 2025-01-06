@@ -658,8 +658,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String QUERY_SLOT_COUNT = "query_slot_count";
 
-    public static final String ENABLE_MEM_OVERCOMMIT = "enable_mem_overcommit";
-
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
 
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
@@ -757,9 +755,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
-    // max memory used on every backend.
+    // max memory used on every backend. Default value to 100G.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
-    public long maxExecMemByte = 2147483648L;
+    public long maxExecMemByte = 100147483648L;
 
     @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,
             description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
@@ -865,11 +863,6 @@ public class SessionVariable implements Serializable, Writable {
             throw new InvalidParameterException("query_slot_count should be between 1 and 1024)");
         }
     }
-
-    @VariableMgr.VarAttr(name = ENABLE_MEM_OVERCOMMIT, needForward = true, description = {
-            "是否通过硬限的方式来计算每个Query的内存资源",
-            "Whether to calculate the memory resources of each query by hard limit"})
-    public boolean enableMemOvercommit = true;
 
     @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
     public int maxColumnReaderNum = 20000;
@@ -4055,7 +4048,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);
-        tResult.setEnableMemOvercommit(enableMemOvercommit);
 
         tResult.setKeepCarriageReturn(keepCarriageReturn);
 

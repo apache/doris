@@ -139,7 +139,6 @@ public:
     ~MemTrackerLimiter();
 
     Type type() const { return _type; }
-    void set_overcommit(bool enable) { _enable_overcommit = enable; }
     const std::string& label() const { return _label; }
     std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
     int64_t group_num() const { return _group_num; }
@@ -217,9 +216,7 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        // If enable overcommit, then the limit is useless, use a very large value as limit
-        bool rt = _mem_counter.try_add(
-                bytes, _enable_overcommit ? std::numeric_limits<int64_t>::max() : _limit.load());
+        bool rt = _mem_counter.try_add(bytes, _limit.load());
         if (rt && _query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(peak_consumption());
             _query_statistics->set_current_used_memory_bytes(consumption());
@@ -292,6 +289,7 @@ public:
     void add_address_sanitizers(void* buf, size_t size);
     void remove_address_sanitizers(void* buf, size_t size);
     bool is_group_commit_load {false};
+    void set_enable_reserve_memory(bool enabled) { _enable_reserve_memory = enabled; }
 
 private:
     // only for Type::QUERY or Type::LOAD.
@@ -318,7 +316,6 @@ private:
     */
 
     Type _type;
-    bool _enable_overcommit = true;
 
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
@@ -327,6 +324,8 @@ private:
 
     MemCounter _mem_counter;
     MemCounter _reserved_counter;
+
+    bool _enable_reserve_memory = false;
 
     // Limit on memory consumption, in bytes.
     std::atomic<int64_t> _limit;
@@ -377,16 +376,21 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    /*
-    if (bytes <= 0 || _enable_overcommit) {
+    // Do not enable check limit, because reserve process will check it.
+    if (bytes <= 0 || _enable_reserve_memory) {
         return Status::OK();
     }
-    // check limit should ignore memtable size, because it is treated as a cache
+
+    // If reserve not enabled, then should check limit here to kill the query when limit exceed.
+    // For insert into select or pure load job, its memtable is accounted in a seperate memtracker limiter,
+    // and its reserve is set to true. So that it will not reach this logic.
+    // Only query and load job has exec_mem_limit and the _limit > 0, other memtracker limiter's _limit is -1 so
+    // it will not take effect.
     if (_limit > 0 && consumption() + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
                                                        tracker_limit_exceeded_str()));
-    }*/
+    }
     return Status::OK();
 }
 

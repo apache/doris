@@ -169,7 +169,7 @@ TEST_F(WorkloadGroupManagerTest, query_exceed) {
     ASSERT_EQ(query_context->is_cancelled(), true) << "query should be canceled";
 }
 
-// if (query_ctx->expected_mem_limit() <
+// if (query_ctx->adjusted_mem_limit() <
 //                    query_ctx->get_mem_tracker()->consumption() + query_it->reserve_size_)
 TEST_F(WorkloadGroupManagerTest, wg_exceed1) {
     auto wg = _wg_manager->get_or_create_workload_group({});

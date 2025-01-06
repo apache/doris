@@ -88,6 +88,8 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
     auto tracker = std::make_shared<MemTrackerLimiter>(type, label, byte_limit);
     // Write tracker is only used to tracker the size, so limit == -1
     auto write_tracker = std::make_shared<MemTrackerLimiter>(type, "Memtable" + label, -1);
+    // Memtable has a separate logic to deal with memory flush, so that should not check the limit in memtracker.
+    write_tracker->set_enable_reserve_memory(true);
     tracker->_write_tracker.swap(write_tracker);
 #ifndef BE_TEST
     DCHECK(ExecEnv::tracking_memory());
