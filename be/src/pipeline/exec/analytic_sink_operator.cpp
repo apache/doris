@@ -508,7 +508,7 @@ void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(vectorized::Bl
 
 void AnalyticSinkLocalState::_reset_state_for_next_partition() {
     _partition_statistics.update(_partition_by_pose.end - _partition_by_pose.start);
-    _peer_group_statistics.reset();
+    _order_by_statistics.reset();
     _partition_by_pose.start = _partition_by_pose.end;
     _current_row_position = _partition_by_pose.start;
     _reset_agg_status();
@@ -520,15 +520,15 @@ void AnalyticSinkLocalState::_update_order_by_range() {
         return;
     }
 
-    while (!_candidate_peer_group_ends.empty()) {
-        int64_t peek = _candidate_peer_group_ends.front();
-        _candidate_peer_group_ends.pop();
+    while (!_candidate_order_by_ends.empty()) {
+        int64_t peek = _candidate_order_by_ends.front();
+        _candidate_order_by_ends.pop();
         if (peek > _order_by_pose.end) {
             _order_by_pose.start = _order_by_pose.end;
             _order_by_pose.end = peek;
             _order_by_pose.is_ended = true;
 
-            _peer_group_statistics.update(_order_by_pose.end - _order_by_pose.start);
+            _order_by_statistics.update(_order_by_pose.end - _order_by_pose.start);
             return;
         }
     }
@@ -549,9 +549,9 @@ void AnalyticSinkLocalState::_update_order_by_range() {
     }
 
     if (_order_by_pose.end < _partition_by_pose.end) {
-        _peer_group_statistics.update(_order_by_pose.end - _order_by_pose.start);
+        _order_by_statistics.update(_order_by_pose.end - _order_by_pose.start);
         _order_by_pose.is_ended = true;
-        _find_candidate_peer_group_ends();
+        _find_candidate_order_by_ends();
         return;
     }
     DCHECK_EQ(_partition_by_pose.end, _order_by_pose.end);
@@ -629,8 +629,8 @@ void AnalyticSinkLocalState::_find_candidate_partition_ends() {
     }
 }
 
-void AnalyticSinkLocalState::_find_candidate_peer_group_ends() {
-    if (!_peer_group_statistics.is_high_cardinality()) {
+void AnalyticSinkLocalState::_find_candidate_order_by_ends() {
+    if (!_order_by_statistics.is_high_cardinality()) {
         return;
     }
 
@@ -639,7 +639,7 @@ void AnalyticSinkLocalState::_find_candidate_peer_group_ends() {
         for (auto& column : _order_by_columns) {
             auto cmp = column->compare_at(i - 1, i, *column, 1);
             if (cmp != 0) {
-                _candidate_peer_group_ends.push(i);
+                _candidate_order_by_ends.push(i);
                 break;
             }
         }
