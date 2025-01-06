@@ -18,36 +18,27 @@
 import java.util.stream.Collectors;
 
 suite("test_vault_privilege_with_role", "nonConcurrent") {
+    def suiteName = name;
     if (!isCloudMode()) {
-        logger.info("skip ${name} case, because not cloud mode")
+        logger.info("skip ${suiteName} case, because not cloud mode")
         return
     }
 
     if (!enableStoragevault()) {
-        logger.info("skip ${name} case, because storage vault not enabled")
+        logger.info("skip ${suiteName} case, because storage vault not enabled")
         return
     }
 
-    def vaultName = "test_vault_privilege_with_role_vault";
-
-    sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ${vaultName}
-        PROPERTIES (
-            "type"="hdfs",
-            "fs.defaultFS"="${getHmsHdfsFs()}",
-            "path_prefix" = "${vaultName}"
-        );
-    """
-
-    def tableName = "test_vault_privilege_with_role_table"
-    def userName = "test_vault_privilege_with_role_user"
-    def userPassword = "Cloud12345"
-    def roleName = "test_vault_privilege_with_role_role"
     def dbName = context.config.getDbNameByFile(context.file)
+    def randomStr = UUID.randomUUID().toString().replace("-", "")
+    def hdfsVaultName = "hdfs_" + randomStr
+
+    def userName = "user_${randomStr}"
+    def userPassword = "Cloud12345"
+    def roleName = "role_${randomStr}"
+    def tableName = "tbl_${randomStr}"
 
     sql """DROP TABLE IF EXISTS ${dbName}.${tableName}"""
-    sql """DROP TABLE IF EXISTS ${dbName}.${tableName}_2"""
-
     sql """DROP USER IF EXISTS ${userName}"""
     sql """DROP ROLE IF EXISTS ${roleName}"""
 
@@ -59,53 +50,69 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
         expectExceptionLike({
             sql """
                 CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
-                        C_CUSTKEY     INTEGER NOT NULL,
-                        C_NAME        INTEGER NOT NULL
-                        )
-                        DUPLICATE KEY(C_CUSTKEY, C_NAME)
-                        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
-                        PROPERTIES (
-                        "replication_num" = "1",
-                        "storage_vault_name" = ${vaultName}
-                        )
+                    C_CUSTKEY     INTEGER NOT NULL,
+                    C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "storage_vault_name" = ${hdfsVaultName}
+                )
             """
         }, "denied")
     }
 
-    sql """ GRANT usage_priv ON STORAGE VAULT '${vaultName}' TO ROLE '${roleName}';"""
+    sql """ GRANT usage_priv ON STORAGE VAULT '${hdfsVaultName}' TO ROLE '${roleName}';"""
+
+    sql """
+        CREATE STORAGE VAULT ${hdfsVaultName}
+        PROPERTIES (
+            "type"="HDFS",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "${hdfsVaultName}",
+            "hadoop.username" = "${getHmsUser()}"
+        );
+        """
 
     connect(userName, userPassword, context.config.jdbcUrl) {
         sql """
             CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
-                    C_CUSTKEY     INTEGER NOT NULL,
-                    C_NAME        INTEGER NOT NULL
-                    )
-                    DUPLICATE KEY(C_CUSTKEY, C_NAME)
-                    DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
-                    PROPERTIES (
-                    "replication_num" = "1",
-                    "storage_vault_name" = ${vaultName}
-                    )
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+            )
+            DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = ${hdfsVaultName}
+            )
         """
     }
 
-    sql """
-        REVOKE usage_priv ON STORAGE VAULT '${vaultName}' FROM ROLE '${roleName}';
-    """
+    sql """ GRANT load_priv,select_priv ON  *.*.* TO '${userName}';"""
+    sql """ GRANT USAGE_PRIV ON COMPUTE GROUP '%' TO '${userName}';"""
+    connect(userName, userPassword, context.config.jdbcUrl) {
+        sql """
+            insert into ${dbName}.${tableName} values(1, 1);
+            select * from ${dbName}.${tableName};
+        """
+    }
 
+    sql """REVOKE usage_priv ON STORAGE VAULT '${hdfsVaultName}' FROM ROLE '${roleName}';"""
     connect(userName, userPassword, context.config.jdbcUrl) {
         expectExceptionLike({
             sql """
-                CREATE TABLE IF NOT EXISTS ${dbName}.${tableName}_2 (
-                        C_CUSTKEY     INTEGER NOT NULL,
-                        C_NAME        INTEGER NOT NULL
-                        )
-                        DUPLICATE KEY(C_CUSTKEY, C_NAME)
-                        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
-                        PROPERTIES (
-                        "replication_num" = "1",
-                        "storage_vault_name" = ${vaultName}
-                        )
+                CREATE TABLE ${dbName}.${tableName}_2 (
+                    C_CUSTKEY     INTEGER NOT NULL,
+                    C_NAME        INTEGER NOT NULL
+                )
+                DUPLICATE KEY(C_CUSTKEY, C_NAME)
+                DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "storage_vault_name" = ${hdfsVaultName}
+                )
             """
         }, "denied")
     }
