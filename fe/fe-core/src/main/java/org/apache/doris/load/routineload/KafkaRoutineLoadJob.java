@@ -885,7 +885,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // To ensure the stability of the routine load,
             // the scheduler will automatically pull up routine load job in this scenario,
             // to avoid some network and Kafka exceptions causing the routine load job to stop
-            if (fetchOffsetRetryTimes < 3) {
+            if (fetchOffsetRetryTimes >= KafkaUtil.RETRY_TIMES) {
                 updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
                         "failed to get latest partition offset. {}" + e.getMessage()),
                         false /* not replay */);

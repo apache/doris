@@ -43,7 +43,7 @@ import java.util.stream.Collectors;
 public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
 
-    private static final int retryTimes = 3;
+    public static final int RETRY_TIMES = 3;
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
@@ -59,7 +59,7 @@ public class KafkaUtil {
                                     )
                             )
             ).build();
-            return getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, retryTimes)
+            return getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, RETRY_TIMES)
                     .getKafkaMetaResult().getPartitionIdsList();
         } catch (Exception e) {
             throw new LoadException(
@@ -99,7 +99,7 @@ public class KafkaUtil {
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
             InternalService.PProxyResult result = getInfoRequest(request,
-                    Config.max_get_kafka_meta_timeout_second, retryTimes);
+                    Config.max_get_kafka_meta_timeout_second, RETRY_TIMES);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -204,7 +204,8 @@ public class KafkaUtil {
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, 3);
+            InternalService.PProxyResult result = getInfoRequest(request,
+                    Config.max_get_kafka_meta_timeout_second, RETRY_TIMES);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
