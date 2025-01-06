@@ -311,7 +311,7 @@ public class NereidsSqlCacheManager {
         }
 
         // the query maybe scan empty partition of the table, we should check these table version too,
-        // but the table not exists in sqlCacheContext.getScanTables(), so we need check here
+        // but the table not exists in sqlCacheContext.getScanTables(), so we need check here.
         // check table type and version
         for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
