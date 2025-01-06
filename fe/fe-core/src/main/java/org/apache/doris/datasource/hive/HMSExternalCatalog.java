@@ -117,20 +117,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
         }
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
-            enableHmsEventsIncrementalSync =
-                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
-        } else {
-            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
-        }
-
-        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
-            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
-        } else {
-            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
-        }
-
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
@@ -288,6 +274,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+        }
+
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
+            enableHmsEventsIncrementalSync =
+                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
+        } else {
+            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
+        }
+
+        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
+            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
+        } else {
+            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
         }
     }
 
