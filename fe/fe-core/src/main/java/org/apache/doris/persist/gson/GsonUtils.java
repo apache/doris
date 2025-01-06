@@ -172,6 +172,7 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -570,7 +571,8 @@ public class GsonUtils {
             .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())
             .registerSubtype(OFSFileSystem.class, OFSFileSystem.class.getSimpleName())
             .registerSubtype(ObjFileSystem.class, ObjFileSystem.class.getSimpleName())
-            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName());
+            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName())
+            .registerSubtype(AzureFileSystem.class, AzureFileSystem.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory
