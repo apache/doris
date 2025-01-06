@@ -32,9 +32,9 @@ suite("parse_sql_from_sql_cache") {
         }
     }
 
-    def db = (sql "select database()")[0][0].toString()
+    def dbName = (sql "select database()")[0][0].toString()
     foreachFrontends { fe ->
-        def url = "jdbc:mysql://${fe.Host}:${fe.QueryPort}/${db}"
+        def url = "jdbc:mysql://${fe.Host}:${fe.QueryPort}/${dbName}"
         connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
             sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
         }
@@ -291,9 +291,7 @@ suite("parse_sql_from_sql_cache") {
             extraThread("testNotShareCacheBetweenUsers", {
                 sql "drop user if exists test_cache_user1"
                 sql "create user test_cache_user1 identified by 'DORIS@2024'"
-                def dbName = context.config.getDbNameByFile(context.file)
                 sql """GRANT SELECT_PRIV ON *.* TO test_cache_user1"""
-                sql "GRANT ADMIN_PRIV ON *.*.* TO test_cache_user1"
                 //cloud-mode
                 if (isCloudMode()) {
                     def clusters = sql " SHOW CLUSTERS; "
@@ -329,7 +327,6 @@ suite("parse_sql_from_sql_cache") {
                 }).get()
             }),
             extraThread("testAddRowPolicy", {
-                def dbName = context.config.getDbNameByFile(context.file)
                 try_sql """
                     DROP ROW POLICY if exists test_cache_row_policy_2
                     ON ${dbName}.test_use_plan_cache13
@@ -338,7 +335,6 @@ suite("parse_sql_from_sql_cache") {
                 sql "drop user if exists test_cache_user2"
                 sql "create user test_cache_user2 identified by 'DORIS@2024'"
                 sql """GRANT SELECT_PRIV ON *.* TO test_cache_user2"""
-                sql "GRANT ADMIN_PRIV ON *.*.* TO test_cache_user2"
                 //cloud-mode
                 if (isCloudMode()) {
                     def clusters = sql " SHOW CLUSTERS; "
@@ -388,7 +384,6 @@ suite("parse_sql_from_sql_cache") {
                 }).get()
             }),
             extraThread("testDropRowPolicy", {
-                def dbName = context.config.getDbNameByFile(context.file)
                 try_sql """
                 DROP ROW POLICY if exists test_cache_row_policy_3
                 ON ${dbName}.test_use_plan_cache14
@@ -397,7 +392,6 @@ suite("parse_sql_from_sql_cache") {
                 sql "drop user if exists test_cache_user3"
                 sql "create user test_cache_user3 identified by 'DORIS@2024'"
                 sql """GRANT SELECT_PRIV ON *.* TO test_cache_user3"""
-                sql "GRANT ADMIN_PRIV ON *.*.* TO test_cache_user3"
                 //cloud-mode
                 if (isCloudMode()) {
                     def clusters = sql " SHOW CLUSTERS; "
@@ -452,8 +446,6 @@ suite("parse_sql_from_sql_cache") {
                 }).get()
             }),
             extraThread("testRemovePrivilege", {
-                def dbName = context.config.getDbNameByFile(context.file)
-
                 createTestTable "test_use_plan_cache15"
 
                 // after partition changed 10s, the sql cache can be used
@@ -640,8 +632,6 @@ suite("parse_sql_from_sql_cache") {
 
                 log.info("fe1: ${fe1}")
                 log.info("fe2: ${fe2}")
-
-                def dbName = context.config.getDbNameByFile(context.file)
 
                 log.info("connect to fe: ${fe1}")
                 connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe1}") {
