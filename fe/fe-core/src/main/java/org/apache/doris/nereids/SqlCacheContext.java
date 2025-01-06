@@ -26,6 +26,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.util.Utils;
@@ -349,7 +350,7 @@ public class SqlCacheContext {
 
     /** doComputeCacheKeyMd5 */
     public synchronized PUniqueId doComputeCacheKeyMd5(Set<Variable> usedVariables) {
-        StringBuilder cacheKey = new StringBuilder(originSql);
+        StringBuilder cacheKey = new StringBuilder(NereidsParser.removeCommentAndTrimBlank(originSql.trim()));
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
                     .append(entry.getKey())
