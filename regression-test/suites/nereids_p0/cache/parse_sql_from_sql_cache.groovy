@@ -19,7 +19,10 @@ import java.util.stream.Collectors
 
 suite("parse_sql_from_sql_cache") {
     def assertHasCache = { String sqlStr ->
-        retry(120, 1000) {
+        retry(120, 1000) { i ->
+            if (i > 0) {
+                sql sqlStr
+            }
             explain {
                 sql ("physical plan ${sqlStr}")
                 contains("PhysicalSqlCache")
@@ -319,13 +322,13 @@ suite("parse_sql_from_sql_cache") {
 
             sql "sync"
 
-
             extraThread("test_cache_user1_thread", {
                 connect("test_cache_user1", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     assertNoCache "select * from test_use_plan_cache12"
                 }
@@ -363,6 +366,7 @@ suite("parse_sql_from_sql_cache") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     assertNoCache "select * from test_use_plan_cache13"
                     sql "select * from test_use_plan_cache13"
@@ -385,6 +389,7 @@ suite("parse_sql_from_sql_cache") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     assertNoCache "select * from test_use_plan_cache13"
                 }
@@ -428,6 +433,7 @@ suite("parse_sql_from_sql_cache") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     assertNoCache "select * from test_use_plan_cache14"
                     sql "select * from test_use_plan_cache14"
@@ -449,6 +455,7 @@ suite("parse_sql_from_sql_cache") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     assertNoCache "select * from test_use_plan_cache14"
                 }
@@ -483,6 +490,7 @@ suite("parse_sql_from_sql_cache") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     assertNoCache "select * from test_use_plan_cache15"
                     sql "select * from test_use_plan_cache15"
@@ -500,6 +508,7 @@ suite("parse_sql_from_sql_cache") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
+                    sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                     test {
                         sql ("select * from ${dbName}.test_use_plan_cache15")
@@ -659,8 +668,6 @@ suite("parse_sql_from_sql_cache") {
 
             log.info("connect to fe: ${fe1}")
             connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe1}") {
-                sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
-
                 sql "use ${dbName}"
 
                 createTestTable "test_use_plan_cache18"
@@ -688,6 +695,7 @@ suite("parse_sql_from_sql_cache") {
                 sql "set enable_nereids_planner=true"
                 sql "set enable_fallback_to_original_planner=false"
                 sql "set enable_sql_cache=true"
+                sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                 assertNoCache "select * from test_use_plan_cache18"
                 sql "select * from test_use_plan_cache18"

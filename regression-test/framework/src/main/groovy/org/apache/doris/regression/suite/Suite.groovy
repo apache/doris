@@ -702,7 +702,7 @@ class Suite implements GroovyInterceptable {
         return sql
     }
 
-    <T> T retry(int executeTimes = 3, int intervalMillis = 1000, Closure<T> closure) {
+    <T> T retry(int executeTimes = 3, int intervalMillis = 1000, Closure<Integer> closure) {
         Throwable throwable = null
         for (int i = 1; i <= executeTimes; ++i) {
             try {
