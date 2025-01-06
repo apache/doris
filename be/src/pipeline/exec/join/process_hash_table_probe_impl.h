@@ -27,6 +27,7 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/hash_table/join_hash_table.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -124,7 +125,15 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                                                                   _build_indexs.data() + size);
                 }
             } else if (i + _right_col_idx == _parent->_mark_column_id) {
-                mcol[i + _right_col_idx]->resize(size);
+                auto& mark_column =
+                        assert_cast<vectorized::ColumnNullable&>(*mcol[i + _right_col_idx]);
+                mark_column.resize(size);
+                auto* null_map = mark_column.get_null_map_column().get_data().data();
+                memset(null_map, 0, size);
+                auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
+                                     .get_data()
+                                     .data();
+                std::fill(data, data + size, 1);
             } else {
                 mcol[i + _right_col_idx]->insert_default();
                 mcol[i + _right_col_idx] =

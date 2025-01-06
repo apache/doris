@@ -277,10 +277,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
         return Status::OK();
     }
 
-    null_map.resize(rows);
     auto* final_null_map = null_map.get_data().data();
-    memset(final_null_map, 0, rows);
-    filter.resize_fill(rows, 1);
     auto* final_filter_ptr = filter.data();
 
     for (const auto& conjunct : conjuncts) {
