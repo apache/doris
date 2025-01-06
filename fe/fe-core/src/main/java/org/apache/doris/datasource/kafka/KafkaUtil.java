@@ -36,13 +36,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
+
+    private static final int retryTimes = 3;
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
@@ -58,7 +59,7 @@ public class KafkaUtil {
                                     )
                             )
             ).build();
-            return getInfoRequest(request, Config.max_get_kafka_meta_timeout_second)
+            return getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, retryTimes)
                     .getKafkaMetaResult().getPartitionIdsList();
         } catch (Exception e) {
             throw new LoadException(
@@ -97,7 +98,8 @@ public class KafkaUtil {
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
+            InternalService.PProxyResult result = getInfoRequest(request,
+                    Config.max_get_kafka_meta_timeout_second, retryTimes);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -115,12 +117,12 @@ public class KafkaUtil {
         }
     }
 
-    public static List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
+    public static List<Pair<Integer, Long>> getLatestOffsets(long jobId, String brokerList, String topic,
                                                              Map<String, String> convertedCustomProperties,
                                                              List<Integer> partitionIds) throws LoadException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
-                    partitionIds, topic, taskId, jobId);
+            LOG.debug("begin to get latest offsets for partitions {} in topic: {}, job {}",
+                    partitionIds, topic, jobId);
         }
         try {
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
@@ -142,7 +144,7 @@ public class KafkaUtil {
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
+            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, 1);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -150,8 +152,8 @@ public class KafkaUtil {
                 partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
             }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("finish to get latest offsets for partitions {} in topic: {}, task {}, job {}",
-                        partitionOffsets, topic, taskId, jobId);
+                LOG.debug("finish to get latest offsets for partitions {} in topic: {}, job {}",
+                        partitionOffsets, topic, jobId);
             }
             return partitionOffsets;
         } catch (Exception e) {
@@ -202,7 +204,7 @@ public class KafkaUtil {
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
+            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, 3);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -219,13 +221,14 @@ public class KafkaUtil {
         }
     }
 
-    private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout)
+    private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout,
+                                                                int maxRetryTimes)
                                                         throws LoadException {
         int retryTimes = 0;
         TNetworkAddress address = null;
         Future<InternalService.PProxyResult> future = null;
         InternalService.PProxyResult result = null;
-        while (retryTimes < 3) {
+        while (retryTimes < maxRetryTimes) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get info. No alive backends");

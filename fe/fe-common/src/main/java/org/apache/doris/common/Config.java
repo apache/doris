@@ -1267,6 +1267,12 @@ public class Config extends ConfigBase {
     public static int max_get_kafka_meta_timeout_second = 60;
 
     /**
+     * routine load job fetch partition interval(s).
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_job_fetch_partition_interval = 5;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)

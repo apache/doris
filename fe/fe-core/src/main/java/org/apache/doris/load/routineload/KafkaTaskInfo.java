@@ -123,7 +123,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     @Override
     boolean hasMoreDataToConsume() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
-        return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
+        return routineLoadJob.hasMoreDataToConsume(partitionIdToOffset);
     }
 
     private TPipelineFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {

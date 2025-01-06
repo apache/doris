@@ -110,6 +110,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // Will be updated periodically by calling updateKafkaPartitions();
     private List<Integer> newCurrentKafkaPartition = Lists.newArrayList();
 
+    private long lastUpdatePartitionTimes = -1;
+
+    private int fetchOffsetRetryTimes = 0;
+
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
         super(-1, LoadDataSourceType.KAFKA);
@@ -372,13 +376,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void preCheckNeedSchedule() throws UserException {
+        updateKafkaPartitionsIfNeed();
+        fetchAndUpdateCacheOffset();
+    }
+
+    private void updateKafkaPartitionsIfNeed() throws UserException {
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
             if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
                 return;
             }
-            updateKafkaPartitions();
+            // job scheduler will update the partition in two situations:
+            // 1. the first time the job fetch partitions,
+            //    it may be due to the fact that the job has just been created or the leader change or restart
+            // 2. every routine_load_job_fetch_partition_interval time
+            if ((currentKafkaPartitions != null && !currentKafkaPartitions.isEmpty())
+                    || System.currentTimeMillis() - lastUpdatePartitionTimes
+                        > Config.routine_load_job_fetch_partition_interval * 1000) {
+                updateKafkaPartitions();
+                lastUpdatePartitionTimes = System.currentTimeMillis();
+            }
         }
     }
 
@@ -809,8 +827,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
-    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
-        boolean needUpdateCache = false;
+    public boolean hasMoreDataToConsume(Map<Integer, Long> partitionIdToOffset) throws UserException {
         // it is need check all partitions, for some partitions offset may be out of time
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
@@ -822,72 +839,60 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 //  query_watermark_offsets() will return 4.)
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("has more data to consume. offsets to be consumed: {}, "
-                                    + "latest offsets: {}, task {}, job {}",
-                            partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                                    + "latest offsets: {}, job {}",
+                            partitionIdToOffset, cachedPartitionWithLatestOffsets, id);
                 }
-            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void fetchAndUpdateCacheOffset() throws UserException {
+        // judge need update offset cache by lag
+        boolean needUpdateCache = false;
+        Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
+        for (Long offsetLag : partitionIdToOffsetLag.values()) {
+            if (offsetLag <= 0) {
                 needUpdateCache = true;
                 break;
             }
         }
         if (needUpdateCache == false) {
-            return true;
+            return;
         }
 
+        // fetch all partition offset
         try {
-            // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
-            // maybe the cached offset is out-of-date, fetch from kafka server again
-            List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
-                    getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
+            List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, getBrokerList(),
+                    getTopic(), getConvertedCustomProperties(),
+                    Lists.newArrayList(cachedPartitionWithLatestOffsets.keySet()));
+            LOG.info("fetch latest offsets: {}, job {}", tmp, id);
             for (Pair<Integer, Long> pair : tmp) {
                 if (pair.second >= cachedPartitionWithLatestOffsets.getOrDefault(pair.first, Long.MIN_VALUE)) {
                     cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
                 } else {
                     LOG.warn("Kafka offset fallback. partition: {}, cache offset: {}"
-                                + " get latest offset: {}, task {}, job {}",
+                                + " get latest offset: {}, job {}",
                                 pair.first, cachedPartitionWithLatestOffsets.getOrDefault(pair.first, Long.MIN_VALUE),
-                                pair.second, taskId, id);
+                                pair.second, id);
                 }
             }
+            // reset fetchOffsetRetryTimes if success
+            fetchOffsetRetryTimes = 0;
         } catch (Exception e) {
             // It needs to pause job when can not get partition meta.
             // To ensure the stability of the routine load,
             // the scheduler will automatically pull up routine load job in this scenario,
             // to avoid some network and Kafka exceptions causing the routine load job to stop
-            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
+            if (fetchOffsetRetryTimes < 3) {
+                updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
                         "failed to get latest partition offset. {}" + e.getMessage()),
                         false /* not replay */);
-            return false;
-        }
-
-        // check again
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
-            Integer partitionId = entry.getKey();
-            if (cachedPartitionWithLatestOffsets.containsKey(partitionId)) {
-                long partitionLatestOffset = cachedPartitionWithLatestOffsets.get(partitionId);
-                long recordPartitionOffset = entry.getValue();
-                if (recordPartitionOffset < partitionLatestOffset) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("has more data to consume. offsets to be consumed: {},"
-                                + " latest offsets: {}, task {}, job {}",
-                                partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-                    }
-                    return true;
-                } else if (recordPartitionOffset > partitionLatestOffset) {
-                    String msg = "offset set in job: " + recordPartitionOffset
-                                + " is greater than kafka latest offset: "
-                                + partitionLatestOffset + " partition id: "
-                                + partitionId;
-                    throw new UserException(msg);
-                }
+            } else {
+                fetchOffsetRetryTimes++;
             }
         }
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("no more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
-                    partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-        }
-        return false;
     }
 
     @Override
