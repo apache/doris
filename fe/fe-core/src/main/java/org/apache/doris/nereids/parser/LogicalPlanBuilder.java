@@ -3547,29 +3547,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else if (hintStatement.NO_USE_MV() != null) {
                     hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
                     continue;
+                } else if (hintStatement.SET_VAR() != null) {
+                    List<SetSessionVarOp> setVarOpList = new ArrayList<>(1);
+                    for (DorisParser.VariableContext ctx : hintStatement.variable()) {
+                        setVarOpList.add((SetSessionVarOp) visitSetSystemVariable((SetSystemVariableContext) ctx));
+                    }
+                    SelectHintSetVar setVar = new SelectHintSetVar("SET_VAR", setVarOpList);
+                    setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
+                    ConnectContext.get().getStatementContext().addHint(setVar);
+                    continue;
                 }
                 String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
                 switch (hintName) {
-                    case "set_var":
-                        Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            if (kv.key != null) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                Optional<String> value = Optional.empty();
-                                if (kv.constantValue != null) {
-                                    Literal literal = (Literal) visit(kv.constantValue);
-                                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                                } else if (kv.identifierValue != null) {
-                                    // maybe we should throw exception when the identifierValue is quoted identifier
-                                    value = Optional.ofNullable(kv.identifierValue.getText());
-                                }
-                                parameters.put(parameterName, value);
-                            }
-                        }
-                        SelectHintSetVar setVar = new SelectHintSetVar(hintName, parameters);
-                        setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
-                        hints.add(setVar);
-                        break;
                     case "leading":
                         List<String> leadingParameters = new ArrayList<>();
                         for (HintAssignmentContext kv : hintStatement.parameters) {

@@ -1243,7 +1243,8 @@ qualifyClause
 selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
+    : SET_VAR LEFT_PAREN variable (COMMA variable)* RIGHT_PAREN
+    | hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)?
     ;
 
@@ -2033,6 +2034,7 @@ nonReserved
     | SECOND
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
+    | SET_VAR
     | SESSION
     | SESSION_USER
     | SHAPE
