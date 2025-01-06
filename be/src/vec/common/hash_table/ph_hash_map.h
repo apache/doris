@@ -199,9 +199,9 @@ public:
         if (!add_elem_size_overflow(num_elem)) {
             return 0;
         }
-
         auto new_size = _hash_map.capacity() * 2 + 1;
-        return new_size * sizeof(typename HashMapImpl::slot_type);
+        return phmap::priv::hashtable_debug_internal::HashtableDebugAccess<
+                HashMapImpl>::LowerBoundAllocatedByteSize(new_size);
     }
 
     size_t size() const { return _hash_map.size(); }
