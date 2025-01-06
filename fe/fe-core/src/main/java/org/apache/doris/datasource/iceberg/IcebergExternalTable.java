@@ -556,7 +556,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         this.isValidRelatedTableCached = isCached;
     }
 
-    private IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
+    public IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent()) {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {

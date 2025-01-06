@@ -37,6 +37,8 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -128,7 +130,8 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
-                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
+                    TableType.ICEBERG_EXTERNAL_TABLE);
 
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).isView()) {
@@ -143,6 +146,13 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
         if (table instanceof MaxComputeExternalTable) {
             if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
                 throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
+            return;
+        }
+
+        if (table instanceof IcebergExternalTable) {
+            if (!((IcebergExternalTable) table).isValidRelatedTable()) {
+                throw new AnalysisException("Table " + tblName + " is not a supported partition table");
             }
             return;
         }
@@ -180,7 +190,7 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog)) {
+                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                 catalog.getType()));
         }
@@ -287,6 +297,10 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
             for (String col : result.getColumnNames()) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
+        } else if (catalog instanceof IcebergExternalCatalog) {
+            builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
+            builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
+            builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
         } else {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }
