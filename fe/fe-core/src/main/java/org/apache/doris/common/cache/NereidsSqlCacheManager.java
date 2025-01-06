@@ -201,14 +201,14 @@ public class NereidsSqlCacheManager {
                     .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
 
             if (sqlCacheContextWithVariable != null) {
-                return tryParseSqlWithoutCheckVariable(
-                        connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity
+                return tryParseSql(
+                        connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity, true
                 );
             } else {
                 return Optional.empty();
             }
         } else {
-            return tryParseSqlWithoutCheckVariable(connectContext, key, sqlCacheContext, currentUserIdentity);
+            return tryParseSql(connectContext, key, sqlCacheContext, currentUserIdentity, false);
         }
     }
 
@@ -225,9 +225,9 @@ public class NereidsSqlCacheManager {
         return NereidsParser.removeCommentAndTrimBlank(sql);
     }
 
-    private Optional<LogicalSqlCache> tryParseSqlWithoutCheckVariable(
-            ConnectContext connectContext, String key,
-            SqlCacheContext sqlCacheContext, UserIdentity currentUserIdentity) {
+    private Optional<LogicalSqlCache> tryParseSql(
+            ConnectContext connectContext, String key, SqlCacheContext sqlCacheContext,
+            UserIdentity currentUserIdentity, boolean checkUserVariable) {
         Env env = connectContext.getEnv();
 
         if (!tryLockTables(connectContext, env, sqlCacheContext)) {
@@ -261,8 +261,12 @@ public class NereidsSqlCacheManager {
         try {
             Optional<ResultSet> resultSetInFe = sqlCacheContext.getResultSetInFe();
 
-            List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
-            boolean usedVariablesChanged = usedVariablesChanged(currentVariables, sqlCacheContext);
+            List<Variable> currentVariables = ImmutableList.of();
+            if (checkUserVariable) {
+                currentVariables = resolveUserVariables(sqlCacheContext);
+            }
+            boolean usedVariablesChanged
+                    = checkUserVariable && usedVariablesChanged(currentVariables, sqlCacheContext);
             if (resultSetInFe.isPresent() && !usedVariablesChanged) {
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 
@@ -276,9 +280,15 @@ public class NereidsSqlCacheManager {
             }
 
             Status status = new Status();
-            PUniqueId cacheKeyMd5 = usedVariablesChanged
-                    ? sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables))
-                    : sqlCacheContext.getOrComputeCacheKeyMd5();
+
+            PUniqueId cacheKeyMd5;
+            if (usedVariablesChanged) {
+                invalidateCache(key);
+                cacheKeyMd5 = sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables));
+            } else {
+                cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
+            }
+
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
                             cacheKeyMd5, sqlCacheContext.getLatestPartitionId(),
