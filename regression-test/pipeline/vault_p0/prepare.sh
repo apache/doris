@@ -71,7 +71,7 @@ if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-3.0" ]]; t
     echo "INFO: PR target branch ${target_branch}"
     install_java
 else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
+    echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-3.0), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
     exit 0
 fi
