@@ -15,3 +15,25 @@
 1	2038-01-02
 2	2020-01-02
 
+-- !history_list_init --
+1	2038-01-01
+2	2020-01-01
+
+-- !history_list_drop_partition --
+2	2020-01-01
+
+-- !history_range_init --
+1	2038-01-02
+2	2020-01-02
+
+-- !history_range_drop_partition --
+2	2020-01-02
+
+-- !history_range_create_partition --
+1	2038-01-03
+2	2020-01-02
+
+-- !less_than_range_drop_partition --
+2	2020-01-02
+2	2021-01-02
+
