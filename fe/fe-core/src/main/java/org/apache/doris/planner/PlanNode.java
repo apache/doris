@@ -317,13 +317,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.offset = offset;
     }
 
-    /**
-     * Used by new optimizer only.
-     */
-    public void setOffSetDirectly(long offset) {
-        this.offset = offset;
-    }
-
     public boolean hasLimit() {
         return limit > -1;
     }
