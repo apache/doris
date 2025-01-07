@@ -152,16 +152,6 @@ void ColumnArray::get(size_t n, Field& res) const {
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
 }
 
-StringRef ColumnArray::get_data_at(size_t n) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Method get_data_at is not supported for " + get_name());
-}
-
-void ColumnArray::insert_data(const char* pos, size_t length) {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Method insert_data is not supported for " + get_name());
-}
-
 bool ColumnArray::is_default_at(size_t n) const {
     const auto& offsets_data = get_offsets();
     return offsets_data[n] == offsets_data[static_cast<ssize_t>(n) - 1];
