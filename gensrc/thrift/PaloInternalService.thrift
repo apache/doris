@@ -366,8 +366,8 @@ struct TQueryOptions {
   145: optional bool enable_inverted_index_query_cache = true;
   146: optional bool fuzzy_disable_runtime_filter_in_be = false;
 
-  146: optional i32 min_scanner_concurrency = 1;
-  147: optional i32 min_scan_scheduler_concurrency = 0;
+  147: optional i32 min_scanner_concurrency = 1;
+  148: optional i32 min_scan_scheduler_concurrency = 0;
 
 
   // For cloud, to control if the content would be written into file cache
