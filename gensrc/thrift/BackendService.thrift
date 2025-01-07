@@ -243,9 +243,6 @@ struct TPublishTopicResult {
     1: required Status.TStatus status
 }
 
-enum TWorkloadType {
-    INTERNAL = 2
-}
 
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.

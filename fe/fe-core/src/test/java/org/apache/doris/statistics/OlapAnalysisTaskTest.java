@@ -239,7 +239,7 @@ public class OlapAnalysisTaskTest {
                         + "AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(LENGTH(`null`)) * 5.0 AS `data_size`, NOW() "
-                        + "FROM `catalogName`.`${dbName}`.`null`   limit 100", sql);
+                        + "FROM ( SELECT * FROM `catalogName`.`${dbName}`.`null`   limit 100)  as t", sql);
                 return;
             }
         };
