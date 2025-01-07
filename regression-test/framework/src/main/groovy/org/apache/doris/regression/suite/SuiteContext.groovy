@@ -342,8 +342,8 @@ class SuiteContext implements Closeable {
         if (master) {
             log.info("master found: ${master.Host}:${master.HttpPort}")
             def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
-            def userName = config.jdbcUser
-            def userPass = config.jdbcPassword
+            def username = config.jdbcUser
+            def password = config.jdbcPassword
 
             return DriverManager.getConnection(url, username, password)
         } else {
