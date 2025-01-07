@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -112,7 +113,13 @@ public class OrToIn {
             }
             newChildren = dedup;
         }
-        expr = expr.withChildren(newChildren);
+        if (expr instanceof CompoundPredicate && newChildren.size() == 1) {
+            // (a=1) and (a=1)
+            // after rewrite, newChildren=[(a=1)]
+            expr = newChildren.get(0);
+        } else {
+            expr = expr.withChildren(newChildren);
+        }
         if (expr instanceof Or) {
             expr = rewrite((Or) expr);
         }
