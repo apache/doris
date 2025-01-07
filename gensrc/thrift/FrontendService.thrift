@@ -110,21 +110,6 @@ struct TShowVariableResult {
     1: required list<list<string>> variables
 }
 
-// Valid table file formats
-enum TFileFormat {
-  PARQUETFILE,
-  RCFILE,
-  SEQUENCEFILE,
-  TEXTFILE,
-}
-
-// set type
-enum TSetType {
-  OPT_DEFAULT,
-  OPT_GLOBAL,
-  OPT_SESSION,
-}
-
 
 // Arguments to getDbNames, which returns a list of dbs that match an optional
 // pattern
