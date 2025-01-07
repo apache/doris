@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -52,6 +53,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -248,13 +250,15 @@ public class MTMVPartitionUtil {
             Set<PartitionKeyDesc> relatedPartitionDescs)
             throws AnalysisException {
         if (mtmv.getPartitionType().equals(PartitionType.RANGE)) {
-            // TODO: 2025/1/6 less than
             Type type = mtmv.getPartitionInfo().getPartitionColumns().get(0).getType();
+            LiteralExpr lowerValue = partitionKeyDesc.getLowerValues().get(0).getValue(type);
+            LiteralExpr upperValue = partitionKeyDesc.getUpperValues().get(0).getValue(type);
+            Range<LiteralExpr> range = Range.closedOpen(lowerValue, upperValue);
             for (PartitionKeyDesc existPartitionKeyDesc : relatedPartitionDescs) {
-                if (partitionKeyDesc.getLowerValues().get(0).getValue(type)
-                        .compareTo(existPartitionKeyDesc.getLowerValues().get(0).getValue(type))
-                        != partitionKeyDesc.getUpperValues().get(0).getValue(type)
-                        .compareTo(existPartitionKeyDesc.getUpperValues().get(0).getValue(type))) {
+                LiteralExpr existLowerValue = existPartitionKeyDesc.getLowerValues().get(0).getValue(type);
+                LiteralExpr existUpperValue = existPartitionKeyDesc.getUpperValues().get(0).getValue(type);
+                Range<LiteralExpr> existRange = Range.closedOpen(existLowerValue, existUpperValue);
+                if (range.isConnected(existRange)) {
                     return true;
                 }
             }
