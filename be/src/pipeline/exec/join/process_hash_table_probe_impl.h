@@ -69,11 +69,6 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         vectorized::MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         bool have_other_join_conjunct, bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
-    constexpr auto is_semi_anti_join = JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
-                                       JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::LEFT_SEMI_JOIN;
 
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
@@ -82,9 +77,9 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
     bool build_index_has_zero =
             (JoinOpType != TJoinOp::INNER_JOIN && JoinOpType != TJoinOp::RIGHT_OUTER_JOIN) ||
             have_other_join_conjunct || is_mark_join;
-    bool need_output = (!is_semi_anti_join || have_other_join_conjunct ||
-                        (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
-                       size;
+    if (!size) {
+        return;
+    }
     // Dispose right tuple is null flags columns
     if (probe_all && !have_other_join_conjunct) {
         _tuple_is_null_right_flags->resize(size);
@@ -92,53 +87,50 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         for (int i = 0; i < size; ++i) {
             null_data[i] = _build_indexs[i] == 0;
         }
-        if (need_output && _need_calculate_build_index_has_zero) {
+        if (_need_calculate_build_index_has_zero) {
             build_index_has_zero = simd::contain_byte(null_data, size, 1);
         }
     }
 
-    if (need_output) {
-        if (!build_index_has_zero && _build_column_has_null.empty()) {
-            _need_calculate_build_index_has_zero = false;
-            _build_column_has_null.resize(output_slot_flags.size());
-            for (int i = 0; i < _right_col_len; i++) {
-                const auto& column = *_build_block->safe_get_by_position(i).column;
-                _build_column_has_null[i] = false;
-                if (output_slot_flags[i] && column.is_nullable()) {
-                    const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
-                    _build_column_has_null[i] = !simd::contain_byte(
-                            nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
-                    _need_calculate_build_index_has_zero |= _build_column_has_null[i];
-                }
+    if (!build_index_has_zero && _build_column_has_null.empty()) {
+        _need_calculate_build_index_has_zero = false;
+        _build_column_has_null.resize(output_slot_flags.size());
+        for (int i = 0; i < _right_col_len; i++) {
+            const auto& column = *_build_block->safe_get_by_position(i).column;
+            _build_column_has_null[i] = false;
+            if (output_slot_flags[i] && column.is_nullable()) {
+                const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
+                _build_column_has_null[i] = !simd::contain_byte(
+                        nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
+                _need_calculate_build_index_has_zero |= _build_column_has_null[i];
             }
         }
+    }
 
-        for (size_t i = 0; i < _right_col_len; i++) {
-            const auto& column = *_build_block->safe_get_by_position(i).column;
-            if (output_slot_flags[i]) {
-                if (!build_index_has_zero && _build_column_has_null[i]) {
-                    assert_cast<vectorized::ColumnNullable*>(mcol[i + _right_col_idx].get())
-                            ->insert_indices_from_not_has_null(column, _build_indexs.data(),
-                                                               _build_indexs.data() + size);
-                } else {
-                    mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
-                                                                  _build_indexs.data() + size);
-                }
-            } else if (i + _right_col_idx == _parent->_mark_column_id) {
-                auto& mark_column =
-                        assert_cast<vectorized::ColumnNullable&>(*mcol[i + _right_col_idx]);
-                mark_column.resize(size);
-                auto* null_map = mark_column.get_null_map_column().get_data().data();
-                auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
-                                     .get_data()
-                                     .data();
-                std::fill(null_map, null_map + size, 0);
-                std::fill(data, data + size, 1);
+    for (size_t i = 0; i < _right_col_len; i++) {
+        const auto& column = *_build_block->safe_get_by_position(i).column;
+        if (output_slot_flags[i]) {
+            if (!build_index_has_zero && _build_column_has_null[i]) {
+                assert_cast<vectorized::ColumnNullable*>(mcol[i + _right_col_idx].get())
+                        ->insert_indices_from_not_has_null(column, _build_indexs.data(),
+                                                           _build_indexs.data() + size);
             } else {
-                mcol[i + _right_col_idx]->insert_default();
-                mcol[i + _right_col_idx] =
-                        vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
+                mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                              _build_indexs.data() + size);
             }
+        } else if (i + _right_col_idx == _parent->_mark_column_id) {
+            auto& mark_column = assert_cast<vectorized::ColumnNullable&>(*mcol[i + _right_col_idx]);
+            mark_column.resize(size);
+            auto* null_map = mark_column.get_null_map_column().get_data().data();
+            auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
+                                 .get_data()
+                                 .data();
+            std::fill(null_map, null_map + size, 0);
+            std::fill(data, data + size, 1);
+        } else {
+            mcol[i + _right_col_idx]->insert_default();
+            mcol[i + _right_col_idx] =
+                    vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
         }
     }
 }
