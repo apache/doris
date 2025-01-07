@@ -341,7 +341,7 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     @Test
     public void testCreateTableWithArrayStringNgramBloomFilterIndex() {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                " ARRAY is not supported in ngram_bf index. invalid column: k1",
+                "ARRAY is not supported in NGRAM_BF index. invalid index: idx_k1_ngram",
                 () -> createTable("CREATE TABLE test.tbl_array_string_ngram_bf (\n"
                         + "v1 INT,\n"
                         + "k1 ARRAY<STRING>,\n"
