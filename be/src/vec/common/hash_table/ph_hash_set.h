@@ -18,6 +18,7 @@
 #pragma once
 
 #include <boost/core/noncopyable.hpp>
+#include <cstdint>
 
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
@@ -109,4 +110,101 @@ public:
 
 private:
     HashSetImpl _hash_set;
+};
+
+//use to small fixed size key ,for example: int8_t, int16_t
+template <typename KeyType>
+class SmallFixedSizeHashSet {
+public:
+    using key_type = KeyType;
+    using mapped_type = void;
+    using value_type = void;
+    using Value = void*;
+    static_assert(std::is_integral_v<KeyType>);
+    using SetType = uint8_t;
+    static constexpr int hash_table_size = 1 << sizeof(KeyType) * 8;
+
+    using LookupResult = void*;
+    static constexpr auto End = static_cast<SetType>(0xFFFF);
+
+    static constexpr SetType set_flag = 1;
+
+    SmallFixedSizeHashSet() {
+        memset(_hash_table, 0, sizeof(SetType) * hash_table_size);
+        _hash_table[hash_table_size] = End;
+    }
+
+    SmallFixedSizeHashSet(size_t reserve_for_num_elements) {}
+
+    SmallFixedSizeHashSet(SmallFixedSizeHashSet&& other) { *this = std::move(other); }
+
+    SmallFixedSizeHashSet& operator=(SmallFixedSizeHashSet&& rhs) {
+        _size = rhs._size;
+        memcpy(_hash_table, rhs._hash_table, sizeof(SetType) * hash_table_size);
+        _hash_table[hash_table_size] = End;
+        return *this;
+    }
+
+    size_t hash(const KeyType& x) const { return x; }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        if (_hash_table[key_holder] != set_flag) {
+            auto ctor = [&](auto& key_value) {
+                _size++;
+                _hash_table[key_value] = set_flag;
+            };
+            f(ctor, key_holder);
+        }
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        if (_hash_table[key] != set_flag) {
+            auto ctor = [&](auto& key_value) {
+                _size++;
+                _hash_table[key_value] = set_flag;
+            };
+            f(ctor, key, key);
+        }
+    }
+
+    template <bool read>
+    void ALWAYS_INLINE prefetch(const KeyType& key, size_t hash_value) {}
+
+    /// Call func(Mapped &) for each hash map element.
+    template <typename Func>
+    void for_each_mapped(Func&& func) {
+        for (int i = 0; i < hash_table_size; i++) {
+            if (_hash_table[i] == set_flag) {
+                func(i);
+            }
+        }
+    }
+
+    size_t get_buffer_size_in_bytes() const { return sizeof(SetType) * hash_table_size; }
+
+    size_t get_buffer_size_in_cells() const { return hash_table_size; }
+
+    bool add_elem_size_overflow(size_t row) const { return false; }
+
+    size_t size() const { return _size; }
+
+    template <typename MappedType>
+    void* get_null_key_data() {
+        return nullptr;
+    }
+
+    bool has_null_key_data() const { return false; }
+
+    bool empty() const { return _size == 0; }
+
+    void clear_and_shrink() {}
+
+    void reserve(size_t num_elem) {}
+
+private:
+    size_t _size = 0;
+    uint8_t _hash_table[hash_table_size + 1];
 };
