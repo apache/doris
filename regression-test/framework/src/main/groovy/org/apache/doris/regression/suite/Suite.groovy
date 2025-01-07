@@ -43,7 +43,6 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
-import org.apache.doris.regression.RunMode
 import org.junit.jupiter.api.Assertions
 
 import org.slf4j.Logger
@@ -52,6 +51,7 @@ import groovy.util.logging.Slf4j
 
 import java.sql.Connection
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
