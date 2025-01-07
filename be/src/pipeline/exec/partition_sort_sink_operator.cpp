@@ -148,12 +148,12 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                   local_state._shared_state->partition_sorts.size());
         for (int i = 0; i < local_state._value_places.size(); ++i) {
             auto& sorter = local_state._shared_state->partition_sorts[i];
-            CHECK(sorter != nullptr);
+            CHECK(sorter != nullptr) << i;
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
-            CHECK(sorter != nullptr);
+            CHECK(sorter != nullptr) << i;
             RETURN_IF_ERROR(sorter->prepare_for_read());
             // iff one sorter have data, then could set source ready to read
             local_state._dependency->set_ready_to_read();
