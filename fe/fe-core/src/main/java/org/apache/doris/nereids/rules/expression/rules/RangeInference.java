@@ -203,8 +203,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         /** or */
         public static ValueDesc union(ExpressionRewriteContext context,
                 RangeValue range, DiscreteValue discrete, boolean reverseOrder) {
-            long count = discrete.values.stream().filter(x -> range.range.test(x)).count();
-            if (count == discrete.values.size()) {
+            if (discrete.values.stream().allMatch(x -> range.range.test(x))) {
                 return range;
             }
             List<ValueDesc> sourceValues = reverseOrder
