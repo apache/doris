@@ -90,8 +90,12 @@ suite("distinct_split") {
     qt_111_five """select count(distinct a,b), count(distinct a,c) , count(distinct a,d), count(distinct c) , count(distinct a,b,c,d) from test_distinct_multi group by e order by 1,2,3,4,5"""
     qt_111_three_gby_multi """select count(distinct a,b), count(distinct a,c) , count(distinct a) from test_distinct_multi group by c,a  order by 1,2,3"""
     qt_111_four_gby_multi """select count(distinct a,b), count(distinct a,c) , count(distinct a), count(distinct c) from test_distinct_multi group by e,a,b order by 1,2,3,4"""
-    qt_111_five_gby_multi """select count(distinct a,b), count(distinct a,c) , count(distinct a,d), count(distinct c) , count(distinct a,b,c,d) from test_distinct_multi group by e,a,b,c,d order by 1,2,3,4,5"""
 
+    def aa = sql """explain select count(distinct a,b), count(distinct a,c) , count(distinct a,d), count(distinct c) , count(distinct a,b,c,d) from test_distinct_multi group by e,a,b,c,d order by 1,2,3,4,5"""
+
+    logger.info("=====null hash jon ==== : \n" + aa)
+
+    qt_111_five_gby_multi """select count(distinct a,b), count(distinct a,c) , count(distinct a,d), count(distinct c) , count(distinct a,b,c,d) from test_distinct_multi group by e,a,b,c,d order by 1,2,3,4,5"""
     // sum has two dimensions: 1. Is there one or more projection columns (0 for one, 1 for more) 2. Is there a group by (0 for none, 1 for yes)
     qt_00_sum """select sum(distinct b) from test_distinct_multi"""
     qt_10_sum """select sum(distinct b), sum(distinct a) from test_distinct_multi"""
@@ -207,4 +211,9 @@ suite("distinct_split") {
         group by grouping sets((a,b),(c));"""
         exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
     }
+
+    //----------------test null hash join ------------------------
+    sql "truncate table test_distinct_multi;"
+    sql "insert into test_distinct_multi values(1,null,null,null,'2024-12-08');"
+    qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi where e = '2024-12-08' GROUP BY a, b;"
 }
