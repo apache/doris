@@ -877,8 +877,12 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     txn->remove(rs_start, rs_end);
 
     LOG_INFO("cloud process compaction job txn remove meta rowset key")
-            .tag("rs_start", rs_start)
-            .tag("rs_end", rs_end);
+            .tag("instance_id", instance_id)
+            .tag("tablet_id", tablet_id)
+            .tag("start_version", start)
+            .tag("end_version", end + 1)
+            .tag("rs_start key", hex(rs_start))
+            .tag("rs_end key", hex(rs_end));
 
     TEST_SYNC_POINT_CALLBACK("process_compaction_job::loop_input_done", &num_rowsets);
 
