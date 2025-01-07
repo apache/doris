@@ -27,7 +27,6 @@ include "Planner.thrift"
 include "DataSinks.thrift"
 include "Data.thrift"
 include "RuntimeProfile.thrift"
-include "PaloService.thrift"
 
 // constants for TQueryOptions.num_nodes
 const i32 NUM_NODES_ALL = 0
