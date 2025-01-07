@@ -55,8 +55,7 @@ public class InferInPredicateFromOr implements RewriteRuleFactory {
 
     private LogicalFilter<Plan> rewriteFilterExpression(LogicalFilter<Plan> filter) {
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(filter.getPredicate());
-        Set<Expression> set = new LinkedHashSet<>();
-        set.add(rewritten);
+        Set<Expression> set = new LinkedHashSet<>(ExpressionUtils.extractConjunction(rewritten));
         return filter.withConjuncts(set);
     }
 
