@@ -276,6 +276,10 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
     if (rows == 0) {
         return Status::OK();
     }
+    if (null_map.size() != rows) {
+        return Status::InternalError("null_map.size() != rows, null_map.size()={}, rows={}",
+                                     null_map.size(), rows);
+    }
 
     auto* final_null_map = null_map.get_data().data();
     auto* final_filter_ptr = filter.data();

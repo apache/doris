@@ -107,7 +107,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         }
     }
 
-    for (size_t i = 0; i < _right_col_len; i++) {
+    for (size_t i = 0; i < _right_col_len && i + _right_col_idx < mcol.size(); i++) {
         const auto& column = *_build_block->safe_get_by_position(i).column;
         if (output_slot_flags[i]) {
             if (!build_index_has_zero && _build_column_has_null[i]) {
@@ -118,20 +118,23 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                 mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
                                                               _build_indexs.data() + size);
             }
-        } else if (i + _right_col_idx == _parent->_mark_column_id) {
-            auto& mark_column = assert_cast<vectorized::ColumnNullable&>(*mcol[i + _right_col_idx]);
-            mark_column.resize(size);
-            auto* null_map = mark_column.get_null_map_column().get_data().data();
-            auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
-                                 .get_data()
-                                 .data();
-            std::fill(null_map, null_map + size, 0);
-            std::fill(data, data + size, 1);
-        } else if (mcol[i + _right_col_idx]) {
+        } else if (i + _right_col_idx != _parent->_mark_column_id) {
             mcol[i + _right_col_idx]->insert_default();
             mcol[i + _right_col_idx] =
                     vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
         }
+    }
+    if (_parent->_mark_column_id != -1) {
+        // resize mark column and fill with true
+        auto& mark_column =
+                assert_cast<vectorized::ColumnNullable&>(*mcol[_parent->_mark_column_id]);
+        mark_column.resize(size);
+        auto* null_map = mark_column.get_null_map_column().get_data().data();
+        auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
+                             .get_data()
+                             .data();
+        std::fill(null_map, null_map + size, 0);
+        std::fill(data, data + size, 1);
     }
 }
 
