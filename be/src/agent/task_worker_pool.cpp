@@ -1657,22 +1657,46 @@ void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& r
                 .tag("tablet_id", drop_tablet_req.tablet_id);
         return;
     });
+    MonotonicStopWatch watch;
+    watch.start();
     auto weak_tablets = engine.tablet_mgr().get_weak_tablets();
-    auto it = std::find_if(
-            weak_tablets.begin(), weak_tablets.end(),
-            [tablet_id = drop_tablet_req.tablet_id](const std::weak_ptr<CloudTablet>& weak_tablet) {
-                if (auto tablet = weak_tablet.lock()) {
-                    return tablet->tablet_id() == tablet_id;
-                }
-                return false;
-            });
-
-    if (it != weak_tablets.end()) {
-        if (auto tablet = it->lock()) {
-            CloudTablet::recycle_cached_data(tablet->get_snapshot_rowset(true));
+    std::ostringstream rowset_ids_stream;
+    bool found = false;
+    for (auto& weak_tablet : weak_tablets) {
+        auto tablet = weak_tablet.lock();
+        if (tablet == nullptr) {
+            continue;
         }
+        if (tablet->tablet_id() != drop_tablet_req.tablet_id) {
+            continue;
+        }
+        found = true;
+        auto clean_rowsets = tablet->get_snapshot_rowset(true);
+        // Get first 10 rowset IDs as comma-separated string, just for log
+        int count = 0;
+        for (const auto& rowset : clean_rowsets) {
+            if (count >= 10) break;
+            if (count > 0) {
+                rowset_ids_stream << ",";
+            }
+            rowset_ids_stream << rowset->rowset_id().to_string();
+            count++;
+        }
+
+        CloudTablet::recycle_cached_data(std::move(clean_rowsets));
+        break;
     }
+
+    if (!found) {
+        LOG(WARNING) << "tablet not found when dropping tablet_id=" << drop_tablet_req.tablet_id
+                     << ", cost " << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
+        return;
+    }
+
     engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
+    LOG(INFO) << "drop cloud tablet_id=" << drop_tablet_req.tablet_id
+              << " and clean file cache first 10 rowsets {" << rowset_ids_stream.str() << "}, cost "
+              << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
     return;
 }
 
