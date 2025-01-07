@@ -127,7 +127,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
                                  .data();
             std::fill(null_map, null_map + size, 0);
             std::fill(data, data + size, 1);
-        } else {
+        } else if (mcol[i + _right_col_idx]) {
             mcol[i + _right_col_idx]->insert_default();
             mcol[i + _right_col_idx] =
                     vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
