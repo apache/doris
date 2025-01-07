@@ -221,7 +221,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view1, "objectCreated", true);
-        Deencapsulation.setField(view1, "dlaTable", new HiveDlaTable(view1));
 
         new Expectations(view1) {
             {
@@ -276,7 +275,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view2, "objectCreated", true);
-        Deencapsulation.setField(view2, "dlaTable", new HiveDlaTable(view2));
         new Expectations(view2) {
             {
                 view2.getId();
