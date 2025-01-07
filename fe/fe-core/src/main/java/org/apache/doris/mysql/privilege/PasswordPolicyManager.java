@@ -49,7 +49,7 @@ public class PasswordPolicyManager implements Writable {
             // When upgrading from old Doris version(before v1.2), there may be not entry in this manager.
             // create and return a default one.
             // The following logic is just to handle some concurrent issue.
-            PasswordPolicy policy = PasswordPolicy.createDefault();
+            PasswordPolicy policy = PasswordPolicy.createDefault(userIdent);
             passwordPolicy = policyMap.putIfAbsent(userIdent, policy);
             if (passwordPolicy == null) {
                 passwordPolicy = policy;
@@ -131,4 +131,7 @@ public class PasswordPolicyManager implements Writable {
         return GsonUtils.GSON.fromJson(Text.readString(in), PasswordPolicyManager.class);
     }
 
+    public Map<UserIdentity, PasswordPolicy> getPolicyMap() {
+        return  policyMap;
+    }
 }

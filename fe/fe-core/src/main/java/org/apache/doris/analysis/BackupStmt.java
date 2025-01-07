@@ -30,6 +30,9 @@ import java.util.Map;
 public class BackupStmt extends AbstractBackupStmt implements NotFallbackInParser {
     private static final String PROP_TYPE = "type";
     public static final String PROP_CONTENT = "content";
+    public static final String PROP_BACKUP_PRIV = "backup_privilege";
+    public static final String PROP_BACKUP_CATALOG = "backup_catalog";
+    public static final String PROP_BACKUP_WORKLOAD_GROUP = "backup_workload_group";
 
     public enum BackupType {
         INCREMENTAL, FULL
@@ -41,11 +44,18 @@ public class BackupStmt extends AbstractBackupStmt implements NotFallbackInParse
 
     private BackupType type = BackupType.FULL;
     private BackupContent content = BackupContent.ALL;
+    private boolean backupPriv = false;
+    private boolean backupCatalog = false;
+    private boolean backupWorkloadGroup = false;
 
 
     public BackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
                       Map<String, String> properties) {
-        super(labelName, repoName, abstractBackupTableRefClause, properties);
+        super(labelName, repoName, abstractBackupTableRefClause, properties, false);
+    }
+
+    public BackupStmt(LabelName labelName, String repoName, Map<String, String> properties) {
+        super(labelName, repoName, null, properties, true);
     }
 
     public long getTimeoutMs() {
@@ -58,6 +68,18 @@ public class BackupStmt extends AbstractBackupStmt implements NotFallbackInParse
 
     public BackupContent getContent() {
         return content;
+    }
+
+    public boolean isBackupPriv() {
+        return backupPriv;
+    }
+
+    public boolean isBackupCatalog() {
+        return backupCatalog;
+    }
+
+    public boolean isBackupWorkloadGroup() {
+        return backupWorkloadGroup;
     }
 
     @Override
@@ -101,6 +123,62 @@ public class BackupStmt extends AbstractBackupStmt implements NotFallbackInParse
                         "Invalid backup job content:" + contentProp);
             }
             copiedProperties.remove(PROP_CONTENT);
+        }
+
+        // backup_priv
+        String backupPrivProp = copiedProperties.get(PROP_BACKUP_PRIV);
+        if (backupPrivProp != null) {
+            if (backupPrivProp.equalsIgnoreCase("true")) {
+                backupPriv = true;
+            } else if (backupPrivProp.equalsIgnoreCase("false")) {
+                backupPriv = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid backup privileges:" + backupPrivProp);
+            }
+            copiedProperties.remove(PROP_BACKUP_PRIV);
+        }
+
+        // backup_catalog
+        String backupCatalogProp = copiedProperties.get(PROP_BACKUP_CATALOG);
+        if (backupCatalogProp != null) {
+            if (backupCatalogProp.equalsIgnoreCase("true")) {
+                backupCatalog = true;
+            } else if (backupCatalogProp.equalsIgnoreCase("false")) {
+                backupCatalog = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid backup catalog:" + backupCatalogProp);
+            }
+            copiedProperties.remove(PROP_BACKUP_CATALOG);
+        }
+
+        // backup_workload
+        String backupWorkloadGroupProp = copiedProperties.get(PROP_BACKUP_WORKLOAD_GROUP);
+        if (backupWorkloadGroupProp != null) {
+            if (backupWorkloadGroupProp.equalsIgnoreCase("true")) {
+                backupWorkloadGroup = true;
+            } else if (backupWorkloadGroupProp.equalsIgnoreCase("false")) {
+                backupWorkloadGroup = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid backup workload group:" + backupWorkloadGroupProp);
+            }
+            copiedProperties.remove(PROP_BACKUP_WORKLOAD_GROUP);
+        }
+
+        if (isBackupGlobal()) {
+            if (properties.get(PROP_BACKUP_PRIV) == null
+                    && properties.get(PROP_BACKUP_CATALOG) == null
+                    && properties.get(PROP_BACKUP_WORKLOAD_GROUP) == null) {
+                backupPriv = true;
+                backupCatalog = true;
+                backupWorkloadGroup = true;
+            }
+        } else {
+            backupPriv = false;
+            backupCatalog = false;
+            backupWorkloadGroup = false;
         }
 
         if (!copiedProperties.isEmpty()) {
