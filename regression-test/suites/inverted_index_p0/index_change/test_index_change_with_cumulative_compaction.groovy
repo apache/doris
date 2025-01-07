@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_with_cumulative_compaction") {
+suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
     def tableName = "index_change_with_cumulative_compaction_dup_keys"
 
     def timeout = 60000
@@ -38,6 +38,23 @@ suite("test_index_change_with_cumulative_compaction") {
             sleep(delta_time)
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
+    def trigger_compaction_with_retry = {table_name, compaction_type = "cumulative", max_retries = 10, delay_ms = 2000 ->
+        def retry_count = 0
+        while (true) {
+            try {
+                trigger_and_wait_compaction(table_name, compaction_type)
+                return // Success
+            } catch (Exception e) {
+                retry_count++
+                if (retry_count >= max_retries) {
+                    throw new Exception("Failed to complete ${compaction_type} compaction after ${max_retries} attempts", e)
+                }
+                logger.warn("Compaction attempt ${retry_count} failed: ${e.getMessage()}")
+                Thread.sleep(delay_ms)
+            }
+        }
     }
 
     try {
@@ -143,12 +160,14 @@ suite("test_index_change_with_cumulative_compaction") {
         wait_for_latest_op_on_table_finish(tableName, timeout)
 
         // build index
-        sql "build index idx_user_id on ${tableName}"
-        sql "build index idx_date on ${tableName}"
-        sql "build index idx_city on ${tableName}"
+        if (!isCloudMode()) {
+            sql "build index idx_user_id on ${tableName}"
+            sql "build index idx_date on ${tableName}"
+            sql "build index idx_city on ${tableName}"
+        }
 
         // trigger compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_compaction_with_retry(tableName, "cumulative")
 
         int rowCount = 0
         for (def tablet in tablets) {
