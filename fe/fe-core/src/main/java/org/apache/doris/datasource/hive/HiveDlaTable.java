@@ -36,9 +36,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public class HiveExternalTable extends HMSDlaTable {
+public class HiveDlaTable extends HMSDlaTable {
 
-    public HiveExternalTable(HMSExternalTable table) {
+    public HiveDlaTable(HMSExternalTable table) {
         super(table);
     }
 

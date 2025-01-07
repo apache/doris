@@ -157,7 +157,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
-    @SerializedName(value = "dlaTable")
     private HMSDlaTable dlaTable;
 
     // record the event update time when enable hms event listener
@@ -201,7 +200,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     dlaType = DLAType.HUDI;
                 } else if (supportedHiveTable()) {
                     dlaType = DLAType.HIVE;
-                    dlaTable = new HiveExternalTable(this);
+                    dlaTable = new HiveDlaTable(this);
                 } else {
                     // Should not reach here. Because `supportedHiveTable` will throw exception if not return true.
                     throw new NotSupportedException("Unsupported dlaType for table: " + getNameWithFullQualifiers());
@@ -308,6 +307,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        makeSureInitialized();
         return dlaTable.getPartitionColumns(snapshot);
     }
 
@@ -802,6 +802,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
+        makeSureInitialized();
         return dlaTable.getPartitionType(snapshot);
     }
 
@@ -811,6 +812,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) throws DdlException {
+        makeSureInitialized();
         return dlaTable.getPartitionColumnNames(snapshot);
     }
 
@@ -822,23 +824,27 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        makeSureInitialized();
         return dlaTable.getAndCopyPartitionItems(snapshot);
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        makeSureInitialized();
         return dlaTable.getPartitionSnapshot(partitionName, context, snapshot);
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        makeSureInitialized();
         return dlaTable.getTableSnapshot(context, snapshot);
     }
 
     @Override
     public boolean isPartitionColumnAllowNull() {
+        makeSureInitialized();
         return dlaTable.isPartitionColumnAllowNull();
     }
 
@@ -974,6 +980,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
+        makeSureInitialized();
         dlaTable.beforeMTMVRefresh(mtmv);
     }
 
