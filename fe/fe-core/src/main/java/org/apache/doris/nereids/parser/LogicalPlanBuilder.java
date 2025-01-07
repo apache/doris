@@ -5200,11 +5200,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowConvertLsc(ShowConvertLscContext ctx) {
-        return Optional.ofNullable(ctx.database)
-                .map(this::visitMultipartIdentifier)
-                .filter(parts -> parts.size() <= 1).flatMap(parts -> parts.stream().findFirst())
-                .map(ShowConvertLSCCommand::new)
-                .orElseGet(() -> new ShowConvertLSCCommand(null));
+        if (ctx.database == null) {
+            return new ShowConvertLSCCommand(null);
+        }
+
+        List<String> parts = visitMultipartIdentifier(ctx.database);
+        String databaseName = parts.get(parts.size() - 1);
+
+        if (parts.size() == 2 && !InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(parts.get(0))) {
+            throw new ParseException("The execution of this command is restricted to the internal catalog only.");
+        } else if (parts.size() > 2) {
+            throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
+        }
+
+        return new ShowConvertLSCCommand(databaseName);
     }
 }
 
