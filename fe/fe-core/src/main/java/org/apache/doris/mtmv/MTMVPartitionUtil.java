@@ -151,7 +151,10 @@ public class MTMVPartitionUtil {
         List<String> res = Lists.newArrayList();
         MTMVPartitionSyncConfig partitionSyncConfig = generateMTMVPartitionSyncConfigByProperties(
                 mtmv.getMvProperties());
-        long nowTruncSubSec = getNowTruncSubSec(partitionSyncConfig.getTimeUnit(), partitionSyncConfig.getSyncLimit());
+        long nowTruncSubSec = -1L;
+        if (!partitionSyncConfig.isDefaultConfig()) {
+            nowTruncSubSec = getNowTruncSubSec(partitionSyncConfig.getTimeUnit(), partitionSyncConfig.getSyncLimit());
+        }
         int relatedColPos = mtmv.getMvPartitionInfo().getRelatedColPos();
         for (Entry<Pair<String, PartitionItem>, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
             if (needDrop(mtmv, entry, relatedPartitionDescs, partitionSyncConfig, nowTruncSubSec, relatedColPos)) {
