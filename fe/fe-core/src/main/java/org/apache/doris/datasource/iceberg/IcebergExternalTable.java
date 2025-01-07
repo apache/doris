@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -280,7 +281,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public MvccSnapshot loadSnapshot() {
+    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot) {
         return new IcebergMvccSnapshot(getIcebergSnapshotCacheValue());
     }
 
