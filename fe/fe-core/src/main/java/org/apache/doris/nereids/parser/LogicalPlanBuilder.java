@@ -5203,16 +5203,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.database == null) {
             return new ShowConvertLSCCommand(null);
         }
-
         List<String> parts = visitMultipartIdentifier(ctx.database);
         String databaseName = parts.get(parts.size() - 1);
-
         if (parts.size() == 2 && !InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(parts.get(0))) {
             throw new ParseException("The execution of this command is restricted to the internal catalog only.");
         } else if (parts.size() > 2) {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
-
         return new ShowConvertLSCCommand(databaseName);
     }
 }
