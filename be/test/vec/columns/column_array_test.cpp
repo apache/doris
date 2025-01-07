@@ -370,7 +370,7 @@ TEST_F(ColumnArrayTest, InsertManyDictDataTest) {
 TEST_F(ColumnArrayTest, InsertManyContinuousBinaryDataTest) {
     auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         for (auto& col : array_columns) {
-            EXPECT_ANY_THROW(col->insert_many_continuous_binary_data(nullptr, 0, 0));
+            EXPECT_ANY_THROW(col->insert_many_continuous_binary_data(nullptr, 0, 1));
         }
     };
     assert_insert_many_continuous_binary_data(array_columns, serdes, callback);
@@ -599,7 +599,10 @@ TEST_F(ColumnArrayTest, ConvertToPredicateColumnIfDictionaryTest) {
 
 // test assert_convert_dict_codes_if_necessary_callback
 TEST_F(ColumnArrayTest, ConvertDictCodesIfNecessaryTest) {
-    assert_convert_dict_codes_if_necessary_callback(array_columns, nullptr);
+    auto callback = [&](IColumn* col, size_t index) {
+        checkColumn(*col->get_ptr(), *array_columns[index], *array_types[index], col->size());
+    };
+    assert_convert_dict_codes_if_necessary_callback(array_columns, callback);
 }
 
 // test assert_copy_date_types_callback

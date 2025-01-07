@@ -308,7 +308,7 @@ public:
                     assert_callback) {
         for (auto& col : load_cols) {
             // Create a column to verify `insert_many_strings` functionality
-            if (is_column<ColumnString>(*col)) {
+            if (!is_column<ColumnString>(*col)) {
                 EXPECT_ANY_THROW(col->insert_many_strings(nullptr, 0));
             } else {
                 assert_callback(load_cols, serders);
@@ -322,7 +322,7 @@ public:
                     assert_callback) {
         for (auto& col : load_cols) {
             // Create a column to verify `insert_many_strings_overflow` functionality
-            if (is_column<ColumnString>(*col)) {
+            if (!is_column<ColumnString>(*col)) {
                 // just expect throw exception as not support
                 EXPECT_ANY_THROW(col->insert_many_strings_overflow(nullptr, 0, 0));
             } else {
@@ -376,16 +376,15 @@ public:
                                                          DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `insert_from_multi_column` functionality
         MutableColumns verify_columns;
-        size_t max_size = 0;
         for (auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
-            max_size = std::max(max_size, col->size());
         }
         auto option = DataTypeSerDe::FormatOptions();
         // Insert data from `load_cols` to `verify_columns` using `insert_from_multi_column`
         std::vector<std::vector<std::string>> res;
-        std::vector<size_t> positions = {0, max_size >> 1, max_size - 1};
         for (size_t i = 0; i < load_cols.size(); ++i) {
+            size_t si = load_cols[i]->size();
+            std::vector<size_t> positions = {0, si >> 1, si - 1};
             auto& source_column = load_cols[i];
             std::vector<const IColumn*> s = {source_column.get(), source_column.get(),
                                              source_column.get()};
@@ -1254,12 +1253,18 @@ public:
                 LOG(INFO) << "now we are in shrink column : " << load_cols[i]->get_name()
                           << " with check length: " << insert_size
                           << " for column size : " << source_column->size();
+                size_t cnt = source_column->use_count();
                 ptr = source_column->shrink(insert_size);
                 LOG(INFO) << "use_count : " << source_column->use_count();
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
                 // check ptr is not the same
-                EXPECT_NE(ptr.get(), source_column.get());
+                if (cnt == 1) {
+                    // just return the origin column to avoid the copy
+                    EXPECT_EQ(ptr.get(), source_column.get());
+                } else {
+                    EXPECT_NE(ptr.get(), source_column.get());
+                }
                 // check after cut with assert_res
                 auto ser_col = ColumnString::create();
                 ser_col->reserve(ptr->size());
