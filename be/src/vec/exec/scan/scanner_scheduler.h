@@ -140,7 +140,7 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) {
         if (!_is_stop) {
-            RETURN_IF_ERROR(_scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); }));
+            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }
