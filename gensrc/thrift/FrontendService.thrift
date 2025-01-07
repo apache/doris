@@ -35,15 +35,6 @@ include "HeartbeatService.thrift"
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
 
-struct TSetSessionParams {
-    1: required string user
-}
-
-struct TAuthenticateParams {
-    1: required string user
-    2: required string passwd
-}
-
 struct TColumnDesc {
   1: required string columnName
   2: required Types.TPrimitiveType columnType
@@ -62,23 +53,6 @@ struct TColumnDesc {
 struct TColumnDef {
   1: required TColumnDesc columnDesc
   2: optional string comment
-}
-
-// Arguments to DescribeTable, which returns a list of column descriptors for a
-// given table
-struct TDescribeTableParams {
-  1: optional string db
-  2: required string table_name
-  3: optional string user   // deprecated
-  4: optional string user_ip    // deprecated
-  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
-  6: optional bool show_hidden_columns = false
-  7: optional string catalog
-}
-
-// Results of a call to describeTable()
-struct TDescribeTableResult {
-  1: required list<TColumnDef> columns
 }
 
 // Arguments to DescribeTables, which returns a list of column descriptors for
@@ -1527,7 +1501,6 @@ struct TFetchRunningQueriesRequest {
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
-    TDescribeTableResult describeTable(1: TDescribeTableParams params)
     TDescribeTablesResult describeTables(1: TDescribeTablesParams params)
     TShowVariableResult showVariables(1: TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
