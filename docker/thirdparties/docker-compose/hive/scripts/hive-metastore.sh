@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -x
+set -e
 
 nohup /opt/hive/bin/hive --service metastore &
 
@@ -27,7 +27,7 @@ sleep 10s
 # new cases should use separate dir
 hadoop fs -mkdir -p /user/doris/suites/
 
-lockfile1 = "mnt/scripts/run-data.lock"
+lockfile1="mnt/scripts/run-data.lock"
 
 # wait lockfile
 while [ -f "$lockfile1" ]; do
@@ -47,7 +47,7 @@ find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P 10 -I {} sh
 
 rm -f "$lockfile1"
 
-lockfile2 = "mnt/scripts/download-data.lock"
+lockfile2="mnt/scripts/download-data.lock"
 
 # wait lockfile
 while [ -f "$lockfile2" ]; do
