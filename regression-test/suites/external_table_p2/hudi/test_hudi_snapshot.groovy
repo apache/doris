@@ -19,6 +19,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
     String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
+        return
     }
 
     String catalog_name = "test_hudi_snapshot"
@@ -66,7 +67,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q10 """SELECT * FROM ${table_name} WHERE rating > 4.5 ORDER BY event_time DESC LIMIT 5;"""
 
         // Query all users' signup dates and limit output
-        qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY signup_date DESC LIMIT 10;"""
+        qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY user_id DESC LIMIT 10;"""
 
         // Query users with a specific postal code and limit output
         qt_q12 """SELECT * FROM ${table_name} WHERE struct_element(address, 'postal_code') = '80312' ORDER BY event_time LIMIT 5;"""
