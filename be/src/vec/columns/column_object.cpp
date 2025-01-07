@@ -1294,7 +1294,24 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-void ColumnObject::set_num_rows(size_t n) {
+void ColumnObject::set_num_rows_and_align(size_t n) {
+    for (auto& entry : subcolumns) {
+        if (auto size = entry->data.size(); size < n) {
+            entry->data.insert_many_defaults(n - size);
+        } else if (size > n) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            " subcolumn path is: {}, this subcolumn has more data, origin size is: "
+                            "{}, new size is: {}",
+                            entry->path.get_path(), size, n);
+        }
+    }
+    if (auto size = serialized_sparse_column->size(); size < n) {
+        serialized_sparse_column->insert_many_defaults(n - size);
+    } else if (size > n) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "sparse column has more data, origin size is: {}, new size is: {}", size,
+                        n);
+    }
     num_rows = n;
 }
 

@@ -184,7 +184,7 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
         num_rows = *reinterpret_cast<const uint32_t*>(buf);
-        column_object->set_num_rows(num_rows);
+        column_object->set_num_rows_and_align(num_rows);
         buf += sizeof(uint32_t);
     }
 

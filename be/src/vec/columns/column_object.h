@@ -342,7 +342,10 @@ public:
 
     void incr_num_rows(size_t n) { num_rows += n; }
 
-    void set_num_rows(size_t n);
+    // Sets the number of rows and aligns all subcolumns and the serialized sparse column accordingly.
+    // During serialization and reading, each subcolumn is processed separately and then added to the column object,
+    // ultimately aligning all columns through this method.
+    void set_num_rows_and_align(size_t n);
 
     size_t rows() const { return num_rows; }
 
