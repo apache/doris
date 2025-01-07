@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/thread_context.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -49,6 +50,14 @@ struct RuntimeFilterContext {
     bool ignored = false;
     bool disabled = false;
     std::string err_msg;
+    QueryThreadContext query_thread_context;
+
+    RuntimeFilterContext() { query_thread_context.init_unlocked(); }
+
+    ~RuntimeFilterContext() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_thread_context.query_mem_tracker);
+        hybrid_set.reset();
+    }
 };
 
 using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;

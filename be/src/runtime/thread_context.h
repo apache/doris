@@ -575,21 +575,27 @@ public:
 
 // if use mem hook, avoid repeated consume.
 // must call create_thread_local_if_not_exits() before use thread_context().
-#define CONSUME_THREAD_MEM_TRACKER(size)                                                       \
-    do {                                                                                       \
-        if (size == 0 || doris::use_mem_hook) {                                                \
-            break;                                                                             \
-        }                                                                                      \
-        if (doris::pthread_context_ptr_init) {                                                 \
-            DCHECK(bthread_self() == 0);                                                       \
-            doris::thread_context_ptr->consume_memory(size);                                   \
-        } else if (bthread_self() != 0) {                                                      \
-            static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key))           \
-                    ->consume_memory(size);                                                    \
-        } else if (doris::ExecEnv::ready()) {                                                  \
-            MEMORY_ORPHAN_CHECK();                                                             \
-            doris::ExecEnv::GetInstance()->orphan_mem_tracker()->consume_no_update_peak(size); \
-        }                                                                                      \
+#define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
+    do {                                                                                           \
+        if (size == 0 || doris::use_mem_hook) {                                                    \
+            break;                                                                                 \
+        }                                                                                          \
+        if (doris::pthread_context_ptr_init) {                                                     \
+            DCHECK(bthread_self() == 0);                                                           \
+            doris::thread_context_ptr->consume_memory(size);                                       \
+        } else if (bthread_self() != 0) {                                                          \
+            auto* bthread_context =                                                                \
+                    static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key));      \
+            DCHECK(bthread_context != nullptr);                                                    \
+            if (bthread_context != nullptr) {                                                      \
+                bthread_context->consume_memory(size);                                             \
+            } else {                                                                               \
+                doris::ExecEnv::GetInstance()->orphan_mem_tracker()->consume_no_update_peak(size); \
+            }                                                                                      \
+        } else if (doris::ExecEnv::ready()) {                                                      \
+            MEMORY_ORPHAN_CHECK();                                                                 \
+            doris::ExecEnv::GetInstance()->orphan_mem_tracker()->consume_no_update_peak(size);     \
+        }                                                                                          \
     } while (0)
 #define RELEASE_THREAD_MEM_TRACKER(size) CONSUME_THREAD_MEM_TRACKER(-size)
 
