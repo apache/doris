@@ -24,16 +24,28 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -47,11 +59,16 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TScanRangeParams;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.ProtocolStringList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -61,6 +78,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -70,12 +89,14 @@ import java.util.stream.Collectors;
 public class GroupCommitPlanner {
     private static final Logger LOG = LogManager.getLogger(GroupCommitPlanner.class);
     public static final String SCHEMA_CHANGE = " is blocked on schema change";
+    private static final int MAX_RETRY_FOR_SCHEMA_VERSION_MISMATCH = 3;
 
-    protected Database db;
-    protected OlapTable table;
-    protected TUniqueId loadId;
-    protected Backend backend;
-    private TPipelineFragmentParamsList paramsList;
+    private Database db;
+    private OlapTable table;
+    public int baseSchemaVersion;
+    private int targetColumnSize;
+    private TUniqueId loadId;
+    private long backendId;
     private ByteString execPlanFragmentParamsBytes;
 
     public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
@@ -83,6 +104,7 @@ public class GroupCommitPlanner {
             throws UserException, TException {
         this.db = db;
         this.table = table;
+        this.baseSchemaVersion = table.getBaseSchemaVersion();
         if (Env.getCurrentEnv().getGroupCommitManager().isBlock(this.table.getId())) {
             String msg = "insert table " + this.table.getId() + SCHEMA_CHANGE;
             LOG.info(msg);
@@ -123,16 +145,16 @@ public class GroupCommitPlanner {
         Preconditions.checkState(scanRangeParams.size() == 1);
         loadId = queryId;
         // see BackendServiceProxy#execPlanFragmentsAsync
-        paramsList = new TPipelineFragmentParamsList();
+        TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
         paramsList.addToParamsList(tRequest);
         execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
     }
 
     public PGroupCommitInsertResponse executeGroupCommitInsert(ConnectContext ctx,
             List<InternalService.PDataRow> rows)
-            throws DdlException, RpcException, ExecutionException, InterruptedException {
-        selectBackends(ctx);
-
+            throws DdlException, RpcException, ExecutionException, InterruptedException, LoadException {
+        Backend backend = Env.getCurrentEnv().getGroupCommitManager().selectBackendForGroupCommit(table.getId(), ctx);
+        backendId = backend.getId();
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
@@ -145,21 +167,8 @@ public class GroupCommitPlanner {
         return future.get();
     }
 
-    protected void selectBackends(ConnectContext ctx) throws DdlException {
-        try {
-            backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(this.table.getId(), ctx);
-        } catch (LoadException e) {
-            throw new DdlException("No suitable backend");
-        }
-    }
-
-    public Backend getBackend() {
-        return backend;
-    }
-
-    public TPipelineFragmentParamsList getParamsList() {
-        return paramsList;
+    public long getBackendId() {
+        return backendId;
     }
 
     public List<InternalService.PDataRow> getRows(NativeInsertStmt stmt) throws UserException {
@@ -167,12 +176,7 @@ public class GroupCommitPlanner {
         SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
-                            .collect(Collectors.joining(",")));
-                }
-                rows.add(data);
+                rows.add(getOneRow(row));
             }
         } else {
             List<Expr> exprList = new ArrayList<>();
@@ -183,13 +187,147 @@ public class GroupCommitPlanner {
                     exprList.add(resultExpr);
                 }
             }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList, FormatOptions.getDefault());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
-                        .collect(Collectors.joining(",")));
-            }
-            rows.add(data);
+            rows.add(getOneRow(exprList));
         }
         return rows;
+    }
+
+    private static InternalService.PDataRow getOneRow(List<Expr> row) throws UserException {
+        InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                    .collect(Collectors.joining(",")));
+        }
+        return data;
+    }
+
+    private static List<InternalService.PDataRow> getRows(int targetColumnSize, List<Expr> rows) throws UserException {
+        List<InternalService.PDataRow> data = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i += targetColumnSize) {
+            List<Expr> row = rows.subList(i, Math.min(i + targetColumnSize, rows.size()));
+            data.add(getOneRow(row));
+        }
+        return data;
+    }
+
+    // prepare command
+    public static void executeGroupCommitInsert(ConnectContext ctx, PreparedStatementContext preparedStmtCtx,
+            StatementContext statementContext) throws Exception {
+        PrepareCommand prepareCommand = preparedStmtCtx.command;
+        InsertIntoTableCommand command = (InsertIntoTableCommand) (prepareCommand.getLogicalPlan());
+        OlapTable table = (OlapTable) command.getTable(ctx);
+        for (int retry = 0; retry < MAX_RETRY_FOR_SCHEMA_VERSION_MISMATCH; retry++) {
+            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
+                String msg = "insert table " + table.getId() + SCHEMA_CHANGE;
+                LOG.info(msg);
+                throw new DdlException(msg);
+            }
+            boolean reuse = false;
+            GroupCommitPlanner groupCommitPlanner;
+            if (preparedStmtCtx.groupCommitPlanner.isPresent()
+                    && table.getBaseSchemaVersion() == preparedStmtCtx.groupCommitPlanner.get().baseSchemaVersion) {
+                groupCommitPlanner = preparedStmtCtx.groupCommitPlanner.get();
+                reuse = true;
+            } else {
+                // call nereids planner to check to sql
+                command.initPlan(ctx, new StmtExecutor(new ConnectContext(), ""), false);
+                List<String> targetColumnNames = command.getTargetColumns();
+                groupCommitPlanner = EnvFactory.getInstance()
+                        .createGroupCommitPlanner((Database) table.getDatabase(), table,
+                                targetColumnNames, ctx.queryId(),
+                                ConnectContext.get().getSessionVariable().getGroupCommit());
+                // TODO use planner column size
+                groupCommitPlanner.targetColumnSize = targetColumnNames == null ? table.getBaseSchema().size() :
+                        targetColumnNames.size();
+                preparedStmtCtx.groupCommitPlanner = Optional.of(groupCommitPlanner);
+            }
+            if (statementContext.getIdToPlaceholderRealExpr().size() % groupCommitPlanner.targetColumnSize != 0) {
+                throw new DdlException("Column size: " + statementContext.getIdToPlaceholderRealExpr().size()
+                        + " does not match with target column size: " + groupCommitPlanner.targetColumnSize);
+            }
+            Map<PlaceholderId, Expr> valueExprs = Maps.newTreeMap();
+            for (Entry<PlaceholderId, Expression> entry : statementContext.getIdToPlaceholderRealExpr()
+                    .entrySet()) {
+                valueExprs.put(entry.getKey(), ((Literal) entry.getValue()).toLegacyLiteral());
+            }
+            List<InternalService.PDataRow> rows = getRows(groupCommitPlanner.targetColumnSize,
+                    valueExprs.values().stream().collect(Collectors.toList()));
+            PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
+            boolean needRetry = groupCommitPlanner.handleResponse(ctx, retry, reuse, response);
+            if (needRetry) {
+                preparedStmtCtx.groupCommitPlanner = Optional.empty();
+            } else {
+                break;
+            }
+        }
+    }
+
+    private boolean handleResponse(ConnectContext ctx, int retry, boolean reuse, PGroupCommitInsertResponse response)
+            throws DdlException {
+        TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
+        ProtocolStringList errorMsgsList = response.getStatus().getErrorMsgsList();
+        if (code == TStatusCode.DATA_QUALITY_ERROR && !errorMsgsList.isEmpty() && errorMsgsList.get(0)
+                .contains("schema version not match")) {
+            LOG.info("group commit insert failed. query: {}, db: {}, table: {}, schema version: {}, "
+                            + "backend: {}, status: {}, retry: {}",
+                    DebugUtil.printId(ctx.queryId()), db.getId(), table.getId(),
+                    baseSchemaVersion, backendId, response.getStatus(), retry);
+            if (retry < MAX_RETRY_FOR_SCHEMA_VERSION_MISMATCH) {
+                return true;
+            } else {
+                handleInsertFailed(ctx, response);
+            }
+        } else if (code != TStatusCode.OK) {
+            handleInsertFailed(ctx, response);
+        }
+        setReturnInfo(ctx, reuse, response);
+        return false;
+    }
+
+    private void handleInsertFailed(ConnectContext ctx, PGroupCommitInsertResponse response) throws DdlException {
+        String errMsg = "group commit insert failed. db: " + db.getId() + ", table: " + table.getId()
+                + ", query: " + DebugUtil.printId(ctx.queryId()) + ", backend: " + backendId
+                + ", status: " + response.getStatus();
+        if (response.hasErrorUrl()) {
+            errMsg += ", error url: " + response.getErrorUrl();
+        }
+        ErrorReport.reportDdlException(errMsg.replaceAll("%", "%%"), ErrorCode.ERR_FAILED_WHEN_INSERT);
+    }
+
+    private void setReturnInfo(ConnectContext ctx, boolean reuse, PGroupCommitInsertResponse response) {
+        String labelName = response.getLabel();
+        TransactionStatus txnStatus = TransactionStatus.PREPARE;
+        long txnId = response.getTxnId();
+        long loadedRows = response.getLoadedRows();
+        long filteredRows = (int) response.getFilteredRows();
+        String errorUrl = response.getErrorUrl();
+        // the same as {@OlapInsertExecutor#setReturnInfo}
+        // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
+        // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
+        StringBuilder sb = new StringBuilder();
+        sb.append("{'label':'").append(labelName).append("', 'status':'").append(txnStatus.name());
+        sb.append("', 'txnId':'").append(txnId).append("'");
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            sb.append("', 'rows':'").append(loadedRows).append("'");
+        }
+        /*if (!Strings.isNullOrEmpty(errMsg)) {
+            sb.append(", 'err':'").append(errMsg).append("'");
+        }*/
+        if (!Strings.isNullOrEmpty(errorUrl)) {
+            sb.append(", 'err_url':'").append(errorUrl).append("'");
+        }
+        sb.append(", 'query_id':'").append(DebugUtil.printId(ctx.queryId())).append("'");
+        if (reuse) {
+            sb.append(", 'reuse_group_commit_plan':'").append(true).append("'");
+        }
+        sb.append("}");
+
+        ctx.getState().setOk(loadedRows, (int) filteredRows, sb.toString());
+        // set insert result in connection context,
+        // so that user can use `show insert result` to get info of the last insert operation.
+        ctx.setOrUpdateInsertResult(txnId, labelName, db.getFullName(), table.getName(),
+                txnStatus, loadedRows, (int) filteredRows);
+        // update it, so that user can get loaded rows in fe.audit.log
+        ctx.updateReturnRows((int) loadedRows);
     }
 }
