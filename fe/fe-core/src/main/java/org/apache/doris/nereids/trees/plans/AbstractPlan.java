@@ -228,6 +228,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     public void updateActualRowCount(long actualRowCount) {
-        statistics.setActualRowCount(actualRowCount);
+        if (statistics != null) {
+            statistics.setActualRowCount(actualRowCount);
+        }
     }
 }
