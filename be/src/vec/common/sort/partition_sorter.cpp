@@ -86,6 +86,7 @@ void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
     }
     _output_total_rows = 0;
     _output_distinct_rows = 0;
+    _prepared_finish = false;
 }
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {

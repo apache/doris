@@ -41,7 +41,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     output_block->clear_column_data();
-
     auto get_data_from_blocks_buffer = false;
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
@@ -89,7 +88,7 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     bool current_eos = false;
     auto& sorters = local_state._shared_state->partition_sorts;
     auto sorter_size = sorters.size();
-    if (local_state._sort_idx < sorter_size && sorters[local_state._sort_idx]->prepared_finish()) {
+    if (local_state._sort_idx < sorter_size) {
         RETURN_IF_ERROR(
                 sorters[local_state._sort_idx]->get_next(state, output_block, &current_eos));
         COUNTER_UPDATE(local_state._sorted_partition_output_rows_counter, output_block->rows());
@@ -97,7 +96,6 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     if (current_eos) {
         // current sort have eos, so get next idx
         sorters[local_state._sort_idx].reset(nullptr);
-        LOG(INFO) << "asd reset sorter " << local_state._sort_idx;
         local_state._sort_idx++;
         if (local_state._sort_idx < sorter_size &&
             !sorters[local_state._sort_idx]->prepared_finish()) {
