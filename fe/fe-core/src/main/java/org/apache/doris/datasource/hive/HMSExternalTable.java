@@ -456,37 +456,46 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
 
         String originalText = getViewOriginalText();
-        /**
-         * Get the SQL text definition of the view.
-         * For Presto views, the definition is stored in the format:
-         * View Original Text: /* Presto View: <base64-encoded-json> * /
-         *
-         * The base64 encoded JSON contains the following fields:
-         * {
-         *   "originalSql": "SELECT * FROM employees",  // The original SQL statement
-         *   "catalog": "hive",                               // The data catalog name
-         *   "schema": "mmc_hive",                           // The schema name
-         *    .....
-         * }
-         */
-        if (originalText != null && originalText.contains("/* Presto View: ")) {
-            try {
-                String base64String = originalText.substring(
-                        originalText.indexOf("/* Presto View: ") + "/* Presto View: ".length(),
-                        originalText.lastIndexOf(" */")
-                ).trim();
-                byte[] decodedBytes = Base64.getDecoder().decode(base64String);
-                String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
-                JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
-                if (jsonObject.has("originalSql")) {
-                    return jsonObject.get("originalSql").getAsString();
-                }
-            } catch (Exception e) {
-                LOG.warn("Decoding Presto view definition failed", e);
-            }
+        String trinoViewSql = parseTrinoViewDefinition(originalText);
+        return trinoViewSql != null ? trinoViewSql : originalText;
+    }
+
+    /**
+     * Parse Trino/Presto view definition from the original text.
+     * The definition is stored in the format: /* Presto View: <base64-encoded-json> * /
+     *
+     * The base64 encoded JSON contains the following fields:
+     * {
+     *   "originalSql": "SELECT * FROM employees",  // The original SQL statement
+     *   "catalog": "hive",                        // The data catalog name
+     *   "schema": "mmc_hive",                     // The schema name
+     *   ...
+     * }
+     *
+     * @param originalText The original view definition text
+     * @return The parsed SQL statement, or null if parsing fails
+     */
+    private String parseTrinoViewDefinition(String originalText) {
+        if (originalText == null || !originalText.contains("/* Presto View: ")) {
+            return null;
         }
 
-        return originalText;
+        try {
+            String base64String = originalText.substring(
+                    originalText.indexOf("/* Presto View: ") + "/* Presto View: ".length(),
+                    originalText.lastIndexOf(" */")
+            ).trim();
+            byte[] decodedBytes = Base64.getDecoder().decode(base64String);
+            String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
+            JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
+
+            if (jsonObject.has("originalSql")) {
+                return jsonObject.get("originalSql").getAsString();
+            }
+        } catch (Exception e) {
+            LOG.warn("Decoding Presto view definition failed", e);
+        }
+        return null;
     }
 
     public String getViewExpandedText() {
