@@ -35,7 +35,7 @@ int doris_build_version_patch() {
     return DORIS_BUILD_VERSION_PATCH;
 }
 int doris_build_version_hotfix() {
-    return DORIS_BUILD_VERSION_HOTFIX;
+    return 10;
 }
 const char* doris_build_version_rc_version() {
     return DORIS_BUILD_VERSION_RC_VERSION;

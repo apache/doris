@@ -47,7 +47,32 @@
 #include "util/mem_info.h"
 #include "util/thrift_server.h"
 
+// Global variables to store command line arguments
+int mode = 0;
+int thread_pool_size = 0;
+int thread_pool_queue_size = 0;
+int producer_size = 0;
+int duration = 0;
+
 int main(int argc, char** argv) {
+    if (argc < 4) {
+        std::cout << "Usage: " << argv[0] << " <mode> <iterations> <threads> [producers] [duration] [io_flag]\n";
+        std::cout << "Modes: 1 - Parallel, 2 - ParallelWithThreadPool\n";
+        std::cout << "io_flag: 0 for no IO operations, 1 for IO operations (only applicable for mode 6)\n";
+        return 1;
+    }
+
+    mode = std::stoi(argv[1]);
+    std::cout << "Mode: " << mode << "\n";
+    thread_pool_size = std::stoi(argv[2]);
+    std::cout << "Thread pool size: " << thread_pool_size << "\n";
+    thread_pool_queue_size = std::stoi(argv[3]);
+    std::cout << "Thread pool queue size: " << thread_pool_queue_size << "\n";
+    producer_size = (argc > 4) ? std::stoi(argv[4]) : 1;
+    std::cout << "Producer size: " << producer_size << "\n";
+    duration = (argc > 5) ? std::stoi(argv[5]) : 10;
+    std::cout << "Duration: " << duration << "\n";
+
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     // Used for unit test
