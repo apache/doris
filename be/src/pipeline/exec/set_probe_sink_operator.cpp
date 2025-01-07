@@ -86,8 +86,9 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                                 process_hashtable_ctx(&local_state, probe_rows);
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
-                        LOG(FATAL) << "FATAL: uninited hash table";
-                        __builtin_unreachable();
+                        LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator (id= "
+                                     << Base::node_id() << ")";
+                        return Status::OK();
                     }
                 },
                 local_state._shared_state->hash_table_variants->method_variant));
@@ -258,8 +259,8 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
 
                     arg.reset();
                 } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                    __builtin_unreachable();
+                    LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator (id= "
+                                 << Base::node_id() << ")";
                 }
             },
             hash_table_variants->method_variant);
