@@ -46,6 +46,12 @@ public:
                             "DataTypeAggState function get failed, type={}", do_get_name());
         }
         _agg_serialized_type = _agg_function->get_serialized_type();
+        if (_agg_serialized_type->get_type_as_type_descriptor().type != TYPE_STRING &&
+            _agg_serialized_type->get_type_as_type_descriptor().type != INVALID_TYPE) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "meet invalid serialized_type of agg state nested function {}",
+                            function_name);
+        }
     }
 
     const char* get_family_name() const override { return "AggState"; }
