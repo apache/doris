@@ -519,7 +519,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                             }
                             break;
                         }
-                        if (column.getType().isFloatingPointType()) {
+                        if (!column.getType().couldBeShortKey()) {
                             break;
                         }
                         if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -530,8 +530,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                         column.setIsKey(true);
                     }
                     if (theBeginIndexOfValue == 0) {
-                        throw new AnalysisException(
-                                "The first column could not be float or double type, use decimal instead");
+                        throw new AnalysisException("The first column could not be float, double or complex type "
+                            + "like array, struct, map, json, variant.");
                     }
                     // supply value
                     for (; theBeginIndexOfValue < selectItems.size(); theBeginIndexOfValue++) {
