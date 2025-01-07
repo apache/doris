@@ -188,7 +188,6 @@ public class Coordinator implements CoordInterface {
 
     protected ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
 
-    // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
     private FragmentIdMapping<DistributedPlan> distributedPlans;
 

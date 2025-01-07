@@ -27,7 +27,6 @@ include "Planner.thrift"
 include "DataSinks.thrift"
 include "Data.thrift"
 include "RuntimeProfile.thrift"
-include "PaloService.thrift"
 
 // constants for TQueryOptions.num_nodes
 const i32 NUM_NODES_ALL = 0
@@ -623,11 +622,6 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
-// fold constant expr
-struct TExprMap {
-  1: required map<string, Exprs.TExpr> expr_map
-}
-
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
@@ -649,9 +643,6 @@ struct TTransmitDataParams {
 
   // required in V1
   4: optional Types.TPlanNodeId dest_node_id
-
-  // required in V1
-  5: optional Data.TRowBatch row_batch
 
   // if set to true, indicates that no more row batches will be sent
   // for this dest_node_id
@@ -675,66 +666,6 @@ struct TTransmitDataResult {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
-}
-
-// open a tablet writer
-struct TTabletWriterOpenParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-    3: required i64 txn_id
-    4: required Descriptors.TOlapTableSchemaParam schema
-    5: required list<TTabletWithPartition> tablets
-
-    6: required i32 num_senders
-}
-
-struct TTabletWriterOpenResult {
-    1: required Status.TStatus status
-}
-
-// add batch to tablet writer
-struct TTabletWriterAddBatchParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i64 packet_seq
-    4: required list<Types.TTabletId> tablet_ids
-    5: required Data.TRowBatch row_batch
-
-    6: required i32 sender_no
-}
-
-struct TTabletWriterAddBatchResult {
-    1: required Status.TStatus status
-}
-
-struct TTabletWriterCloseParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCloseResult {
-    1: required Status.TStatus status
-}
-
-//
-struct TTabletWriterCancelParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCancelResult {
-}
-
-struct TFetchDataParams {
-  1: required PaloInternalServiceVersion protocol_version
-  // required in V1
-  // query id which want to fetch data
-  2: required Types.TUniqueId fragment_instance_id
 }
 
 struct TFetchDataResult {
