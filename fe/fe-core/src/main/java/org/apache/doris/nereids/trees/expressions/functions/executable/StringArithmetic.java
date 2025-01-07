@@ -318,7 +318,20 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
-        return new IntegerLiteral(second.getValue().trim().indexOf(first.getValue()) + 1);
+        return new IntegerLiteral(second.getValue().indexOf(first.getValue()) + 1);
+    }
+
+    /**
+     * Executable arithmetic functions Locate
+     */
+    @ExecFunction(name = "locate")
+    public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
+        int result = second.getValue().indexOf(first.getValue()) + 1;
+        if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
+                second.getValue().length()).contains(first.getValue())) {
+            result = 0;
+        }
+        return new IntegerLiteral(result);
     }
 
     /**
@@ -333,12 +346,14 @@ public class StringArithmetic {
      * Executable arithmetic functions Ascii
      */
     @ExecFunction(name = "ascii")
-    public static Expression ascii(StringLikeLiteral first) {
+    public static Expression ascii(StringLikeLiteral first) throws UnsupportedEncodingException {
         if (first.getValue().length() == 0) {
             return new IntegerLiteral(0);
         }
-        char firstChar = first.getValue().charAt(0);
-        return new IntegerLiteral(firstChar);
+        String character = first.getValue();
+        byte[] utf8Bytes = character.getBytes("UTF-8");
+        int firstByteAscii = utf8Bytes[0] & 0xFF;
+        return new IntegerLiteral(firstByteAscii);
     }
 
     /**
@@ -583,7 +598,7 @@ public class StringArithmetic {
     }
 
     private static int findStringInSet(String target, String input) {
-        String[] split = input.split(",");
+        String[] split = input.split(",", -1);
         for (int i = 0; i < split.length; i++) {
             if (split[i].equals(target)) {
                 return i + 1;
@@ -605,6 +620,10 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "repeat")
     public static Expression repeat(StringLikeLiteral first, IntegerLiteral second) {
+        // when it is too large for fe to make result string, do not folding on fe, limit 1 MB
+        if ((first.getValue().length() * second.getValue()) > 1000000) {
+            throw new AnalysisException("repeat too large to fold const by fe");
+        }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.getValue(); i++) {
             sb.append(first.getValue());
@@ -627,6 +646,10 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "space")
     public static Expression space(IntegerLiteral first) {
+        // when it is too large for fe to make result string, do not folding on fe, limit 1 MB
+        if (first.getValue() > 1000000) {
+            throw new AnalysisException("space too large to fold const by fe");
+        }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < first.getValue(); i++) {
             sb.append(' ');
@@ -639,7 +662,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "split_by_char")
     public static Expression splitByChar(StringLikeLiteral first, StringLikeLiteral second) {
-        String[] result = first.getValue().split(second.getValue());
+        String[] result = first.getValue().split(second.getValue(), -1);
         List<Literal> items = new ArrayList<>();
         for (int i = 1; i < result.length; i++) {
             items.add((Literal) castStringLikeLiteral(first, result[i]));
@@ -666,16 +689,16 @@ public class StringArithmetic {
             if (".$|()[{^?*+\\".contains(separator) || separator.startsWith("\\")) {
                 separator = "\\" + separator;
             }
-            parts = sb.reverse().toString().split(separator);
+            parts = sb.reverse().toString().split(separator, -1);
         } else {
             if (".$|()[{^?*+\\".contains(separator) || separator.startsWith("\\")) {
                 separator = "\\" + separator;
             }
-            parts = first.getValue().split(separator);
+            parts = first.getValue().split(separator, -1);
         }
 
         if (parts.length < Math.abs(number.getValue()) || number.getValue() == 0) {
-            if (parts.length == Math.abs(number.getValue()) - 1) {
+            if (parts.length == Math.abs(number.getValue())) {
                 if (number.getValue() < 0 && first.getValue().startsWith(chr.getValue())
                         || number.getValue() > 0 && first.getValue().endsWith(chr.getValue())) {
                     return castStringLikeLiteral(first, "");
@@ -695,7 +718,10 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "substring_index")
     public static Expression substringIndex(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
-        String[] parts = first.getValue().split(chr.getValue());
+        if (chr.getValue().isEmpty()) {
+            return chr;
+        }
+        String[] parts = first.getValue().split(chr.getValue(), -1);
         if (Math.abs(number.getValue()) >= parts.length) {
             return first;
         }
@@ -904,13 +930,13 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, "");
         }
 
-        String[] urlParts = first.getValue().split("\\?");
+        String[] urlParts = first.getValue().split("\\?", -1);
         if (urlParts.length > 1) {
             String query = urlParts[1];
-            String[] pairs = query.split("&");
+            String[] pairs = query.split("&", -1);
 
             for (String pair : pairs) {
-                String[] keyValue = pair.split("=");
+                String[] keyValue = pair.split("=", -1);
                 if (second.getValue().equals(keyValue[0])) {
                     return castStringLikeLiteral(first, keyValue[1]);
                 }
