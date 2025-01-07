@@ -109,9 +109,8 @@ public class MTMVPartitionUtil {
             // if follow base table, not need compare with related table, only should compare with related partition
             excludedTriggerTables.add(relatedTable.getName());
             if (CollectionUtils.isEmpty(relatedPartitionNames)) {
-                LOG.warn("can not found related partition, partitionId: {}, mtmvName: {}, relatedTableName: {}",
-                        partitionName, mtmv.getName(), relatedTable.getName());
-                return false;
+                // history partition not have relatedPartitionNames, we think it is sync
+                return true;
             }
             isSyncWithPartition = isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames);
         }
