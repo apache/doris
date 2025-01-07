@@ -42,40 +42,6 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
     def choseDeadBeIndex = 1
     def table = "test_clean_tablet_when_rebalance"
 
-    def backendIdToHost = { ->
-        def spb = sql_return_maparray """SHOW BACKENDS"""
-        def beIdToHost = [:]
-        spb.each {
-            beIdToHost[it.BackendId] = it.Host
-        }
-        beIdToHost 
-    }
-
-    def getTabletAndBeHostFromFe = { ->
-        def result = sql_return_maparray """SHOW TABLETS FROM $table"""
-        def bes = backendIdToHost.call()
-        // tablet : host
-        def ret = [:]
-        result.each {
-            ret[it.TabletId] = bes[it.BackendId]
-        }
-        ret
-    }
-
-    def getTabletAndBeHostFromBe = { ->
-        def bes = cluster.getAllBackends()
-        def ret = [:]
-        bes.each { be ->
-            // {"msg":"OK","code":0,"data":{"host":"128.2.51.2","tablets":[{"tablet_id":10560},{"tablet_id":10554},{"tablet_id":10552}]},"count":3}
-            def data = Http.GET("http://${be.host}:${be.httpPort}/tablets_json?limit=all", true).data
-            def tablets = data.tablets.collect { it.tablet_id as String }
-            tablets.each{
-                ret[it] = data.host
-            }
-        }
-        ret
-    }
-
     def testCase = { deadTime -> 
         boolean beDeadLong = deadTime > rehashTime ? true : false
         logger.info("begin exec beDeadLong {}", beDeadLong)
@@ -86,12 +52,12 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
             """
         }
 
-        def beforeGetFromFe = getTabletAndBeHostFromFe()
-        def beforeGetFromBe = getTabletAndBeHostFromBe.call()
+        def beforeGetFromFe = getTabletAndBeHostFromFe(table)
+        def beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
         logger.info("before fe tablets {}, be tablets {}", beforeGetFromFe, beforeGetFromBe)
         beforeGetFromFe.each {
             assertTrue(beforeGetFromBe.containsKey(it.Key))
-            assertEquals(beforeGetFromBe[it.Key], it.Value)
+            assertEquals(beforeGetFromBe[it.Key], it.Value[1])
         }
 
         cluster.stopBackends(choseDeadBeIndex)
@@ -125,12 +91,12 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
             """
             sleep(1000)
         }
-        beforeGetFromFe = getTabletAndBeHostFromFe()
-        beforeGetFromBe = getTabletAndBeHostFromBe.call()
+        beforeGetFromFe = getTabletAndBeHostFromFe(table)
+        beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
         logger.info("after fe tablets {}, be tablets {}", beforeGetFromFe, beforeGetFromBe)
         beforeGetFromFe.each {
             assertTrue(beforeGetFromBe.containsKey(it.Key))
-            assertEquals(beforeGetFromBe[it.Key], it.Value)
+            assertEquals(beforeGetFromBe[it.Key], it.Value[1])
         }
     }
 
