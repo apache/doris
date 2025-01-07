@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -127,11 +128,10 @@ public class MaterializedViewUtils {
             materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
         }
         // Collect table relation map which is used to identify self join
-        List<CatalogRelation> catalogRelationObjs =
-                materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
+        List<CatalogRelation> catalogRelations = materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
         ImmutableMultimap.Builder<TableIdentifier, CatalogRelation> tableCatalogRelationMultimapBuilder =
                 ImmutableMultimap.builder();
-        for (CatalogRelation catalogRelation : catalogRelationObjs) {
+        for (CatalogRelation catalogRelation : catalogRelations) {
             tableCatalogRelationMultimapBuilder.put(new TableIdentifier(catalogRelation.getTable()), catalogRelation);
         }
         // Check sql pattern
@@ -319,6 +319,7 @@ public class MaterializedViewUtils {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql);
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(querySql, 0));
+        mvSqlStatementContext.setNeedLockTables(false);
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
@@ -343,11 +344,19 @@ public class MaterializedViewUtils {
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
-        return new MTMVCache(mvPlan, originPlan,
+        return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(),
                 planner.getCascadesContext().getMemo().getRoot().getStatistics(), null);
     }
 
-    private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
+    /**
+     * Check the query if Contains query operator
+     * Such sql as following should return true
+     * select * from orders TABLET(10098) because TABLET(10098) should return true
+     * select * from orders_partition PARTITION (day_2) because PARTITION (day_2)
+     * select * from orders index query_index_test because index query_index_test
+     * select * from orders TABLESAMPLE(20 percent) because TABLESAMPLE(20 percent)
+     * */
+    public static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
         public static final TableQueryOperatorChecker INSTANCE = new TableQueryOperatorChecker();
 
         @Override
@@ -358,12 +367,20 @@ public class MaterializedViewUtils {
             if (relation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) relation;
                 if (logicalOlapScan.getTableSample().isPresent()) {
+                    // Contain sample, select * from orders TABLESAMPLE(20 percent)
                     return true;
                 }
-                if (!logicalOlapScan.getSelectedTabletIds().isEmpty()) {
+                if (!logicalOlapScan.getManuallySpecifiedTabletIds().isEmpty()) {
+                    // Contain tablets, select * from orders TABLET(10098) because TABLET(10098)
                     return true;
                 }
                 if (!logicalOlapScan.getManuallySpecifiedPartitions().isEmpty()) {
+                    // Contain specified partitions, select * from orders_partition PARTITION (day_2)
+                    return true;
+                }
+                if (logicalOlapScan.getSelectedIndexId() != logicalOlapScan.getTable().getBaseIndexId()) {
+                    // Contains select index or use sync mv in rbo rewrite
+                    // select * from orders index query_index_test
                     return true;
                 }
             }
@@ -481,13 +498,14 @@ public class MaterializedViewUtils {
                 return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
-            PartitionType type = relatedTable.getPartitionType();
+            PartitionType type = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
             if (PartitionType.UNPARTITIONED.equals(type)) {
                 context.addFailReason(String.format("related base table is not partition table, the table is %s",
                         table.getName()));
                 return null;
             }
-            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
+            Set<Column> partitionColumnSet = new HashSet<>(
+                    relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable)));
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {
@@ -753,7 +771,7 @@ public class MaterializedViewUtils {
         private final String column;
         private final Set<String> failReasons = new HashSet<>();
         // This records the partition expression if exist
-        private Optional<Expression> partitionExpression;
+        private final Optional<Expression> partitionExpression;
 
         public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
                 Expression partitionExpression) {

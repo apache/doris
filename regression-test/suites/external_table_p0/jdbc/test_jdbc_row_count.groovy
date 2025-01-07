@@ -102,6 +102,36 @@ suite("test_jdbc_row_count", "p0,external,mysql,external_docker,external_docker_
         }
         assertEquals("3", result[0][2])
         sql """drop catalog ${catalog_name}"""
+
+        // Test oracle
+        catalog_name = "test_oracle_jdbc_row_count";
+        String oracle_port = context.config.otherConfigs.get("oracle_11_port");
+        String SID = "XE";
+        driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
+        sql """drop catalog if exists ${catalog_name} """
+        sql """
+            create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver"
+            );
+        """
+        sql """use ${catalog_name}.DORIS_TEST"""
+        result = sql """show table stats STUDENT"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 30; i++) {
+            result = sql """show table stats STUDENT""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertTrue("4".equals(result[0][2]) || "-1".equals(result[0][2]))
+        sql """drop catalog ${catalog_name}"""
     }
 }
 

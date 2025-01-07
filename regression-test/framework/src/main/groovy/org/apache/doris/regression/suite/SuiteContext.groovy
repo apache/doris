@@ -156,7 +156,7 @@ class SuiteContext implements Closeable {
         def threadConnInfo = threadArrowFlightSqlConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
-            threadConnInfo.conn = config.getConnectionByArrowFlightSql(dbName)
+            threadConnInfo.conn = config.getConnectionByArrowFlightSqlDbName(dbName)
             threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadArrowFlightSqlConn.set(threadConnInfo)

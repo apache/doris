@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------filter((ifnull($c$1, FALSE) OR ifnull($c$2, FALSE)))
+------------------filter(OR[ifnull($c$1, FALSE),ifnull($c$2, FALSE)])
 --------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((c.c_customer_sk = catalog_sales.cs_ship_customer_sk)) otherCondition=()
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)) otherCondition=() build RFs:RF5 cd_demo_sk->[c_current_cdemo_sk]

@@ -92,7 +92,7 @@ public:
     void clear_cache() override;
 
     // Return number of deleted stale rowsets
-    int delete_expired_stale_rowsets();
+    uint64_t delete_expired_stale_rowsets();
 
     bool has_stale_rowsets() const { return !_stale_rs_version_map.empty(); }
 
@@ -170,7 +170,8 @@ public:
 
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
+                              const RowsetIdUnorderedSet& cur_rowset_ids,
+                              int64_t lock_id = -1) override;
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,

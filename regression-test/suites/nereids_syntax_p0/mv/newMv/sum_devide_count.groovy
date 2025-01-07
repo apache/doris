@@ -62,7 +62,7 @@ suite ("sum_devide_count") {
     order_qt_select_mv "select sum(k2)/count(k2) from sum_devide_count;"
 
     sql """set enable_stats=true;"""
-
+    sql """alter table sum_devide_count modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;", "kavg")
 
     mv_rewrite_success("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;", "kavg")

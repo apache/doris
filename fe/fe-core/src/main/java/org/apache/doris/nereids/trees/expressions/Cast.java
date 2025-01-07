@@ -95,7 +95,7 @@ public class Cast extends Expression implements UnaryExpression {
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         return "cast(" + child().toSql() + " as " + targetType.toSql() + ")";
     }
 

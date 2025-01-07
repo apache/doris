@@ -415,7 +415,8 @@ public class CloudEnv extends Env {
 
         Frontend frontend = checkFeExist(host, port);
         if (frontend == null) {
-            throw new DdlException("Frontend does not exist.");
+            throw new DdlException("frontend does not exist[" + NetUtils
+                .getHostPortInAccessibleFormat(host, port) + "]");
         }
 
         if (frontend.getRole() != role) {

@@ -62,7 +62,6 @@ TEST_F(PhraseQueryTest, test_parser_info) {
         EXPECT_EQ(query_info.slop, res3);
         EXPECT_EQ(query_info.ordered, res4);
         EXPECT_EQ(query_info.additional_terms.size(), res5);
-        std::cout << "--- 1 ---: " << query_info.to_string() << std::endl;
     };
 
     // "english/history off.gif ~20+" sequential_opt = true

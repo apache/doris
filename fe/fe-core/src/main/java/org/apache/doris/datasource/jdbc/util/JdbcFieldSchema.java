@@ -37,6 +37,7 @@ public class JdbcFieldSchema {
     // For NUMERIC/DECIMAL, columnSize means precision.
     protected Optional<Integer> columnSize;
     protected Optional<Integer> decimalDigits;
+    protected Optional<Integer> arrayDimensions;
     // Base number (usually 10 or 2)
     protected int numPrecRadix;
     // column description
@@ -53,6 +54,7 @@ public class JdbcFieldSchema {
         this.dataTypeName = other.dataTypeName;
         this.columnSize = other.columnSize;
         this.decimalDigits = other.decimalDigits;
+        this.arrayDimensions = other.arrayDimensions;
         this.numPrecRadix = other.numPrecRadix;
         this.remarks = other.remarks;
         this.charOctetLength = other.charOctetLength;
@@ -69,6 +71,19 @@ public class JdbcFieldSchema {
         this.isAllowNull = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls;
         this.remarks = rs.getString("REMARKS");
         this.charOctetLength = rs.getInt("CHAR_OCTET_LENGTH");
+    }
+
+    public JdbcFieldSchema(ResultSet rs, int arrayDimensions) throws SQLException {
+        this.columnName = rs.getString("COLUMN_NAME");
+        this.dataType = getInteger(rs, "DATA_TYPE").orElseThrow(() -> new IllegalStateException("DATA_TYPE is null"));
+        this.dataTypeName = Optional.ofNullable(rs.getString("TYPE_NAME"));
+        this.columnSize = getInteger(rs, "COLUMN_SIZE");
+        this.decimalDigits = getInteger(rs, "DECIMAL_DIGITS");
+        this.numPrecRadix = rs.getInt("NUM_PREC_RADIX");
+        this.isAllowNull = rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls;
+        this.remarks = rs.getString("REMARKS");
+        this.charOctetLength = rs.getInt("CHAR_OCTET_LENGTH");
+        this.arrayDimensions = Optional.of(arrayDimensions);
     }
 
     public JdbcFieldSchema(ResultSet rs, Map<String, String> dataTypeOverrides) throws SQLException {

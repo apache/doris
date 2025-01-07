@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -36,9 +37,6 @@ public:
 
     SchemaScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent) {
-        _finish_dependency =
-                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
         _data_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
                                                         parent->get_name() + "_DEPENDENCY", true);
     }
@@ -48,7 +46,6 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Dependency* finishdependency() override { return _finish_dependency.get(); }
     std::vector<Dependency*> dependencies() const override { return {_data_dependency.get()}; }
 
 private:
@@ -57,7 +54,6 @@ private:
     SchemaScannerParam _scanner_param;
     std::unique_ptr<SchemaScanner> _schema_scanner;
 
-    std::shared_ptr<Dependency> _finish_dependency;
     std::shared_ptr<Dependency> _data_dependency;
 };
 
@@ -93,4 +89,5 @@ private:
     std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

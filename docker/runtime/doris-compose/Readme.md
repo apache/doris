@@ -32,6 +32,8 @@ docker run hello-world
 
 if have problem with permission denied, then [add-docker-permission](https://docs.docker.com/engine/install/linux-postinstall/).
 
+Make sure BuildKit configured in the machine. if not follow [docker-with-BuildKit](https://docs.docker.com/build/buildkit/).
+
 ##### 2. The doris image should contains
 
 ```

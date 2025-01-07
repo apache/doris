@@ -32,6 +32,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =

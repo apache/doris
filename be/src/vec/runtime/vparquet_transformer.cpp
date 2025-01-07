@@ -65,6 +65,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/table/iceberg/arrow_schema_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function_helpers.h"
@@ -202,21 +203,20 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
     }
 }
 
-VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                         std::vector<std::string> column_names,
-                                         TParquetCompressionType::type compression_type,
-                                         bool parquet_disable_dictionary,
-                                         TParquetVersion::type parquet_version,
-                                         bool output_object_data,
-                                         const std::string* iceberg_schema_json)
+VParquetTransformer::VParquetTransformer(
+        RuntimeState* state, doris::io::FileWriter* file_writer,
+        const VExprContextSPtrs& output_vexpr_ctxs, std::vector<std::string> column_names,
+        TParquetCompressionType::type compression_type, bool parquet_disable_dictionary,
+        TParquetVersion::type parquet_version, bool output_object_data,
+        const std::string* iceberg_schema_json, const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
           _parquet_schemas(nullptr),
           _compression_type(compression_type),
           _parquet_disable_dictionary(parquet_disable_dictionary),
           _parquet_version(parquet_version),
-          _iceberg_schema_json(iceberg_schema_json) {
+          _iceberg_schema_json(iceberg_schema_json),
+          _iceberg_schema(iceberg_schema) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -234,6 +234,7 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
           _parquet_disable_dictionary(parquet_disable_dictionary),
           _parquet_version(parquet_version),
           _iceberg_schema_json(iceberg_schema_json) {
+    _iceberg_schema = nullptr;
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -265,21 +266,27 @@ Status VParquetTransformer::_parse_properties() {
 
 Status VParquetTransformer::_parse_schema() {
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        std::shared_ptr<arrow::DataType> type;
-        RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type,
-                                              _state->timezone()));
-        if (_parquet_schemas != nullptr) {
-            std::shared_ptr<arrow::Field> field =
-                    arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
-                                 _output_vexpr_ctxs[i]->root()->is_nullable());
-            fields.emplace_back(field);
-        } else {
-            std::shared_ptr<arrow::Field> field = arrow::field(
-                    _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
-            fields.emplace_back(field);
+    if (_iceberg_schema != nullptr) {
+        RETURN_IF_ERROR(
+                iceberg::ArrowSchemaUtil::convert(_iceberg_schema, _state->timezone(), fields));
+    } else {
+        for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+            std::shared_ptr<arrow::DataType> type;
+            RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type,
+                                                  _state->timezone()));
+            if (_parquet_schemas != nullptr) {
+                std::shared_ptr<arrow::Field> field =
+                        arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
+                                     _output_vexpr_ctxs[i]->root()->is_nullable());
+                fields.emplace_back(field);
+            } else {
+                std::shared_ptr<arrow::Field> field = arrow::field(
+                        _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
+                fields.emplace_back(field);
+            }
         }
     }
+
     if (_iceberg_schema_json != nullptr) {
         std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
                 arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});

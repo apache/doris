@@ -39,6 +39,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -234,7 +235,7 @@ public:
         if (first_init) {
             DCHECK(argument_size > 1);
             const auto& col =
-                    assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[2]);
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
             first_init = false;
@@ -379,7 +380,8 @@ public:
 
     AggFunctionOrthBitmapFunc(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>(argument_types_),
-              _argument_size(argument_types_.size()) {}
+              // The number of arguments will not exceed the size of an int
+              _argument_size(int(argument_types_.size())) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
 
@@ -413,3 +415,5 @@ private:
     int _argument_size;
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

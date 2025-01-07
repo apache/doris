@@ -30,6 +30,7 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename ColVecType, bool arg_is_nullable>
 struct Value {
@@ -141,6 +142,8 @@ public:
 
     bool has_set_value() { return _has_value; }
 
+    bool is_null() { return _data_value.is_null(); }
+
 protected:
     StoreType _data_value;
     bool _has_value = false;
@@ -235,24 +238,17 @@ public:
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "ReaderFunctionData do not support add_range_single_place");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("ReaderFunctionData do not support add_range_single_place"));
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "ReaderFunctionData do not support merge");
-        __builtin_unreachable();
+        throw doris::Exception(Status::FatalError("ReaderFunctionData do not support merge"));
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "ReaderFunctionData do not support serialize");
-        __builtin_unreachable();
+        throw doris::Exception(Status::FatalError("ReaderFunctionData do not support serialize"));
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "ReaderFunctionData do not support deserialize");
-        __builtin_unreachable();
+        throw doris::Exception(Status::FatalError("ReaderFunctionData do not support deserialize"));
     }
 
 private:
@@ -310,3 +306,4 @@ CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_nul
 #undef CREATE_READER_FUNCTION_WITH_NAME_AND_DATA
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

@@ -61,7 +61,7 @@ public class PipelineExecutionTaskBuilder {
                 backendServiceProxy,
                 buildMultiFragmentTasks(coordinatorContext, backendServiceProxy, workerToFragmentsParam)
         );
-        coordinatorContext.getJobProcessor().setSqlPipelineTask(pipelineExecutionTask);
+        coordinatorContext.getJobProcessor().setPipelineExecutionTask(pipelineExecutionTask);
         return pipelineExecutionTask;
     }
 

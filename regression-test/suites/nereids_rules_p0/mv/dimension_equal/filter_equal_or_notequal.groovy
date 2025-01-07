@@ -99,6 +99,9 @@ suite("filter_equal_or_notequal_case") {
     sql """analyze table orders_1 with sync;"""
     sql """analyze table lineitem_1 with sync;"""
 
+    sql """alter table orders_1 modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_1 modify column l_comment set stats ('row_count'='7');"""
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt

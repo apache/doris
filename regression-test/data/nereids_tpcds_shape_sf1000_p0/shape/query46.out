@@ -33,6 +33,6 @@ PhysicalResultSink
 ----------------------------------filter(d_dow IN (0, 6) and d_year IN (2000, 2001, 2002))
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
-------------------------------filter(((household_demographics.hd_dep_count = 8) OR (household_demographics.hd_vehicle_count = 0)))
+------------------------------filter(OR[(household_demographics.hd_dep_count = 8),(household_demographics.hd_vehicle_count = 0)])
 --------------------------------PhysicalOlapScan[household_demographics]
 

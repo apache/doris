@@ -105,6 +105,9 @@ suite("left_semi_join_filter") {
     sql """analyze table orders_left_semi_join with sync;"""
     sql """analyze table lineitem_left_semi_join with sync;"""
 
+    sql """alter table orders_left_semi_join modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_left_semi_join modify column l_comment set stats ('row_count'='7');"""
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt

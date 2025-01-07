@@ -25,9 +25,9 @@ internal	test_query_sys_db_5	\N
 internal	test_query_sys_db_6	\N
 
 -- !tables --
-internal	test_query_sys_tb_4	BASE TABLE	0	\N	\N
-internal	test_query_sys_tb_5	BASE TABLE	0	\N	\N
-internal	test_query_sys_tb_6	BASE TABLE	0	\N	\N
+internal	test_query_sys_tb_4	BASE TABLE	0	\N	0
+internal	test_query_sys_tb_5	BASE TABLE	0	\N	0
+internal	test_query_sys_tb_6	BASE TABLE	0	\N	0
 
 -- !session_variables --
 wait_timeout	30000

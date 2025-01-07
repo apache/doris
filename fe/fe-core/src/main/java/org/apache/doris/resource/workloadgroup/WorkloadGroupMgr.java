@@ -357,13 +357,12 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return groupName;
     }
 
-    public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
+    public void createWorkloadGroup(WorkloadGroup workloadGroup, boolean isIfNotExists) throws DdlException {
         String workloadGroupName = workloadGroup.getName();
         writeLock();
         try {
             if (nameToWorkloadGroup.containsKey(workloadGroupName)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " already exist");
@@ -380,6 +379,11 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             writeUnlock();
         }
         LOG.info("Create workload group success: {}", workloadGroup);
+    }
+
+    public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
+        WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
+        createWorkloadGroup(workloadGroup, stmt.isIfNotExists());
     }
 
     public void createInternalWorkloadGroup() {
@@ -464,8 +468,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     }
 
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        String workloadGroupName = stmt.getWorkloadGroupName();
-        Map<String, String> properties = stmt.getProperties();
+        alterWorkloadGroup(stmt.getWorkloadGroupName(), stmt.getProperties());
+    }
+
+    public void alterWorkloadGroup(String workloadGroupName, Map<String, String> properties) throws DdlException {
         if (properties.size() == 0) {
             throw new DdlException("alter workload group should contain at least one property");
         }
@@ -492,7 +498,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        String workloadGroupName = stmt.getWorkloadGroupName();
+        dropWorkloadGroup(stmt.getWorkloadGroupName(), stmt.isIfExists());
+    }
+
+    public void dropWorkloadGroup(String workloadGroupName, boolean ifExists) throws DdlException {
         if (DEFAULT_GROUP_NAME.equals(workloadGroupName) || INTERNAL_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping workload group " + workloadGroupName + " is not allowed");
         }
@@ -521,7 +530,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         writeLock();
         try {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
-                if (stmt.isIfExists()) {
+                if (ifExists) {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " does not exist");

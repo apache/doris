@@ -119,15 +119,15 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
         throw new RuntimeException("Command do not implement withGroupExpression");
     }
 
-    public void verifyCommandSupported() throws DdlException {
+    public void verifyCommandSupported(ConnectContext ctx) throws DdlException {
         // check command has been supported in cloud mode
         if (Config.isCloudMode()) {
-            checkSupportedInCloudMode();
+            checkSupportedInCloudMode(ctx);
         }
     }
 
     // check if the command is supported in cloud mode
     // see checkStmtSupported() in fe/fe-core/src/main/java/org/apache/doris/qe/ShowExecutor.java
     // override this method if the command is not supported in cloud mode
-    protected void checkSupportedInCloudMode() throws DdlException {}
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {}
 }

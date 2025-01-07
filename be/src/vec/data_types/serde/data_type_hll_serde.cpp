@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
 #include "arrow/array/builder_binary.h"
@@ -48,28 +49,17 @@ Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int64_t
 Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
-    if (!options._output_object_data) {
-        /**
-         * For null values in ordinary types, we use \N to represent them;
-         * for null values in nested types, we use null to represent them, just like the json format.
-         */
-        if (_nesting_level >= 2) {
-            bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
-                     strlen(NULL_IN_COMPLEX_TYPE.c_str()));
-        } else {
-            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
-                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
-        }
-        return Status::OK();
+    /**
+    * For null values in ordinary types, we use \N to represent them;
+    * for null values in nested types, we use null to represent them, just like the json format.
+    */
+    if (_nesting_level >= 2) {
+        bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                 strlen(NULL_IN_COMPLEX_TYPE.c_str()));
+    } else {
+        bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                 strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
     }
-    auto col_row = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = col_row.first;
-    row_num = col_row.second;
-    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
-    std::unique_ptr<char[]> buf =
-            std::make_unique_for_overwrite<char[]>(data.max_serialized_size());
-    size_t size = data.serialize((uint8*)buf.get());
-    bw.write(buf.get(), size);
     return Status::OK();
 }
 
@@ -139,7 +129,7 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMa
                                              arrow::ArrayBuilder* array_builder, int64_t start,
                                              int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnHLL&>(column);
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
@@ -198,11 +188,19 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
     auto& col_data = assert_cast<const ColumnHLL&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
+    INIT_MEMORY_FOR_ORC_WRITER()
+
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            const auto& ele = col_data.get_data_at(row_id);
-            cur_batch->data[row_id] = const_cast<char*>(ele.data);
-            cur_batch->length[row_id] = ele.size;
+            auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
+            size_t len = hll_value.max_serialized_size();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            hll_value.serialize((uint8_t*)(bufferRef.data) + offset);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            cur_batch->length[row_id] = len;
+            offset += len;
         }
     }
 

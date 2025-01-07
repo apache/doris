@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_index_compaction_empty_segments", "p0") {
+suite("test_index_compaction_empty_segments", "p0, nonConcurrent") {
 
     def compaction_table_name = "test_index_compaction_empty_segments"
     def backendId_to_backendIP = [:]
@@ -82,8 +82,9 @@ suite("test_index_compaction_empty_segments", "p0") {
         });
     }
 
-    int afterSegmentCount = 0
+    
     for (def tablet in tablets) {
+        int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -94,6 +95,6 @@ suite("test_index_compaction_empty_segments", "p0") {
             logger.info("rowset is: " + rowset)
             afterSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
+        assertEquals(afterSegmentCount, 0)
     }
-    assertEquals(afterSegmentCount, 0)
 }

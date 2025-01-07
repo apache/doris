@@ -49,13 +49,15 @@ public class TruncateTableInfo implements Writable {
     private String rawSql = "";
     @SerializedName(value = "op")
     private Map<Long, String> oldPartitions = new HashMap<>();
+    @SerializedName(value = "force")
+    private boolean force = true; // older version it was forced always.
 
     public TruncateTableInfo() {
 
     }
 
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
-            boolean isEntireTable, String rawSql, List<Partition> oldPartitions) {
+            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -66,6 +68,7 @@ public class TruncateTableInfo implements Writable {
         for (Partition partition : oldPartitions) {
             this.oldPartitions.put(partition.getId(), partition.getName());
         }
+        this.force = force;
     }
 
     public long getDbId() {
@@ -95,6 +98,11 @@ public class TruncateTableInfo implements Writable {
     public boolean isEntireTable() {
         return isEntireTable;
     }
+
+    public boolean getForce() {
+        return force;
+    }
+
 
     public String getRawSql() {
         return rawSql;

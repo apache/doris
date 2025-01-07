@@ -64,6 +64,8 @@ suite ("count_star") {
     qt_select_mv "select count(*) from d_table where k3=1;"
 
     sql """set enable_stats=true;"""
+
+    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
     mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
     mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
     mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")

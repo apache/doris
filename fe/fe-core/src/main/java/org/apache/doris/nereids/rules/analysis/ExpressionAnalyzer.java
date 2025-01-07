@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -46,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -73,14 +75,17 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -95,6 +100,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -498,11 +504,59 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     @Override
-    public Expression visitCompoundPredicate(CompoundPredicate compoundPredicate, ExpressionRewriteContext context) {
-        Expression left = compoundPredicate.left().accept(this, context);
-        Expression right = compoundPredicate.right().accept(this, context);
-        CompoundPredicate ret = (CompoundPredicate) compoundPredicate.withChildren(left, right);
-        return TypeCoercionUtils.processCompoundPredicate(ret);
+    public Expression visitOr(Or or, ExpressionRewriteContext context) {
+        List<Expression> children = ExpressionUtils.extractDisjunction(or);
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        boolean hasNewChild = false;
+        for (Expression child : children) {
+            Expression newChild = child.accept(this, context);
+            if (newChild == null) {
+                newChild = child;
+            }
+            if (newChild.getDataType().isNullType()) {
+                newChild = new NullLiteral(BooleanType.INSTANCE);
+            } else {
+                newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
+            }
+
+            if (! child.equals(newChild)) {
+                hasNewChild = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (hasNewChild) {
+            return ExpressionUtils.or(newChildren);
+        } else {
+            return or;
+        }
+    }
+
+    @Override
+    public Expression visitAnd(And and, ExpressionRewriteContext context) {
+        List<Expression> children = ExpressionUtils.extractConjunction(and);
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        boolean hasNewChild = false;
+        for (Expression child : children) {
+            Expression newChild = child.accept(this, context);
+            if (newChild == null) {
+                newChild = child;
+            }
+            if (newChild.getDataType().isNullType()) {
+                newChild = new NullLiteral(BooleanType.INSTANCE);
+            } else {
+                newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
+            }
+
+            if (! child.equals(newChild)) {
+                hasNewChild = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (hasNewChild) {
+            return ExpressionUtils.and(newChildren);
+        } else {
+            return and;
+        }
     }
 
     @Override
@@ -531,10 +585,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
+    // Register prepared statement placeholder id to related slot in comparison predicate.
+    // Used to replace expression in ShortCircuit plan
+    private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
+                    ExpressionRewriteContext context, Expression left, Expression right) {
+        if (ConnectContext.get() != null
+                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            // Used to replace expression in ShortCircuit plan
+            if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
+            } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
+            }
+        }
+    }
+
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
+        // Used to replace expression in ShortCircuit plan
+        registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
@@ -781,8 +854,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .map(ArrayItemReference::toSlot)
                 .collect(ImmutableList.toImmutableList());
 
-        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(boundedSlots),
-                context == null ? null : context.cascadesContext, true, false) {
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
+                boundedSlots), context == null ? null : context.cascadesContext,
+                true, true) {
             @Override
             protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
                 throw new AnalysisException("Unknown lambda slot '"

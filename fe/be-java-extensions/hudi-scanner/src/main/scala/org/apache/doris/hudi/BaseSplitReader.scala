@@ -36,13 +36,15 @@ import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient, T
 import org.apache.hudi.common.util.ValidationUtils.checkState
 import org.apache.hudi.common.util.{ConfigUtils, StringUtils}
 import org.apache.hudi.config.HoodieWriteConfig
-import org.apache.hudi.hadoop.CachingPath
+import org.apache.hudi.hadoop.fs.CachingPath
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter
 import org.apache.hudi.internal.schema.utils.{InternalSchemaUtils, SerDeHelper}
 import org.apache.hudi.internal.schema.{HoodieSchemaException, InternalSchema}
-import org.apache.hudi.io.storage.HoodieAvroHFileReader
+import org.apache.hudi.io.hadoop.HoodieHBaseAvroHFileReader
 import org.apache.hudi.metadata.HoodieTableMetadataUtil
 import org.apache.hudi.{AvroConversionUtils, DataSourceReadOptions, DataSourceWriteOptions, HoodieSparkConfUtils, HoodieTableSchema, HoodieTableState}
+import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.log4j.Logger
 import org.apache.spark.sql.adapter.Spark3_4Adapter
 import org.apache.spark.sql.avro.{HoodieAvroSchemaConverters, HoodieSparkAvroSchemaConverters}
@@ -430,7 +432,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
     try {
       if (shouldExtractPartitionValuesFromPartitionPath) {
         val filePath = new Path(split.dataFilePath)
-        val tablePathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(tableInformation.metaClient.getBasePathV2)
+        val tablePathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(new Path(tableInformation.metaClient.getBasePathV2.toUri))
         val partitionPathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(filePath.getParent)
         val relativePath = new URI(tablePathWithoutScheme.toString).relativize(new URI(partitionPathWithoutScheme.toString)).toString
         val hiveStylePartitioningEnabled = tableConfig.getHiveStylePartitioningEnable.toBoolean
@@ -497,8 +499,11 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
                                 options: Map[String, String],
                                 hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     partitionedFile => {
-      val reader = new HoodieAvroHFileReader(
-        hadoopConf, partitionedFile.filePath.toPath, new CacheConfig(hadoopConf))
+      var hadoopStorageConfiguration = new HadoopStorageConfiguration(hadoopConf);
+      var storagePath = new StoragePath(partitionedFile.toPath.toUri.getPath);
+      var emptySchema = org.apache.hudi.common.util.Option.empty[org.apache.avro.Schema]()
+      val reader = new HoodieHBaseAvroHFileReader(
+        hadoopStorageConfiguration, storagePath, emptySchema)
 
       val requiredRowSchema = requiredDataSchema.structTypeSchema
       // NOTE: Schema has to be parsed at this point, since Avro's [[Schema]] aren't serializable

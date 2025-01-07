@@ -80,7 +80,7 @@ Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_statu
 
 Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
@@ -160,7 +160,6 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     int64_t data_size = local_state._shared_state->in_mem_shared_state->sorter->data_size();
     COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
     COUNTER_SET(local_state._memory_used_counter, data_size);
-    COUNTER_SET(local_state._peak_memory_usage_counter, data_size);
 
     if (eos) {
         if (local_state._shared_state->is_spilled) {

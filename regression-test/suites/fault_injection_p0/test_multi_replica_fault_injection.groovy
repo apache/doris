@@ -75,14 +75,15 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
             file "baseall.txt"
         }
 
-        def load_with_injection = { injection, error_msg->
+        def load_with_injection = { injection, error_msg, success=false->
             try {
                 sql "truncate table test"
                 GetDebugPoint().enableDebugPointForAllBEs(injection)
                 sql "insert into test select * from baseall where k1 <= 3"
+                assertTrue(success, String.format("Expected Exception '%s', actual success", error_msg))
             } catch(Exception e) {
                 logger.info(e.getMessage())
-                assertTrue(e.getMessage().contains(error_msg))
+                assertTrue(e.getMessage().contains(error_msg), e.toString())
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs(injection)
             }
@@ -90,15 +91,17 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
 
         // StreamSinkFileWriter appendv write segment failed one replica
         // success
-        load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "sucess")
+        load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "sucess", true)
         // StreamSinkFileWriter appendv write segment failed two replica
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "add segment failed")
         // StreamSinkFileWriter appendv write segment failed all replica
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to send segment data to any replicas")
         // test segment num check when LoadStreamStub missed tail segments
-        load_with_injection("LoadStreamStub.only_send_segment_0", "segment num mismatch")
+        load_with_injection("LoadStreamStub.skip_send_segment", "segment num mismatch")
         // test one backend open failure
-        load_with_injection("VTabletWriterV2._open_streams.skip_one_backend", "success")
+        load_with_injection("VTabletWriterV2._open_streams.skip_one_backend", "success", true)
+        // test two backend open failure
+        load_with_injection("VTabletWriterV2._open_streams.skip_two_backends", "not enough streams 1/3")
         sql """ set enable_memtable_on_sink_node=false """
     }
 }

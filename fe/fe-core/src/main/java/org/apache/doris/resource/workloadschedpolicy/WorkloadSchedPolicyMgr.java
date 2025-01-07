@@ -456,15 +456,17 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     }
 
     public void alterWorkloadSchedPolicy(AlterWorkloadSchedPolicyStmt alterStmt) throws UserException {
+        alterWorkloadSchedPolicy(alterStmt.getPolicyName(), alterStmt.getProperties());
+    }
+
+    public void alterWorkloadSchedPolicy(String policyName, Map<String, String> properties) throws UserException {
         writeLock();
         try {
-            String policyName = alterStmt.getPolicyName();
             WorkloadSchedPolicy policy = nameToPolicy.get(policyName);
             if (policy == null) {
                 throw new UserException("can not find workload schedule policy " + policyName);
             }
 
-            Map<String, String> properties = alterStmt.getProperties();
             List<Long> wgIdList = new ArrayList<>();
             checkProperties(properties, wgIdList);
             policy.updatePropertyIfNotNull(properties, wgIdList);
@@ -476,12 +478,15 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     }
 
     public void dropWorkloadSchedPolicy(DropWorkloadSchedPolicyStmt dropStmt) throws UserException {
+        dropWorkloadSchedPolicy(dropStmt.getPolicyName(), dropStmt.isIfExists());
+    }
+
+    public void dropWorkloadSchedPolicy(String policyName, boolean isExists) throws UserException {
         writeLock();
         try {
-            String policyName = dropStmt.getPolicyName();
             WorkloadSchedPolicy schedPolicy = nameToPolicy.get(policyName);
             if (schedPolicy == null) {
-                if (dropStmt.isIfExists()) {
+                if (isExists) {
                     return;
                 } else {
                     throw new UserException("workload schedule policy " + policyName + " not exists");

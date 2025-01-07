@@ -515,15 +515,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 && !hasNullAwareLeftAntiJoin()
                 // If planRoot is not a serial operator and has serial children, we can use serial source and improve
                 // parallelism of non-serial operators.
-                && sink instanceof DataStreamSink && !planRoot.isSerialOperator()
-                && planRoot.hasSerialChildren();
+                // For bucket shuffle / colocate join fragment, always use serial source if the bucket scan nodes are
+                // serial.
+                && (hasSerialScanNode() || (sink instanceof DataStreamSink && !planRoot.isSerialOperator()
+                && planRoot.hasSerialChildren()));
     }
 
-    public int getNumBackends() {
-        return numBackends;
-    }
-
-    public void setNumBackends(int numBackends) {
-        this.numBackends = numBackends;
+    public boolean hasSerialScanNode() {
+        return planRoot.hasSerialScanChildren();
     }
 }

@@ -2647,7 +2647,7 @@ public class Env {
     }
 
     public void replayGlobalVariableV2(GlobalVarPersistInfo info) throws IOException, DdlException {
-        VariableMgr.replayGlobalVariableV2(info);
+        VariableMgr.replayGlobalVariableV2(info, false);
     }
 
     public long saveLoadJobsV2(CountingDataOutputStream dos, long checksum) throws IOException {
@@ -3429,25 +3429,33 @@ public class Env {
                 hidePassword, false, specificVersion, false, true);
     }
 
-    public static String getMTMVDdl(MTMV mtmv) {
-        StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
-        sb.append(mtmv.getName());
-        addMTMVCols(mtmv, sb);
-        sb.append("\n");
-        sb.append(mtmv.getRefreshInfo());
-        addMTMVKeyInfo(mtmv, sb);
-        addTableComment(mtmv, sb);
-        addMTMVPartitionInfo(mtmv, sb);
-        DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
-        sb.append("\n").append(distributionInfo.toSql());
-        // properties
-        sb.append("\nPROPERTIES (\n");
-        addOlapTablePropertyInfo(mtmv, sb, false, false, null);
-        addMTMVPropertyInfo(mtmv, sb);
-        sb.append("\n)");
-        sb.append("\nAS ");
-        sb.append(mtmv.getQuerySql());
-        return sb.toString();
+    public static String getMTMVDdl(MTMV mtmv) throws AnalysisException {
+        if (!mtmv.tryReadLock(1, TimeUnit.MINUTES)) {
+            throw new AnalysisException(
+                    "get table read lock timeout, database=" + mtmv.getDBName() + ",table=" + mtmv.getName());
+        }
+        try {
+            StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
+            sb.append(mtmv.getName());
+            addMTMVCols(mtmv, sb);
+            sb.append("\n");
+            sb.append(mtmv.getRefreshInfo());
+            addMTMVKeyInfo(mtmv, sb);
+            addTableComment(mtmv, sb);
+            addMTMVPartitionInfo(mtmv, sb);
+            DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
+            sb.append("\n").append(distributionInfo.toSql());
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            addOlapTablePropertyInfo(mtmv, sb, false, false, null);
+            addMTMVPropertyInfo(mtmv, sb);
+            sb.append("\n)");
+            sb.append("\nAS ");
+            sb.append(mtmv.getQuerySql());
+            return sb.toString();
+        } finally {
+            mtmv.readUnlock();
+        }
     }
 
     private static void addMTMVKeyInfo(MTMV mtmv, StringBuilder sb) {
@@ -6478,11 +6486,7 @@ public class Env {
                 long partitionId = partition.getId();
                 partitionMeta.setId(partitionId);
                 partitionMeta.setName(partition.getName());
-                String partitionRange = "";
-                if (tblPartitionInfo.getType() == PartitionType.RANGE
-                        || tblPartitionInfo.getType() == PartitionType.LIST) {
-                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-                }
+                String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
                 partitionMeta.setRange(partitionRange);
                 partitionMeta.setVisibleVersion(partition.getVisibleVersion());
                 // partitionMeta.setTemp（partition.isTemp());
@@ -6555,14 +6559,18 @@ public class Env {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTblName();
         String type = stmt.getCompactionType();
+        List<String> partitionNames = stmt.getPartitions();
+        compactTable(dbName, tableName, type, partitionNames);
+    }
 
+    public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)
+            throws DdlException {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
 
         AgentBatchTask batchTask = new AgentBatchTask();
         olapTable.readLock();
         try {
-            List<String> partitionNames = stmt.getPartitions();
             LOG.info("Table compaction. database: {}, table: {}, partition: {}, type: {}", dbName, tableName,
                     Joiner.on(", ").join(partitionNames), type);
             for (String parName : partitionNames) {

@@ -21,7 +21,6 @@ under the License.
 require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
-require "logstash/util/shortname_resolver"
 require 'logstash/util/formater'
 require "uri"
 require "securerandom"
@@ -67,8 +66,6 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    config :save_file, :validate => :string, :default => "failed.data"
 
-   config :host_resolve_ttl_sec, :validate => :number, :default => 120
-
    config :max_retries, :validate => :number, :default => -1
 
    config :log_request, :validate => :boolean, :default => true
@@ -91,10 +88,6 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    def register
       @http_query = "/api/#{@db}/#{@table}/_stream_load"
-
-      @hostnames_pool =
-      parse_http_hosts(@http_hosts,
-      ShortNameResolver.new(ttl: @host_resolve_ttl_sec, logger: @logger))
 
       @request_headers = make_request_headers
       @logger.info("request headers: ", @request_headers)
@@ -141,39 +134,6 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       print_plugin_info()
    end # def register
 
-   private
-
-   def parse_http_hosts(hosts, resolver)
-      ip_re = /^[\d]+\.[\d]+\.[\d]+\.[\d]+$/
-
-      lambda {
-         hosts.flat_map { |h|
-            scheme = URI(h).scheme
-            host = URI(h).host
-            port = URI(h).port
-            path = URI(h).path
-
-            if ip_re !~ host
-               resolver.get_addresses(host).map { |ip|
-                  "#{scheme}://#{ip}:#{port}#{path}"
-               }
-            else
-               [h]
-            end
-         }
-      }
-   end
-
-   private
-
-   def get_host_addresses()
-      begin
-         @hostnames_pool.call
-      rescue Exception => ex
-         @logger.error('Error while resolving host', :error => ex.to_s)
-      end
-   end
-
    def multi_receive(events)
       return if events.empty?
       send_events(events)
@@ -191,8 +151,6 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       # @logger.info("get event num: #{event_num}")
       @logger.debug("get documents: #{documents}")
 
-      hosts = get_host_addresses()
-
       http_headers = @request_headers.dup
       if !@group_commit
          # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
@@ -202,7 +160,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       req_count = 0
       sleep_for = 1
       while true
-         response = make_request(documents, http_headers, hosts, @http_query, hosts.sample)
+         response = make_request(documents, http_headers, @http_query, @http_hosts.sample)
 
          req_count += 1
          response_json = {}
@@ -246,11 +204,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    private
-   def make_request(documents, http_headers, hosts, query, host = "")
-      if host == ""
-         host = hosts.pop
-      end
-
+   def make_request(documents, http_headers, query, host)
       url = host + query
 
       if @log_request or @logger.debug?

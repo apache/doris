@@ -63,6 +63,7 @@ public class AnalysisInfoBuilder {
     private long rowCount;
     private boolean userInject = false;
     private long updateRows;
+    private long tableVersion;
     private JobPriority priority;
     private Map<Long, Long> partitionUpdateRows;
     private boolean enablePartition;
@@ -104,6 +105,7 @@ public class AnalysisInfoBuilder {
         rowCount = info.rowCount;
         userInject = info.userInject;
         updateRows = info.updateRows;
+        tableVersion = info.tableVersion;
         priority = info.priority;
         partitionUpdateRows = info.partitionUpdateRows;
         enablePartition = info.enablePartition;
@@ -274,6 +276,11 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setTableVersion(long tableVersion) {
+        this.tableVersion = tableVersion;
+        return this;
+    }
+
     public AnalysisInfoBuilder setPriority(JobPriority priority) {
         this.priority = priority;
         return this;
@@ -295,7 +302,7 @@ public class AnalysisInfoBuilder {
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 partitionOnly, samplingPartition, isAllPartition, partitionCount,
                 cronExpression, forceFull, usingSqlForExternalTable, tblUpdateTime, rowCount, userInject, updateRows,
-                priority, partitionUpdateRows, enablePartition);
+                tableVersion, priority, partitionUpdateRows, enablePartition);
     }
 
 }

@@ -24,6 +24,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -221,8 +222,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
 
             _repeat_id_idx++;
 
-            int size = _repeat_id_list.size();
-            if (_repeat_id_idx >= size) {
+            if (_repeat_id_idx >= _repeat_id_list.size()) {
                 _intermediate_block->clear();
                 _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
                 _repeat_id_idx = 0;
@@ -251,4 +251,5 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

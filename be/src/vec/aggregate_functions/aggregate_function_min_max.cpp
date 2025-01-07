@@ -23,9 +23,11 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 /// min, max, any
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
@@ -67,6 +69,11 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     if (which.idx == TypeIndex::DateTimeV2) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
+                argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::Time || which.idx == TypeIndex::TimeV2) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Float64>>>>(
                 argument_types, result_is_nullable);
     }
     if (which.idx == TypeIndex::IPv4) {

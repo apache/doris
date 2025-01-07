@@ -48,7 +48,7 @@ suite("test_ddl_row_policy_auth","p0,auth_call") {
             );"""
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE ROW POLICY ${rowPolicyName} ON ${dbName}.${tableName} AS RESTRICTIVE TO ${user} USING (id = 1);"""
             exception "denied"
@@ -64,7 +64,7 @@ suite("test_ddl_row_policy_auth","p0,auth_call") {
 
     }
     sql """grant grant_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE ROW POLICY ${rowPolicyName} ON ${dbName}.${tableName} AS RESTRICTIVE TO ${user} USING (id = 1);"""
 
         test {
@@ -75,7 +75,7 @@ suite("test_ddl_row_policy_auth","p0,auth_call") {
         sql """DROP ROW POLICY ${rowPolicyName} on ${dbName}.${tableName} for ${user}"""
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE ROW POLICY ${rowPolicyName} ON ${dbName}.${tableName} AS RESTRICTIVE TO ${user} USING (id = 1);"""
         def res = sql """SHOW ROW POLICY FOR ${user}"""
         assertTrue(res.size() == 1)

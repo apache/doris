@@ -197,7 +197,10 @@ struct ProcessHashTableBuild {
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
                                                                       *has_null_key);
-
+        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
+        if (_build_raw_ptrs.size() == 1 && null_map) {
+            _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
+        }
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());

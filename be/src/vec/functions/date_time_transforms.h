@@ -38,6 +38,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 #define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                \
     template <typename ArgType>                                                  \
@@ -313,7 +314,8 @@ struct TransformerToStringOneArgument {
             const auto& date_time_value =
                     reinterpret_cast<const typename DateTraits<typename Transform::OpArgType>::T&>(
                             t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
+            res_offsets[i] =
+                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
             null_map[i] = !date_time_value.is_valid_date();
         }
     }
@@ -331,7 +333,8 @@ struct TransformerToStringOneArgument {
             const auto& date_time_value =
                     reinterpret_cast<const typename DateTraits<typename Transform::OpArgType>::T&>(
                             t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
+            res_offsets[i] =
+                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
             DCHECK(date_time_value.is_valid_date());
         }
     }
@@ -360,7 +363,7 @@ struct TransformerToStringTwoArgument {
             } else {
                 std::tie(new_offset, is_null) = Transform::execute(t, format, res_data, offset);
             }
-            res_offsets[i] = new_offset;
+            res_offsets[i] = cast_set<UInt32>(new_offset);
             null_map[i] = is_null;
         }
     }
@@ -375,7 +378,11 @@ struct Transformer {
         null_map.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i]);
+            // The transform result maybe an int, int32, but the result maybe short
+            // for example, year function. It is only a short.
+            auto res = Transform::execute(vec_from[i]);
+            using RESULT_TYPE = std::decay_t<decltype(res)>;
+            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
             null_map[i] = !((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
                                    .is_valid_date();
         }
@@ -386,7 +393,9 @@ struct Transformer {
         vec_to.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i]);
+            auto res = Transform::execute(vec_from[i]);
+            using RESULT_TYPE = std::decay_t<decltype(res)>;
+            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
             DCHECK(((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
                            .is_valid_date());
         }
@@ -465,4 +474,5 @@ struct DateTimeTransformImpl {
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

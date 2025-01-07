@@ -119,6 +119,7 @@ suite ("q_4_1_r1") {
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
     sql """set enable_stats=true;"""
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit

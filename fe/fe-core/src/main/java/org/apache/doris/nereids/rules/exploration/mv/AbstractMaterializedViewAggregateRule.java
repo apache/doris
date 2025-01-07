@@ -487,27 +487,37 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (!viewShuttledExprQueryBasedSet.containsAll(queryGroupShuttledExpression)) {
             return false;
         }
-        Set<Expression> viewShouldUniformExpressionSet = new HashSet<>();
+        Set<Expression> viewShouldRemovedExpressionSet = new HashSet<>();
+        Set<Expression> viewScanShouldReservedExpressionSet = new HashSet<>();
         // calc the group by expr which is needed to roll up and should be uniform
-        for (Map.Entry<Expression, Expression> expressionEntry :
+        for (Map.Entry<Expression, Expression> expressionMappingEntry :
                 viewShuttledExprQueryBasedToViewGroupByExprMap.entrySet()) {
-            if (queryGroupShuttledExpression.contains(expressionEntry.getKey())) {
-                // the group expr which query has, do not require uniform
-                continue;
+            if (queryGroupShuttledExpression.contains(expressionMappingEntry.getKey())) {
+                // the group expr which query has, do not require eliminate
+                viewScanShouldReservedExpressionSet.add(
+                        viewShuttledExprToScanExprMapping.get(expressionMappingEntry.getValue()));
+            } else {
+                // the view expression which is more than query's expression, should try to eliminate
+                viewShouldRemovedExpressionSet.add(expressionMappingEntry.getValue());
             }
-            viewShouldUniformExpressionSet.add(expressionEntry.getValue());
         }
 
         DataTrait dataTrait = tempRewrittenPlan.computeDataTrait();
-        for (Expression shouldUniformExpr : viewShouldUniformExpressionSet) {
-            Expression viewScanExpression = viewShuttledExprToScanExprMapping.get(shouldUniformExpr);
+        for (Expression viewShouldRemovedExpr : viewShouldRemovedExpressionSet) {
+            Expression viewScanExpression = viewShuttledExprToScanExprMapping.get(viewShouldRemovedExpr);
             if (viewScanExpression == null) {
                 return false;
             }
             if (!(viewScanExpression instanceof Slot)) {
                 return false;
             }
-            if (!dataTrait.isUniform((Slot) viewScanExpression)) {
+            if (!dataTrait.isUniform((Slot) viewScanExpression)
+                    && Sets.intersection(dataTrait.calEqualSet((Slot) viewScanExpression),
+                    viewScanShouldReservedExpressionSet).isEmpty()) {
+                // Such as query is l_orderkey#0, l_linenumber#1, o_custkey#17, l_partkey#2
+                // view is ps_partkey#25, o_orderkey#16, l_orderkey#0, l_linenumber#1, o_custkey#17, l_partkey#2
+                // If want to check the group by equality, ps_partkey#25, o_orderkey#16 should be uniform
+                // or should be equal any of [ l_orderkey#0, l_linenumber#1, o_custkey#17, l_partkey#2]
                 return false;
             }
         }

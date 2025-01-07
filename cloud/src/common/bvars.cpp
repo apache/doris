@@ -198,3 +198,10 @@ BvarStatusWithTag<long> g_bvar_checker_instance_volume("checker", "instance_volu
 BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
 BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed("checker",
                                                                  "num_inverted_check_failed");
+
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker",
+                                                                         "leaked_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps(
+        "checker", "abnormal_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned(
+        "checker", "delete_bitmap_keys_scanned");

@@ -72,6 +72,11 @@ CONF_Bool(enable_checker, "false");
 CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
+// Currently only used for recycler test
+CONF_Bool(enable_delete_bitmap_inverted_check, "false");
+// checks if https://github.com/apache/doris/pull/40204 works as expected
+CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
@@ -81,6 +86,10 @@ CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+
+// force recycler to recycle all useless object.
+// **just for TEST**
+CONF_Bool(force_immediate_recycle, "false");
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");

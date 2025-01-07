@@ -18,7 +18,6 @@
 #include "hudi_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -65,7 +64,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
             {"input_format", _hudi_params.input_format}};
 
     // Use compatible hadoop client to read data
-    for (auto& kv : _scan_params.properties) {
+    for (const auto& kv : _scan_params.properties) {
         if (kv.first.starts_with(HOODIE_CONF_PREFIX)) {
             params[kv.first] = kv.second;
         } else {
@@ -73,8 +72,15 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
         }
     }
 
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner", params,
-                                                    required_fields);
+    if (_hudi_params.hudi_jni_scanner == "hadoop") {
+        _jni_connector = std::make_unique<JniConnector>(
+                "org/apache/doris/hudi/HadoopHudiJniScanner", params, required_fields);
+    } else if (_hudi_params.hudi_jni_scanner == "spark") {
+        _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner",
+                                                        params, required_fields);
+    } else {
+        DCHECK(false) << "Unsupported hudi jni scanner: " << _hudi_params.hudi_jni_scanner;
+    }
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {

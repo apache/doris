@@ -102,9 +102,6 @@ start_cloud_fe() {
         fe_daemon &
         run_fe
 
-        if [ "$MY_ID" == "1" ]; then
-            echo $MY_IP >$MASTER_FE_IP_FILE
-        fi
         return
     fi
 
@@ -168,10 +165,6 @@ start_cloud_fe() {
 
     fe_daemon &
     run_fe
-
-    if [ "$MY_ID" == "1" ]; then
-        echo $MY_IP >$MASTER_FE_IP_FILE
-    fi
 }
 
 stop_frontend() {

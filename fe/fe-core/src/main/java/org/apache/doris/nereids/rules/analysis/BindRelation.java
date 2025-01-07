@@ -39,6 +39,7 @@ import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -98,25 +99,14 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
 
-    private final Optional<CustomTableResolver> customTableResolver;
+    public BindRelation() {}
 
-    public BindRelation() {
-        this(Optional.empty());
-    }
-
-    public BindRelation(Optional<CustomTableResolver> customTableResolver) {
-        this.customTableResolver = customTableResolver;
-    }
-
-    // TODO: cte will be copied to a sub-query with different names but the id of the unbound relation in them
-    //  are the same, so we use new relation id when binding relation, and will fix this bug later.
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
@@ -168,23 +158,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 return consumer;
             }
         }
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                unboundRelation.getNameParts());
-        TableIf table = null;
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
-        if (table == null) {
-            if (customTableResolver.isPresent()) {
-                table = customTableResolver.get().apply(tableQualifier);
-            }
-        }
-        // In some cases even if we have already called the "cascadesContext.getTableByName",
-        // it also gets the null. So, we just check it in the catalog again for safety.
-        if (table == null) {
-            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
-        }
-        ConnectContext.get().getTables().put(tableQualifier, table);
+        List<String> tableQualifier = RelationUtil.getQualifierName(
+                cascadesContext.getConnectContext(), unboundRelation.getNameParts());
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
 
-        // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
             LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
@@ -197,17 +174,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
-        TableIf table = null;
-        if (customTableResolver.isPresent()) {
-            table = customTableResolver.get().apply(tableQualifier);
-        }
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
-        // In some cases even if we have already called the "cascadesContext.getTableByName",
-        // it also gets the null. So, we just check it in the catalog again for safety.
-        if (table == null) {
-            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
-        }
-        ConnectContext.get().getTables().put(tableQualifier, table);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -242,6 +209,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
             }
+        }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
@@ -286,7 +257,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
-                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName() == col.getName()) {
+                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {
                     exprId = childSlot.getExprId();
                     slot = slot.withExprId(exprId);
                     break;
@@ -411,8 +382,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case VIEW:
                     View view = (View) table;
                     isView = true;
-                    String inlineViewDef = view.getInlineViewDef();
-                    Plan viewBody = parseAndAnalyzeView(view, inlineViewDef, cascadesContext);
+                    Plan viewBody = parseAndAnalyzeDorisView(view, qualifiedTableName, cascadesContext);
                     LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
                 case HMS_EXTERNAL_TABLE:
@@ -492,6 +462,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
+    private Plan parseAndAnalyzeDorisView(View view, List<String> tableQualifier, CascadesContext parentContext) {
+        Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
+        long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
+        parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
+        try {
+            return parseAndAnalyzeView(view, viewInfo.first, parentContext);
+        } finally {
+            parentContext.getConnectContext().getSessionVariable().setSqlMode(originalSqlMode);
+        }
+    }
+
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {
         parentContext.getStatementContext().addViewDdlSql(ddlSql);
         Optional<SqlCacheContext> sqlCacheContext = parentContext.getStatementContext().getSqlCacheContext();
@@ -506,7 +487,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
-            viewContext.newAnalyzer(customTableResolver).analyze();
+            viewContext.newAnalyzer().analyze();
         });
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
@@ -539,7 +520,4 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
     }
-
-    /** CustomTableResolver */
-    public interface CustomTableResolver extends Function<List<String>, TableIf> {}
 }

@@ -197,6 +197,46 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return replicaCount;
     }
 
+    public long getLocalIndexSize() {
+        long localIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localIndexSize += replica.getLocalInvertedIndexSize();
+            }
+        }
+        return localIndexSize;
+    }
+
+    public long getLocalSegmentSize() {
+        long localSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localSegmentSize += replica.getLocalSegmentSize();
+            }
+        }
+        return localSegmentSize;
+    }
+
+    public long getRemoteIndexSize() {
+        long remoteIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteIndexSize += replica.getRemoteInvertedIndexSize();
+            }
+        }
+        return remoteIndexSize;
+    }
+
+    public long getRemoteSegmentSize() {
+        long remoteSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteSegmentSize += replica.getRemoteSegmentSize();
+            }
+        }
+        return remoteSegmentSize;
+    }
+
     public int getTabletOrderIdx(long tabletId) {
         int idx = 0;
         for (Tablet tablet : tablets) {

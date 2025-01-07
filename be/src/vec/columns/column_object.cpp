@@ -84,6 +84,7 @@
 #endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 namespace {
 
 DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
@@ -1085,14 +1086,13 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
                 key->insert_data(path.data(), path.size());
 
                 // every subcolumn is always Nullable
-                auto nullable_serde =
-                        std::static_pointer_cast<DataTypeNullableSerDe>(data_serdes[i]);
-                auto& nullable_col =
+                const auto& nullable_serde = assert_cast<DataTypeNullableSerDe&>(*data_serdes[i]);
+                const auto& nullable_col =
                         assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part);
 
                 // insert value
                 ColumnString::Chars& chars = value->get_chars();
-                nullable_serde->get_nested_serde()->write_one_cell_to_binary(
+                nullable_serde.get_nested_serde()->write_one_cell_to_binary(
                         nullable_col.get_nested_column(), chars, row);
                 value->get_offsets().push_back(chars.size());
             }
@@ -1645,7 +1645,7 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
     if (is_scalar_variant()) {
@@ -1660,7 +1660,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* outpu
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (is_scalar_variant()) {
         subcolumns.get_root()->data.serialize_text_json(row, output);
         return Status::OK();
@@ -1734,7 +1734,7 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     if (subcolumns.get_root()->data.is_null_at(nrow)) {
         return false;
     }
-    int ind = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
+    size_t ind = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
     for (const auto& part : subcolumns.get_root()->data.data) {
         if (ind < part->size()) {
             return !part->get_data_at(ind).empty();
@@ -1899,7 +1899,7 @@ Status ColumnObject::serialize_sparse_columns(
     return Status::OK();
 }
 
-void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
@@ -1930,7 +1930,7 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) co
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-        subcolumns.add(path_builder.build(), subcolumn);
+        arg_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
 
@@ -2013,7 +2013,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
              i < std::min(size_t(config::variant_max_subcolumns_count), sorted_by_size.size());
              ++i) {
             // if too many null values, then consider it as sparse column
-            if (sorted_by_size[i].second < num_rows * 0.95) {
+            if (double(sorted_by_size[i].second) < double(num_rows) * 0.95) {
                 continue;
             }
             selected_path.insert(sorted_by_size[i].first);
@@ -2067,7 +2067,7 @@ bool ColumnObject::empty() const {
 }
 
 ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
+    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
         return column_array->get_data_ptr();
     }
     return column;
@@ -2273,6 +2273,7 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
+#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
@@ -2287,6 +2288,7 @@ Status ColumnObject::sanitize() const {
     }
 
     VLOG_DEBUG << "sanitized " << debug_string();
+#endif
     return Status::OK();
 }
 

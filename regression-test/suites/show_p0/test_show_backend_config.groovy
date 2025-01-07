@@ -33,7 +33,7 @@ suite("test_show_backend_config") {
         }
     }
 
-    connect(user = userName, password = passwd, url = context.config.jdbcUrl) {
+    connect(userName, passwd, context.config.jdbcUrl) {
         def backends = sql_return_maparray """ show backends """
         def beId = backends[0].BackendId
         def bePort = backends[0].BePort

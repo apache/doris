@@ -29,7 +29,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -600,7 +599,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return cache;
     }
 
-    private double convertLegacyLiteralToDouble(LiteralExpr literal) throws AnalysisException {
+    private double convertLegacyLiteralToDouble(LiteralExpr literal) throws org.apache.doris.common.AnalysisException {
         return StatisticsUtil.convertToDouble(literal.getType(), literal.getStringValue());
     }
 
@@ -641,7 +640,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 if (minExpr != null) {
                     cache = updateMinMax(cache, minValue, minExpr, maxValue, maxExpr);
                 }
-            } catch (AnalysisException e) {
+            } catch (org.apache.doris.common.AnalysisException e) {
                 LOG.debug(e.getMessage());
             }
         }
@@ -691,7 +690,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 if (minExpr != null) {
                     cache = updateMinMax(cache, minValue, minExpr, maxValue, maxExpr);
                 }
-            } catch (AnalysisException e) {
+            } catch (org.apache.doris.common.AnalysisException e) {
                 LOG.debug(e.getMessage());
             }
         }

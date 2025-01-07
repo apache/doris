@@ -34,8 +34,22 @@ suite("test_hudi_timestamp", "p2,external,hudi,external_remote,external_remote_h
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
 
-    // TODO: fix hudi timezone issue and enable this
-    // qt_timestamp """ select * from hudi_table_with_timestamp order by id; """
+    def test_timestamp_different_timezones = {
+        sql """set time_zone = 'America/Los_Angeles';"""
+        qt_timestamp1 """ select * from hudi_table_with_timestamp order by id; """
+        sql """set time_zone = 'Asia/Shanghai';"""
+        qt_timestamp2 """ select * from hudi_table_with_timestamp order by id; """
+        sql """set time_zone = 'UTC';"""
+        qt_timestamp3 """ select * from hudi_table_with_timestamp order by id; """
+    }
+
+    // test native reader
+    test_timestamp_different_timezones()
+    sql """ set force_jni_scanner = true; """
+    // test jni reader
+    test_timestamp_different_timezones()
+    sql """ set force_jni_scanner = false; """
+
 
     sql """drop catalog if exists ${catalog_name};"""
 }

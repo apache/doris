@@ -33,14 +33,14 @@ suite("test_show_backend_auth","p0,auth_call") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW BACKENDS"""
             exception "denied"
         }
     }
     sql """grant node_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW BACKENDS"""
         assertTrue(res.size() > 0)
     }

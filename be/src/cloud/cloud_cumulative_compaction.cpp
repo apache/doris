@@ -33,6 +33,7 @@
 #include "util/uuid_generator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
@@ -91,6 +92,10 @@ PREPARE_TRY_AGAIN:
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             update_cumulative_point();
+            if (!config::enable_sleep_between_delete_cumu_compaction) {
+                st = Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                        "_last_delete_version.first not equal to -1");
+            }
         }
         return st;
     }
@@ -263,6 +268,10 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     compaction_job->add_output_versions(_output_rowset->end_version());
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
+    compaction_job->set_index_size_input_rowsets(_input_rowsets_index_size);
+    compaction_job->set_segment_size_input_rowsets(_input_rowsets_data_size);
+    compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
+    compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
     DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.enable_spin_wait", {
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, start";
@@ -371,37 +380,17 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     // agg previously rowset old version delete bitmap
     std::vector<RowsetSharedPtr> pre_rowsets {};
-    std::vector<std::string> pre_rowset_ids {};
     for (const auto& it : cloud_tablet()->rowset_map()) {
         if (it.first.second < _input_rowsets.front()->start_version()) {
             pre_rowsets.emplace_back(it.second);
-            pre_rowset_ids.emplace_back(it.second->rowset_id().to_string());
         }
     }
     std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
     if (!pre_rowsets.empty()) {
-        auto pre_max_version = _output_rowset->version().second;
-        DeleteBitmapPtr new_delete_bitmap =
-                std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
         std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>
                 to_remove_vec;
-        for (auto& rowset : pre_rowsets) {
-            if (rowset->rowset_meta()->total_disk_size() == 0) {
-                continue;
-            }
-            for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-                rowset->rowset_id().to_string();
-                DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
-                DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
-                auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
-                        {rowset->rowset_id(), seg_id, pre_max_version});
-                to_remove_vec.emplace_back(std::make_tuple(_tablet->tablet_id(), start, end));
-                if (d->isEmpty()) {
-                    continue;
-                }
-                new_delete_bitmap->set(end, *d);
-            }
-        }
+        DeleteBitmapPtr new_delete_bitmap = nullptr;
+        agg_and_remove_old_version_delete_bitmap(pre_rowsets, to_remove_vec, new_delete_bitmap);
         if (!new_delete_bitmap->empty()) {
             // store agg delete bitmap
             DBUG_EXECUTE_IF("CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed",
@@ -421,9 +410,9 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
             }
             _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
                                                                         to_remove_vec);
-            DBUG_EXECUTE_IF(
-                    "CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets",
-                    { static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets(); });
+            DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
+                static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets();
+            });
         }
     }
     return Status::OK();
@@ -486,8 +475,10 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
-    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
-    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+    double process_memory_usage =
+            cast_set<double>(doris::GlobalMemoryArbitrator::process_memory_usage());
+    bool memory_usage_high =
+            process_memory_usage > cast_set<double>(MemInfo::soft_mem_limit()) * 0.8;
     if (cloud_tablet()->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
         memory_usage_high) {
         max_score = std::max(config::cumulative_compaction_max_deltas /
@@ -617,4 +608,5 @@ void CloudCumulativeCompaction::do_lease() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

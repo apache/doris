@@ -42,7 +42,7 @@ suite("test_cloud_mow_insert_with_retry", "nonConcurrent") {
                         "enable_unique_key_merge_on_write" = "true",
                         "disable_auto_compaction" = "true",
                         "replication_num" = "1"); """
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
+            connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl + "&useLocalSessionState=true") {
                 def timeout = 2000
                 def now = System.currentTimeMillis()
                 sql "insert into ${table1} values(1,1,1);"

@@ -25,6 +25,7 @@
 #include "vec/common/sort/topn_sorter.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -128,7 +129,6 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         int64_t data_size = local_state._shared_state->sorter->data_size();
         COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
         COUNTER_SET(local_state._memory_used_counter, data_size);
-        COUNTER_SET(local_state._peak_memory_usage_counter, data_size);
 
         RETURN_IF_CANCELLED(state);
 
@@ -177,4 +177,5 @@ void SortSinkOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     local_state._shared_state->sorter->reset();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

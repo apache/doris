@@ -43,6 +43,7 @@
 #include "vec/io/var_int.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -93,18 +94,18 @@ struct RetentionState {
         }
     }
 
-    void insert_result_into(IColumn& to, size_t events_size, const uint8_t* events) const {
+    void insert_result_into(IColumn& to, size_t events_size, const uint8_t* arg_events) const {
         auto& data_to = assert_cast<ColumnUInt8&>(to).get_data();
 
         ColumnArray::Offset64 current_offset = data_to.size();
         data_to.resize(current_offset + events_size);
 
-        bool first_flag = events[0];
+        bool first_flag = arg_events[0];
         data_to[current_offset] = first_flag;
         ++current_offset;
 
         for (size_t i = 1; i < events_size; ++i) {
-            data_to[current_offset] = (first_flag && events[i]);
+            data_to[current_offset] = (first_flag && arg_events[i]);
             ++current_offset;
         }
     }
@@ -167,3 +168,4 @@ public:
     }
 };
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

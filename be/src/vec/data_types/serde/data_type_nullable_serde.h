@@ -102,7 +102,9 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
-    DataTypeSerDeSPtr get_nested_serde() { return nested_serde; }
+    const DataTypeSerDeSPtr& get_nested_serde() const { return nested_serde; }
+
+    DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
 
 private:
     template <bool is_binary_format>

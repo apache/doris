@@ -95,6 +95,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -503,7 +504,7 @@ public class ReportHandler extends Daemon {
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
         // dbid -> txn id -> [partition info]
-        Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
 
         // db id -> tablet id
@@ -980,13 +981,13 @@ public class ReportHandler extends Daemon {
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
                                     if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
-                                        List<Integer> clusterKeyIndexes = OlapTable.getClusterKeyIndexes(
+                                        List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
                                                 indexMeta.getSchema());
-                                        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                                            createReplicaTask.setClusterKeyIndexes(clusterKeyIndexes);
+                                        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                                            createReplicaTask.setClusterKeyUids(clusterKeyUids);
                                             LOG.info("table: {}, partition: {}, index: {}, tablet: {}, "
-                                                            + "cluster key indexes: {}", tableId, partitionId, indexId,
-                                                    tabletId, clusterKeyIndexes);
+                                                            + "cluster key uids: {}", tableId, partitionId, indexId,
+                                                    tabletId, clusterKeyUids);
                                         }
                                     }
                                     createReplicaBatchTask.addTask(createReplicaTask);
@@ -1148,14 +1149,14 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
+            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
         for (Long dbId : transactionsToPublish.keySet()) {
-            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
+            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
             for (long txnId : map.keySet()) {
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        map.get(txnId), createPublishVersionTaskTime);
+                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
                 batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
                 AgentTaskQueue.addTask(task);

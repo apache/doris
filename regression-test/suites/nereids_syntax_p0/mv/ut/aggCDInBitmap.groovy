@@ -34,7 +34,6 @@ suite ("aggCDInBitmap") {
     sql "analyze table aggCDInBitmap with sync;"
     sql """set enable_stats=false;"""
 
-
     order_qt_select_star "select * from aggCDInBitmap order by 1;"
 
 
@@ -45,9 +44,10 @@ suite ("aggCDInBitmap") {
     order_qt_select_mv "select k1, count(distinct v1) from aggCDInBitmap group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table aggCDInBitmap modify column k1 set stats ('row_count'='3');"""
     explain {
         sql("select k1, count(distinct v1) from aggCDInBitmap group by k1;")
         contains "bitmap_union_count"
     }
-
+    
 }

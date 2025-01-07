@@ -41,6 +41,7 @@
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
+#include "orc/sargs/Literal.hh"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -128,8 +129,7 @@ public:
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-              io::IOContext* io_ctx, bool enable_lazy_mat = true,
-              std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr);
+              io::IOContext* io_ctx, bool enable_lazy_mat = true);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
@@ -288,23 +288,27 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
+
+    // functions for building search argument until _init_search_argument
     std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
             const VSlotRef* slot_ref, const VLiteral* literal);
     bool _check_slot_can_push_down(const VExprSPtr& expr);
+    bool _check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id);
     bool _check_rest_children_can_push_down(const VExprSPtr& expr);
     bool _check_expr_can_push_down(const VExprSPtr& expr);
-    bool _build_less_than(const VExprSPtr& expr,
+    void _build_less_than(const VExprSPtr& expr,
                           std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    bool _build_less_than_equals(const VExprSPtr& expr,
+    void _build_less_than_equals(const VExprSPtr& expr,
                                  std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    bool _build_equals(const VExprSPtr& expr, std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    bool _build_filter_in(const VExprSPtr& expr,
+    void _build_equals(const VExprSPtr& expr, std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    void _build_filter_in(const VExprSPtr& expr,
                           std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    bool _build_is_null(const VExprSPtr& expr,
+    void _build_is_null(const VExprSPtr& expr,
                         std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _build_search_argument(const VExprSPtr& expr,
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprContextSPtrs& conjuncts);
+
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
@@ -634,7 +638,6 @@ private:
     std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     bool _dict_cols_has_converted = false;
     bool _has_complex_type = false;
-    std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 
     // resolve schema change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
@@ -644,6 +647,9 @@ private:
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    std::unordered_map<const VSlotRef*, orc::PredicateDataType>
+            _vslot_ref_to_orc_predicate_data_type;
+    std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {

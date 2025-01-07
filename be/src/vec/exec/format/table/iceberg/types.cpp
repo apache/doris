@@ -25,8 +25,9 @@ namespace iceberg {
 std::unique_ptr<MapType> MapType::of_optional(int key_id, int value_id,
                                               std::unique_ptr<Type> key_type,
                                               std::unique_ptr<Type> value_type) {
+    // key is always required
     auto key_field =
-            std::make_unique<NestedField>(true, key_id, "key", std::move(key_type), std::nullopt);
+            std::make_unique<NestedField>(false, key_id, "key", std::move(key_type), std::nullopt);
     auto value_field = std::make_unique<NestedField>(true, value_id, "value", std::move(value_type),
                                                      std::nullopt);
     return std::unique_ptr<MapType>(new MapType(std::move(key_field), std::move(value_field)));

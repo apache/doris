@@ -16,10 +16,10 @@
 // under the License.
 
 #include <glog/logging.h>
-#include <stddef.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <utility>
 
@@ -41,17 +41,18 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
 class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename Impl>
 class FunctionArrayRange : public IFunction {
@@ -136,7 +137,7 @@ struct RangeImplUtil {
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
         ColumnNullable* dest_nested_nullable_col =
                 reinterpret_cast<ColumnNullable*>(dest_nested_column);
-        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
+        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
         auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -174,7 +175,7 @@ private:
                          PaddedPODArray<SourceDataType>& nested_column,
                          PaddedPODArray<UInt8>& dest_nested_null_map,
                          ColumnArray::Offsets64& dest_offsets) {
-        int rows = start.size();
+        size_t rows = start.size();
         for (auto row = 0; row < rows; ++row) {
             auto idx = start[row];
             auto end_row = end[row];
@@ -193,7 +194,7 @@ private:
                         return Status::InvalidArgument("Array size exceeds the limit {}",
                                                        max_array_size_as_field);
                     }
-                    int offset = dest_offsets.back();
+                    size_t offset = dest_offsets.back();
                     while (idx < end[row]) {
                         nested_column.push_back(idx);
                         dest_nested_null_map.push_back(0);
@@ -213,7 +214,7 @@ private:
                     dest_offsets.push_back(dest_offsets.back());
                     continue;
                 } else {
-                    int offset = dest_offsets.back();
+                    size_t offset = dest_offsets.back();
                     using UNIT = std::conditional_t<std::is_same_v<TimeUnitOrVoid, void>,
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
@@ -228,10 +229,9 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::vectorized::date_time_add<
-                                UNIT::value, DateV2Value<DateTimeV2ValueType>,
-                                DateV2Value<DateTimeV2ValueType>, DateTimeV2>(idx, step_row,
-                                                                              is_null);
+                        idx = doris::vectorized::date_time_add<UNIT::value, DataTypeDateTimeV2,
+                                                               DataTypeDateTimeV2>(idx, step_row,
+                                                                                   is_null);
                     }
                     dest_offsets.push_back(offset);
                 }

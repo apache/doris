@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "olap/metadata_adder.h"
 #include "runtime/memory/memory_profile.h"
 
 namespace doris {
@@ -37,8 +38,15 @@ void ProcessProfile::refresh_profile() {
     std::unique_ptr<RuntimeProfile> process_profile =
             std::make_unique<RuntimeProfile>("ProcessProfile");
     _memory_profile->make_memory_profile(process_profile.get());
-    _process_profile.set(std::move(process_profile));
     // TODO make other profile
+
+    // 3. dump object heap
+    RuntimeProfile* object_heap_dump_snapshot =
+            process_profile->create_child("ObjectHeapDump", true, false);
+    MetadataAdder<ProcessProfile>::dump_metadata_object(object_heap_dump_snapshot);
+    // TODO dump other object (block, column, etc.)
+
+    _process_profile.set(std::move(process_profile));
 }
 
 } // namespace doris

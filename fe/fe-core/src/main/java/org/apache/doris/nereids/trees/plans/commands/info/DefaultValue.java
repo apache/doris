@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 /**
  * default value of a column.
@@ -77,7 +78,7 @@ public class DefaultValue {
      */
     public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
         if (precision > ScalarType.MAX_DATETIMEV2_SCALE || precision < 0) {
-            throw new IllegalArgumentException("column's default value current_timestamp"
+            throw new AnalysisException("column's default value current_timestamp"
                     + " precision must be between 0 and 6");
         }
         if (precision == 0) {

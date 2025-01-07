@@ -83,6 +83,8 @@ const std::string INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
 
 const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
+const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
+
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
@@ -117,6 +119,9 @@ std::string get_parser_lowercase_from_properties(
 }
 
 std::string get_parser_stopwords_from_properties(
+        const std::map<std::string, std::string>& properties);
+
+std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris

@@ -40,9 +40,22 @@ void do_file_response(const std::string& dir_path, HttpRequest* req,
                       bufferevent_rate_limit_group* rate_limit_group = nullptr,
                       bool is_acquire_md5 = false);
 
-void do_dir_response(const std::string& dir_path, HttpRequest* req);
+void do_dir_response(const std::string& dir_path, HttpRequest* req,
+                     bool is_acquire_filesize = false);
 
 std::string get_content_type(const std::string& file_name);
 
 bool load_size_smaller_than_wal_limit(int64_t content_length);
+
+// Whether a backend supports batch download
+Status is_support_batch_download(const std::string& address);
+
+Status list_remote_files_v2(const std::string& address, const std::string& token,
+                            const std::string& remote_dir,
+                            std::vector<std::pair<std::string, size_t>>* file_info_list);
+
+Status download_files_v2(const std::string& address, const std::string& token,
+                         const std::string& remote_dir, const std::string& local_dir,
+                         const std::vector<std::pair<std::string, size_t>>& file_info_list);
+
 } // namespace doris

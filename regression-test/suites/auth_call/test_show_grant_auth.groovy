@@ -33,7 +33,7 @@ suite("test_show_grant_auth","p0,auth_call") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """show grants;"""
         test {
             sql """show all grants;"""
@@ -46,7 +46,7 @@ suite("test_show_grant_auth","p0,auth_call") {
         }
     }
     sql """grant grant_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """show grants;"""
         sql """show all grants;"""
         sql """show roles;"""

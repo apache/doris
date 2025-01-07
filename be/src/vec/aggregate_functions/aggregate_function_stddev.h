@@ -34,7 +34,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -88,12 +88,12 @@ struct BaseData {
         if (count == 1) {
             return 0.0;
         }
-        double res = m2 / count;
+        double res = m2 / (double)count;
         return get_result(res);
     }
 
     double get_samp_result() const {
-        double res = m2 / (count - 1);
+        double res = m2 / double(count - 1);
         return get_result(res);
     }
 
@@ -102,21 +102,21 @@ struct BaseData {
             return;
         }
         double delta = mean - rhs.mean;
-        double sum_count = count + rhs.count;
-        mean = rhs.mean + delta * count / sum_count;
-        m2 = rhs.m2 + m2 + (delta * delta) * rhs.count * count / sum_count;
+        double sum_count = double(count + rhs.count);
+        mean = rhs.mean + delta * (double)count / sum_count;
+        m2 = rhs.m2 + m2 + (delta * delta) * (double)rhs.count * (double)count / sum_count;
         count = int64_t(sum_count);
     }
 
     void add(const IColumn* column, size_t row_num) {
         const auto& sources =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column);
-        double source_data = sources.get_data()[row_num];
+        double source_data = (double)sources.get_data()[row_num];
 
         double delta = source_data - mean;
-        double r = delta / (1 + count);
+        double r = delta / double(1 + count);
         mean += r;
-        m2 += count * delta * r;
+        m2 += (double)count * delta * r;
         count += 1;
     }
 
@@ -217,3 +217,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

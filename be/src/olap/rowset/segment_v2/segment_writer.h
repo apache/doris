@@ -105,6 +105,7 @@ public:
                              const std::function<void(const RowLocation& loc)>& found_cb,
                              const std::function<Status()>& not_found_cb,
                              PartialUpdateStats& stats);
+    Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
     Status append_block_with_variant_subcolumns(vectorized::Block& data);
@@ -154,6 +155,8 @@ public:
         *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
+
+    uint64_t primary_keys_size() const { return _primary_keys_size; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -260,6 +263,8 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+    std::vector<std::string> _primary_keys;
+    uint64_t _primary_keys_size = 0;
 };
 
 } // namespace segment_v2

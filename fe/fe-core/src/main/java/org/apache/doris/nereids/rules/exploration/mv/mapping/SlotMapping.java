@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -78,19 +77,19 @@ public class SlotMapping extends Mapping {
             for (List<String> sourceSlotName : sourceSlotNameToSlotMap.keySet()) {
                 Slot sourceSlot = sourceSlotNameToSlotMap.get(sourceSlotName);
                 Slot targetSlot = targetSlotNameSlotMap.get(sourceSlotName);
-                // source slot can not map from target, bail out
-                if (targetSlot == null && !(((SlotReference) sourceSlot).getDataType() instanceof VariantType)) {
-                    LOG.warn(String.format("SlotMapping generate is null, source relation is %s, "
-                            + "target relation is %s", sourceRelation, targetRelation));
-                    return null;
-                }
                 if (targetSlot == null) {
+                    // there are two scenes in which targetSlot maybe null
+                    // 1
                     // if variant, though can not map slot from query to view, but we maybe derive slot from query
                     // variant self, such as query slot to view slot mapping is payload#4 -> payload#10
                     // and query has a variant which is payload['issue']['number']#20, this can not get from view.
                     // in this scene, we can derive
                     // payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') mapping
                     // in expression rewrite
+                    // 2
+                    // Maybe table add column after last refresh
+                    LOG.warn(String.format("SlotMapping generate is null, source relation is %s, "
+                            + "target relation is %s", sourceRelation, targetRelation));
                     continue;
                 }
                 relationSlotMap.put(MappedSlot.of(sourceSlot,

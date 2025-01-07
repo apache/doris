@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -94,6 +95,9 @@ public class ExplainCommand extends Command implements NoForward {
             executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
         } else {
             executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
+        }
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            scanNode.stop();
         }
     }
 

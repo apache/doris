@@ -116,8 +116,8 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     request->tablet_schema.__set_sequence_col_idx(4);
     request->__set_storage_format(TStorageFormat::V2);
     request->__set_enable_unique_key_merge_on_write(enable_mow);
-    request->tablet_schema.cluster_key_idxes.push_back(1);
-    request->tablet_schema.cluster_key_idxes.push_back(0);
+    request->tablet_schema.cluster_key_uids.push_back(1);
+    request->tablet_schema.cluster_key_uids.push_back(0);
 
     TColumn k1;
     k1.column_name = "k1";

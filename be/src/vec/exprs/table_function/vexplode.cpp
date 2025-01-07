@@ -23,18 +23,51 @@
 
 #include "common/status.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 VExplodeTableFunction::VExplodeTableFunction() {
     _fn_name = "vexplode";
+}
+
+Status VExplodeTableFunction::_process_init_variant(Block* block, int value_column_idx) {
+    // explode variant array
+    const auto& variant_column = check_and_get_column<ColumnObject>(
+            remove_nullable(block->get_by_position(value_column_idx)
+                                    .column->convert_to_full_column_if_const())
+                    .get());
+    _detail.output_as_variant = true;
+    if (!variant_column->is_null_root()) {
+        _array_column = variant_column->get_root();
+        // We need to wrap the output nested column within a variant column.
+        // Otherwise the type is missmatched
+        const auto* array_type = check_and_get_data_type<DataTypeArray>(
+                remove_nullable(variant_column->get_root_type()).get());
+        if (array_type == nullptr) {
+            return Status::NotSupported("explode not support none array type {}",
+                                        variant_column->get_root_type()->get_name());
+        }
+        _detail.nested_type = array_type->get_nested_type();
+    } else {
+        // null root, use nothing type
+        _array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
+                                               ColumnUInt8::create(0));
+        _array_column->assume_mutable()->insert_many_defaults(variant_column->size());
+        _detail.nested_type = std::make_shared<DataTypeNothing>();
+    }
+    return Status::OK();
 }
 
 Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
@@ -47,12 +80,7 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
                                                                   &value_column_idx));
     if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
                 .is_variant_type()) {
-        // explode variant array
-        const auto& variant_column = check_and_get_column<ColumnObject>(
-                remove_nullable(block->get_by_position(value_column_idx)
-                                        .column->convert_to_full_column_if_const())
-                        .get());
-        _array_column = variant_column->get_root();
+        RETURN_IF_ERROR(_process_init_variant(block, value_column_idx));
     } else {
         _array_column =
                 block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
