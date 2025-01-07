@@ -286,6 +286,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     opts.compression_type = _opts.compression_type;
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
+    opts.variant_max_subcolumns_count = column.variant_max_subcolumns_count();
 
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));

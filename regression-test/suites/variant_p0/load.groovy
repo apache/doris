@@ -323,6 +323,7 @@ suite("regression_test_variant", "p0"){
 
         // test mow with delete
         table_name = "variant_mow" 
+        sql """ DROP TABLE IF EXISTS ${table_name} """
         sql """
          CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,

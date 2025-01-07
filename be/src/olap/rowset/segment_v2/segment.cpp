@@ -209,6 +209,14 @@ Status Segment::_open() {
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
 
+    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
+        const auto& column = _tablet_schema->column(ordinal);
+        if (column.is_variant_type()) {
+            _variant_max_subcolumns_count = column.variant_max_subcolumns_count();
+            break;
+        }
+    }
+
     update_metadata_size();
 
     return Status::OK();
@@ -594,8 +602,10 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
         }
         // it contains children or column missing in storage, so treat it as variant
         return identifier.is_nullable
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
-                       : std::make_shared<vectorized::DataTypeObject>();
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
+                                 _variant_max_subcolumns_count))
+                       : std::make_shared<vectorized::DataTypeObject>(
+                                 _variant_max_subcolumns_count);
     }
     // TODO support normal column type
     return nullptr;
@@ -1087,7 +1097,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         DCHECK(storage_type != nullptr);
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
-                slot->col_unique_id());
+                slot->col_unique_id(), slot->type().max_subcolumns_count());
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
             RETURN_IF_ERROR(iterator_hint->init(opt));

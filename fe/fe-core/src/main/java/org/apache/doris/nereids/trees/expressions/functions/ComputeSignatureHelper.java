@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
@@ -424,6 +425,34 @@ public class ComputeSignatureHelper {
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DateTimeV2Type) {
             signature = signature.withReturnType(argType);
+        }
+        return signature;
+    }
+
+    /** dynamicComputeVariantArgs */
+    public static FunctionSignature dynamicComputeVariantArgs(
+            FunctionSignature signature, List<Expression> arguments) {
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        boolean findVariantType = false;
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
+                newArgTypes.add(expressionType);
+                signature = signature.withReturnType(expressionType);
+                findVariantType = true;
+            } else {
+                newArgTypes.add(sigType);
+            }
+        }
+        if (findVariantType) {
+            signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         }
         return signature;
     }

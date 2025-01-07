@@ -64,7 +64,8 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<vectorized::DataTypeObject>(), std::make_shared<DataTypeString>()};
+        return {std::make_shared<vectorized::DataTypeObject>(-2),
+                std::make_shared<DataTypeString>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -74,7 +75,7 @@ public:
         DCHECK(is_string(arguments[1]))
                 << "Second argument for function: " << name << " should be String but it has type "
                 << arguments[1]->get_name() << ".";
-        return make_nullable(std::make_shared<DataTypeObject>());
+        return make_nullable(std::make_shared<DataTypeObject>(-2));
     }
 
     // wrap variant column with nullable
@@ -120,11 +121,18 @@ public:
     }
 
 private:
+    // Return sub-path by specified prefix.
+    // For example, for prefix a.b:
+    // a.b.c.d -> c.d, a.b.c -> c
+    static std::string_view get_sub_path(const std::string_view& path,
+                                         const std::string_view& prefix) {
+        return path.substr(prefix.size() + 1);
+    }
     static Status get_element_column(const ColumnObject& src, const ColumnPtr& index_column,
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
         if (src.empty()) {
-            *result = ColumnObject::create(true);
+            *result = ColumnObject::create(src.max_subcolumns_count());
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
             // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
@@ -152,7 +160,8 @@ private:
                     result_column->insert_default();
                 }
             }
-            *result = ColumnObject::create(type, std::move(result_column));
+            *result = ColumnObject::create(src.max_subcolumns_count(), type,
+                                           std::move(result_column));
             (*result)->assume_mutable()->finalize();
             return Status::OK();
         } else {
@@ -161,13 +170,69 @@ private:
             PathInData path(field_name);
             ColumnObject::Subcolumns subcolumns = mutable_ptr->get_subcolumns();
             const auto* node = subcolumns.find_exact(path);
-            MutableColumnPtr result_col;
+            MutableColumnPtr result_col = ColumnObject::create(src.max_subcolumns_count());
+            ColumnObject::Subcolumns new_subcolumns;
+
+            auto extract_from_sparse_column = [&](auto& container) {
+                ColumnObject::Subcolumn root {0, true, true};
+                // no root, no sparse column
+                const auto& sparse_data_map =
+                        assert_cast<const ColumnMap&>(*mutable_ptr->get_sparse_column());
+                const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
+                const auto& src_sparse_data_paths =
+                        assert_cast<const ColumnString&>(sparse_data_map.get_keys());
+                const auto& src_sparse_data_values =
+                        assert_cast<const ColumnString&>(sparse_data_map.get_values());
+                auto& sparse_data_offsets =
+                        assert_cast<ColumnMap&>(*container->get_sparse_column()->assume_mutable())
+                                .get_offsets();
+                auto [sparse_data_paths, sparse_data_values] =
+                        container->get_sparse_data_paths_and_values();
+                StringRef prefix_ref(path.get_path());
+                std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
+                for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
+                    size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
+                    size_t end = src_sparse_data_offsets[ssize_t(i)];
+                    size_t lower_bound_index =
+                            vectorized::ColumnObject::find_path_lower_bound_in_sparse_data(
+                                    prefix_ref, src_sparse_data_paths, start, end);
+                    for (; lower_bound_index != end; ++lower_bound_index) {
+                        auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
+                        std::string_view path(path_ref.data, path_ref.size);
+                        if (!path.starts_with(path_prefix)) {
+                            break;
+                        }
+                        // Don't include path that is equal to the prefix.
+                        if (path.size() != path_prefix.size()) {
+                            auto sub_path = get_sub_path(path, path_prefix);
+                            sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
+                            sparse_data_values->insert_from(src_sparse_data_values,
+                                                            lower_bound_index);
+                        } else {
+                            // insert into root column, example:  access v['b'] and b is in sparse column
+                            // data example:
+                            // {"b" : 123}
+                            // {"b" : {"c" : 456}}
+                            // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
+                            // from "" which is empty path and root
+                            const auto& data = ColumnObject::deserialize_from_sparse_column(
+                                    &src_sparse_data_values, lower_bound_index);
+                            root.insert(data.first, data.second);
+                        }
+                    }
+                    if (root.size() == sparse_data_offsets.size()) {
+                        root.insert_default();
+                    }
+                    sparse_data_offsets.push_back(sparse_data_paths->size());
+                }
+                container->get_subcolumns().create_root(root);
+                container->set_num_rows_and_align(mutable_ptr->size());
+            };
+
             if (node != nullptr) {
-                result_col = ColumnObject::create(true);
                 std::vector<decltype(node)> nodes;
                 PathsInData paths;
                 ColumnObject::Subcolumns::get_leaves_of_node(node, nodes, paths);
-                ColumnObject::Subcolumns new_subcolumns;
                 for (const auto* n : nodes) {
                     PathInData new_path = n->path.copy_pop_front();
                     VLOG_DEBUG << "add node " << new_path.get_path()
@@ -179,19 +244,28 @@ private:
                         VLOG_DEBUG << "failed to add node " << new_path.get_path();
                     }
                 }
+
                 // handle the root node
                 if (new_subcolumns.empty() && !nodes.empty()) {
                     CHECK_EQ(nodes.size(), 1);
                     new_subcolumns.create_root(ColumnObject::Subcolumn {
                             nodes[0]->data.get_finalized_column_ptr()->assume_mutable(),
                             nodes[0]->data.get_least_common_type(), true, true});
+                    auto container = ColumnObject::create(src.max_subcolumns_count(),
+                                                          std::move(new_subcolumns));
+                    result_col->insert_range_from(*container, 0, container->size());
+                } else {
+                    auto container = ColumnObject::create(src.max_subcolumns_count(),
+                                                          std::move(new_subcolumns));
+                    container->clear_sparse_column();
+                    extract_from_sparse_column(container);
+                    result_col->insert_range_from(*container, 0, container->size());
                 }
-                auto container = ColumnObject::create(std::move(new_subcolumns));
-                result_col->insert_range_from(*container, 0, container->size());
             } else {
-                // Create with root, otherwise the root type maybe type Nothing ?
-                result_col = ColumnObject::create(true);
-                result_col->insert_many_defaults(src.size());
+                auto container =
+                        ColumnObject::create(src.max_subcolumns_count(), std::move(new_subcolumns));
+                extract_from_sparse_column(container);
+                result_col->insert_range_from(*container, 0, container->size());
             }
             *result = result_col->get_ptr();
             // ColumnObject should be finalized before parsing, finalize maybe modify original column structure

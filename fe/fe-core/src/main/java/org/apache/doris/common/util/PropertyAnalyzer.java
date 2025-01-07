@@ -240,6 +240,9 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
 
+    public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
+    public static final int VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE = 5;
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -1724,5 +1727,23 @@ public class PropertyAnalyzer {
                     Boolean.toString(Config.enable_skip_bitmap_column_by_default));
         }
         return properties;
+    }
+
+    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties) throws AnalysisException {
+        int maxSubcoumnsCount = VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+            String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+            try {
+                maxSubcoumnsCount = Integer.parseInt(maxSubcoumnsCountStr);
+                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 10000) {
+                    throw new AnalysisException("varaint max counts count must between 10 and 10000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("varaint max counts count format error");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+        }
+        return maxSubcoumnsCount;
     }
 }

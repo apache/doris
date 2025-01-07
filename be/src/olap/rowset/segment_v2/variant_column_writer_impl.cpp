@@ -47,8 +47,9 @@ Status VariantColumnWriterImpl::init() {
     // caculate stats info
     std::set<std::string> subcolumn_paths;
     RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(subcolumn_paths));
-
-    auto col = vectorized::ColumnObject::create(true);
+    DCHECK(_opts.variant_max_subcolumns_count >= 0)
+            << "max subcolumns count is: " << _opts.variant_max_subcolumns_count;
+    auto col = vectorized::ColumnObject::create(_opts.variant_max_subcolumns_count);
     for (const auto& str_path : subcolumn_paths) {
         DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
     }
@@ -100,7 +101,10 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
     }
 
     // Check if the number of all subcolumn paths exceeds the limit.
-    if (path_to_total_number_of_non_null_values.size() > config::variant_max_subcolumns_count) {
+    DCHECK(_opts.variant_max_subcolumns_count >= 0)
+            << "max subcolumns count is: " << _opts.variant_max_subcolumns_count;
+    if (_opts.variant_max_subcolumns_count != 0 &&
+        path_to_total_number_of_non_null_values.size() > _opts.variant_max_subcolumns_count) {
         // Sort paths by total number of non null values.
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(path_to_total_number_of_non_null_values.size());
@@ -111,7 +115,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         // Fill subcolumn_paths with first subcolumn paths in sorted list.
         // reserve 1 for root column
         for (const auto& [size, path] : paths_with_sizes) {
-            if (paths.size() < config::variant_max_subcolumns_count) {
+            if (paths.size() < _opts.variant_max_subcolumns_count) {
                 VLOG_DEBUG << "pick " << path << " as subcolumn";
                 paths.emplace(path);
             }
@@ -226,6 +230,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         CHECK(entry->data.is_finalized());
         int current_column_id = column_id++;
         TabletColumn tablet_column = generate_column_info(entry);
+        tablet_column.set_variant_max_subcolumns_count(
+                _tablet_column->variant_max_subcolumns_count());
         RETURN_IF_ERROR(_create_column_writer(current_column_id, tablet_column, *_tablet_column,
                                               _opts.rowset_ctx->tablet_schema));
         converter->add_column_data_convertor(tablet_column);
@@ -502,6 +508,7 @@ void VariantColumnWriterImpl::_init_column_meta(ColumnMetaPB* meta, uint32_t col
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
+    meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
 };
 
 Status VariantColumnWriterImpl::_create_column_writer(uint32_t cid, const TabletColumn& column,

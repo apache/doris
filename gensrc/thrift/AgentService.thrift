@@ -50,6 +50,7 @@ struct TTabletSchema {
     21: optional i64 row_store_page_size = 16384
     22: optional bool variant_enable_flatten_nested = false 
     23: optional i64 storage_page_size = 65536
+    24: optional i32 variant_max_subcolumns_count = -17
 }
 
 // this enum stands for different storage format in src_backends

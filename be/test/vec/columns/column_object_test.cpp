@@ -45,7 +45,7 @@ doris::vectorized::Field construct_variant_map(
 
 auto construct_basic_varint_column() {
     // 1. create an empty variant column
-    auto variant = ColumnObject::create();
+    auto variant = ColumnObject::create(5);
 
     std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
@@ -85,7 +85,7 @@ auto construct_dst_varint_column() {
                            vectorized::ColumnObject::Subcolumn {0, true});
     dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
                            vectorized::ColumnObject::Subcolumn {0, true});
-    return ColumnObject::create(std::move(dynamic_subcolumns));
+    return ColumnObject::create(5, std::move(dynamic_subcolumns));
 }
 
 TEST(ColumnVariantTest, basic_finalize) {
@@ -331,7 +331,7 @@ doris::vectorized::Field get_jsonb_field(std::string_view type) {
 
 auto construct_advanced_varint_column() {
     // 1. create an empty variant column
-    auto variant = ColumnObject::create();
+    auto variant = ColumnObject::create(5);
 
     std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
@@ -609,7 +609,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
 
 auto construct_varint_column_only_subcolumns() {
     // 1. create an empty variant column
-    auto variant = ColumnObject::create();
+    auto variant = ColumnObject::create(5);
 
     std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
@@ -631,7 +631,7 @@ auto construct_varint_column_only_subcolumns() {
 
 auto construct_varint_column_more_subcolumns() {
     // 1. create an empty variant column
-    auto variant = ColumnObject::create();
+    auto variant = ColumnObject::create(5);
 
     std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
@@ -657,7 +657,7 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
     EXPECT_EQ(src->size(), 6);
 
     // dst is an empty column
-    auto dst = ColumnObject::create();
+    auto dst = ColumnObject::create(5);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
     dst->insert_range_from(*src, 0, 6);

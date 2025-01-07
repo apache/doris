@@ -61,12 +61,14 @@ suite("regression_test_variant_schema_change", "variant_type"){
     // sql "set experimental_enable_nereids_planner = true"
     // add, drop index
     sql "alter table ${table_name} add index btm_idxk (k) using bitmap ;"
-    sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
+    sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
+    
     // drop column is linked schema change
     sql "drop index btm_idxk on ${table_name};"
-    sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 1024"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
+    sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 1024"""
+    
     qt_sql """select v['k1'] from ${table_name} order by k desc limit 10"""
     qt_sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
 

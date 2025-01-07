@@ -233,7 +233,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getEnableMowLightDelete(), null,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
-                                    tbl.storagePageSize());
+                                    tbl.storagePageSize(),
+                                    tbl.getVariantMaxSubcolumnsCount());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

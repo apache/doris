@@ -181,7 +181,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
-                        tbl.storagePageSize());
+                        tbl.storagePageSize(),
+                        tbl.getVariantMaxSubcolumnsCount());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -232,7 +233,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-            long storagePageSize) throws DdlException {
+            long storagePageSize, int variantMaxSubcolumnsCount) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -336,7 +337,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setSortColNum(dataSortInfo.getColNum());
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
-            schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
+            schemaBuilder.addColumn(column.toPb(bfColumns, indexes, variantMaxSubcolumnsCount));
         }
 
         if (indexes != null) {

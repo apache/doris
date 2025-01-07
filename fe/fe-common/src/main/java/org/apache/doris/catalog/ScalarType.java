@@ -124,6 +124,9 @@ public class ScalarType extends Type {
     @SerializedName(value = "lenStr")
     private String lenStr;
 
+    @SerializedName(value = "variantMaxSubcolumnsCount")
+    private int variantMaxSubcolumnsCount;
+
     public ScalarType(PrimitiveType type) {
         this.type = type;
     }
@@ -727,9 +730,15 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB:
-            case VARIANT: {
+            case JSONB: {
                 scalarType.setLen(getLength());
+                break;
+            }
+            case VARIANT: {
+                scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+                if (variantMaxSubcolumnsCount < 0) {
+                    throw new IllegalArgumentException(String.format("error count: < 0"));
+                }
                 break;
             }
             case DECIMALV2:
@@ -1212,5 +1221,14 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
+    }
+
+    public void setVariantMaxSubcolumnsCount(int variantMaxSubcolumnsCount) {
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+        LOG.info("set max count is: {}", variantMaxSubcolumnsCount);
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        return variantMaxSubcolumnsCount;
     }
 }

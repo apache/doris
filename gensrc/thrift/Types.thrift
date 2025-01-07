@@ -105,7 +105,7 @@ enum TTypeNodeType {
     ARRAY,
     MAP,
     STRUCT,
-    VARIANT,
+    VARIANT, // unused
 }
 
 enum TStorageBackendType {
@@ -137,6 +137,9 @@ struct TScalarType {
     // Only set for DECIMAL
     3: optional i32 precision
     4: optional i32 scale
+
+    // Only set for VARIANT
+    5: optional i32 variant_max_subcolumns_count
 }
 
 // Represents a field in a STRUCT type.
