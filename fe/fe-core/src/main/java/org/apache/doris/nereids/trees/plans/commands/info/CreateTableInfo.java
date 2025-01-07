@@ -540,7 +540,7 @@ public class CreateTableInfo {
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
                             + "only be set in merge-on-write unique table.");
                 }
                 // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
