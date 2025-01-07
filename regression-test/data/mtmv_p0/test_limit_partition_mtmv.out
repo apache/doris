@@ -35,7 +35,13 @@
 1	2038-01-03
 2	2020-01-02
 
--- !less_than_range_drop_partition --
+-- !history_less_than_range_init --
+1	2019-01-02
+2	2020-01-02
+2	2021-01-02
+
+-- !history_less_than_range_drop_partition --
+1	2019-01-02
 2	2020-01-02
 2	2021-01-02
 
