@@ -431,6 +431,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 default:
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
+        } catch (Exception e) {
+            System.out.println(e);
+            return null;
         } finally {
             if (!isView) {
                 Optional<SqlCacheContext> sqlCacheContext = cascadesContext.getStatementContext().getSqlCacheContext();

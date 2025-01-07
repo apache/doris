@@ -34,13 +34,25 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * This abstract class represents a Hive Metastore (HMS) Dla Table and provides a blueprint for
+ * various operations related to metastore tables in Doris.
+ *
+ * Purpose:
+ * - To encapsulate common functionalities that HMS Dla tables should have for implementing other interfaces
+ *
+ * Why needed:
+ * - To provide a unified way to manage and interact with different kinds of Dla Table
+ * - To facilitate the implementation of multi-table materialized views (MTMV) by providing necessary
+ *   methods for snapshot and partition management.
+ * - To abstract out the specific details of HMS table operations, making the code more modular and maintainable.
+ */
 public abstract class HMSDlaTable implements MTMVBaseTableIf {
     HMSExternalTable hmsTable;
 
     public HMSDlaTable(HMSExternalTable table) {
         this.hmsTable = table;
     }
-
 
     abstract Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
@@ -56,10 +68,6 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
 
     abstract MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
-
-    public boolean needAutoRefresh() {
-        return true;
-    }
 
     abstract boolean isPartitionColumnAllowNull();
 
