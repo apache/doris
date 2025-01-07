@@ -723,6 +723,7 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
     Status res = _do_process_alter_tablet_v2(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
+    DBUG_EXECUTE_IF("SchemaChangeJob::process_alter_tablet.leave.sleep", { sleep(5); });
     return res;
 }
 

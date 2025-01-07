@@ -85,9 +85,9 @@ public:
     Status cancel_with_status(const Status& st);
 
 private:
-    void _build_current_tablet_schema(int64_t index_id,
-                                      const OlapTableSchemaParam* table_schema_param,
-                                      const TabletSchema& ori_tablet_schema);
+    Status _build_current_tablet_schema(int64_t index_id,
+                                        const OlapTableSchemaParam* table_schema_param,
+                                        const TabletSchema& ori_tablet_schema);
 
     void _update_profile(RuntimeProfile* profile);
 

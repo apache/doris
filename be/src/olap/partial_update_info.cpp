@@ -27,11 +27,11 @@
 
 namespace doris {
 
-void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_update,
-                             const std::set<string>& partial_update_cols, bool is_strict_mode,
-                             int64_t timestamp_ms, int32_t nano_seconds,
-                             const std::string& timezone, const std::string& auto_increment_column,
-                             int64_t cur_max_version) {
+Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
+                               bool partial_update, const std::set<string>& partial_update_cols,
+                               bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
+                               const std::string& timezone,
+                               const std::string& auto_increment_column, int64_t cur_max_version) {
     is_partial_update = partial_update;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
@@ -40,6 +40,22 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
     this->timezone = timezone;
     missing_cids.clear();
     update_cids.clear();
+
+    if (is_partial_update) {
+        // partial_update_cols should include all key columns
+        for (std::size_t i {0}; i < tablet_schema.num_key_columns(); i++) {
+            const auto key_col = tablet_schema.column(i);
+            if (!partial_update_cols.contains(key_col.name())) {
+                auto msg = fmt::format(
+                        "Unable to do partial update on shadow index's tablet, tablet_id={}, "
+                        "txn_id={}. Missing key column {}.",
+                        tablet_id, txn_id, key_col.name());
+                LOG_WARNING(msg);
+                return Status::Aborted<false>(msg);
+            }
+        }
+    }
+
     for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
         auto tablet_column = tablet_schema.column(i);
         if (!partial_update_input_columns.contains(tablet_column.name())) {
@@ -59,6 +75,7 @@ void PartialUpdateInfo::init(const TabletSchema& tablet_schema, bool partial_upd
     is_input_columns_contains_auto_inc_column =
             is_partial_update && partial_update_input_columns.contains(auto_increment_column);
     _generate_default_values_for_missing_cids(tablet_schema);
+    return Status::OK();
 }
 
 void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const {
