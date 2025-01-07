@@ -237,4 +237,66 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
     assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
     order_qt_date_range_all "SELECT * FROM ${mvName} order by k1,k2"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    // history list partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY list(`k2`)
+        (
+        PARTITION p_20380101 VALUES IN ("2038-01-01"),
+        PARTITION p_20200101 VALUES IN ("2020-01-01")
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2038-01-01"),(2,"2020-01-01");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='100',
+            'partition_sync_time_unit'='YEAR'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_history_list_init "SELECT * FROM ${mvName}"
+    // drop partition of base table ,MTMV should not care
+    sql """
+        alter table ${tableName} drop partition p_20380101;
+        """
+
+     sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+    order_qt_history_list_drop_partition "SELECT * FROM ${mvName}"
 }
