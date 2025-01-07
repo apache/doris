@@ -3290,7 +3290,7 @@ Status Tablet::generate_new_block_for_partial_update(
     // read current rowset first, if a row in the current rowset has delete sign mark
     // we don't need to read values from old block
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
-                                         rsid_to_rowset, update_block, &read_index_update));
+                                         rsid_to_rowset, update_block, &read_index_update, false));
 
     size_t update_rows = read_index_update.size();
     for (auto i = 0; i < update_cids.size(); ++i) {
@@ -3311,7 +3311,7 @@ Status Tablet::generate_new_block_for_partial_update(
     // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
     std::map<uint32_t, uint32_t> read_index_old;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
-                                         old_block, &read_index_old, new_block_delete_signs));
+                                         old_block, &read_index_old, true, new_block_delete_signs));
     size_t old_rows = read_index_old.size();
     const auto* __restrict old_block_delete_signs =
             get_delete_sign_column_data(old_block, old_rows);
@@ -3375,12 +3375,23 @@ Status Tablet::generate_new_block_for_partial_update(
 // read columns by read plan
 // read_index: ori_pos-> block_idx
 Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                    const std::vector<uint32_t> cids_to_read,
+                                    std::vector<uint32_t> cids_to_read,
                                     const PartialUpdateReadPlan& read_plan,
                                     const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                     vectorized::Block& block,
                                     std::map<uint32_t, uint32_t>* read_index,
+                                    bool force_read_old_delete_signs,
                                     const signed char* __restrict skip_map) {
+    if (force_read_old_delete_signs) {
+        // always read delete sign column from historical data
+        if (const vectorized::ColumnWithTypeAndName* old_delete_sign_column =
+                    block.try_get_by_name(DELETE_SIGN);
+            old_delete_sign_column == nullptr) {
+            auto del_col_cid = tablet_schema->field_index(DELETE_SIGN);
+            cids_to_read.emplace_back(del_col_cid);
+            block.swap(tablet_schema->create_block_by_cids(cids_to_read));
+        }
+    }
     bool has_row_column = tablet_schema->store_row_column();
     auto mutable_columns = block.mutate_columns();
     size_t read_idx = 0;

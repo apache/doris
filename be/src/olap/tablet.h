@@ -486,11 +486,11 @@ public:
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
-    Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                const std::vector<uint32_t> cids_to_read,
+    Status read_columns_by_plan(TabletSchemaSPtr tablet_schema, std::vector<uint32_t> cids_to_read,
                                 const PartialUpdateReadPlan& read_plan,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
+                                bool force_read_old_delete_signs,
                                 const signed char* __restrict skip_map = nullptr);
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);

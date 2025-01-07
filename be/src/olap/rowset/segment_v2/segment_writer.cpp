@@ -657,15 +657,21 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos,
                                            const vectorized::Block* block) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
-        // TODO(plat1ko): cloud mode
-        return Status::NotSupported("fill_missing_columns");
-    }
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
+    auto cids_to_read = missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK_EQ(cids_missing.size(), old_value_block.columns());
+    // always read delete sign column from historical data
+    if (const vectorized::ColumnWithTypeAndName* old_delete_sign_column =
+                old_value_block.try_get_by_name(DELETE_SIGN);
+        old_delete_sign_column == nullptr) {
+        auto del_col_cid = _tablet_schema->field_index(DELETE_SIGN);
+        cids_to_read.emplace_back(del_col_cid);
+        old_value_block.swap(_tablet_schema->create_block_by_cids(cids_to_read));
+    }
+
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
@@ -681,7 +687,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
             if (has_row_column) {
                 auto st = tablet->fetch_value_through_row_column(
-                        rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
+                        rowset, *_tablet_schema, seg_it.first, rids, cids_to_read, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
@@ -689,8 +695,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 continue;
             }
             auto mutable_old_columns = old_value_block.mutate_columns();
-            for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
-                TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
+            for (size_t cid = 0; cid < cids_to_read.size(); ++cid) {
+                TabletColumn tablet_column = _tablet_schema->column(cids_to_read[cid]);
                 auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
                                                         mutable_old_columns[cid]);
                 // set read value to output block
@@ -715,17 +721,14 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         delete_sign_column_data = delete_sign_col.get_data().data();
     }
 
-    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-        for (auto i = 0; i < cids_missing.size(); ++i) {
-            const auto& column = _tablet_schema->column(cids_missing[i]);
-            if (column.has_default_value()) {
-                const auto& default_value =
-                        _opts.rowset_ctx->partial_update_info->default_values[i];
-                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                          default_value.size());
-                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
-                        rb, mutable_default_value_columns[i].get()));
-            }
+    for (auto i = 0; i < cids_missing.size(); ++i) {
+        const auto& column = _tablet_schema->column(cids_missing[i]);
+        if (column.has_default_value()) {
+            const auto& default_value = _opts.rowset_ctx->partial_update_info->default_values[i];
+            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                      default_value.size());
+            RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
+                    rb, mutable_default_value_columns[i].get()));
         }
     }
 
