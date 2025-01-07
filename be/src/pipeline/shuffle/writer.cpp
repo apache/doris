@@ -62,8 +62,9 @@ Status Writer::send_to_channels(
             }
             if (!channel->serializer()->get_block()->empty() &&
                 channel->serializer()->get_result_block()->empty()) {
-                DCHECK_EQ(local_state->part_type(),
-                          TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED);
+                DCHECK(local_state->part_type() ==
+                               TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED ||
+                       eos);
                 channel->serializer()->get_result_block()->clear();
                 // TODO: `TABLET_SINK_SHUFFLE_PARTITIONED` has a strange logics here. For a new
                 //  partition, partitioner will enter `ExchangeSinkOperatorX::sink` twice using the
