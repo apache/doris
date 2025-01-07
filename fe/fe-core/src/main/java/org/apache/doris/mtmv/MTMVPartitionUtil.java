@@ -258,7 +258,7 @@ public class MTMVPartitionUtil {
                 LiteralExpr existLowerValue = existPartitionKeyDesc.getLowerValues().get(0).getValue(type);
                 LiteralExpr existUpperValue = existPartitionKeyDesc.getUpperValues().get(0).getValue(type);
                 Range<LiteralExpr> existRange = Range.closedOpen(existLowerValue, existUpperValue);
-                if (range.isConnected(existRange)) {
+                if (range.isConnected(existRange) && !range.intersection(existRange).isEmpty()) {
                     return true;
                 }
             }
