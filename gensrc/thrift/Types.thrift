@@ -243,13 +243,6 @@ enum TTaskType {
     CALCULATE_DELETE_BITMAP = 1000
 }
 
-enum TStmtType {
-  QUERY,
-  DDL,  // Data definition, e.g. CREATE TABLE (includes read-only functions e.g. SHOW)
-  DML,  // Data modification e.g. INSERT
-  EXPLAIN   // EXPLAIN
-}
-
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {

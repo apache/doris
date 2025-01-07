@@ -61,21 +61,6 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE
 }
 
-// phases of an execution node
-enum TExecNodePhase {
-  PREPARE,
-  OPEN,
-  GETNEXT,
-  CLOSE,
-  INVALID
-}
-
-// what to do when hitting a debug point (TPaloQueryOptions.DEBUG_ACTION)
-enum TDebugAction {
-  WAIT,
-  FAIL
-}
-
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
