@@ -398,7 +398,6 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
 template <typename T>
 StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    // Use uint32 instead of size_t to reduce agg key's length.
     auto string_size(size_at(n));
     auto offset(offset_at(n));
 
@@ -442,7 +441,6 @@ template <typename T>
 void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                  size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        // Use uint32 instead of size_t to reduce agg key's length.
         auto offset(offset_at(i));
         auto string_size(size_at(i));
 
