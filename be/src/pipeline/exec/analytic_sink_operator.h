@@ -68,6 +68,7 @@ public:
 
 private:
     friend class AnalyticSinkOperatorX;
+    Status _execute_impl();
     Status _get_next_for_partition();
     Status _get_next_for_unbounded_range();
     Status _get_next_for_range_between();
@@ -87,7 +88,6 @@ private:
     void _update_order_by_range();
     void _get_partition_by_end();
 
-    bool _has_input_data() { return _output_block_index < _input_blocks.size(); }
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);
     void _reset_state_for_next_partition();
     void _find_candidate_partition_ends();
@@ -145,7 +145,9 @@ private:
     RuntimeProfile::Counter* _execute_timer = nullptr;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _get_result_timer = nullptr;
-    // RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _partition_search_timer = nullptr;
+    RuntimeProfile::Counter* _order_search_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
