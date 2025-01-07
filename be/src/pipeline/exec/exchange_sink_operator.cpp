@@ -44,27 +44,14 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 inline std::string get_partition_type_name(TPartitionType::type part_type) {
-    switch (part_type) {
-    case TPartitionType::UNPARTITIONED:
-        return "UNPARTITIONED";
-    case TPartitionType::RANDOM:
-        return "RANDOM";
-    case TPartitionType::HASH_PARTITIONED:
-        return "HASH_PARTITIONED";
-    case TPartitionType::RANGE_PARTITIONED:
-        return "RANGE_PARTITIONED";
-    case TPartitionType::LIST_PARTITIONED:
-        return "LIST_PARTITIONED";
-    case TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED:
-        return "BUCKET_SHFFULE_HASH_PARTITIONED";
-    case TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED:
-        return "TABLET_SINK_SHUFFLE_PARTITIONED";
-    case TPartitionType::TABLE_SINK_HASH_PARTITIONED:
-        return "TABLE_SINK_HASH_PARTITIONED";
-    case TPartitionType::TABLE_SINK_RANDOM_PARTITIONED:
-        return "TABLE_SINK_RANDOM_PARTITIONED";
+    std::map<int, const char*>::const_iterator i;
+    i = _TPartitionType_VALUES_TO_NAMES.find(part_type);
+
+    if (i != _TPartitionType_VALUES_TO_NAMES.end()) {
+        return i->second;
     }
-    __builtin_unreachable();
+
+    return "Unknown partition type";
 }
 
 bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {

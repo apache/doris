@@ -59,8 +59,9 @@ Status Writer::send_to_channels(
                 // Initialize this block.
                 *channel->serializer()->get_block() =
                         channel->serializer()->get_result_block()->clone_empty();
-            } else if (!channel->serializer()->get_block()->empty() &&
-                       channel->serializer()->get_result_block()->empty()) {
+            }
+            if (!channel->serializer()->get_block()->empty() &&
+                channel->serializer()->get_result_block()->empty()) {
                 DCHECK_EQ(local_state->part_type(),
                           TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED);
                 channel->serializer()->get_result_block()->clear();
