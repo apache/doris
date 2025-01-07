@@ -222,7 +222,6 @@ public class NereidsPlanner extends Planner {
             // collect table and lock them in the order of table id
             collectAndLockTable(showAnalyzeProcess(explainLevel, showPlanProcess));
             // after table collector, we should use a new context.
-            statementContext.loadSnapshots();
             Plan resultPlan = planWithoutLock(plan, requireProperties, explainLevel, showPlanProcess);
             lockCallback.accept(resultPlan);
             if (statementContext.getConnectContext().getExecutor() != null) {

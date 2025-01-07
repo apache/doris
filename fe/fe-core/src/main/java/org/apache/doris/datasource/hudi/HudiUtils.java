@@ -249,10 +249,10 @@ public class HudiUtils {
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
             HMSExternalTable hmsTable) {
         TablePartitionValues partitionValues = new TablePartitionValues();
-        if (hmsTable.getPartitionColumns().isEmpty()) {
-            //isn't partition table.
-            return partitionValues;
-        }
+        // if (hmsTable.getPartitionColumns().isEmpty()) {
+        //     //isn't partition table.
+        //     return partitionValues;
+        // }
 
         HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
         HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()

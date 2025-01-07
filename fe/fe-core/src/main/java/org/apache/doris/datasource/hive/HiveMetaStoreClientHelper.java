@@ -801,7 +801,7 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static Schema getHudiTableSchema(HMSExternalTable table) {
+    public static Schema getHudiTableSchema(HMSExternalTable table, String timestamp) {
         HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
         Schema hudiSchema;
@@ -815,7 +815,7 @@ public class HiveMetaStoreClientHelper {
         metaClient.reloadActiveTimeline();
 
         try {
-            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
+            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema(timestamp));
         } catch (Exception e) {
             throw new RuntimeException("Cannot get hudi table schema.", e);
         }

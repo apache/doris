@@ -17,20 +17,5 @@
 
 package org.apache.doris.datasource.mvcc;
 
-import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.catalog.TableIf;
-
-import java.util.Optional;
-
-/**
- * The table that needs to query data based on the version needs to implement this interface.
- */
-public interface MvccTable extends TableIf {
-    /**
-     * Retrieve the current snapshot information of the table,
-     * and the returned result will be used for the entire process of this query
-     *
-     * @return MvccSnapshot
-     */
-    MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot);
+public class EmptyMvccSnapshot implements MvccSnapshot {
 }

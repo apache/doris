@@ -103,7 +103,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         TablePartitionValues partitionValues = new TablePartitionValues();
         partitionValues.addPartitions(partitionNameAndValues,
                 partitionNameAndValues.stream().map(p -> parsePartitionValues(partitionNames, p))
-                        .collect(Collectors.toList()), table.getPartitionColumnTypes());
+                        .collect(Collectors.toList()), table.getHudiPartitionColumnTypes(Long.parseLong(timestamp)));
+        partitionValues.setLastUpdateTimestamp(Long.parseLong(timestamp));
         return partitionValues;
     }
 
@@ -123,7 +124,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         try {
             long lastTimestamp = Long.parseLong(lastInstant.get().getTimestamp());
             TablePartitionValues partitionValues = partitionCache.get(
-                    new TablePartitionKey(table.getDbName(), table.getName(), table.getPartitionColumnTypes()));
+                    new TablePartitionKey(table.getDbName(), table.getName(),
+                            table.getHudiPartitionColumnTypes(lastTimestamp)));
             partitionValues.readLock().lock();
             try {
                 long lastUpdateTimestamp = partitionValues.getLastUpdateTimestamp();
@@ -159,7 +161,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 partitionValues.cleanPartitions();
                 partitionValues.addPartitions(partitionNames,
                         partitionNames.stream().map(p -> parsePartitionValues(partitionColumnsList, p))
-                                .collect(Collectors.toList()), table.getPartitionColumnTypes());
+                                .collect(Collectors.toList()), table.getHudiPartitionColumnTypes(lastTimestamp));
                 partitionValues.setLastUpdateTimestamp(lastTimestamp);
                 return partitionValues;
             } finally {

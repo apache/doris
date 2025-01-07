@@ -15,22 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.mvcc;
+package org.apache.doris.datasource.hudi;
 
-import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
-import java.util.Optional;
+public class HudiMvccSnapshot implements MvccSnapshot {
+    private final TablePartitionValues tablePartitionValues;
 
-/**
- * The table that needs to query data based on the version needs to implement this interface.
- */
-public interface MvccTable extends TableIf {
-    /**
-     * Retrieve the current snapshot information of the table,
-     * and the returned result will be used for the entire process of this query
-     *
-     * @return MvccSnapshot
-     */
-    MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot);
+    public HudiMvccSnapshot(TablePartitionValues tablePartitionValues) {
+        this.tablePartitionValues = tablePartitionValues;
+    }
+
+    public TablePartitionValues getTablePartitionValues() {
+        return tablePartitionValues;
+    }
 }
