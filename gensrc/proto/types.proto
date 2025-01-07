@@ -43,7 +43,7 @@ message PStructField {
 };
 
 message PTypeNode {
-    // TTypeNodeType(SCALAR, ARRAY, MAP, STRUCT)
+    // TTypeNodeType(SCALAR, ARRAY, MAP, STRUCT, VARIANT)
     required int32 type = 1; 
     // only set for scalar types
     optional PScalarType scalar_type = 2;
@@ -53,6 +53,9 @@ message PTypeNode {
     optional bool contains_null = 4;
     // update for map/struct type
     repeated bool contains_nulls = 5;
+
+    // only used for VARIANT
+    optional int32 variant_max_subcolumns_count = 6;
 };
 
 // A flattened representation of a tree of column types obtained by depth-first

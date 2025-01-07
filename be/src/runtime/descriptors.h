@@ -128,6 +128,7 @@ private:
 
     const bool _is_auto_increment;
     const std::string _col_default_value;
+    // const int32_t variant_max_subcolumns_count;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

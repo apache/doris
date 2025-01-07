@@ -64,7 +64,8 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<vectorized::DataTypeObject>(), std::make_shared<DataTypeString>()};
+        return {std::make_shared<vectorized::DataTypeObject>(-2),
+                std::make_shared<DataTypeString>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -74,7 +75,7 @@ public:
         DCHECK(is_string(arguments[1]))
                 << "Second argument for function: " << name << " should be String but it has type "
                 << arguments[1]->get_name() << ".";
-        return make_nullable(std::make_shared<DataTypeObject>());
+        return make_nullable(std::make_shared<DataTypeObject>(-2));
     }
 
     // wrap variant column with nullable
@@ -124,7 +125,7 @@ private:
                                      ColumnPtr* result) {
         std::string field_name = index_column->get_data_at(0).to_string();
         if (src.empty()) {
-            *result = ColumnObject::create(true);
+            *result = ColumnObject::create(src.max_subcolumns_count());
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
             // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
@@ -152,7 +153,8 @@ private:
                     result_column->insert_default();
                 }
             }
-            *result = ColumnObject::create(type, std::move(result_column));
+            *result = ColumnObject::create(src.max_subcolumns_count(), type,
+                                           std::move(result_column));
             (*result)->assume_mutable()->finalize();
             return Status::OK();
         } else {
@@ -163,7 +165,7 @@ private:
             const auto* node = subcolumns.find_exact(path);
             MutableColumnPtr result_col;
             if (node != nullptr) {
-                result_col = ColumnObject::create(true);
+                result_col = ColumnObject::create(src.max_subcolumns_count());
                 std::vector<decltype(node)> nodes;
                 PathsInData paths;
                 ColumnObject::Subcolumns::get_leaves_of_node(node, nodes, paths);
@@ -186,11 +188,11 @@ private:
                             nodes[0]->data.get_finalized_column_ptr()->assume_mutable(),
                             nodes[0]->data.get_least_common_type(), true, true});
                 }
-                auto container = ColumnObject::create(std::move(new_subcolumns));
+                auto container =
+                        ColumnObject::create(src.max_subcolumns_count(), std::move(new_subcolumns));
                 result_col->insert_range_from(*container, 0, container->size());
             } else {
-                // Create with root, otherwise the root type maybe type Nothing ?
-                result_col = ColumnObject::create(true);
+                result_col = ColumnObject::create(src.max_subcolumns_count());
                 result_col->insert_many_defaults(src.size());
             }
             *result = result_col->get_ptr();

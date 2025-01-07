@@ -1640,6 +1640,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT,
+                        Integer.toString(olapTable.getVariantMaxSubcolumnsCount()));
+            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
                         olapTable.enableSingleReplicaCompaction().toString());
@@ -2184,7 +2188,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize());
+                            tbl.storagePageSize(),
+                            tbl.getVariantMaxSubcolumnsCount());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -3068,6 +3073,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         Preconditions.checkNotNull(versionInfo);
+        int variantMaxSubcolumnsCount = PropertyAnalyzer.VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE;
+        try {
+            variantMaxSubcolumnsCount = PropertyAnalyzer.analyzeVariantMaxSubcolumnsCount(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
@@ -3280,6 +3292,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw t;
             }
         }
+
         return tableHasExist;
     }
 

@@ -281,10 +281,6 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
             *type = std::make_shared<DataTypeJsonb>();
             return;
         }
-        if (which.is_variant_type()) {
-            *type = std::make_shared<DataTypeObject>();
-            return;
-        }
         if (which.is_date_v2()) {
             *type = std::make_shared<DataTypeDateV2>();
             return;
