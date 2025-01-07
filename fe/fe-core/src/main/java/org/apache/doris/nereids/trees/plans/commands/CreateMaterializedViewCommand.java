@@ -101,7 +101,7 @@ import java.util.stream.Collectors;
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
     private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, "
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, "
             + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING";
     private final TableNameInfo name;
 
