@@ -57,6 +57,6 @@ public class MTMVPartitionSyncConfig {
     }
 
     public boolean isDefaultConfig() {
-        return DEFAULT_SYNC_LIMIT != this.syncLimit;
+        return DEFAULT_SYNC_LIMIT == this.syncLimit;
     }
 }
