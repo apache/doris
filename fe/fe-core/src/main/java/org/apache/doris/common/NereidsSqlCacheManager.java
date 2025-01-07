@@ -322,7 +322,7 @@ public class NereidsSqlCacheManager {
         // check table type and version
         for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
-            if (tableVersion.type != TableType.OLAP) {
+            if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW) {
                 return true;
             }
             TableIf tableIf = findTableIf(env, scanTable.getKey());
