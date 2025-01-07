@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bvar/bvar.h>
+#include <concurrentqueue.h>
 
 #include <boost/lockfree/spsc_queue.hpp>
 #include <memory>
@@ -31,7 +32,7 @@
 #include "util/threadpool.h"
 
 namespace doris::io {
-
+using RecycleFileCacheKeys = moodycamel::ConcurrentQueue<FileCacheKey>;
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
 #ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX)                                                                  \
@@ -495,7 +496,7 @@ private:
     LRUQueue _ttl_queue;
 
     // keys for async remove
-    std::shared_ptr<boost::lockfree::spsc_queue<FileCacheKey>> _recycle_keys;
+    RecycleFileCacheKeys _recycle_keys;
 
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;

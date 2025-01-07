@@ -210,9 +210,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                              24 * 60 * 60);
     _ttl_queue = LRUQueue(cache_settings.ttl_queue_size, cache_settings.ttl_queue_elements,
                           std::numeric_limits<int>::max());
-
-    _recycle_keys = std::make_shared<boost::lockfree::spsc_queue<FileCacheKey>>(
-            config::file_cache_recycle_keys_size);
     if (cache_settings.storage == "memory") {
         _storage = std::make_unique<MemFileCacheStorage>();
         _cache_base_path = "memory";
@@ -610,51 +607,6 @@ void BlockFileCache::recycle_deleted_blocks() {
         iter_queue(get_queue(FileCacheType::DISPOSABLE));
         iter_queue(get_queue(FileCacheType::NORMAL));
         iter_queue(get_queue(FileCacheType::INDEX));
-    }
-    if (_async_clear_file_cache || config::file_cache_ttl_valid_check_interval_second != 0) {
-        std::vector<UInt128Wrapper> ttl_keys;
-        ttl_keys.reserve(_key_to_time.size());
-        for (auto& [key, _] : _key_to_time) {
-            ttl_keys.push_back(key);
-        }
-        for (UInt128Wrapper& hash : ttl_keys) {
-            if (i >= remove_batch) {
-                // just for sleep
-                cond.wait_for(cache_lock, std::chrono::microseconds(100));
-                i = 0;
-            }
-            if (auto iter = _files.find(hash); iter != _files.end()) {
-                std::vector<FileBlockCell*> cells;
-                cells.reserve(iter->second.size());
-                for (auto& [_, cell] : iter->second) {
-                    cell.is_deleted =
-                            cell.is_deleted
-                                    ? true
-                                    : (config::file_cache_ttl_valid_check_interval_second == 0
-                                               ? false
-                                               : std::chrono::duration_cast<std::chrono::seconds>(
-                                                         std::chrono::steady_clock::now()
-                                                                 .time_since_epoch())
-                                                                         .count() -
-                                                                 cell.atime >
-                                                         config::file_cache_ttl_valid_check_interval_second);
-                    if (!cell.is_deleted) {
-                        continue;
-                    } else if (cell.releasable()) {
-                        cells.emplace_back(&cell);
-                        i++;
-                    }
-                }
-                std::ranges::for_each(cells, remove_file_block);
-            }
-        }
-        if (_async_clear_file_cache) {
-            _async_clear_file_cache = false;
-            auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - start_time);
-            LOG_INFO("End clear file cache async")
-                    .tag("path", _cache_base_path)
-                    .tag("use_time", static_cast<int64_t>(use_time.count()));
-        }
     }
 }
 
@@ -1407,8 +1359,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             // the file will be deleted in the bottom half
             // so there will be a window that the file is not in the cache but still in the storage
             // but it's ok, because the rowset is stale already
-            // in case something unexpected happen, set the _recycle_keys queue to zero to fallback
-            bool ret = _recycle_keys->push(key);
+            bool ret = _recycle_keys.enqueue(key);
             if (!ret) {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
                 Status st = _storage->remove(key);
@@ -1432,7 +1383,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
 
 void BlockFileCache::recycle_stale_rowset_async_bottom_half() {
     FileCacheKey key;
-    while (_recycle_keys->pop(key)) {
+    while (_recycle_keys.try_dequeue(key)) {
         Status st = _storage->remove(key);
         if (!st.ok()) {
             LOG_WARNING("").error(st);
