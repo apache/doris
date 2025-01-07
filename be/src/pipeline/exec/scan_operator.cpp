@@ -1045,7 +1045,6 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
     _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
 
@@ -1056,10 +1055,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
+    _max_concurency = ADD_COUNTER(_runtime_profile, "MaxConcurrency", TUnit::UNIT);
+    _min_concurency = ADD_COUNTER(_runtime_profile, "MinConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.

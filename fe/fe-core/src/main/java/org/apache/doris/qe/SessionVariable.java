@@ -89,7 +89,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String NUM_SCANNER_THREADS = "num_scanner_threads";
-    public static final String SCANNER_SCALE_UP_RATIO = "scanner_scale_up_ratio";
+    public static final String MIN_SCANNER_CONCURRENCY = "min_scanner_concurrnency";
+    public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
@@ -769,12 +770,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
 
-    @VariableMgr.VarAttr(name = SCANNER_SCALE_UP_RATIO, needForward = true, description = {
-            "ScanNode自适应的增加扫描并发，最大允许增长的并发倍率，默认为0，关闭该功能",
-            "The max multiple of increasing the concurrency of scanners adaptively, "
-                    + "default 0, turn off scaling up"
+    @VariableMgr.VarAttr(name = MIN_SCANNER_CONCURRENCY, needForward = true, description = {
+        "Scanner 的最小并发度，默认为1", "The min concurrency of Scanner, default 1"
     })
-    public double scannerScaleUpRatio = 0;
+    public int minScannerConcurrency = 1;
+
+    @VariableMgr.VarAttr(name = MIN_SCAN_SCHEDULER_CONCURRENCY, needForward = true, description = {
+        "ScanScheduler 的最小并发度，默认值 0 表示使用 Scan 线程池线程数量的两倍", "The min concurrency of ScanScheduler, "
+            + "default 0 means use twice the number of Scan thread pool threads"
+    })
+    public int minScanSchedulerConcurrency = 0;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -2702,10 +2707,6 @@ public class SessionVariable implements Serializable, Writable {
         return numScannerThreads;
     }
 
-    public double getScannerScaleUpRatio() {
-        return scannerScaleUpRatio;
-    }
-
     public int getQueryTimeoutS() {
         return queryTimeoutS;
     }
@@ -2891,10 +2892,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumScannerThreads(int numScannerThreads) {
         this.numScannerThreads = numScannerThreads;
-    }
-
-    public void setScannerScaleUpRatio(double scannerScaleUpRatio) {
-        this.scannerScaleUpRatio = scannerScaleUpRatio;
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -3931,7 +3928,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
-        tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
 
@@ -4279,7 +4275,8 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setScanQueueMemLimit(maxScanQueueMemByte);
         queryOptions.setNumScannerThreads(numScannerThreads);
-        queryOptions.setScannerScaleUpRatio(scannerScaleUpRatio);
+        queryOptions.setMinScannerConcurrency(minScannerConcurrency);
+        queryOptions.setMinScanSchedulerConcurrency(minScanSchedulerConcurrency);
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         queryOptions.setAnalyzeTimeout(analyzeTimeoutS);

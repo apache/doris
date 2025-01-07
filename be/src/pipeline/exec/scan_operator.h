@@ -107,7 +107,8 @@ protected:
     // Num of newly created free blocks when running query
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
-    RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
+    RuntimeProfile::Counter* _max_concurency = nullptr;
+    RuntimeProfile::Counter* _min_concurency = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
@@ -115,7 +116,6 @@ protected:
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
 

@@ -24,9 +24,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
-#include <typeinfo>
 #include <utility>
-#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -34,19 +32,13 @@
 #include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
-#include "util/blocking_queue.hpp"
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
-#include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
-#include "util/work_thread_pool.hpp"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scanner_context.h"
@@ -314,11 +306,16 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         eos = true;
     }
 
-    scanner->update_scan_cpu_timer();
     if (eos) {
         scanner->mark_to_need_to_close();
     }
     scan_task->set_eos(eos);
+    ctx->decrease_scanner_scheduled();
+    VLOG_DEBUG << fmt::format(
+            "Scanner context {} has finished task, cached_block {} current scheduled task is "
+            "{}, eos: {}, status: {}",
+            ctx->ctx_id, scan_task->cached_blocks.size(), ctx->num_scheduled_scanners(), eos,
+            status.to_string());
     ctx->push_back_scan_task(scan_task);
 }
 
