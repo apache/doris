@@ -256,18 +256,30 @@ ThreadPool::~ThreadPool() {
     shutdown();
 }
 
+Status ThreadPool::try_create_thread(int thread_num, std::lock_guard<std::mutex>&) {
+    for (int i = 0; i < thread_num; i++) {
+        Status status = create_thread();
+        if (status.ok()) {
+            _num_threads_pending_start++;
+        } else {
+            LOG(WARNING) << "Thread pool " << _name << " failed to create thread: " << status;
+            return status;
+        }
+    }
+    return Status::OK();
+}
+
 Status ThreadPool::init() {
     if (!_pool_status.is<UNINITIALIZED>()) {
         return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();
-    _num_threads_pending_start = _min_threads;
-    for (int i = 0; i < _min_threads; i++) {
-        Status status = create_thread();
-        if (!status.ok()) {
-            shutdown();
-            return status;
-        }
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        // create thread failed should not cause threadpool init failed,
+        // because thread can be created later such as when submit a task.
+        static_cast<void>(try_create_thread(_min_threads, l));
     }
     return Status::OK();
 }
@@ -632,16 +644,7 @@ Status ThreadPool::set_min_threads(int min_threads) {
     _min_threads = min_threads;
     if (min_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = min_threads - _num_threads - _num_threads_pending_start;
-        _num_threads_pending_start += addition_threads;
-        for (int i = 0; i < addition_threads; i++) {
-            Status status = create_thread();
-            if (!status.ok()) {
-                _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool " << _name
-                             << " failed to create thread: " << status.to_string();
-                return status;
-            }
-        }
+        RETURN_IF_ERROR(try_create_thread(addition_threads, l));
     }
     return Status::OK();
 }
@@ -657,16 +660,7 @@ Status ThreadPool::set_max_threads(int max_threads) {
     if (_max_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = _max_threads - _num_threads - _num_threads_pending_start;
         addition_threads = std::min(addition_threads, _total_queued_tasks);
-        _num_threads_pending_start += addition_threads;
-        for (int i = 0; i < addition_threads; i++) {
-            Status status = create_thread();
-            if (!status.ok()) {
-                _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool " << _name
-                             << " failed to create thread: " << status.to_string();
-                return status;
-            }
-        }
+        RETURN_IF_ERROR(try_create_thread(addition_threads, l));
     }
     return Status::OK();
 }
