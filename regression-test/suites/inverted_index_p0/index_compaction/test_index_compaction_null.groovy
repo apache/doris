@@ -26,54 +26,11 @@ suite("test_index_compaction_null", "nonConcurrent") {
 
     sql """ set global enable_match_without_inverted_index = false """
     boolean disableAutoCompaction = false
-  
+
     def set_be_config = { key, value ->
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
-    def trigger_full_compaction_on_tablets = { tablets ->
-        for (def tablet : tablets) {
-            String tablet_id = tablet.TabletId
-            String backend_id = tablet.BackendId
-            int times = 1
-
-            String compactionStatus;
-            do{
-                def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-                compactionStatus = parseJson(out.trim()).status.toLowerCase();
-            } while (compactionStatus!="success" && times<=10 && compactionStatus!="e-6010")
-
-
-            if (compactionStatus == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction && compactionStatus!="e-6010") {
-                assertEquals("success", compactionStatus)
-            }
-        }
-    }
-
-    def wait_full_compaction_done = { tablets ->
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                String backend_id = tablet.BackendId
-                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
         }
     }
 
@@ -106,7 +63,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         }
     }
 
-    def insert_data = { -> 
+    def insert_data = { ->
         sql """insert into ${tableName} values
             (1,null,'addr qie3','yy','lj',100),
             (2,null,'hehe',null,'lala',200),
@@ -119,7 +76,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
     """
     }
 
-    def run_sql = { -> 
+    def run_sql = { ->
         sql """ set enable_common_expr_pushdown=true """
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"
@@ -154,7 +111,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         qt_select_match_2 "SELECT * FROM ${tableName} WHERE addr MATCH_ALL 'addr fengtai' ORDER BY id"
     }
 
-    def run_test = { tablets ->
+    def run_test = { tablets, table_name ->
         insert_data.call()
         insert_data.call()
 
@@ -174,10 +131,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         assert (rowsetCount == 3 * replicaNum)
 
         // tigger full compaction for all tablets
-        trigger_full_compaction_on_tablets.call(tablets)
-
-        // wait for full compaction done
-        wait_full_compaction_done.call(tablets)
+        trigger_and_wait_compaction(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -202,10 +156,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         }
 
         // tigger full compaction for all tablets
-        trigger_full_compaction_on_tablets.call(tablets)
-
-        // wait for full compaction done
-        wait_full_compaction_done.call(tablets)
+        trigger_and_wait_compaction(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -224,7 +175,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -278,7 +229,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
-        run_test.call(tablets)
+        run_test.call(tablets, tableName)
 
         /**
         * test for unique key table
@@ -313,7 +264,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         sql """ set enable_common_expr_pushdown = true """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
-        run_test.call(tablets)
+        run_test.call(tablets, tableName)
 
     } finally {
         if (has_update_be_config) {

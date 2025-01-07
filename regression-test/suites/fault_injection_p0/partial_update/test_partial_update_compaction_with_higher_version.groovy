@@ -54,7 +54,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
     }
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
-    def check_rs_metas = { expected_rs_meta_size, check_func -> 
+    def check_rs_metas = { expected_rs_meta_size, check_func ->
         if (isCloudMode()) {
             return
         }
@@ -88,7 +88,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
         }
     })
 
-    def enable_publish_spin_wait = { tokenName -> 
+    def enable_publish_spin_wait = { tokenName ->
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
         } else {
@@ -104,7 +104,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
         }
     }
 
-    def enable_block_in_publish = { passToken -> 
+    def enable_block_in_publish = { passToken ->
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
         } else {
@@ -209,7 +209,7 @@ suite("test_partial_update_compaction_with_higher_version", "nonConcurrent") {
                 Assert.assertEquals(numRows, 4) // 4 = 2 + 2
             }
         })
-        
+
     } catch(Exception e) {
         logger.info(e.getMessage())
         throw e
