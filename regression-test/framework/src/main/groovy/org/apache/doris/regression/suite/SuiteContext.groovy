@@ -503,6 +503,16 @@ class SuiteContext implements Closeable {
             }
         }
 
+        ConnectionInfo master_conn = threadLocalMasterConn.get()
+        if (master_conn != null) {
+            threadLocalMasterConn.remove()
+            try {
+                master_conn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close master connection failed", t)
+            }
+        }
+
         ConnectionInfo arrow_flight_sql_conn = threadArrowFlightSqlConn.get()
         if (arrow_flight_sql_conn != null) {
             threadArrowFlightSqlConn.remove()
