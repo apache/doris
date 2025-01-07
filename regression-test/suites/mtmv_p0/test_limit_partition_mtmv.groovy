@@ -425,7 +425,11 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_00000101_20200101"))
     assertTrue(showPartitionsResult.toString().contains("p_20200101_20210101"))
     assertTrue(showPartitionsResult.toString().contains("p_20210101_MAXVALUE"))
-
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_history_less_than_range_init "SELECT * FROM ${mvName}"
     // drop partition of base table ,MTMV should not care
     sql """
         alter table ${tableName} drop partition p2020;
@@ -441,5 +445,5 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_00000101_20200101"))
     assertTrue(showPartitionsResult.toString().contains("p_20200101_20210101"))
     assertTrue(showPartitionsResult.toString().contains("p_20210101_MAXVALUE"))
-    order_qt_less_than_range_drop_partition "SELECT * FROM ${mvName}"
+    order_qt_history_less_than_range_drop_partition "SELECT * FROM ${mvName}"
 }
