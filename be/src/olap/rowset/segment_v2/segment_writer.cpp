@@ -660,7 +660,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
-    auto cids_to_read = missing_cids;
+    auto cids_to_read = cids_missing;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK_EQ(cids_missing.size(), old_value_block.columns());
     // always read delete sign column from historical data
@@ -695,7 +695,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 continue;
             }
             auto mutable_old_columns = old_value_block.mutate_columns();
-            for (size_t cid = 0; cid < cids_to_read.size(); ++cid) {
+            for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_to_read[cid]);
                 auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
                                                         mutable_old_columns[cid]);
