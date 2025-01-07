@@ -367,11 +367,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
-            return null;
-        }
-
-        @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
@@ -507,13 +502,6 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-        @Override
-        public void transmitData(InternalService.PTransmitDataParams request,
-                                 StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
-            responseObserver.onCompleted();
-        }
 
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,
