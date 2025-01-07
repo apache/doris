@@ -428,7 +428,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );
-        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        Plan plan = InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        if (cte.isPresent()) {
+            plan = cte.get().withChildren(plan);
+        }
+        return plan;
     }
 
     @Override
