@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -158,7 +159,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 result = DLAType.HIVE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime();
+                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl"));
                 minTimes = 0;
 
                 tbl.getDatabase();
@@ -208,7 +209,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 result = DLAType.HIVE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl2.initSchemaAndUpdateTime();
+                tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl2"));
                 minTimes = 0;
 
                 tbl2.getDatabase();
@@ -386,7 +387,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
         // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime();
+        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getDbName(), tbl2.getName()));
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
@@ -434,7 +435,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
         // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime();
+        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getDbName(), tbl2.getName()));
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
