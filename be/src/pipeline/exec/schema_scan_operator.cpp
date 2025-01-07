@@ -192,10 +192,6 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
 
     _tuple_idx = 0;
 
-    if (_common_scanner_param->user) {
-        param.__set_user(*_common_scanner_param->user);
-    }
-
     return Status::OK();
 }
 
