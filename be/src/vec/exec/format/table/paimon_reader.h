@@ -20,16 +20,18 @@
 #include <memory>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+class ShardedKVCache;
 class PaimonReader : public TableFormatReader {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                 const TFileScanRangeParams& params);
+                 const TFileScanRangeParams& params, ShardedKVCache* kv_cache);
     ~PaimonReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
@@ -46,14 +48,15 @@ protected:
 
 private:
     const TFileScanRangeParams& _params;
+    ShardedKVCache* _kv_cache;
 };
 
 class PaimonOrcReader final : public PaimonReader {
 public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                    const TFileScanRangeParams& params)
-            : PaimonReader(std::move(file_format_reader), profile, params) {};
+                    const TFileScanRangeParams& params, ShardedKVCache* kv_cache)
+            : PaimonReader(std::move(file_format_reader), profile, params, kv_cache) {};
     ~PaimonOrcReader() final = default;
 
     void set_delete_rows() override {
@@ -66,8 +69,8 @@ class PaimonParquetReader final : public PaimonReader {
 public:
     ENABLE_FACTORY_CREATOR(PaimonParquetReader);
     PaimonParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                        const TFileScanRangeParams& params)
-            : PaimonReader(std::move(file_format_reader), profile, params) {};
+                        const TFileScanRangeParams& params, ShardedKVCache* kv_cache)
+            : PaimonReader(std::move(file_format_reader), profile, params, kv_cache) {};
     ~PaimonParquetReader() final = default;
 
     void set_delete_rows() override {

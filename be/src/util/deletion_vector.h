@@ -30,6 +30,9 @@ class DeletionVector {
 public:
     const static uint32_t MAGIC_NUMBER = 1581511376;
     DeletionVector(roaring::Roaring roaring_bitmap) : _roaring_bitmap(std::move(roaring_bitmap)) {};
+    DeletionVector(const DeletionVector& other) = default;
+    DeletionVector(DeletionVector&& other) noexcept
+            : _roaring_bitmap(std::move(other._roaring_bitmap)) {}
     ~DeletionVector() = default;
 
     bool checked_delete(uint32_t postition) { return _roaring_bitmap.addChecked(postition); }
