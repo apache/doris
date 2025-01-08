@@ -98,6 +98,7 @@ import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
 import org.apache.doris.nereids.DorisParser.CastDataTypeContext;
 import org.apache.doris.nereids.DorisParser.CleanAllProfileContext;
+import org.apache.doris.nereids.DorisParser.CleanLabelContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -616,6 +617,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
@@ -5021,6 +5023,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCleanAllProfile(CleanAllProfileContext ctx) {
         return new CleanAllProfileCommand();
+    }
+
+    @Override
+    public Object visitCleanLabel(CleanLabelContext ctx) {
+        String label = ctx.label == null ? null : ctx.label.getText();
+        IdentifierContext database = ctx.database;
+        return new CleanLabelCommand(database.getText(), label);
     }
 
     @Override

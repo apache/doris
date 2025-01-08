@@ -480,6 +480,7 @@ supportedRefreshStatement
 
 supportedCleanStatement
     : CLEAN ALL PROFILE                                                             #cleanAllProfile
+    | CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
     ;
 
 unsupportedRefreshStatement
@@ -487,8 +488,7 @@ unsupportedRefreshStatement
     ;
 
 unsupportedCleanStatement
-    : CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
-    | CLEAN QUERY STATS ((FOR database=identifier)
+    : CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
