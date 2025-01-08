@@ -47,6 +47,7 @@ import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -71,6 +72,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -133,6 +135,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 resource.addReference(catalog.getName(), ReferenceType.CATALOG);
             }
         }
+        if (catalog instanceof EsExternalCatalog) {
+            Env.getCurrentEnv().getEsNodeDiscovery().registerCatalog((EsExternalCatalog) catalog);
+        }
     }
 
     private CatalogIf removeCatalog(long catalogId) {
@@ -152,6 +157,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 }
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+            if (catalog.getType().equals(InitCatalogLog.Type.ES.name().toLowerCase(Locale.ROOT))) {
+                Env.getCurrentEnv().getEsNodeDiscovery().deRegisterCatalog(catalog.getId());
+            }
         }
         return catalog;
     }
