@@ -567,6 +567,12 @@ public:
                                   << source_column->get_name()
                                   << " with source size: " << source_column->size();
                         target_column->insert_many_from(*source_column, *pos, *cl);
+                    } else {
+                        target_column->clear();
+                        LOG(INFO) << "now insert_many_from from " << *pos << " with length " << *cl
+                                  << " for column " << source_column->get_name()
+                                  << " with source size: " << source_column->size();
+                        target_column->insert_many_from(*source_column, *pos, *cl);
                     }
 
                     // Verify the inserted data matches the expected results in `assert_res`
@@ -574,6 +580,9 @@ public:
                     ser_col->reserve(target_column->size());
                     VectorBufferWriter buffer_writer(*ser_col.get());
                     std::vector<std::string> data;
+                    data.push_back("now assert insert_many_from for column " +
+                                   target_column->get_name() + " from " + std::to_string(*pos) +
+                                   " with length " + std::to_string(*cl));
                     for (size_t j = 0; j < target_column->size(); ++j) {
                         if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                              buffer_writer, option);
@@ -2130,13 +2139,13 @@ public:
     // convert_dict_codes_if_necessary just used in ColumnDictionary
     // ColumnDictionary and is a range comparison predicate, will convert dict encoding
     static void assert_convert_dict_codes_if_necessary_callback(
-            MutableColumns& load_cols, std::function<void(IColumn*)> assert_func) {
+            MutableColumns& load_cols, std::function<void(IColumn*, size_t)> assert_func) {
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
             LOG(INFO) << "now we are in convert_to_predicate_column_if_dictionary column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size();
             EXPECT_NO_FATAL_FAILURE(source_column->convert_dict_codes_if_necessary());
-            assert_func(source_column.get());
+            assert_func(source_column.get(), i);
         }
     }
 
