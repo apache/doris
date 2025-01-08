@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBui
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.StaticAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJobBuilder;
@@ -206,26 +205,14 @@ public class DistributePlanner {
             PipelineDistributedPlan plan, List<AssignedJob> unsorted, int bucketNum) {
         AssignedJob[] instances = new AssignedJob[bucketNum];
         for (AssignedJob instanceJob : unsorted) {
-            if (instanceJob instanceof LocalShuffleBucketJoinAssignedJob) {
-                LocalShuffleBucketJoinAssignedJob localShuffleJob = (LocalShuffleBucketJoinAssignedJob) instanceJob;
-                for (Integer bucketIndex : localShuffleJob.getAssignedJoinBucketIndexes()) {
-                    if (instances[bucketIndex] != null) {
-                        throw new IllegalStateException(
-                                "Multi instances scan same buckets: " + instances[bucketIndex] + " and " + instanceJob
-                        );
-                    }
-                    instances[bucketIndex] = instanceJob;
+            BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
+            for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
+                if (instances[bucketIndex] != null) {
+                    throw new IllegalStateException(
+                            "Multi instances scan same buckets: " + instances[bucketIndex] + " and " + instanceJob
+                    );
                 }
-            } else {
-                BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
-                for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
-                    if (instances[bucketIndex] != null) {
-                        throw new IllegalStateException(
-                                "Multi instances scan same buckets: " + instances[bucketIndex] + " and " + instanceJob
-                        );
-                    }
-                    instances[bucketIndex] = instanceJob;
-                }
+                instances[bucketIndex] = instanceJob;
             }
         }
 
