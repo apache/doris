@@ -522,6 +522,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_JDBC_CAST_PREDICATE_PUSH_DOWN = "enable_jdbc_cast_predicate_push_down";
 
+    public static final String FORCE_SINGLE_EXTERNAL_SCAN_BE_ID = "force_single_external_scan_be_id";
+
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
@@ -738,6 +740,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否允许将带有 CAST 表达式的谓词下推到 JDBC 外部表。",
                     "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."})
     public boolean enableJdbcCastPredicatePushDown = true;
+
+    @VariableMgr.VarAttr(name = FORCE_SINGLE_EXTERNAL_SCAN_BE_ID, needForward = true,
+            description = {"是否强制使用指定的 BE ID 扫描外部表。",
+                    "Whether to force to scan external tables with the specified BE ID."})
+    public long forceSingleExternalScanBeId = -1;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
