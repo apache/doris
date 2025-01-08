@@ -56,7 +56,6 @@ public:
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    void add_tuple_is_null_column(vectorized::Block* block) override;
     Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
                                         bool* eos, vectorized::Block* temp_block,
                                         bool check_rows_count = true);
