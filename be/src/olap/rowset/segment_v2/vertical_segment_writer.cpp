@@ -978,26 +978,8 @@ Status VerticalSegmentWriter::write_batch() {
 
 std::string VerticalSegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
-<<<<<<< HEAD
     assert(_key_index_size.size() == _num_key_columns);
     assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
-=======
-    assert(_key_index_size.size() == _num_sort_key_columns);
-    if (!(key_columns.size() == _num_sort_key_columns &&
-          _key_coders.size() == _num_sort_key_columns)) {
-        LOG_INFO("key_columns.size()={}, _key_coders.size()={}, _num_sort_key_columns={}, ",
-                 key_columns.size(), _key_coders.size(), _num_sort_key_columns);
-    }
-    assert(key_columns.size() == _num_sort_key_columns &&
-           _key_coders.size() == _num_sort_key_columns);
-    return _full_encode_keys(_key_coders, key_columns, pos);
-}
-
-std::string VerticalSegmentWriter::_full_encode_keys(
-        const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
-    assert(key_columns.size() == key_coders.size());
->>>>>>> 0a54978dc7 ([Fix](partial update) abort partial update on shadow index's tablet when the including columns miss key columns on new schema (#46347))
 
     std::string encoded_keys;
     size_t cid = 0;
