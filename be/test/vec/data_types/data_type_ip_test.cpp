@@ -96,8 +96,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .default_field = UInt64(0)
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = UInt64(0),
     };
     TypeDescriptor ipv6_type_descriptor = {PrimitiveType::TYPE_IPV6};
     auto col_meta6 = std::make_shared<PColumnMeta>();
@@ -117,9 +117,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta6.get(),
-            .default_field = IPv6(0)
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
-    };
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = IPv6(0)};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }
