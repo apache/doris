@@ -21,6 +21,7 @@ import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.common.util.concurrent.Uninterruptibles
 import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
@@ -42,7 +43,6 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
-import org.apache.doris.regression.RunMode
 import org.junit.jupiter.api.Assertions
 
 import org.slf4j.Logger
@@ -625,6 +625,23 @@ class Suite implements GroovyInterceptable {
         return sql
     }
 
+    <T> T retry(int executeTimes = 3, int intervalMillis = 1000, Closure<Integer> closure) {
+        Throwable throwable = null
+        for (int i = 1; i <= executeTimes; ++i) {
+            try {
+                return closure(i) as T
+            } catch (Throwable t) {
+                logger.warn("Retry failed: $t", t)
+                throwable = t
+                Uninterruptibles.sleepUninterruptibly(intervalMillis, TimeUnit.MILLISECONDS)
+            }
+        }
+        if (throwable != null) {
+            throw throwable
+        }
+        return null
+    }
+
     void explain(Closure actionSupplier) {
         if (context.useArrowFlightSql()) {
             runAction(new ExplainAction(context, "ARROW_FLIGHT_SQL"), actionSupplier)
@@ -878,6 +895,20 @@ class Suite implements GroovyInterceptable {
         if (alert) {
             assert errMsg.length() == 0: "error occurred!\n" + errMsg
             assert p.exitValue() == 0
+        }
+    }
+
+    void foreachFrontends(Closure action) {
+        def rows = sql_return_maparray("show frontends")
+        for (def row in rows) {
+            action(row)
+        }
+    }
+
+    void foreachBackends(Closure action) {
+        def rows = sql_return_maparray("show backends")
+        for (def row in rows) {
+            action(row)
         }
     }
 
