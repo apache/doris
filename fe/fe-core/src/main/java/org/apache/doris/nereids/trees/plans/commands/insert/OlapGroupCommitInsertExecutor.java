@@ -69,7 +69,20 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
 
     /**
      * check if the sql can run in group commit mode
-     * @param logicalPlan plan of sql
+     */
+    public static void fastAnalyzeGroupCommit(ConnectContext ctx, LogicalPlan logicalPlan) {
+        try {
+            if (ctx.getSessionVariable().isEnableInsertGroupCommit() && !ctx.isTxnModel() && !ctx.getSessionVariable()
+                    .isEnableUniqueKeyPartialUpdate()) {
+                ctx.setGroupCommit(true);
+            }
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
+        }
+    }
+
+    /**
+     * check if the sql can run in group commit mode
      */
     public static void analyzeGroupCommit(ConnectContext ctx, LogicalPlan logicalPlan) {
         try {

@@ -82,10 +82,16 @@ public class ExecuteCommand extends Command {
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
-        OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, prepareCommand);
-        if (ctx.isGroupCommit()) {
-            GroupCommitPlanner.executeGroupCommitInsert(ctx, preparedStmtCtx, statementContext);
-            return;
+        if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
+            if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
+                OlapGroupCommitInsertExecutor.fastAnalyzeGroupCommit(ctx, prepareCommand);
+            } else {
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, prepareCommand);
+            }
+            if (ctx.isGroupCommit()) {
+                GroupCommitPlanner.executeGroupCommitInsert(ctx, preparedStmtCtx, statementContext);
+                return;
+            }
         }
         // execute real statement
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
