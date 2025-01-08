@@ -96,8 +96,14 @@ public:
             _close = true;
         }
         _close_cv.notify_all();
-        if (_cache_background_thread.joinable()) {
-            _cache_background_thread.join();
+        if (_cache_background_monitor_thread.joinable()) {
+            _cache_background_monitor_thread.join();
+        }
+        if (_cache_background_ttl_gc_thread.joinable()) {
+            _cache_background_ttl_gc_thread.join();
+        }
+        if (_cache_background_gc_thread.joinable()) {
+            _cache_background_gc_thread.join();
         }
     }
 
@@ -337,7 +343,6 @@ private:
         std::optional<LRUQueue::Iterator> queue_iterator;
 
         mutable int64_t atime {0};
-        mutable bool is_deleted {false};
         void update_atime() const {
             atime = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now().time_since_epoch())
@@ -426,12 +431,12 @@ private:
 
     bool need_to_move(FileCacheType cell_type, FileCacheType query_type) const;
 
-    bool remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, bool remove_directly,
-                                   std::lock_guard<std::mutex>&);
+    bool remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, bool remove_directly,
+                                   std::lock_guard<std::mutex>&, bool sync);
 
-    void run_background_operation();
-
-    void recycle_deleted_blocks();
+    void run_background_monitor();
+    void run_background_ttl_gc();
+    void run_background_gc();
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
@@ -444,9 +449,7 @@ private:
 
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
-
-    void remove_file_blocks_async(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
 
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
@@ -454,8 +457,6 @@ private:
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
                                std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size);
-
-    void recycle_stale_rowset_async_bottom_half();
 
     // info
     std::string _cache_base_path;
@@ -468,9 +469,10 @@ private:
     bool _close {false};
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
-    std::thread _cache_background_thread;
+    std::thread _cache_background_monitor_thread;
+    std::thread _cache_background_ttl_gc_thread;
+    std::thread _cache_background_gc_thread;
     std::atomic_bool _async_open_done {false};
-    bool _async_clear_file_cache {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
     bool _is_initialized {false};

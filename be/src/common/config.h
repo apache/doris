@@ -1104,7 +1104,7 @@ DECLARE_mInt64(cache_lock_long_tail_threshold);
 // If your file cache is ample enough to accommodate all the data in your database,
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
-
+DECLARE_mInt64(file_cache_remove_block_qps_limit);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
