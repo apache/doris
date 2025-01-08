@@ -176,7 +176,13 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
+        PaimonSchemaCacheValue paimonSchemaCacheValue = getPaimonSchemaCacheValue(snapshot);
+        if (paimonSchemaCacheValue)
+        return paimonSchemaCacheValue.getPartitionColumns();
+    }
+
+    private boolean isPartitionInvalid(PaimonSchemaCacheValue paimonSchemaCacheValue) {
+
     }
 
     @Override
