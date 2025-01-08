@@ -353,9 +353,6 @@ unsupportedShowStatement
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
-    | SHOW DATA TYPES                                                               #showDataTypes
-    | SHOW CATALOGS wildWhere?                                                      #showCatalogs
-    | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
