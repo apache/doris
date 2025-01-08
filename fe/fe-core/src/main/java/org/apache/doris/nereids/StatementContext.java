@@ -212,7 +212,10 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
-    // Record used table and partition names map
+    // Record used table and partition names map, if the table key not in the tableUsedPartitionNameMap
+    // but query use, it means query all partition for this table
+    // if the table key is in the map and the value is empty partition which means query no parition from
+    // this table
     // todo what would happen if related table appear more then once
     private final Map<BaseTableInfo, Set<String>> tableUsedPartitionNameMap = new HashMap<>();
 

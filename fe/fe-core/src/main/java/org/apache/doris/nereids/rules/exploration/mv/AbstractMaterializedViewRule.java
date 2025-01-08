@@ -468,8 +468,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // Collect the mv related base table partitions which query used
         Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions =
                 cascadesContext.getStatementContext().getTableUsedPartitionNameMap();
-        // Bail out, not check invalid partition if not olap scan, support later
-        if (queryUsedBaseTablePartitions.isEmpty()) {
+        // If query doesn't used any partition, bail out
+        if (queryUsedBaseTablePartitions.get(relatedPartitionTable) == null) {
+            LOG.error(String.format("queryUsedBaseTablePartitions get relatedPartitionTable is null,"
+                    + "relatedPartitionTable is %s, queryPlan is %s", relatedPartitionTable,
+                    queryPlan.treeString()));
+            return null;
+        }
+        if (queryUsedBaseTablePartitions.get(relatedPartitionTable).isEmpty()) {
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable);

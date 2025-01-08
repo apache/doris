@@ -20,11 +20,9 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
@@ -40,7 +38,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -108,21 +105,6 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                         ConnectContext.get().getStatementContext().getNextRelationId(),
                         filter.getOutput());
             }
-
-            // put table used partitions to statementContext for later used
-            // Such as get available mvs or compensate by union all
-            // if add new catalog prune should add this
-            Set<String> prunedPartitionNameSet = new HashSet<>();
-            for (Long partitionId : prunedPartitions) {
-                Partition partition = table.getPartition(partitionId);
-                if (partition == null) {
-                    continue;
-                }
-                prunedPartitionNameSet.add(partition.getName());
-            }
-            ctx.statementContext.getTableUsedPartitionNameMap().putIfAbsent(
-                    new BaseTableInfo(table), prunedPartitionNameSet);
-
             LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitions);
             return filter.withChildren(ImmutableList.of(rewrittenScan));
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);

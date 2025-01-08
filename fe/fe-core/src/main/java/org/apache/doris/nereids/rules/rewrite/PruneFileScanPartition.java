@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -65,12 +64,6 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                         // set isPruned so that it won't go pass the partition prune again
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
                     }
-                    // put table used partitions to statementContext for later used
-                    // Such as get available mvs or compensate by union all
-                    // if add new catalog prune should add this
-                    ctx.statementContext.getTableUsedPartitionNameMap().putIfAbsent(
-                            new BaseTableInfo(tbl), selectedPartitions.selectedPartitions.keySet());
-
                     LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
                     return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
