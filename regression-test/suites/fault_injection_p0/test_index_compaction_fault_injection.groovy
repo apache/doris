@@ -223,6 +223,30 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         assert (rowsetCount == 1 * replicaNum)
 
         run_sql.call()
+
+        // insert more data, trigger full compaction again
+        insert_data.call()
+
+        // insert 6 rows, so there are 7 rowsets.
+        rowsetCount = get_rowset_count.call(tablets);
+        assert (rowsetCount == 7 * replicaNum)
+
+        // trigger full compaction for all tablets with fault injection
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("Compaction::construct_skip_inverted_index_index_reader_close_error")
+            logger.info("trigger_full_compaction_on_tablets with fault injection: Compaction::construct_skip_inverted_index_index_reader_close_error")
+            trigger_full_compaction_on_tablets.call(tablets)
+            wait_full_compaction_done.call(tablets)
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("Compaction::construct_skip_inverted_index_index_reader_close_error")
+        }
+
+        // the debug point will cause index skip index compaction, so the compaction process will be successful.
+        // after full compaction, there is only 1 rowset.
+        rowsetCount = get_rowset_count.call(tablets);
+        assert (rowsetCount == 1 * replicaNum)
+
+        run_sql.call()
     }
 
     boolean invertedIndexCompactionEnable = false
