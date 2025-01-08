@@ -103,7 +103,7 @@ struct TQueryOptions {
   13: optional bool abort_on_default_limit_exceeded = 0
   14: optional i32 query_timeout = 3600
   15: optional bool is_report_success = 0
-  16: optional i32 codegen_level = 0
+  16: optional i32 codegen_level = 0 // Deprecated
   // INT64::MAX
   17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
@@ -181,7 +181,7 @@ struct TQueryOptions {
 
   52: optional i32 be_exec_version = 0
 
-  53: optional i32 partitioned_hash_join_rows_threshold = 0
+  53: optional i32 partitioned_hash_join_rows_threshold = 0 // deprecated
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
@@ -197,7 +197,7 @@ struct TQueryOptions {
   59: optional i64 external_sort_bytes_threshold = 0
 
   // deprecated
-  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
 
   61: optional bool enable_file_cache = false
 
