@@ -69,4 +69,32 @@ suite ("agg_have_dup_base") {
     mv_rewrite_success("select k1,max(k2) from d_table group by k1;", "k12s3m")
 
     mv_rewrite_success("select unix_timestamp(k1) tmp,sum(k2) from d_table group by tmp;", "k12s3m")
+
+    sql "DROP TABLE IF EXISTS table2;"
+
+    sql """
+    create table table2 (
+        k1 int,
+        k2 int,
+        k3 int
+        )
+        duplicate key(k1, k2)
+        distributed by hash(k1,k2)
+    PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    sql "insert into table2(k1,k2,k3 )values (1,2,3),(2,3,4),(3,4,5);"
+
+    test {
+        sql """create materialized view mv10 as select k1,k2,k3 from table2 group by k1,k2,k3 order by k1;"""
+        exception "err"
+    }
+    test {
+        sql """create materialized view mv10 as select k1,k2,k3 from table2 group by k1,k2,k3 order by k1,k1,k1;"""
+        exception "err"
+    }
+    test {
+        sql """create materialized view mv10 as select k1,k2,k3 from table2 group by k1,k2,k3 order by k3,k2,k1;"""
+        exception "err"
+    }
 }
