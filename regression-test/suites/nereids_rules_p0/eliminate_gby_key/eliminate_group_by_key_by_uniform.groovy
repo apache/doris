@@ -218,4 +218,7 @@ suite("eliminate_group_by_key_by_uniform") {
     qt_left_anti_left_side "select t1.b from test1 t1 left anti join (select * from test2 where b=105)  t2 on t1.a=t2.a where t1.b=1 group by t1.b,t1.a order by 1;"
     qt_right_semi_right_side "select t2.b from test1 t1 right semi join (select * from test2 where b=105)  t2 on t1.a=t2.a  group by t2.b,t2.a order by 1;"
     qt_right_anti_right_side "select t2.b from test1 t1 right anti join (select * from test2 where b=105)  t2 on t1.a=t2.a  group by t2.b,t2.a order by 1;"
+
+    //grouping
+    qt_grouping "select k, k3 from (select 1 as k, a k3, sum(b) as sum_k1 from  test1  group by cube(k,a)) t group by k,k3 order by 1,2"
 }
