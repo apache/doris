@@ -57,7 +57,7 @@ GeoCircle::~GeoCircle() = default;
 
 void print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
-    os << std::setprecision(12) << coord.lng().degrees() << " " << coord.lat().degrees();
+    os << std::setprecision(15) << coord.lng().degrees() << " " << coord.lat().degrees();
 }
 
 static inline bool is_valid_lng_lat(double lng, double lat) {
@@ -316,13 +316,11 @@ bool GeoPoint::decode(const void* data, size_t size) {
 }
 
 double GeoPoint::x() const {
-    //Accurate to 13 decimal places
-    return std::stod(absl::StrFormat("%.13f", S2LatLng::Longitude(*_point).degrees()));
+    return S2LatLng::Longitude(*_point).degrees();
 }
 
 double GeoPoint::y() const {
-    //Accurate to 13 decimal places
-    return std::stod(absl::StrFormat("%.13f", S2LatLng::Latitude(*_point).degrees()));
+    return S2LatLng::Latitude(*_point).degrees();
 }
 
 std::string GeoPoint::as_wkt() const {

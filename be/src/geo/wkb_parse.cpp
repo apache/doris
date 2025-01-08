@@ -125,7 +125,20 @@ WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
     std::vector<unsigned char> buf(static_cast<size_t>(size));
     is.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size));
 
-    ctx->dis = ByteOrderDataInStream(buf.data(), buf.size()); // will default to machine endian
+    // First read the byte order using machine endian
+    auto byteOrder = buf[0];
+
+    // Create ByteOrderDataInStream with the correct byte order
+    if (byteOrder == byteOrder::wkbNDR) {
+        ctx->dis = ByteOrderDataInStream(buf.data(), buf.size());
+        ctx->dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
+    } else if (byteOrder == byteOrder::wkbXDR) {
+        ctx->dis = ByteOrderDataInStream(buf.data(), buf.size());
+        ctx->dis.setOrder(ByteOrderValues::ENDIAN_BIG);
+    } else {
+        ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        return ctx;
+    }
 
     ctx->shape = readGeometry(ctx).release();
 
@@ -136,19 +149,21 @@ WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
 }
 
 std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext* ctx) {
-    // determine byte order
-    unsigned char byteOrder = ctx->dis.readByte();
-
-    // default is machine endian
-    if (byteOrder == byteOrder::wkbNDR) {
-        ctx->dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
-    } else if (byteOrder == byteOrder::wkbXDR) {
-        ctx->dis.setOrder(ByteOrderValues::ENDIAN_BIG);
-    }
+    // Skip the byte order as we've already handled it
+    ctx->dis.readByte();
 
     uint32_t typeInt = ctx->dis.readUnsigned();
 
-    uint32_t geometryType = (typeInt & 0xffff) % 1000;
+    // Check if geometry has SRID
+    bool has_srid = (typeInt & 0x20000000) != 0;
+
+    // Read SRID if present
+    if (has_srid) {
+        ctx->dis.readUnsigned(); // Read and store SRID if needed
+    }
+
+    // Get the base geometry type
+    uint32_t geometryType = typeInt & 0xff;
 
     std::unique_ptr<GeoShape> shape;
 
@@ -199,7 +214,7 @@ std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext* ctx) {
     GeoCoordinateListList coordss;
     for (int i = 0; i < num_loops; ++i) {
         uint32_t size = ctx->dis.readUnsigned();
-        GeoCoordinateList* coords = new GeoCoordinateList();
+        auto* coords = new GeoCoordinateList();
         *coords = WkbParse::readCoordinateList(size, ctx);
         coordss.add(coords);
     }
