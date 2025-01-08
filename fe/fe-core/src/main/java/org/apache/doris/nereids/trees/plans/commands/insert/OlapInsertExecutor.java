@@ -183,6 +183,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
+        boolean isMow = table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite();
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -196,7 +197,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 database, Lists.newArrayList((Table) table),
                 txnId,
                 TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
-                ctx.getSessionVariable().getInsertVisibleTimeoutMs())) {
+                ctx.getSessionVariable().getInsertVisibleTimeoutMs(isMow))) {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
             txnStatus = TransactionStatus.COMMITTED;

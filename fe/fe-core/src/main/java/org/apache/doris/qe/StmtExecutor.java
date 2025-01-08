@@ -2508,11 +2508,15 @@ public class StmtExecutor {
                     return;
                 }
 
+                Table isertTable = insertStmt.getTargetTable();
+                boolean isMow = isertTable instanceof OlapTable
+                        && ((OlapTable) isertTable).getEnableUniqueKeyMergeOnWrite();
+
                 if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                        insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()),
+                        insertStmt.getDbObj(), Lists.newArrayList(isertTable),
                         insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                        context.getSessionVariable().getInsertVisibleTimeoutMs())) {
+                        context.getSessionVariable().getInsertVisibleTimeoutMs(isMow))) {
                     txnStatus = TransactionStatus.VISIBLE;
                 } else {
                     txnStatus = TransactionStatus.COMMITTED;

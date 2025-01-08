@@ -224,6 +224,8 @@ public class SessionVariable implements Serializable, Writable {
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
 
+    public static final String INSERT_VISIBLE_TIMEOUT_MOW_MULTIPLIER = "insert_visible_timeout_mow_multiplier";
+
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
     public static final String ENABLE_VARIANT_ACCESS_IN_ORIGINAL_PLANNER = "enable_variant_access_in_original_planner";
@@ -254,6 +256,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MOW_MULTIPLIER = 6;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
@@ -748,6 +752,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
+
+    @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MOW_MULTIPLIER, needForward = true)
+    public long insertVisibleTimeoutMowMultiplier = DEFAULT_INSERT_VISIBLE_TIMEOUT_MOW_MULTIPLIER;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -3426,12 +3433,17 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * getInsertVisibleTimeoutMs.
      **/
-    public long getInsertVisibleTimeoutMs() {
+    public long getInsertVisibleTimeoutMs(boolean isMow) {
+        long timeOutMs = 0;
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
-            return MIN_INSERT_VISIBLE_TIMEOUT_MS;
+            timeOutMs = MIN_INSERT_VISIBLE_TIMEOUT_MS;
         } else {
-            return insertVisibleTimeoutMs;
+            timeOutMs = insertVisibleTimeoutMs;
         }
+        if (isMow) {
+            timeOutMs = timeOutMs * insertVisibleTimeoutMowMultiplier;
+        }
+        return timeOutMs;
     }
 
     /**

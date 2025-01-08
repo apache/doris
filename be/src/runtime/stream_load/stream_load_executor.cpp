@@ -320,12 +320,16 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
+    int timeout_ms = config::txn_commit_rpc_timeout_ms;
+    if (ctx->is_mow_table()) {
+        timeout_ms *= config::mow_commit_rpc_timeout_multiplier;
+    }
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnCommit(result, request);
             },
-            config::txn_commit_rpc_timeout_ms));
+            timeout_ms));
 #else
     result = k_stream_load_commit_result;
 #endif
