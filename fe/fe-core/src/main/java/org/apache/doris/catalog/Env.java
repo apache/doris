@@ -21,6 +21,7 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -36,7 +37,6 @@ import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -3315,7 +3315,7 @@ public class Env {
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
-        getInternalCatalog().alterDatabaseQuota(stmt);
+        getInternalCatalog().alterDatabaseQuota(stmt.getDbName(), stmt.getQuotaType(), stmt.getQuota());
     }
 
     public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) throws MetaNotFoundException {
