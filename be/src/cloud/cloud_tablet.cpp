@@ -386,6 +386,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
+    std::vector<RowsetSharedPtr> stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
     std::vector<std::string> version_to_delete;
@@ -409,10 +410,10 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 auto rs_it = _stale_rs_version_map.find(v_ts->version());
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
+                    stale_rowsets.push_back(rs_it->second);
                     LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
                               << " version=" << rs_it->first.to_string();
-                    _stale_rs_version_map.erase(rs_it);
                 } else {
                     LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
                                  << tablet_id();
@@ -456,7 +457,8 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
 
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
-            if (rs.use_count() > 1) {
+            // rowsets vector save ptr and tablet._rs_version_map save ptr, so at least 2
+            if (rs.use_count() > 2) {
                 LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
                              << rs.use_count()
                              << " references. File Cache won't be recycled when query is using it.";
