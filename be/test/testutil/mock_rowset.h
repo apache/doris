@@ -50,7 +50,7 @@ class MockRowset : public Rowset {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    Status get_inverted_index_size(size_t* index_size) override {
+    Status get_inverted_index_size(int64_t* index_size) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
