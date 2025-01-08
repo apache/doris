@@ -147,18 +147,12 @@ public class IndexDefinition {
                             "ngram_bf index should have gram_size and bf_size properties");
                 }
                 try {
-                    int ngramSize = Integer.parseInt(properties.get(IndexDef.NGRAM_SIZE_KEY));
-                    int bfSize = Integer.parseInt(properties.get(IndexDef.NGRAM_BF_SIZE_KEY));
-                    if (ngramSize > 256 || ngramSize < 1) {
-                        throw new AnalysisException(
-                                "gram_size should be integer and less than 256");
-                    }
-                    if (bfSize > 65535 || bfSize < 64) {
-                        throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65535");
-                    }
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE,
+                                                      IndexDef.MAX_NGRAM_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE,
+                                                      IndexDef.MAX_BF_SIZE);
+                } catch (Exception ex) {
+                    throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
             }
         } else {
