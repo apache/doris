@@ -66,6 +66,16 @@ static inline bool is_valid_lng_lat(double lng, double lat) {
 
 // Return GEO_PARSE_OK, if and only if this can be converted to a valid S2Point
 static inline GeoParseStatus to_s2point(double lng, double lat, S2Point* point) {
+    // Handle values very close to integers
+    double rounded_lng = round(lng);
+    if (std::abs(lng - rounded_lng) < 1e-14) {
+        lng = rounded_lng;
+    }
+    double rounded_lat = round(lat);
+    if (std::abs(lat - rounded_lat) < 1e-14) {
+        lat = rounded_lat;
+    }
+
     if (!is_valid_lng_lat(lng, lat)) {
         return GEO_PARSE_COORD_INVALID;
     }
@@ -316,11 +326,23 @@ bool GeoPoint::decode(const void* data, size_t size) {
 }
 
 double GeoPoint::x() const {
-    return S2LatLng::Longitude(*_point).degrees();
+    double value = S2LatLng::Longitude(*_point).degrees();
+    // Handle values very close to integers
+    double rounded = round(value);
+    if (std::abs(value - rounded) < 1e-13) {  // 使用更大的阈值
+        return rounded;
+    }
+    return value;
 }
 
 double GeoPoint::y() const {
-    return S2LatLng::Latitude(*_point).degrees();
+    double value = S2LatLng::Latitude(*_point).degrees();
+    // Handle values very close to integers
+    double rounded = round(value);
+    if (std::abs(value - rounded) < 1e-13) {  // 使用更大的阈值
+        return rounded;
+    }
+    return value;
 }
 
 std::string GeoPoint::as_wkt() const {
