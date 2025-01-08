@@ -59,7 +59,7 @@ public class ShowQueryProfileStmt extends ShowStmt implements NotFallbackInParse
             sb.append(path);
         }
 
-        if (limitElement != null) {
+        if (limitElement.getLimit() == -1) {
             sb.append(" LIMIT ").append(getLimit());
         }
 
@@ -77,6 +77,6 @@ public class ShowQueryProfileStmt extends ShowStmt implements NotFallbackInParse
     }
 
     public long getLimit() {
-        return limitElement == null ? 20 : limitElement.getLimit();
+        return limitElement.getLimit() == -1 ? 20 : limitElement.getLimit();
     }
 }
