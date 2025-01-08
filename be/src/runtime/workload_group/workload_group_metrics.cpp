@@ -30,6 +30,15 @@ namespace doris {
 
 WorkloadGroupMetrics::~WorkloadGroupMetrics() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+    // NOTE: it must manual release metric_ptr after deregresiter_entity,
+    // otherwise metric maybe visited by other thread before deregister_entity calls here.
+    _cpu_time_metric.reset();
+    _mem_used_bytes_metric.reset();
+    _local_scan_bytes_metric.reset();
+    _remote_scan_bytes_metric.reset();
+    for (const auto& [key, metric_ptr] : _local_scan_bytes_metric_map) {
+        metric_ptr.reset();
+    }
 }
 
 WorkloadGroupMetrics::WorkloadGroupMetrics(WorkloadGroup* wg) {
