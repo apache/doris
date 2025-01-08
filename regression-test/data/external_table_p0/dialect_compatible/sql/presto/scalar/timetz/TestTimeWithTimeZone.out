@@ -9,244 +9,244 @@
 0
 
 -- !TestTimeWithTimeZone_4 --
-\N
+12:34:56+08:35
 
 -- !TestTimeWithTimeZone_5 --
-\N
+12:34:56.1+08:35
 
 -- !TestTimeWithTimeZone_6 --
-\N
+12:34:56.12+08:35
 
 -- !TestTimeWithTimeZone_7 --
-\N
+12:34:56.123+08:35
 
 -- !TestTimeWithTimeZone_8 --
-\N
+12:34:56.1234+08:35
 
 -- !TestTimeWithTimeZone_9 --
-\N
+12:34:56.12345+08:35
 
 -- !TestTimeWithTimeZone_10 --
-\N
+12:34:56.123456+08:35
 
 -- !TestTimeWithTimeZone_11 --
-\N
+12:34:56.1234567+08:35
 
 -- !TestTimeWithTimeZone_12 --
-\N
+12:34:56.12345678+08:35
 
 -- !TestTimeWithTimeZone_13 --
-\N
+12:34:56.123456789+08:35
 
 -- !TestTimeWithTimeZone_14 --
-\N
+12:34:56.1234567891+08:35
 
 -- !TestTimeWithTimeZone_15 --
-\N
+12:34:56.12345678912+08:35
 
 -- !TestTimeWithTimeZone_16 --
-\N
+12:34:56.123456789123+08:35
 
 -- !TestTimeWithTimeZone_17 --
-\N
+12:34:56-08:35
 
 -- !TestTimeWithTimeZone_18 --
-\N
+12:34:56.1-08:35
 
 -- !TestTimeWithTimeZone_19 --
-\N
+12:34:56.12-08:35
 
 -- !TestTimeWithTimeZone_20 --
-\N
+12:34:56.123-08:35
 
 -- !TestTimeWithTimeZone_21 --
-\N
+12:34:56.1234-08:35
 
 -- !TestTimeWithTimeZone_22 --
-\N
+12:34:56.12345-08:35
 
 -- !TestTimeWithTimeZone_23 --
-\N
+12:34:56.123456-08:35
 
 -- !TestTimeWithTimeZone_24 --
-\N
+12:34:56.1234567-08:35
 
 -- !TestTimeWithTimeZone_25 --
-\N
+12:34:56.12345678-08:35
 
 -- !TestTimeWithTimeZone_26 --
-\N
+12:34:56.123456789-08:35
 
 -- !TestTimeWithTimeZone_27 --
-\N
+12:34:56.1234567891-08:35
 
 -- !TestTimeWithTimeZone_28 --
-\N
+12:34:56.12345678912-08:35
 
 -- !TestTimeWithTimeZone_29 --
-\N
+12:34:56.123456789123-08:35
 
 -- !TestTimeWithTimeZone_30 --
-\N
+12:34:56-00:35
 
 -- !TestTimeWithTimeZone_31 --
-\N
+12:34:56.1-00:35
 
 -- !TestTimeWithTimeZone_32 --
-\N
+12:34:56.12-00:35
 
 -- !TestTimeWithTimeZone_33 --
-\N
+12:34:56.123-00:35
 
 -- !TestTimeWithTimeZone_34 --
-\N
+12:34:56.1234-00:35
 
 -- !TestTimeWithTimeZone_35 --
-\N
+12:34:56.12345-00:35
 
 -- !TestTimeWithTimeZone_36 --
-\N
+12:34:56.123456-00:35
 
 -- !TestTimeWithTimeZone_37 --
-\N
+12:34:56.1234567-00:35
 
 -- !TestTimeWithTimeZone_38 --
-\N
+12:34:56.12345678-00:35
 
 -- !TestTimeWithTimeZone_39 --
-\N
+12:34:56.123456789-00:35
 
 -- !TestTimeWithTimeZone_40 --
-\N
+12:34:56.1234567891-00:35
 
 -- !TestTimeWithTimeZone_41 --
-\N
+12:34:56.12345678912-00:35
 
 -- !TestTimeWithTimeZone_42 --
-\N
+12:34:56.123456789123-00:35
 
 -- !TestTimeWithTimeZone_43 --
-\N
+12:34:56.123456789123+14:00
 
 -- !TestTimeWithTimeZone_44 --
-\N
+12:34:56.123456789123-14:00
 
 -- !TestTimeWithTimeZone_45 --
-\N
+12:34:56+08:35
 
 -- !TestTimeWithTimeZone_46 --
-\N
+12:34:56.1+08:35
 
 -- !TestTimeWithTimeZone_47 --
-\N
+12:34:56.12+08:35
 
 -- !TestTimeWithTimeZone_48 --
-\N
+12:34:56.123+08:35
 
 -- !TestTimeWithTimeZone_49 --
-\N
+12:34:56.1234+08:35
 
 -- !TestTimeWithTimeZone_50 --
-\N
+12:34:56.12345+08:35
 
 -- !TestTimeWithTimeZone_51 --
-\N
+12:34:56.123456+08:35
 
 -- !TestTimeWithTimeZone_52 --
-\N
+12:34:56.1234567+08:35
 
 -- !TestTimeWithTimeZone_53 --
-\N
+12:34:56.12345678+08:35
 
 -- !TestTimeWithTimeZone_54 --
-\N
+12:34:56.123456789+08:35
 
 -- !TestTimeWithTimeZone_55 --
-\N
+12:34:56.1234567890+08:35
 
 -- !TestTimeWithTimeZone_56 --
-\N
+12:34:56.12345678901+08:35
 
 -- !TestTimeWithTimeZone_57 --
-\N
+12:34:56.123456789012+08:35
 
 -- !TestTimeWithTimeZone_58 --
-\N
+12:34:56-08:35
 
 -- !TestTimeWithTimeZone_59 --
-\N
+12:34:56.1-08:35
 
 -- !TestTimeWithTimeZone_60 --
-\N
+12:34:56.12-08:35
 
 -- !TestTimeWithTimeZone_61 --
-\N
+12:34:56.123-08:35
 
 -- !TestTimeWithTimeZone_62 --
-\N
+12:34:56.1234-08:35
 
 -- !TestTimeWithTimeZone_63 --
-\N
+12:34:56.12345-08:35
 
 -- !TestTimeWithTimeZone_64 --
-\N
+12:34:56.123456-08:35
 
 -- !TestTimeWithTimeZone_65 --
-\N
+12:34:56.1234567-08:35
 
 -- !TestTimeWithTimeZone_66 --
-\N
+12:34:56.12345678-08:35
 
 -- !TestTimeWithTimeZone_67 --
-\N
+12:34:56.123456789-08:35
 
 -- !TestTimeWithTimeZone_68 --
-\N
+12:34:56.1234567890-08:35
 
 -- !TestTimeWithTimeZone_69 --
-\N
+12:34:56.12345678901-08:35
 
 -- !TestTimeWithTimeZone_70 --
-\N
+12:34:56.123456789012-08:35
 
 -- !TestTimeWithTimeZone_71 --
-\N
+12:34:56-00:35
 
 -- !TestTimeWithTimeZone_72 --
-\N
+12:34:56.1-00:35
 
 -- !TestTimeWithTimeZone_73 --
-\N
+12:34:56.12-00:35
 
 -- !TestTimeWithTimeZone_74 --
-\N
+12:34:56.123-00:35
 
 -- !TestTimeWithTimeZone_75 --
-\N
+12:34:56.1234-00:35
 
 -- !TestTimeWithTimeZone_76 --
-\N
+12:34:56.12345-00:35
 
 -- !TestTimeWithTimeZone_77 --
-\N
+12:34:56.123456-00:35
 
 -- !TestTimeWithTimeZone_78 --
-\N
+12:34:56.1234567-00:35
 
 -- !TestTimeWithTimeZone_79 --
-\N
+12:34:56.12345678-00:35
 
 -- !TestTimeWithTimeZone_80 --
-\N
+12:34:56.123456789-00:35
 
 -- !TestTimeWithTimeZone_81 --
-\N
+12:34:56.1234567890-00:35
 
 -- !TestTimeWithTimeZone_82 --
-\N
+12:34:56.12345678901-00:35
 
 -- !TestTimeWithTimeZone_83 --
-\N
+12:34:56.123456789012-00:35
 
 -- !TestTimeWithTimeZone_84 --
 12:34:56.111111111111+08:35
@@ -255,253 +255,253 @@
 12:34:56.555555555555+08:35
 
 -- !TestTimeWithTimeZone_86 --
-\N
+12:34:56.111111+08:35
 
 -- !TestTimeWithTimeZone_87 --
-\N
+12:34:56.555555+08:35
 
 -- !TestTimeWithTimeZone_88 --
 0
 
 -- !TestTimeWithTimeZone_89 --
-\N
+12:34:56+08:35
 
 -- !TestTimeWithTimeZone_90 --
-\N
+12:34:56.1+08:35
 
 -- !TestTimeWithTimeZone_91 --
-\N
+12:34:56.12+08:35
 
 -- !TestTimeWithTimeZone_92 --
-\N
+12:34:56.123+08:35
 
 -- !TestTimeWithTimeZone_93 --
-\N
+12:34:56.1234+08:35
 
 -- !TestTimeWithTimeZone_94 --
-\N
+12:34:56.12345+08:35
 
 -- !TestTimeWithTimeZone_95 --
-\N
+12:34:56.123456+08:35
 
 -- !TestTimeWithTimeZone_96 --
-\N
+12:34:56.1234567+08:35
 
 -- !TestTimeWithTimeZone_97 --
-\N
+12:34:56.12345678+08:35
 
 -- !TestTimeWithTimeZone_98 --
-\N
+12:34:56.123456789+08:35
 
 -- !TestTimeWithTimeZone_99 --
-\N
+12:34:56.1234567891+08:35
 
 -- !TestTimeWithTimeZone_100 --
-\N
+12:34:56.12345678912+08:35
 
 -- !TestTimeWithTimeZone_101 --
-\N
+12:34:56.123456789123+08:35
 
 -- !TestTimeWithTimeZone_102 --
-\N
+12:34:56-08:35
 
 -- !TestTimeWithTimeZone_103 --
-\N
+12:34:56.1-08:35
 
 -- !TestTimeWithTimeZone_104 --
-\N
+12:34:56.12-08:35
 
 -- !TestTimeWithTimeZone_105 --
-\N
+12:34:56.123-08:35
 
 -- !TestTimeWithTimeZone_106 --
-\N
+12:34:56.1234-08:35
 
 -- !TestTimeWithTimeZone_107 --
-\N
+12:34:56.12345-08:35
 
 -- !TestTimeWithTimeZone_108 --
-\N
+12:34:56.123456-08:35
 
 -- !TestTimeWithTimeZone_109 --
-\N
+12:34:56.1234567-08:35
 
 -- !TestTimeWithTimeZone_110 --
-\N
+12:34:56.12345678-08:35
 
 -- !TestTimeWithTimeZone_111 --
-\N
+12:34:56.123456789-08:35
 
 -- !TestTimeWithTimeZone_112 --
-\N
+12:34:56.1234567891-08:35
 
 -- !TestTimeWithTimeZone_113 --
-\N
+12:34:56.12345678912-08:35
 
 -- !TestTimeWithTimeZone_114 --
-\N
+12:34:56.123456789123-08:35
 
 -- !TestTimeWithTimeZone_115 --
-\N
+12:34:56-00:35
 
 -- !TestTimeWithTimeZone_116 --
-\N
+12:34:56.1-00:35
 
 -- !TestTimeWithTimeZone_117 --
-\N
+12:34:56.12-00:35
 
 -- !TestTimeWithTimeZone_118 --
-\N
+12:34:56.123-00:35
 
 -- !TestTimeWithTimeZone_119 --
-\N
+12:34:56.1234-00:35
 
 -- !TestTimeWithTimeZone_120 --
-\N
+12:34:56.12345-00:35
 
 -- !TestTimeWithTimeZone_121 --
-\N
+12:34:56.123456-00:35
 
 -- !TestTimeWithTimeZone_122 --
-\N
+12:34:56.1234567-00:35
 
 -- !TestTimeWithTimeZone_123 --
-\N
+12:34:56.12345678-00:35
 
 -- !TestTimeWithTimeZone_124 --
-\N
+12:34:56.123456789-00:35
 
 -- !TestTimeWithTimeZone_125 --
-\N
+12:34:56.1234567891-00:35
 
 -- !TestTimeWithTimeZone_126 --
-\N
+12:34:56.12345678912-00:35
 
 -- !TestTimeWithTimeZone_127 --
-\N
+12:34:56.123456789123-00:35
 
 -- !TestTimeWithTimeZone_128 --
-\N
+12:34:56.123456789123+14:00
 
 -- !TestTimeWithTimeZone_129 --
-\N
+12:34:56.123456789123-14:00
 
 -- !TestTimeWithTimeZone_130 --
-\N
+12:34:56+08:35
 
 -- !TestTimeWithTimeZone_131 --
-\N
+12:34:56.1+08:35
 
 -- !TestTimeWithTimeZone_132 --
-\N
+12:34:56.12+08:35
 
 -- !TestTimeWithTimeZone_133 --
-\N
+12:34:56.123+08:35
 
 -- !TestTimeWithTimeZone_134 --
-\N
+12:34:56.1234+08:35
 
 -- !TestTimeWithTimeZone_135 --
-\N
+12:34:56.12345+08:35
 
 -- !TestTimeWithTimeZone_136 --
-\N
+12:34:56.123456+08:35
 
 -- !TestTimeWithTimeZone_137 --
-\N
+12:34:56.1234567+08:35
 
 -- !TestTimeWithTimeZone_138 --
-\N
+12:34:56.12345678+08:35
 
 -- !TestTimeWithTimeZone_139 --
-\N
+12:34:56.123456789+08:35
 
 -- !TestTimeWithTimeZone_140 --
-\N
+12:34:56.1234567890+08:35
 
 -- !TestTimeWithTimeZone_141 --
-\N
+12:34:56.12345678901+08:35
 
 -- !TestTimeWithTimeZone_142 --
-\N
+12:34:56.123456789012+08:35
 
 -- !TestTimeWithTimeZone_143 --
-\N
+12:34:56-08:35
 
 -- !TestTimeWithTimeZone_144 --
-\N
+12:34:56.1-08:35
 
 -- !TestTimeWithTimeZone_145 --
-\N
+12:34:56.12-08:35
 
 -- !TestTimeWithTimeZone_146 --
-\N
+12:34:56.123-08:35
 
 -- !TestTimeWithTimeZone_147 --
-\N
+12:34:56.1234-08:35
 
 -- !TestTimeWithTimeZone_148 --
-\N
+12:34:56.12345-08:35
 
 -- !TestTimeWithTimeZone_149 --
-\N
+12:34:56.123456-08:35
 
 -- !TestTimeWithTimeZone_150 --
-\N
+12:34:56.1234567-08:35
 
 -- !TestTimeWithTimeZone_151 --
-\N
+12:34:56.12345678-08:35
 
 -- !TestTimeWithTimeZone_152 --
-\N
+12:34:56.123456789-08:35
 
 -- !TestTimeWithTimeZone_153 --
-\N
+12:34:56.1234567890-08:35
 
 -- !TestTimeWithTimeZone_154 --
-\N
+12:34:56.12345678901-08:35
 
 -- !TestTimeWithTimeZone_155 --
-\N
+12:34:56.123456789012-08:35
 
 -- !TestTimeWithTimeZone_156 --
-\N
+12:34:56-00:35
 
 -- !TestTimeWithTimeZone_157 --
-\N
+12:34:56.1-00:35
 
 -- !TestTimeWithTimeZone_158 --
-\N
+12:34:56.12-00:35
 
 -- !TestTimeWithTimeZone_159 --
-\N
+12:34:56.123-00:35
 
 -- !TestTimeWithTimeZone_160 --
-\N
+12:34:56.1234-00:35
 
 -- !TestTimeWithTimeZone_161 --
-\N
+12:34:56.12345-00:35
 
 -- !TestTimeWithTimeZone_162 --
-\N
+12:34:56.123456-00:35
 
 -- !TestTimeWithTimeZone_163 --
-\N
+12:34:56.1234567-00:35
 
 -- !TestTimeWithTimeZone_164 --
-\N
+12:34:56.12345678-00:35
 
 -- !TestTimeWithTimeZone_165 --
-\N
+12:34:56.123456789-00:35
 
 -- !TestTimeWithTimeZone_166 --
-\N
+12:34:56.1234567890-00:35
 
 -- !TestTimeWithTimeZone_167 --
-\N
+12:34:56.12345678901-00:35
 
 -- !TestTimeWithTimeZone_168 --
-\N
+12:34:56.123456789012-00:35
 
 -- !TestTimeWithTimeZone_169 --
 12:34:56.111111111111+08:35
@@ -510,8 +510,8 @@
 12:34:56.555555555555+08:35
 
 -- !TestTimeWithTimeZone_171 --
-\N
+12:34:56.111111+08:35
 
 -- !TestTimeWithTimeZone_172 --
-\N
+12:34:56.555555+08:35
 
