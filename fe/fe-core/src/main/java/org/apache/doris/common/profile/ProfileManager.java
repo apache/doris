@@ -943,7 +943,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public List<List<String>> getProfileMetaWithType(ProfileType profileType, int limit) {
+    public List<List<String>> getProfileMetaWithType(ProfileType profileType, long limit) {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
 
