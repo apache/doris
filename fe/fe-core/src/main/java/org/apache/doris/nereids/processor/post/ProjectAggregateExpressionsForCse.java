@@ -103,7 +103,12 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
 
         if (aggregate.child() instanceof PhysicalProject) {
             PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) aggregate.child();
-            List<NamedExpression> newProjections = Lists.newArrayList(project.getProjects());
+            List<NamedExpression> newProjections = Lists.newArrayList();
+            for (NamedExpression expr : project.getProjects()) {
+                if (aggOutputReplaced.contains(expr)) {
+                    newProjections.add(expr);
+                }
+            }
             newProjections.addAll(cseCandidates.values());
             project = project.withProjectionsAndChild(newProjections, (Plan) project.child());
             aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
