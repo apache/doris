@@ -15,22 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.alter;
 
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-public class AlterDatabaseQuotaStmt extends DdlStmt implements NotFallbackInParser {
+/**
+ *  Represents the command for ALTER DATABASE db_name SET (DATA |REPLICA | TRANSACTION) QUOTA quota_value.
+ */
+public class AlterDatabaseSetQuotaCommand extends AlterCommand {
+
     @SerializedName("db")
     private String dbName;
 
@@ -43,31 +50,19 @@ public class AlterDatabaseQuotaStmt extends DdlStmt implements NotFallbackInPars
     @SerializedName("q")
     private long quota;
 
-    public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaValue) {
+    public AlterDatabaseSetQuotaCommand(String dbName, QuotaType quotaType, String quotaValue) {
+        super(PlanType.ALTER_DATABASE_SET_DATA_QUOTA_COMMAND);
         this.dbName = dbName;
         this.quotaType = quotaType;
         this.quotaValue = quotaValue;
     }
 
-    public String getDbName() {
-        return dbName;
-    }
-
-    public long getQuota() {
-        return quota;
-    }
-
-    public QuotaType getQuotaType() {
-        return quotaType;
-    }
-
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    analyzer.getQualifiedUser(), dbName);
+                    ctx.getQualifiedUser(), dbName);
         }
 
         if (Strings.isNullOrEmpty(dbName)) {
@@ -80,17 +75,17 @@ public class AlterDatabaseQuotaStmt extends DdlStmt implements NotFallbackInPars
         } else if (quotaType == QuotaType.TRANSACTION) {
             quota = ParseUtil.analyzeTransactionNumber(quotaValue);
         }
+        Env.getCurrentInternalCatalog().alterDatabaseQuota(dbName, quotaType, quota);
     }
 
     @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitAlterDatabaseSetQuotaCommand(this, context);
+    }
+
     public String toSql() {
         return "ALTER DATABASE " + dbName + " SET "
                 + quotaType.name()
                 + " QUOTA " + quotaValue;
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.ALTER;
     }
 }

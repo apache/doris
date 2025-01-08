@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseRenameContext;
+import org.apache.doris.nereids.DorisParser.AlterDatabaseSetQuotaContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
@@ -621,6 +623,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
+import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
@@ -5452,6 +5455,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
+
+    @Override
+    public Object visitAlterDatabaseSetQuota(AlterDatabaseSetQuotaContext ctx) {
+        String databaseName = Optional.ofNullable(ctx.name)
+                .map(ParseTree::getText).filter(s -> !s.isEmpty())
+                .orElseThrow(() -> new ParseException("database name can not be null"));
+        String quota = Optional.ofNullable(ctx.quota)
+                .map(ParseTree::getText)
+                .orElseGet(() -> Optional.ofNullable(ctx.INTEGER_VALUE())
+                        .map(TerminalNode::getText)
+                        .orElse(null));
+        // Determine the quota type
+        QuotaType quotaType;
+        if (ctx.DATA() != null) {
+            quotaType = QuotaType.DATA;
+        } else if (ctx.REPLICA() != null) {
+            quotaType = QuotaType.REPLICA;
+        } else if (ctx.TRANSACTION() != null) {
+            quotaType = QuotaType.TRANSACTION;
+        } else {
+            quotaType = QuotaType.NONE;
+        }
+        return new AlterDatabaseSetQuotaCommand(databaseName, quotaType, quota);
     }
 }
 
