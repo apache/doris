@@ -121,7 +121,9 @@ public:
     using value_type = void;
     using Value = void*;
     static_assert(std::is_integral_v<KeyType>);
+    using search_key_type = std::make_unsigned_t<KeyType>;
     using SetType = uint8_t;
+
     static constexpr int hash_table_size = 1 << sizeof(KeyType) * 8;
 
     using LookupResult = void*;
@@ -149,10 +151,10 @@ public:
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        if (_hash_table[key_holder] != set_flag) {
+        if (_hash_table[static_cast<search_key_type>(key_holder)] != set_flag) {
             auto ctor = [&](auto& key_value) {
                 _size++;
-                _hash_table[key_value] = set_flag;
+                _hash_table[static_cast<search_key_type>(key_value)] = set_flag;
             };
             f(ctor, key_holder);
         }
@@ -161,10 +163,10 @@ public:
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key, LookupResult& it, size_t hash_value,
                                     Func&& f) {
-        if (_hash_table[key] != set_flag) {
+        if (_hash_table[static_cast<search_key_type>(key)] != set_flag) {
             auto ctor = [&](auto& key_value) {
                 _size++;
-                _hash_table[key_value] = set_flag;
+                _hash_table[static_cast<search_key_type>(key_value)] = set_flag;
             };
             f(ctor, key, key);
         }
