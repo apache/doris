@@ -101,17 +101,11 @@ public class OrToIn {
         if (expr instanceof And) {
             // filter out duplicated conjunct
             // example: OrToInTest.testDeDup()
-            List<Expression> dedup = Lists.newArrayList();
-            Set<Expression> dedupSet = new HashSet<>();
+            Set<Expression> dedupSet = new LinkedHashSet<>();
             for (Expression newChild : newChildren) {
-                for (Expression conj : ExpressionUtils.extractConjunction(newChild)) {
-                    if (!dedupSet.contains(conj)) {
-                        dedupSet.add(conj);
-                        dedup.add(conj);
-                    }
-                }
+                dedupSet.addAll(ExpressionUtils.extractConjunction(newChild));
             }
-            newChildren = dedup;
+            newChildren = Lists.newArrayList(dedupSet);
         }
         if (expr instanceof CompoundPredicate && newChildren.size() == 1) {
             // (a=1) and (a=1)
