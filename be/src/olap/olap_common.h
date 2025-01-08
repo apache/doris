@@ -72,7 +72,7 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
-    std::string bvar_name;
+    std::string metric_name;
 };
 struct PredicateFilterInfo {
     int type = 0;
