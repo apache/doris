@@ -197,13 +197,6 @@ public:
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
 
-    UIntGauge* scanner_thread_pool_queue_size = nullptr;
-    UIntGauge* add_batch_task_queue_size = nullptr;
-    UIntGauge* send_batch_thread_pool_thread_num = nullptr;
-    UIntGauge* send_batch_thread_pool_queue_size = nullptr;
-    UIntGauge* fragment_thread_pool_queue_size = nullptr;
-    UIntGauge* fragment_thread_pool_num_active_threads = nullptr;
-
     // Upload metrics
     UIntGauge* upload_total_byte = nullptr;
     IntCounter* upload_rowset_count = nullptr;
@@ -224,29 +217,14 @@ public:
     UIntGauge* arrow_flight_work_pool_max_queue_size = nullptr;
     UIntGauge* arrow_flight_work_max_threads = nullptr;
 
-    UIntGauge* flush_thread_pool_queue_size = nullptr;
-    UIntGauge* flush_thread_pool_thread_num = nullptr;
+    IntCounter* num_io_bytes_read_total = nullptr;
+    IntCounter* num_io_bytes_read_from_cache = nullptr;
+    IntCounter* num_io_bytes_read_from_remote = nullptr;
 
-    UIntGauge* local_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* local_scan_thread_pool_thread_num = nullptr;
-    UIntGauge* remote_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* remote_scan_thread_pool_thread_num = nullptr;
-    UIntGauge* limited_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* limited_scan_thread_pool_thread_num = nullptr;
-    UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
-
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
-
-    IntAtomicCounter* query_ctx_cnt = nullptr;
-    IntAtomicCounter* scanner_ctx_cnt = nullptr;
-    IntAtomicCounter* scanner_cnt = nullptr;
-    IntAtomicCounter* scanner_task_cnt = nullptr;
-    IntAtomicCounter* scanner_task_queued = nullptr;
-    IntAtomicCounter* scanner_task_submit_failed = nullptr;
-    IntAtomicCounter* scanner_task_running = nullptr;
+    IntCounter* query_ctx_cnt = nullptr;
+    IntCounter* scanner_ctx_cnt = nullptr;
+    IntCounter* scanner_cnt = nullptr;
+    IntCounter* scanner_task_cnt = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

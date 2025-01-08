@@ -479,6 +479,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
                                           bool eos) const {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
+    COUNTER_SET(local_state._memory_used_counter, block->allocated_bytes());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
               local_state._cur_probe_row_visited_flags.end(), 0);
@@ -525,8 +526,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                         local_state._conjuncts, &local_state._join_block,
                         local_state._join_block.columns()));
             }
-            RETURN_IF_ERROR(
-                    local_state._build_output_block(&local_state._join_block, block, false));
+            RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
             local_state._reset_tuple_is_null_column();
         }
         local_state._join_block.clear_column_data(join_block_column_size);

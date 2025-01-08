@@ -495,8 +495,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // mv is selected, return its estimated stats
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
+            LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}",
+                    optStats.isPresent(), tableRowCount);
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
+                        selectedPartitionsRowCount);
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
                 if (selectedPartitionsRowCount >= optStats.get().getRowCount()) {
                     Statistics derivedStats = optStats.get();

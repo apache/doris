@@ -40,7 +40,7 @@ struct ArrayReverseImpl {
         }
 
         bool is_nullable = src.nested_nullmap_data ? true : false;
-        ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
+        ColumnArrayMutableData dst = create_mutable_data(src.nested_col.get(), is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
 
         auto res_val = _execute_internal(*src.nested_col, *src.offsets_ptr, *dst.nested_col,

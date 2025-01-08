@@ -51,7 +51,7 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
             k bigint,
             v variant
         )
-        DUPLICATE KEY(`k`) 
+        DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES (
                 "replication_num" = "1",
@@ -64,22 +64,22 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
     sql """insert into ${tableName}  select 0, '{"a": 11245, "b" : {"state" : "open", "code" : 2}}'  as json_str
         union  all select 8, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "aaaaa"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
-    
+
     sql """insert into ${tableName} select 1, '{"a": 11245, "b" : {"state" : "colse", "code" : 2}}'  as json_str
         union  all select 1, '{"a": 1123}' as json_str union all select 1, '{"a" : 1234, "xxxx" : "bbbbb"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
-    
+
     sql """insert into ${tableName} select 2, '{"a": 11245, "b" : {"state" : "flat", "code" : 3}}'  as json_str
         union  all select 2, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "ccccc"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
-    
+
     sql """insert into ${tableName}  select 3, '{"a" : 1234, "xxxx" : 4, "point" : 5}'  as json_str
         union  all select 3, '{"a": 1123}' as json_str union all select 3, '{"a": 11245, "b" : 42003}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
 
     sql """insert into ${tableName} select 4, '{"a" : 1234, "xxxx" : "eeeee", "point" : 5}'  as json_str
         union  all select 4, '{"a": 1123}' as json_str union all select 4, '{"a": 11245, "b" : 42004}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-    
+
 
     sql """insert into ${tableName} select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
         union  all select 5, '{"a": 1123}' as json_str union all select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096 ;"""
@@ -96,37 +96,7 @@ suite("test_compaction_extract_root", "p1,nonConcurrent") {
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId 
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        if (compactJson.status.toLowerCase() == "fail") {
-            assertEquals(disableAutoCompaction, false)
-            logger.info("Compaction was done automatically!")
-        }
-        if (disableAutoCompaction) {
-            assertEquals("success", compactJson.status.toLowerCase())
-        }
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        boolean running = true
-        do {
-            Thread.sleep(1000)
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId 
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            running = compactionStatus.run_status
-        } while (running)
-    }
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     int rowCount = 0
     for (def tablet in tablets) {

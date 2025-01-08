@@ -163,15 +163,15 @@ public class CatalogMgrTest extends TestWithFeService {
         schema.add(new Column("k1", PrimitiveType.INT));
         if (catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-            HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hive_db1");
-            HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsCatalog);
+            HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hive_db1", "hive_db1");
+            HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsCatalog, db);
             tbl.setNewFullSchema(schema);
             db.addTableForTest(tbl);
             hmsCatalog.addDatabaseForTest(db);
         } else if (catalog instanceof EsExternalCatalog) {
             EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
-            EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
-            EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_tbl1", esCatalog);
+            EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1", "es_db1");
+            EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_tbl1", esCatalog, db);
             tbl.setNewFullSchema(schema);
             db.addTableForTest(tbl);
             esCatalog.addDatabaseForTest(db);

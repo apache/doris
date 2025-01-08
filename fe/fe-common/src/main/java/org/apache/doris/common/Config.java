@@ -641,6 +641,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
     public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
 
+    @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
+            "Default timeout for ingestion load job, in seconds."})
+    public static int ingestion_load_default_timeout_second = 86400; // 1 day
+
     @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交间隔，单位是秒。",
             "Maximal intervals between two sync job's commits."})
     public static long sync_commit_interval_second = 10;
@@ -1257,6 +1261,12 @@ public class Config extends ConfigBase {
     public static int routine_load_task_timeout_multiplier = 10;
 
     /**
+     * routine load task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_min_timeout_sec = 60;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1429,9 +1439,33 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             masterOnly = false,
-            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 300，用来控制控制NereidsSqlCacheManager中sql cache过期时间，超过一段时间不访问cache会被回收",
+                    "The current default setting is 300, which is used to control the expiration time of SQL cache"
+                            + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed"
+            }
     )
     public static int expire_sql_cache_in_fe_second = 300;
+
+
+    /**
+     *  Expire sql sql in frontend time
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
+            description = {
+                "当前默认设置为 300，用来控制控制NereidsSortedPartitionsCacheManager中分区元数据缓存过期时间，"
+                    + "超过一段时间不访问cache会被回收",
+                "The current default setting is 300, which is used to control the expiration time of "
+                    + "the partition metadata cache in NereidsSortedPartitionsCheManager. "
+                    + "If the cache is not accessed for a period of time, it will be reclaimed"
+            }
+    )
+    public static int expire_cache_partition_meta_table_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -1630,7 +1664,7 @@ public class Config extends ConfigBase {
      * two clusters must be the same.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean restore_reset_index_id = true;
+    public static boolean restore_reset_index_id = false;
 
     /**
      * Control the max num of tablets per backup job involved.
@@ -2275,8 +2309,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(
             mutable = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
             description = {
                 "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
                 "Now default set to 100, this config is used to control the number of "
@@ -2284,6 +2317,19 @@ public class Config extends ConfigBase {
             }
     )
     public static int sql_cache_manage_num = 100;
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 100，用来控制控制NereidsSortedPartitionsCacheManager中有序分区元数据的缓存个数，"
+                            + "用于加速分区裁剪",
+                    "The current default setting is 100, which is used to control the number of ordered "
+                            + "partition metadata caches in NereidsSortedPartitionsCacheManager, "
+                            + "and to accelerate partition pruning"
+            }
+    )
+    public static int cache_partition_meta_table_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2917,7 +2963,7 @@ public class Config extends ConfigBase {
             "Whether to advance the ID generator after becoming Master to ensure that the id "
                     + "generator will not be rolled back even when metadata is rolled back."
     })
-    public static boolean enable_advance_next_id = false;
+    public static boolean enable_advance_next_id = true;
 
     // The count threshold to do manual GC when doing checkpoint but not enough memory.
     // Set zero to disable it.
@@ -2973,6 +3019,12 @@ public class Config extends ConfigBase {
     // ATTN: it only used in test environment.
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_checkpoint = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否开启 sync job 功能。默认关闭。该功能将在3.1版本中移除。",
+            "Whether to enable the sync job feature. It is disabled by default and will be removed in version 3.1."
+    })
+    public static boolean enable_feature_data_sync_job = false;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3190,11 +3242,11 @@ public class Config extends ConfigBase {
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)
-    public static long fetch_cluster_cache_hotspot_interval_ms = 600000;
+    public static long fetch_cluster_cache_hotspot_interval_ms = 3600000;
     // to control the max num of values inserted into cache hotspot internal table
     // insert into cache table when the size of batch values reaches this limit
     @ConfField(mutable = true)
-    public static long batch_insert_cluster_cache_hotspot_num = 1000;
+    public static long batch_insert_cluster_cache_hotspot_num = 5000;
 
     /**
      * intervals between be status checks for CloudUpgradeMgr
@@ -3316,4 +3368,8 @@ public class Config extends ConfigBase {
             "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
     public static String block_sql_ast_names = "";
+
+    public static long meta_service_rpc_reconnect_interval_ms = 5000;
+
+    public static long meta_service_rpc_retry_cnt = 10;
 }
