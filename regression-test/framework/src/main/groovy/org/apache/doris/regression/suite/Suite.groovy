@@ -742,10 +742,16 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    // Should use create_sync_mv, this method only check the sync mv in current db
+    // If has multi sync mv in db, may make mistake
+    @Deprecated
     void createMV(String sql) {
         (new CreateMVAction(context, sql)).run()
     }
 
+    // Should use create_sync_mv, this method only check the sync mv in current db
+    // If has multi sync mv in db, may make mistake
+    @Deprecated
     void createMV(String sql, String expection) {
         (new CreateMVAction(context, sql, expection)).run()
     }
@@ -1477,7 +1483,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinishedByMvName(String mvName) {
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${context.dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -1485,17 +1491,12 @@ class Suite implements GroovyInterceptable {
         List<String> toCheckTaskRow = new ArrayList<>();
         do {
             result = sql(showTasks)
-            logger.info("result: " + result.toString())
-            // just consider current db
-            for (List<String> taskRow : result) {
-                if (taskRow.get(6).equals(context.dbName)) {
-                    toCheckTaskRow = taskRow;
-                }
-            }
-            if (toCheckTaskRow.isEmpty()) {
+            logger.info("current db is " + context.dbName + "showTasks is " + showTasks)
+            if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
                 break;
             }
+            toCheckTaskRow = result.get(0);
             status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
@@ -1519,7 +1520,8 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${context.dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
+
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -1527,16 +1529,12 @@ class Suite implements GroovyInterceptable {
         List<String> toCheckTaskRow = new ArrayList<>();
         do {
             result = sql(showTasks)
-            // just consider current db
-            for (List<String> taskRow : result) {
-                if (taskRow.get(6).equals(context.dbName)) {
-                    toCheckTaskRow = taskRow;
-                }
-            }
-            if (toCheckTaskRow.isEmpty()) {
+            logger.info("current db is " + context.dbName + "showTasks result: " + result.toString())
+            if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
                 break;
             }
+            toCheckTaskRow = result.get(0)
             status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
@@ -1550,19 +1548,28 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${toCheckTaskRow.get(6)}.${mvName} with sync;"
     }
 
-    void waitingMVTaskFinishedByMvName(String dbName, String tableName) {
+    void waitingMVTaskFinishedByMvName(String dbName, String tableName, String indexName) {
         Thread.sleep(2000)
-        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime ASC"
+        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime DESC"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        List<String> toCheckTaskRow = new ArrayList<>();
         do {
             result = sql(showTasks)
-            logger.info("result: " + result.toString())
-            if (!result.isEmpty()) {
-                status = result.last().get(8)
+            logger.info("crrent db is " + dbName + "showTasks result: " + result.toString())
+            // just consider current db
+            for (List<String> taskRow : result) {
+                if (taskRow.get(5).equals(indexName)) {
+                    toCheckTaskRow = taskRow;
+                }
             }
+            if (toCheckTaskRow.isEmpty()) {
+                logger.info("waitingMVTaskFinishedByMvName toCheckTaskRow is empty")
+                break;
+            }
+            status = toCheckTaskRow.get(8)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
         } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
@@ -1940,6 +1947,15 @@ class Suite implements GroovyInterceptable {
         }
         logger.info("is_partition_statistics_ready " + db + " " + tables + " " + isReady)
         return isReady
+    }
+
+    def create_sync_mv = { db, table_name, mv_name, mv_sql ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON ${table_name};"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        AS ${mv_sql}
+        """
+        waitingMVTaskFinishedByMvName(db, table_name, mv_name)
     }
 
     def create_async_mv = { db, mv_name, mv_sql ->
