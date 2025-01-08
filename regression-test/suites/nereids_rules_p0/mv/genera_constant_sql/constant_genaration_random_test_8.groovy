@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Test the case where constants appear in an SQL statement for joining two subqueries.
+// eg: select t1.col1 from (select plac_1 as col1 from tb1 where plac_1 = plac_1) as t1 left join (select plac_1 as col2 from tb2) as t2 on t1.col1 = t2.col2 group by t1.col1
 suite ("constant_genaration_random_mtmv_8", "constant_genaration_random_mtmv") {
 
     String db = context.config.getDbNameByFile(context.file)
@@ -181,5 +183,5 @@ suite ("constant_genaration_random_mtmv_8", "constant_genaration_random_mtmv") {
             }
         }
     }
-    
+
 }

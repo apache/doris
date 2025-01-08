@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Test the case where a constant appears in the select list position of an SQL statement containing the GROUP BY operator.
+// eg: select plac_1 from tb group by plac_1
 suite ("constant_genaration_random_mtmv_3", "constant_genaration_random_mtmv") {
 
     String db = context.config.getDbNameByFile(context.file)

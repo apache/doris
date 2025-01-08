@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Test the case where a constant appears in the select list in basic SQL.
+// eg: select plac_1 from tb
 suite ("constant_genaration_random_mtmv_1", "constant_genaration_random_mtmv") {
 
     String db = context.config.getDbNameByFile(context.file)

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Test the case where a constant appears in the select list position of a subquery in an SQL statement that contains the GROUP BY operator and the FILTER operator.
+// eg: select col1 from (select plac_1 as col1 from tb where plac_1 >= 1) as t1
 suite ("constant_genaration_random_mtmv_5", "constant_genaration_random_mtmv") {
 
     String db = context.config.getDbNameByFile(context.file)

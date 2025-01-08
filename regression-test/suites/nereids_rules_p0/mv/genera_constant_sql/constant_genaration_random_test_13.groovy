@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Test the case where multiple different constants appear in an SQL statement with subqueries, JOIN operator, FILTER operator, and aggregation operator.
+// eg: select t1.col1 from (select plac_2 as col1 from tb2 where plac_2 = plac_2 group by col1) as t1 left join (select plac_1 as col2 from tb1) as t2 on t1.col1 = t2.col2 group by t1.col1
 suite ("constant_genaration_random_mtmv_13", "constant_genaration_random_mtmv") {
 
     String db = context.config.getDbNameByFile(context.file)
