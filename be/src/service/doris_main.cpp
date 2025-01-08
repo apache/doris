@@ -384,7 +384,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    bvar::FLAGS_bvar_max_dump_multi_dimension_metric_number = doris::config::bvar_max_dump_multi_dimension_metric_number;
+    bvar::FLAGS_bvar_max_dump_multi_dimension_metric_number =
+            doris::config::bvar_max_dump_multi_dimension_metric_number;
 
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
     google::ParseCommandLineFlags(&argc, &argv, true);
