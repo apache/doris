@@ -31,7 +31,8 @@ suite("test_show_create_materialized_view", "query,arrow_flight_sql") {
             PROPERTIES ("replication_num" = "1");
         """
 
-        create_sync_mv(context.dbName, tableName, mvName, """SELECT id, name, SUM(value) AS total_value
+        create_sync_mv(context.dbName, tableName, mvName, """
+            SELECT id, name, SUM(value) AS total_value
             FROM ${tableName}
             GROUP BY id, name""")
         
