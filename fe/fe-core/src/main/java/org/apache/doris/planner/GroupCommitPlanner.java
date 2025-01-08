@@ -35,9 +35,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.proto.InternalService;
@@ -66,7 +64,6 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ProtocolStringList;
 import org.apache.logging.log4j.LogManager;
@@ -78,7 +75,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -245,13 +241,9 @@ public class GroupCommitPlanner {
                 throw new DdlException("Column size: " + statementContext.getIdToPlaceholderRealExpr().size()
                         + " does not match with target column size: " + groupCommitPlanner.targetColumnSize);
             }
-            Map<PlaceholderId, Expr> valueExprs = Maps.newTreeMap();
-            for (Entry<PlaceholderId, Expression> entry : statementContext.getIdToPlaceholderRealExpr()
-                    .entrySet()) {
-                valueExprs.put(entry.getKey(), ((Literal) entry.getValue()).toLegacyLiteral());
-            }
-            List<InternalService.PDataRow> rows = getRows(groupCommitPlanner.targetColumnSize,
-                    valueExprs.values().stream().collect(Collectors.toList()));
+            List<Expr> valueExprs = statementContext.getIdToPlaceholderRealExpr().values().stream()
+                    .map(v -> ((Literal) v).toLegacyLiteral()).collect(Collectors.toList());
+            List<InternalService.PDataRow> rows = getRows(groupCommitPlanner.targetColumnSize, valueExprs);
             PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
             boolean needRetry = groupCommitPlanner.handleResponse(ctx, retry, reuse, response);
             if (needRetry) {
