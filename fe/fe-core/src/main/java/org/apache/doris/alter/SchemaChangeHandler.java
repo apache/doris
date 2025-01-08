@@ -627,8 +627,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered
-                    if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
-                            && modColumn.getDataType() == PrimitiveType.VARCHAR) {
+                    if (columnPos == null && ((col.getDataType() == PrimitiveType.VARCHAR
+                            && modColumn.getDataType() == PrimitiveType.VARCHAR)
+                            || col.getDataType().isComplexType())) {
                         col.checkSchemaChangeAllowed(modColumn);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }

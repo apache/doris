@@ -844,11 +844,6 @@ public class Column implements GsonPostProcessable {
             throw new DdlException("Dest column name is empty");
         }
 
-        // now nested type can only support change order
-        if (type.isComplexType() && !type.equals(other.type)) {
-            throw new DdlException("Can not change " + type + " to " + other);
-        }
-
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
@@ -885,12 +880,10 @@ public class Column implements GsonPostProcessable {
             }
         }
 
-        if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
-                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
-                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
-            if (getStrLen() > other.getStrLen()) {
-                throw new DdlException("Cannot shorten string length");
-            }
+        // Nested types only support changing the order and increasing the length of the nested char type
+        // Char-type only support length growing
+        if (!type.isSupportSchemaChangeForCharType(other.type)) {
+            throw new DdlException("Cannot shorten string length for type " + type.toSql() + " to " + other.toSql());
         }
 
         // now we support convert decimal to varchar type

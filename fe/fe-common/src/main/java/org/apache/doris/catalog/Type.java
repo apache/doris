@@ -511,6 +511,41 @@ public abstract class Type {
         return false;
     }
 
+    // This method defines the char type or complex type nested char type
+    // to support the schema-change behavior of length growth.
+    public boolean isSupportSchemaChangeForCharType(Type other) {
+        if ((this.getPrimitiveType() == PrimitiveType.VARCHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR) || (
+                this.getPrimitiveType() == PrimitiveType.CHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR) || (
+                this.getPrimitiveType() == PrimitiveType.CHAR && other.getPrimitiveType() == PrimitiveType.CHAR)) {
+            if (this.getLength() > other.getLength()) {
+                return false;
+            } else {
+                return true;
+            }
+        }
+        if (this.isStructType() && other.isStructType()) {
+            StructType thisStructType = (StructType) this;
+            StructType otherStructType = (StructType) other;
+            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
+                return false;
+            }
+            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                if (!thisStructType.getFields().get(i).getType().isSupportSchemaChangeForCharType(
+                        otherStructType.getFields().get(i).getType())) {
+                    return false;
+                }
+            }
+            return true;
+        } else if (this.isArrayType() && other.isArrayType()) {
+            return ((ArrayType) this).getItemType().isSupportSchemaChangeForCharType(((ArrayType) other).getItemType());
+        } else if (this.isMapType() && other.isMapType()) {
+            return ((MapType) this).getKeyType().isSupportSchemaChangeForCharType(((MapType) other).getKeyType())
+                    &&
+                    ((MapType) this).getValueType().isSupportSchemaChangeForCharType(((MapType) other).getValueType());
+        }
+        return false;
+    }
+
     public boolean isDecimalV3() {
         return isScalarType(PrimitiveType.DECIMAL32) || isScalarType(PrimitiveType.DECIMAL64)
                 || isScalarType(PrimitiveType.DECIMAL128) || isScalarType(PrimitiveType.DECIMAL256);
