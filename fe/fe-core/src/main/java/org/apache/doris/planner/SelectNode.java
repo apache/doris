@@ -22,8 +22,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -68,17 +66,6 @@ public class SelectNode extends PlanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        for (int i = 0; i < conjuncts.size(); ++i) {
-            Expr expr = conjuncts.get(i);
-            if (!expr.getType().isBoolean()) {
-                try {
-                    conjuncts.set(i, expr.castTo(Type.BOOLEAN));
-                } catch (AnalysisException e) {
-                    LOG.warn("{} is not boolean and can not be cast to boolean", expr.toSql(), e);
-                    throw new AnalysisException("conjuncts " + expr.toSql() + " is not boolean");
-                }
-            }
-        }
         analyzer.markConjunctsAssigned(conjuncts);
         computeStats(analyzer);
     }
