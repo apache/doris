@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.StatementContext;
@@ -85,7 +86,7 @@ import java.util.stream.Collectors;
 public class GroupCommitPlanner {
     private static final Logger LOG = LogManager.getLogger(GroupCommitPlanner.class);
     public static final String SCHEMA_CHANGE = " is blocked on schema change";
-    private static final int MAX_RETRY_FOR_SCHEMA_VERSION_MISMATCH = 3;
+    private static final int MAX_RETRY = 3;
 
     private Database db;
     private OlapTable table;
@@ -212,7 +213,7 @@ public class GroupCommitPlanner {
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         InsertIntoTableCommand command = (InsertIntoTableCommand) (prepareCommand.getLogicalPlan());
         OlapTable table = (OlapTable) command.getTable(ctx);
-        for (int retry = 0; retry < MAX_RETRY_FOR_SCHEMA_VERSION_MISMATCH; retry++) {
+        for (int retry = 0; retry < MAX_RETRY; retry++) {
             if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
                 String msg = "insert table " + table.getId() + SCHEMA_CHANGE;
                 LOG.info(msg);
@@ -245,35 +246,39 @@ public class GroupCommitPlanner {
                     .map(v -> ((Literal) v).toLegacyLiteral()).collect(Collectors.toList());
             List<InternalService.PDataRow> rows = getRows(groupCommitPlanner.targetColumnSize, valueExprs);
             PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
-            boolean needRetry = groupCommitPlanner.handleResponse(ctx, retry, reuse, response);
-            if (needRetry) {
-                preparedStmtCtx.groupCommitPlanner = Optional.empty();
+            Pair<Boolean, Boolean> needRetryAndReplan = groupCommitPlanner.handleResponse(ctx, retry + 1 < MAX_RETRY,
+                    reuse, response);
+            if (needRetryAndReplan.first) {
+                if (needRetryAndReplan.second) {
+                    preparedStmtCtx.groupCommitPlanner = Optional.empty();
+                }
             } else {
                 break;
             }
         }
     }
 
-    private boolean handleResponse(ConnectContext ctx, int retry, boolean reuse, PGroupCommitInsertResponse response)
-            throws DdlException {
+    // return <need_retry, need_replan>
+    private Pair<Boolean, Boolean> handleResponse(ConnectContext ctx, boolean canRetry, boolean reuse,
+            PGroupCommitInsertResponse response) throws DdlException {
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
         ProtocolStringList errorMsgsList = response.getStatus().getErrorMsgsList();
-        if (code == TStatusCode.DATA_QUALITY_ERROR && !errorMsgsList.isEmpty() && errorMsgsList.get(0)
-                .contains("schema version not match")) {
-            LOG.info("group commit insert failed. query: {}, db: {}, table: {}, schema version: {}, "
-                            + "backend: {}, status: {}, retry: {}",
-                    DebugUtil.printId(ctx.queryId()), db.getId(), table.getId(),
-                    baseSchemaVersion, backendId, response.getStatus(), retry);
-            if (retry < MAX_RETRY_FOR_SCHEMA_VERSION_MISMATCH) {
-                return true;
-            } else {
-                handleInsertFailed(ctx, response);
+        if (canRetry && code != TStatusCode.OK && !errorMsgsList.isEmpty()) {
+            if (errorMsgsList.get(0).contains("schema version not match")) {
+                LOG.info("group commit insert failed. query: {}, db: {}, table: {}, schema version: {}, "
+                                + "backend: {}, status: {}", DebugUtil.printId(ctx.queryId()), db.getId(),
+                        table.getId(), baseSchemaVersion, backendId, response.getStatus());
+                return Pair.of(true, true);
+            } else if (errorMsgsList.get(0).contains("can not get a block queue")) {
+                return Pair.of(true, false);
             }
-        } else if (code != TStatusCode.OK) {
-            handleInsertFailed(ctx, response);
         }
-        setReturnInfo(ctx, reuse, response);
-        return false;
+        if (code != TStatusCode.OK) {
+            handleInsertFailed(ctx, response);
+        } else {
+            setReturnInfo(ctx, reuse, response);
+        }
+        return Pair.of(false, false);
     }
 
     private void handleInsertFailed(ConnectContext ctx, PGroupCommitInsertResponse response) throws DdlException {
