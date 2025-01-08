@@ -17,6 +17,8 @@
 
 #include "join_probe_operator.h"
 
+#include <memory>
+
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/operator.h"
@@ -87,83 +89,10 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
         vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
-    auto& p = Base::_parent->template cast<typename Derived::Parent>();
-    if (!Base::_projections.empty()) {
-        // In previous versions, the join node had a separate set of project structures,
-        // and you could see a 'todo' in the Thrift definition.
-        //  Here, we have refactored it, but considering upgrade compatibility, we still need to retain the old code.
-        if (!output_block->mem_reuse()) {
-            output_block->swap(origin_block->clone_empty());
-        }
-        output_block->swap(*origin_block);
-        return Status::OK();
+    if (!output_block->mem_reuse()) {
+        output_block->swap(origin_block->clone_empty());
     }
-    SCOPED_TIMER(_build_output_block_timer);
-    auto is_mem_reuse = output_block->mem_reuse();
-    vectorized::MutableBlock mutable_block =
-            is_mem_reuse ? vectorized::MutableBlock(output_block)
-                         : vectorized::MutableBlock(
-                                   vectorized::VectorizedUtils::create_empty_columnswithtypename(
-                                           p.row_desc()));
-    auto rows = origin_block->rows();
-    // TODO: After FE plan support same nullable of output expr and origin block and mutable column
-    // we should replace `insert_column_datas` by `insert_range_from`
-
-    auto insert_column_datas = [keep_origin](auto& to, vectorized::ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
-            if (keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
-                null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-            } else {
-                to = make_nullable(from, false)->assume_mutable();
-            }
-        } else {
-            if (keep_origin || !from->is_exclusive()) {
-                to->insert_range_from(*from, 0, rows);
-            } else {
-                to = from->assume_mutable();
-            }
-        }
-    };
-    if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
-        if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots())
-                    << mutable_columns.size() << " " << p.row_desc().num_materialized_slots();
-            for (int i = 0; i < mutable_columns.size(); ++i) {
-                insert_column_datas(mutable_columns[i], origin_block->get_by_position(i).column,
-                                    rows);
-            }
-        } else {
-            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots())
-                    << mutable_columns.size() << " " << p.row_desc().num_materialized_slots();
-            SCOPED_TIMER(Base::_projection_timer);
-            for (int i = 0; i < mutable_columns.size(); ++i) {
-                auto result_column_id = -1;
-                RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
-                auto& origin_column = origin_block->get_by_position(result_column_id).column;
-
-                /// `convert_to_full_column_if_const` will create a pointer to the origin column if
-                /// the origin column is not ColumnConst/ColumnArray, this make the column be not
-                /// exclusive.
-                /// TODO: maybe need a method to check if a column need to be converted to full
-                /// column.
-                if (is_column_const(*origin_column) ||
-                    check_column<vectorized::ColumnArray>(origin_column.get())) {
-                    auto column_ptr = origin_column->convert_to_full_column_if_const();
-                    insert_column_datas(mutable_columns[i], column_ptr, rows);
-                } else {
-                    insert_column_datas(mutable_columns[i], origin_column, rows);
-                }
-            }
-        }
-
-        output_block->swap(mutable_block.to_block());
-
-        DCHECK(output_block->rows() == rows);
-    }
-
+    output_block->swap(*origin_block);
     return Status::OK();
 }
 
@@ -221,20 +150,22 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
           ) {
     Base::_is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.hash_join_node) {
-        _intermediate_row_desc.reset(new RowDescriptor(
+        _intermediate_row_desc = std::make_unique<RowDescriptor>(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,
-                std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())));
+                std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size()));
         if (!Base::_output_row_descriptor) {
-            _output_row_desc.reset(
-                    new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
+            _output_row_desc = std::make_unique<RowDescriptor>(
+                    descs, std::vector<TTupleId> {tnode.hash_join_node.voutput_tuple_id},
+                    std::vector<bool> {false});
         }
     } else if (tnode.__isset.nested_loop_join_node) {
-        _intermediate_row_desc.reset(new RowDescriptor(
+        _intermediate_row_desc = std::make_unique<RowDescriptor>(
                 descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
-                std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size())));
+                std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size()));
         if (!Base::_output_row_descriptor) {
-            _output_row_desc.reset(new RowDescriptor(
-                    descs, {tnode.nested_loop_join_node.voutput_tuple_id}, {false}));
+            _output_row_desc = std::make_unique<RowDescriptor>(
+                    descs, std::vector<TTupleId> {tnode.nested_loop_join_node.voutput_tuple_id},
+                    std::vector<bool> {false});
         }
     } else {
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
