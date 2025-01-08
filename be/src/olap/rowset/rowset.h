@@ -210,6 +210,8 @@ public:
                                  size_t new_rowset_start_seg_id = 0,
                                  std::set<int64_t>* without_index_uids = nullptr) = 0;
 
+    virtual Status get_inverted_index_size(size_t* index_size) = 0;
+
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
