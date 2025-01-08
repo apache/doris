@@ -320,15 +320,17 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
     for (int i = 0; i < array_types.size(); i++) {
         auto& type = array_types[i];
         auto& desc = array_descs[i];
+        auto array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         auto nested_type =
                 assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
 
         TypeDescriptor arr_type_descriptor = {PrimitiveType::TYPE_ARRAY};
         arr_type_descriptor.add_sub_type(desc[0].type_desc.children[0]);
         auto col_meta = std::make_shared<PColumnMeta>();
+        array_type->to_pb_column_meta(col_meta.get());
         Array a;
         a.push_back(nested_type->get_default());
-        col_meta->set_type(PGenericType_TypeId_LIST);
+
         DataTypeMetaInfo arr_meta_info_to_assert = {
                 .type_id = TypeIndex::Array,
                 .type_as_type_descriptor = &arr_type_descriptor,
@@ -344,6 +346,9 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
                 .is_null_literal = false,
                 .is_value_represented_by_number = false,
                 .pColumnMeta = col_meta.get(),
+                .is_value_unambiguously_represented_in_contiguous_memory_region =
+                        nested_type
+                                ->is_value_unambiguously_represented_in_contiguous_memory_region(),
                 .default_field = a,
         };
         DataTypePtr arr = remove_nullable(type);
@@ -482,6 +487,11 @@ TEST_F(DataTypeArrayTest, SerdeMysqlTest) {
     CommonDataTypeSerdeTest::assert_mysql_format(array_columns, serdes);
 }
 
+TEST_F(DataTypeArrayTest, SerializeDeserializeTest) {
+    // insert from data csv and assert insert result
+    CommonDataTypeTest::serialize_deserialize_assert(array_columns, array_types);
+}
+
 TEST_F(DataTypeArrayTest, SerdeArrowTest) {
     // todo. fix decimal256 serde
     MutableColumns array_cols;
@@ -524,13 +534,20 @@ TEST_F(DataTypeArrayTest, SerdeArrowTest) {
 
 //================== datatype for array ut test ==================
 TEST_F(DataTypeArrayTest, GetNumberOfDimensionsTest) {
-    for (int i = 0; i < array_types.size() - 5; i++) {
+    // for array-scalar
+    for (int i = 0; i < 18; i++) {
+        auto& type = array_types[i];
+        auto array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
+        // array dimension is only for array to nested array , if array nested map or struct, the dimension also be is 1
+        EXPECT_EQ(array_type->get_number_of_dimensions(), 1) << "for type: " << type->get_name();
+    }
+    // for array-array
+    for (int i = 18; i < 36; i++) {
         auto& type = array_types[i];
         auto desc = array_descs[i];
         auto array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         // array dimension is only for array to nested array , if array nested map or struct, the dimension also be is 1
-        EXPECT_EQ(array_type->get_number_of_dimensions(), desc.size())
-                << "for type: " << type->get_name() << " desc size: " << desc.size();
+        EXPECT_EQ(array_type->get_number_of_dimensions(), 2) << "for type: " << type->get_name();
     }
     for (int i = 36; i < 41; i++) {
         auto& type = array_types[i];
