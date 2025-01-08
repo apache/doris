@@ -614,7 +614,7 @@ start_minio() {
     fi
 }
 
-echo "starting dockers in parrallel"
+echo "starting dockers in parallel"
 
 declare -A pids
 
