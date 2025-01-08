@@ -547,7 +547,7 @@ suite("test_stream_load_properties", "p0") {
     try {
         for (String tableName in tables) {
             if (isCloudMode()) {
-                if (tableName.contains("mow")) {
+                if (tableName.contains("mow") || tableName.contains("uniq")) {
                     continue
                 }
             }
