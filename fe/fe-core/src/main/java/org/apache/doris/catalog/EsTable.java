@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.es.EsMetaStateTracker;
+import org.apache.doris.datasource.es.EsNodeInfo;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsTablePartitions;
 import org.apache.doris.datasource.es.EsUtil;
@@ -85,6 +86,7 @@ public class EsTable extends Table implements GsonPostProcessable {
     @SerializedName("pi")
     private PartitionInfo partitionInfo;
     private EsTablePartitions esTablePartitions;
+    private Set<EsNodeInfo> availableNodesInfo;
 
     // Whether to enable docvalues scan optimization for fetching fields more fast, default to true
     private boolean enableDocValueScan = Boolean.parseBoolean(EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE);
