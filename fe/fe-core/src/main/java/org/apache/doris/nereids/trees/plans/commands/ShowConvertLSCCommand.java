@@ -42,7 +42,6 @@ import java.util.Map;
  * Represents the command for SHOW CONVERT LIGHT SCHEMA CHANGE PROCESS .
  */
 public class ShowConvertLSCCommand extends ShowCommand {
-
     private static final int COLUMN_LENGTH = 30;
     private final String dbName;
 
