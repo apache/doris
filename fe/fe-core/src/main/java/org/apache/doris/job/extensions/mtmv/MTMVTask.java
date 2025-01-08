@@ -80,6 +80,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -203,7 +204,7 @@ public class MTMVTask extends AbstractTask {
                     MTMVPartitionUtil.alignMvPartition(mtmv);
                 }
                 context = MTMVRefreshContext.buildContext(mtmv);
-                this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
+                this.needRefreshPartitions = filterHistoryPartition(calculateNeedRefreshPartitions(context), context);
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);
             }
@@ -476,13 +477,22 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    private List<String> filterHistoryPartition(List<String> needRefreshPartitions, MTMVRefreshContext context) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return needRefreshPartitions;
+        }
+        return needRefreshPartitions.stream()
+                .filter(partitionName -> CollectionUtils.isNotEmpty(context.getPartitionMappings().get(partitionName)))
+                .collect(
+                        Collectors.toList());
+    }
+
     public List<String> calculateNeedRefreshPartitions(MTMVRefreshContext context)
             throws AnalysisException {
-
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
             if (taskContext.isComplete()) {
-                return getPartitionsWithoutHistory(context);
+                return Lists.newArrayList(mtmv.getPartitionNames());
             } else if (!CollectionUtils
                     .isEmpty(taskContext.getPartitions())) {
                 return taskContext.getPartitions();
@@ -490,7 +500,7 @@ public class MTMVTask extends AbstractTask {
         }
         // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
-            return getPartitionsWithoutHistory(context);
+            return Lists.newArrayList(mtmv.getPartitionNames());
         }
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
@@ -502,25 +512,11 @@ public class MTMVTask extends AbstractTask {
         }
         // current, if partitionType is SELF_MANAGE, we can only FULL refresh
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return getPartitionsWithoutHistory(context);
+            return Lists.newArrayList(mtmv.getPartitionNames());
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
         return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context, relation.getBaseTablesOneLevel());
-    }
-
-    private List<String> getPartitionsWithoutHistory(MTMVRefreshContext context) {
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Lists.newArrayList(mtmv.getPartitionNames());
-        }
-        List<String> res = Lists.newArrayList();
-        Map<String, Set<String>> partitionMappings = context.getPartitionMappings();
-        for (Entry<String, Set<String>> entry : partitionMappings.entrySet()) {
-            if (CollectionUtils.isNotEmpty(entry.getValue())) {
-                res.add(entry.getKey());
-            }
-        }
-        return res;
     }
 
     public MTMVTaskContext getTaskContext() {
