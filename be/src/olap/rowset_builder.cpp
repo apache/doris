@@ -221,8 +221,8 @@ Status RowsetBuilder::init() {
         };
     })
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -385,9 +385,9 @@ Status BaseRowsetBuilder::cancel() {
     return Status::OK();
 }
 
-void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
-                                                     const OlapTableSchemaParam* table_schema_param,
-                                                     const TabletSchema& ori_tablet_schema) {
+Status BaseRowsetBuilder::_build_current_tablet_schema(
+        int64_t index_id, const OlapTableSchemaParam* table_schema_param,
+        const TabletSchema& ori_tablet_schema) {
     // find the right index id
     int i = 0;
     auto indexes = table_schema_param->indexes();
@@ -427,12 +427,14 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(
-            *_tablet_schema, table_schema_param->is_partial_update(),
+    RETURN_IF_ERROR(_partial_update_info->init(
+            tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
+            table_schema_param->is_partial_update(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
-            table_schema_param->auto_increment_coulumn(), _max_version_in_flush_phase);
+            table_schema_param->auto_increment_coulumn(), _max_version_in_flush_phase));
+    return Status::OK();
 }
 
 } // namespace doris
