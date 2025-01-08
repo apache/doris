@@ -141,11 +141,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
-            DorisMetrics::instance()->scanner_task_queued->increment(-1);
-            DorisMetrics::instance()->scanner_task_running->increment(1);
-            Defer metrics_defer(
-                    [&] { DorisMetrics::instance()->scanner_task_running->increment(-1); });
-
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -171,11 +166,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         auto sumbit_task = [&]() {
             SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
             auto work_func = [scanner_ref = scan_task, ctx]() {
-                DorisMetrics::instance()->scanner_task_queued->increment(-1);
-                DorisMetrics::instance()->scanner_task_running->increment(1);
-                Defer metrics_defer(
-                        [&] { DorisMetrics::instance()->scanner_task_running->increment(-1); });
-
                 auto status = [&] {
                     RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                     return Status::OK();

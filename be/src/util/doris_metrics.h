@@ -237,9 +237,6 @@ public:
     IntCounter* scanner_ctx_cnt = nullptr;
     IntCounter* scanner_cnt = nullptr;
     IntCounter* scanner_task_cnt = nullptr;
-    IntCounter* scanner_task_queued = nullptr;
-    IntCounter* scanner_task_submit_failed = nullptr;
-    IntCounter* scanner_task_running = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
