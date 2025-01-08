@@ -359,7 +359,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         public DiscreteValue(ExpressionRewriteContext context,
                 Expression reference, Expression toExpr, Collection<Literal> values) {
             super(context, reference, toExpr);
-            this.values = Sets.newTreeSet(values);
+            this.values = Sets.newHashSet(values);
         }
 
         public Set<Literal> getValues() {

@@ -383,6 +383,18 @@ public abstract class Type {
     }
 
     /**
+    * Return true if this type can be as short key
+    */
+    public boolean couldBeShortKey() {
+        return !(isFloatingPointType()
+                        || getPrimitiveType() == PrimitiveType.STRING
+                        || isJsonbType()
+                        || isComplexType()
+                        || isObjectStored()
+                        || isVariantType());
+    }
+
+    /**
      * The output of this is stored directly in the hive metastore as the column type.
      * The string must match exactly.
      */

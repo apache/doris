@@ -73,8 +73,7 @@ public:
         return _shared_state->build_block;
     }
     bool empty_right_table_shortcut() const {
-        // !Base::_projections.empty() means nereids planner
-        return _shared_state->empty_right_table_need_probe_dispose && !Base::_projections.empty();
+        return _shared_state->empty_right_table_need_probe_dispose;
     }
     std::string debug_string(int indentation_level) const override;
 
@@ -92,7 +91,6 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
-
     // For mark join, last probe index of null mark
     int _last_probe_null_mark;
 
@@ -174,7 +172,6 @@ private:
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    bool _probe_ignore_null = false;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;

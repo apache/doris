@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,6 +17,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
+#include <rapidjson/document.h>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -33,6 +33,11 @@ namespace doris::cloud {
 
 std::map<std::string, std::function<void()>> suite_map;
 std::once_flag register_suites_once;
+
+// define a struct to store value only
+struct TypedValue {
+    std::variant<int64_t, bool, std::string> value;
+};
 
 inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
@@ -88,6 +93,108 @@ static void register_suites() {
     });
 }
 
+bool url_decode(const std::string& in, std::string* out) {
+    out->clear();
+    out->reserve(in.size());
+
+    for (size_t i = 0; i < in.size(); ++i) {
+        if (in[i] == '%') {
+            if (i + 3 <= in.size()) {
+                int value = 0;
+                std::istringstream is(in.substr(i + 1, 2));
+
+                if (is >> std::hex >> value) {
+                    (*out) += static_cast<char>(value);
+                    i += 2;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else if (in[i] == '+') {
+            (*out) += ' ';
+        } else {
+            (*out) += in[i];
+        }
+    }
+
+    return true;
+}
+
+HttpResponse set_value(const std::string& point, const brpc::URI& uri) {
+    std::string value_str(http_query(uri, "value"));
+    std::string decoded_value;
+    if (!url_decode(value_str, &decoded_value)) {
+        auto msg = fmt::format("failed to decode value: {}", value_str);
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+    rapidjson::Document doc;
+    if (doc.Parse(decoded_value.c_str()).HasParseError()) {
+        auto msg = fmt::format("invalid json value: {}", decoded_value);
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    if (!doc.IsArray()) {
+        auto msg = "value must be a json array";
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    // use vector to keep order
+    std::vector<TypedValue> parsed_values;
+
+    for (const auto& value : doc.GetArray()) {
+        TypedValue typed_value;
+        try {
+            if (value.IsBool()) {
+                typed_value.value = value.GetBool();
+            } else if (value.IsInt64()) {
+                typed_value.value = value.GetInt64();
+            } else if (value.IsString()) {
+                typed_value.value = value.GetString();
+            } else {
+                auto msg = "value must be boolean, integer or string";
+                LOG(WARNING) << msg;
+                return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+            }
+            parsed_values.push_back(std::move(typed_value));
+        } catch (const std::exception& e) {
+            auto msg = fmt::format("failed to parse value");
+            LOG(WARNING) << msg;
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+        }
+    }
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back(point, [point, parsed_values = std::move(parsed_values)](auto&& args) {
+        LOG(INFO) << "injection point hit, point=" << point;
+        for (size_t i = 0; i < parsed_values.size(); i++) {
+            const auto& typed_value = parsed_values[i];
+            std::visit(
+                    [&](const auto& v) {
+                        LOG(INFO) << "index=" << i << " value=" << v
+                                  << " type=" << typeid(v).name();
+                        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, int64_t>) {
+                            // process int64_t
+                            *try_any_cast<int64_t*>(args[i]) = v;
+                        } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>, bool>) {
+                            // process bool
+                            *try_any_cast<bool*>(args[i]) = v;
+                        } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>,
+                                                            std::string>) {
+                            // process string
+                            *try_any_cast<std::string*>(args[i]) = v;
+                        }
+                    },
+                    typed_value.value);
+        }
+    });
+    return http_json_reply(MetaServiceCode::OK, "OK");
+}
+
 HttpResponse set_sleep(const std::string& point, const brpc::URI& uri) {
     std::string duration_str(http_query(uri, "duration"));
     int64_t duration = 0;
@@ -136,6 +243,8 @@ HttpResponse handle_set(const brpc::URI& uri) {
         return set_sleep(point, uri);
     } else if (behavior == "return") {
         return set_return(point, uri);
+    } else if (behavior == "change_args") {
+        return set_value(point, uri);
     }
 
     return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "unknown behavior: " + behavior);
@@ -202,6 +311,15 @@ HttpResponse handle_disable(const brpc::URI& uri) {
 
 // curl "ms_ip:port/MetaService/http/v1/injection_point?token=greedisgood9999&op=set
 //     &name=${injection_point_name}&behavior=return" # return void
+
+// ATTN: change_args use uri encode, see example test_ms_api.groovy
+// use inject point in cpp file
+// bool testBool = false;
+// std::string testString = "world";
+// TEST_SYNC_POINT_CALLBACK("resource_manager::set_safe_drop_time", &exceed_time, &testBool, &testString);
+
+// curl http://175.40.101.1:5000/MetaService/http/v1/injection_point?token=greedisgood9999&o
+// p=set&name=resource_manager::set_safe_drop_time&behavior=change_args&value=%5B-1%2Ctrue%2C%22hello%22%5D
 // ```
 
 HttpResponse process_injection_point(MetaServiceImpl* service, brpc::Controller* ctrl) {

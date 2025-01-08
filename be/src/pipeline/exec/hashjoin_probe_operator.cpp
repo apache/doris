@@ -39,7 +39,6 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
-    _shared_state->probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
@@ -287,12 +286,12 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     if (local_state._probe_index < local_state._probe_block.rows()) {
         DCHECK(local_state._has_set_need_null_map_for_probe);
         std::visit(
-                [&](auto&& arg, auto&& process_hashtable_ctx, auto need_judge_null) {
+                [&](auto&& arg, auto&& process_hashtable_ctx) {
                     using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            st = process_hashtable_ctx.template process<need_judge_null>(
+                            st = process_hashtable_ctx.template process(
                                     arg,
                                     local_state._null_map_column
                                             ? &local_state._null_map_column->get_data()
@@ -308,9 +307,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     }
                 },
                 local_state._shared_state->hash_table_variants->method_variant,
-                *local_state._process_hashtable_ctx_variants,
-                vectorized::make_bool_variant(local_state._need_null_map_for_probe &&
-                                              local_state._shared_state->probe_ignore_null));
+                *local_state._process_hashtable_ctx_variants);
     } else if (local_state._probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
             std::visit(
@@ -493,29 +490,13 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
 Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
-    const bool probe_dispose_null =
-            _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::LEFT_SEMI_JOIN;
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
-    std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
-    size_t conjuncts_index = 0;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
         vectorized::VExprContextSPtr ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
-        bool null_aware = eq_join_conjunct.__isset.opcode &&
-                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL &&
-                          (eq_join_conjunct.right.nodes[0].is_nullable ||
-                           eq_join_conjunct.left.nodes[0].is_nullable);
-        probe_not_ignore_null[conjuncts_index] =
-                null_aware ||
-                (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
-        conjuncts_index++;
     }
-    for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
-        _probe_ignore_null |= !probe_not_ignore_null[i];
-    }
+
     if (tnode.hash_join_node.__isset.other_join_conjuncts &&
         !tnode.hash_join_node.other_join_conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(

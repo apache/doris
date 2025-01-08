@@ -61,21 +61,6 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE
 }
 
-// phases of an execution node
-enum TExecNodePhase {
-  PREPARE,
-  OPEN,
-  GETNEXT,
-  CLOSE,
-  INVALID
-}
-
-// what to do when hitting a debug point (TPaloQueryOptions.DEBUG_ACTION)
-enum TDebugAction {
-  WAIT,
-  FAIL
-}
-
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
@@ -537,6 +522,13 @@ struct TIcebergMetadataParams {
   4: optional string table
 }
 
+struct THudiMetadataParams {
+  1: optional Types.THudiQueryType hudi_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
+}
+
 struct TBackendsMetadataParams {
   1: optional string cluster_name
 }
@@ -597,6 +589,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
+  12: optional THudiMetadataParams hudi_params
 }
 
 // Specification of an individual data range which is held in its entirety

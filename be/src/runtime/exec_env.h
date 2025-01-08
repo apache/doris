@@ -244,14 +244,14 @@ public:
     }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
-    std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
+    NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
-    std::shared_ptr<StreamLoadExecutor> stream_load_executor() { return _stream_load_executor; }
+    StreamLoadExecutor* stream_load_executor() { return _stream_load_executor.get(); }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
@@ -273,12 +273,10 @@ public:
         _memtable_memory_limiter.reset(limiter);
     }
     void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
-    void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {
-        this->_new_load_stream_mgr = new_load_stream_mgr;
-    }
-    void set_stream_load_executor(std::shared_ptr<StreamLoadExecutor> stream_load_executor) {
-        this->_stream_load_executor = stream_load_executor;
-    }
+    void set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr);
+    void clear_new_load_stream_mgr();
+    void set_stream_load_executor(std::unique_ptr<StreamLoadExecutor>&& stream_load_executor);
+    void clear_stream_load_executor();
 
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_inverted_index_searcher_cache(
@@ -294,15 +292,17 @@ public:
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
     }
-    void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
-    void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
-        this->_dummy_lru_cache = dummy_lru_cache;
-    }
+    void set_wal_mgr(std::unique_ptr<WalManager>&& wm);
+    void clear_wal_mgr();
+
     void set_write_cooldown_meta_executors();
     static void set_tracking_memory(bool tracking_memory) {
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
     void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
+    void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+        _non_block_close_thread_pool = std::move(pool);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -331,7 +331,6 @@ public:
         return _inverted_index_query_cache;
     }
     QueryCache* get_query_cache() { return _query_cache; }
-    std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
@@ -429,13 +428,12 @@ private:
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
-    // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
-    std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
+    std::unique_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PBackendService_Stub>* _streaming_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
-    std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
+    std::unique_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
@@ -446,7 +444,7 @@ private:
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
     std::unique_ptr<LoadStreamMapPool> _load_stream_map_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
-    std::shared_ptr<WalManager> _wal_manager;
+    std::unique_ptr<WalManager> _wal_manager;
     DNSCache* _dns_cache = nullptr;
     std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
 
@@ -473,7 +471,6 @@ private:
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     QueryCache* _query_cache = nullptr;
-    std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;

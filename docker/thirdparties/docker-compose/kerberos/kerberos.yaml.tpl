@@ -26,6 +26,7 @@ services:
       - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
       - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
       - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
+    restart: on-failure
     hostname: hadoop-master
     entrypoint: /usr/local/entrypoint-hive-master.sh
     healthcheck:
@@ -45,6 +46,7 @@ services:
     image: doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized-2_96
     container_name: doris--kerberos2
     hostname: hadoop-master-2
+    restart: on-failure
     volumes:
       - ./two-kerberos-hives:/keytabs
       - ./sql:/usr/local/sql
