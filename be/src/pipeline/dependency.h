@@ -687,7 +687,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetHashTableVariants> hash_table_variants =
+            std::make_unique<SetHashTableVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.
