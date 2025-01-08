@@ -713,7 +713,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     RETURN_IF_ERROR(_add_input_block(state, input_block));
     {
         SCOPED_TIMER(local_state._evaluation_timer);
-        RETURN_IF_ERROR((local_state.*(local_state._executor.get_next_impl))());
+        RETURN_IF_ERROR(local_state._execute_impl());
     }
 
     if (local_state._input_eos) {
