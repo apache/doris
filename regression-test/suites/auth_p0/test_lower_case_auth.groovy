@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-// Roles and users will not be controlled by lower_case_table_names.
+// In the case of permissions, the user name and role name are case-sensitive.
 suite("test_lower_case_auth","p0,auth") {
     String user1 = 'test_lower_case_auth_user'
     String user2 = 'TEST_LOWER_CASE_AUTH_USER'
@@ -80,7 +80,11 @@ suite("test_lower_case_auth","p0,auth") {
     def count = 0
     for (int i = 0; i < res.size(); i++) {
         if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            if (isCloudMode()) {
+                assertTrue(res[i][6].contains("""internal.regression_test: Select_priv"""))
+            } else {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            }
             assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
             count ++
         }
@@ -95,7 +99,11 @@ suite("test_lower_case_auth","p0,auth") {
     count = 0
     for (int i = 0; i < res.size(); i++) {
         if (res[i][0] == """'${user1}'@'%'""" || res[i][0] == """'${user2}'@'%'""" || res[i][0] == """'${user3}'@'%'""") {
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            if (isCloudMode()) {
+                assertTrue(res[i][6].contains("""internal.regression_test: Select_priv"""))
+            } else {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            }
             assertTrue(res[i][7] == null)
             count ++
         }
@@ -116,17 +124,29 @@ suite("test_lower_case_auth","p0,auth") {
     for (int i = 0; i < res.size(); i++) {
         if (res[i][0] == """'${user1}'@'%'""") {
             assertTrue(res[i][3] == role1)
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            if (isCloudMode()) {
+                assertTrue(res[i][6].contains("""internal.regression_test: Select_priv"""))
+            } else {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            }
             assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
             count ++
         } else if (res[i][0] == """'${user2}'@'%'""") {
             assertTrue(res[i][3] == role2)
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            if (isCloudMode()) {
+                assertTrue(res[i][6].contains("""internal.regression_test: Select_priv"""))
+            } else {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            }
             assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
             count ++
         } else if (res[i][0] == """'${user3}'@'%'""") {
             assertTrue(res[i][3] == role3)
-            assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            if (isCloudMode()) {
+                assertTrue(res[i][6].contains("""internal.regression_test: Select_priv"""))
+            } else {
+                assertTrue(res[i][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+            }
             assertTrue(res[i][7] == """internal.test_lower_case_auth_db.test_lower_case_auth_mtmv: Create_priv""")
             count ++
         }

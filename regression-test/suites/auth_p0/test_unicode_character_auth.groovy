@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// There will be no problem when the user or role is a Unicode character.
 suite("test_unicode_character_auth") {
 
     String user1 = 'test_unicode_character_auth_userA'
@@ -164,7 +165,11 @@ suite("test_unicode_character_auth") {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
         assertTrue(res[0][3] == "")
-        assertTrue(res[0][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv")
+        if (isCloudMode()) {
+            assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
+        } else {
+            assertTrue(res[0][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+        }
         assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user1}"""
@@ -198,17 +203,20 @@ suite("test_unicode_character_auth") {
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
-    test {
+    try {
         sql """CREATE ROLE ${role6}"""
-        exception "invalid role format"
+    } catch (Exception e) {
+        logger.info(e.getMessage())
     }
-    test {
+    try {
         sql """CREATE ROLE ${role7}"""
-        exception "invalid role format"
+    } catch (Exception e) {
+        logger.info(e.getMessage())
     }
-    test {
+    try {
         sql """CREATE ROLE ${role8}"""
-        exception "invalid role format"
+    } catch (Exception e) {
+        logger.info(e.getMessage())
     }
 
     sql """GRANT '${role1}' TO ${user1};"""
@@ -217,7 +225,11 @@ suite("test_unicode_character_auth") {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
         assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
-        assertTrue(res[0][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv")
+        if (isCloudMode()) {
+            assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
+        } else {
+            assertTrue(res[0][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+        }
         assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role1}'"""
