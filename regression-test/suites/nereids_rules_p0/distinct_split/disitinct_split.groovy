@@ -213,7 +213,8 @@ suite("distinct_split") {
     }
 
     //----------------test null hash join ------------------------
-    sql "truncate table test_distinct_multi;"
-    sql "insert into test_distinct_multi values(1,null,null,null,'2024-12-08');"
-    qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi where e = '2024-12-08' GROUP BY a, b;"
+    sql "drop table if exists test_distinct_multi_null_hash;"
+    sql "create table test_distinct_multi_null_hash(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
+    sql "insert into test_distinct_multi_null_hash values(1,null,null,null,'2024-12-08');"
+    qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi_null_hash where e = '2024-12-08' GROUP BY a, b;"
 }
