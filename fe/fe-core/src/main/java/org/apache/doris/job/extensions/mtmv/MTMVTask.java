@@ -482,7 +482,7 @@ public class MTMVTask extends AbstractTask {
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
             if (taskContext.isComplete()) {
-                return getHasRelatedPartitions(context);
+                return getPartitionsWithoutHistory(context);
             } else if (!CollectionUtils
                     .isEmpty(taskContext.getPartitions())) {
                 return taskContext.getPartitions();
@@ -490,7 +490,7 @@ public class MTMVTask extends AbstractTask {
         }
         // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
-            return getHasRelatedPartitions(context);
+            return getPartitionsWithoutHistory(context);
         }
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
@@ -502,14 +502,17 @@ public class MTMVTask extends AbstractTask {
         }
         // current, if partitionType is SELF_MANAGE, we can only FULL refresh
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Lists.newArrayList(mtmv.getPartitionNames());
+            return getPartitionsWithoutHistory(context);
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
         return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context, relation.getBaseTablesOneLevel());
     }
 
-    private List<String> getHasRelatedPartitions(MTMVRefreshContext context) {
+    private List<String> getPartitionsWithoutHistory(MTMVRefreshContext context) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Lists.newArrayList(mtmv.getPartitionNames());
+        }
         List<String> res = Lists.newArrayList();
         Map<String, Set<String>> partitionMappings = context.getPartitionMappings();
         for (Entry<String, Set<String>> entry : partitionMappings.entrySet()) {
