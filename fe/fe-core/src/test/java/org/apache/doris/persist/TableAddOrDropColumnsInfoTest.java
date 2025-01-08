@@ -64,7 +64,7 @@ public class TableAddOrDropColumnsInfoTest {
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         indexSchemaMap.put(tableId, fullSchema);
 
-        Map<Long, LinkedList<Column>> oldIndexSchemaMap = new HashMap<>();
+        Map<Long, List<Column>> oldIndexSchemaMap = new HashMap<>();
         oldIndexSchemaMap.put(tableId, fullSchema);
 
         List<Index> indexes = Lists.newArrayList(
