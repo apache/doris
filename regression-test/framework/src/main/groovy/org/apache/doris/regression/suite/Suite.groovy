@@ -1482,12 +1482,21 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        List<String> toCheckTaskRow = new ArrayList<>();
         do {
             result = sql(showTasks)
             logger.info("result: " + result.toString())
-            if (!result.isEmpty()) {
-                status = result.last().get(4)
+            // just consider current db
+            for (List<String> taskRow : result) {
+                if (taskRow.get(6).equals(context.dbName)) {
+                    toCheckTaskRow = taskRow;
+                }
             }
+            if (toCheckTaskRow.isEmpty()) {
+                logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
+                break;
+            }
+            status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL'))
@@ -1496,16 +1505,16 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals("SUCCESS", status)
         def show_tables = sql """
-        show tables from ${result.last().get(6)};
+        show tables from ${toCheckTaskRow.get(6)};
         """
-        def db_id = getDbId(result.last().get(6))
-        def table_id = getTableId(result.last().get(6), mvName)
+        def db_id = getDbId(toCheckTaskRow.get(6))
+        def table_id = getTableId(toCheckTaskRow.get(6), mvName)
         logger.info("waitingMTMVTaskFinished analyze mv name is " + mvName
-                + ", db name is " + result.last().get(6)
+                + ", db name is " + toCheckTaskRow.get(6)
                 + ", show_tables are " + show_tables
                 + ", db_id is " + db_id
                 + ", table_id " + table_id)
-        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
+        sql "analyze table ${toCheckTaskRow.get(6)}.${mvName} with sync;"
     }
 
     void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
@@ -1515,12 +1524,20 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        List<String> toCheckTaskRow = new ArrayList<>();
         do {
             result = sql(showTasks)
-            logger.info("result: " + result.toString())
-            if (!result.isEmpty()) {
-                status = result.last().get(4)
+            // just consider current db
+            for (List<String> taskRow : result) {
+                if (taskRow.get(6).equals(context.dbName)) {
+                    toCheckTaskRow = taskRow;
+                }
             }
+            if (toCheckTaskRow.isEmpty()) {
+                logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
+                break;
+            }
+            status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
         } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
@@ -1529,8 +1546,8 @@ class Suite implements GroovyInterceptable {
             assertTrue(result.toString().contains("same table"))
         }
         // Need to analyze materialized view for cbo to choose the materialized view accurately
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
-        sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + toCheckTaskRow.get(5))
+        sql "analyze table ${toCheckTaskRow.get(6)}.${mvName} with sync;"
     }
 
     void waitingMVTaskFinishedByMvName(String dbName, String tableName) {
