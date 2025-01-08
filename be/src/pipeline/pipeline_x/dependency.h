@@ -613,7 +613,7 @@ public:
 
     /// init in setup_local_state
     std::unique_ptr<vectorized::SetHashTableVariants> hash_table_variants =
-            nullptr; // the real data HERE.
+            std::make_unique<vectorized::SetHashTableVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.
