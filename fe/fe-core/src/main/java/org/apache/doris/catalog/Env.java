@@ -139,6 +139,7 @@ import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.es.EsNodeDiscovery;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -4799,6 +4800,10 @@ public class Env {
 
     public EsRepository getEsRepository() {
         return getInternalCatalog().getEsRepository();
+    }
+
+    public EsNodeDiscovery getEsNodeDiscovery() {
+        return getInternalCatalog().getEsNodeDiscovery();
     }
 
     public PolicyMgr getPolicyMgr() {

@@ -141,6 +141,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.es.EsNodeDiscovery;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -229,6 +230,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     // Add transient to fix gson issue.
     @Getter
     private transient EsRepository esRepository = new EsRepository();
+    @Getter
+    private transient EsNodeDiscovery esNodeDiscovery = new EsNodeDiscovery();
 
     public InternalCatalog() {
         // create internal databases
