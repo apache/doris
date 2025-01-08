@@ -69,12 +69,6 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
     // Test partition refresh.
     // Use hms catalog to avoid rest catalog fail to write caused by sqlite database file locked.
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String hivePrefix = "hive2";
-        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-        String default_fs = "hdfs://${externalEnvIp}:${hdfs_port}"
-        String warehouse = "${default_fs}/warehouse"
-
         String catalog_name = "iceberg_mtmv_catalog_hms";
         String mvUnpartition = "test_iceberg_unpartition"
         String mvName1 = "test_iceberg_mtmv_ts"
@@ -83,14 +77,16 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         String icebergDb = "iceberg_mtmv_partition"
         String icebergTable1 = "tstable"
         String icebergTable2 = "dtable"
+        String icebergTable3 = "union_test"
         sql """drop catalog if exists ${catalog_name} """
-        sql """create catalog if not exists ${catalog_name} properties (
+        sql """CREATE CATALOG ${catalog_name} PROPERTIES (
             'type'='iceberg',
-            'iceberg.catalog.type'='hms',
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            'fs.defaultFS' = '${default_fs}',
-            'warehouse' = '${warehouse}',
-            'use_meta_cache' = 'true'
+            'iceberg.catalog.type'='rest',
+            'uri' = 'http://${externalEnvIp}:${rest_port}',
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+            "s3.region" = "us-east-1"
         );"""
 
         sql """switch internal"""
@@ -209,6 +205,109 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
 
         sql """drop materialized view if exists ${mvName2};"""
         sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable2}"""
+
+        // Test rewrite and union partitions
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        String mvSql = "SELECT par,count(*) as num FROM ${catalog_name}.${icebergDb}.${icebergTable3} group by par"
+        String mvName = "union_mv"
+        sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable3}"""
+        sql """
+            CREATE TABLE ${catalog_name}.${icebergDb}.${icebergTable3} (
+              id int,
+              value int,
+              par datetime
+            ) ENGINE=iceberg
+            PARTITION BY LIST (day(par)) ();
+        """
+        sql """insert into ${catalog_name}.${icebergDb}.${icebergTable3} values (1, 1, "2024-01-01"), (2, 1, "2024-01-01"), (3, 1, "2024-01-01"), (4, 1, "2024-01-01")"""
+        sql """insert into ${catalog_name}.${icebergDb}.${icebergTable3} values (1, 2, "2024-01-02"), (2, 2, "2024-01-02"), (3, 2, "2024-01-02")"""
+        sql """analyze table ${catalog_name}.${icebergDb}.${icebergTable3} with sync"""
+
+        sql """drop materialized view if exists ${mvName};"""
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by(`par`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS ${mvSql}
+        """
+
+        def showPartitions = sql """show partitions from ${mvName}"""
+        logger.info("showPartitions: " + showPartitions.toString())
+        assertTrue(showPartitions.toString().contains("p_20240101000000_20240102000000"))
+        assertTrue(showPartitions.toString().contains("p_20240102000000_20240103000000"))
+
+        // refresh one partiton
+        sql """REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20240101000000_20240102000000);"""
+        waitingMTMVTaskFinishedByMvName(mvName)
+        order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
+        def explainOnePartition = sql """ explain  ${mvSql} """
+        logger.info("explainOnePartition: " + explainOnePartition.toString())
+        assertTrue(explainOnePartition.toString().contains("VUNION"))
+        order_qt_refresh_one_partition_rewrite "${mvSql}"
+        mv_rewrite_success("${mvSql}", "${mvName}")
+
+        //refresh auto
+        sql """REFRESH MATERIALIZED VIEW ${mvName} auto"""
+        waitingMTMVTaskFinishedByMvName(mvName)
+        order_qt_refresh_auto "SELECT * FROM ${mvName} "
+        def explainAllPartition = sql """ explain  ${mvSql}; """
+        logger.info("explainAllPartition: " + explainAllPartition.toString())
+        assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
+        order_qt_refresh_all_partition_rewrite "${mvSql}"
+        mv_rewrite_success("${mvSql}", "${mvName}")
+
+        sql """drop materialized view if exists ${mvName};"""
+        sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable3}"""
+
+        sql """use ${catalog_name}.test_db"""
+        qt_evolution2 "show partitions from replace_partition2"
+        qt_evolution3 "show partitions from replace_partition3"
+        qt_evolution4 "show partitions from replace_partition4"
+        qt_evolution5 "show partitions from replace_partition5"
+
+        test {
+            sql "show partitions from replace_partition1"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
+
+        test {
+            sql "show partitions from no_partition"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
+
+        test {
+            sql "show partitions from not_support_trans"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
+
+        test {
+            sql "show partitions from drop_partition1"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
+
+        test {
+            sql "show partitions from drop_partition2"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
+
+        test {
+            sql "show partitions from add_partition1"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
+
+        test {
+            sql "show partitions from add_partition2"
+            // check exception message contains
+            exception "is not a supported partition table"
+        }
 
         sql """ drop catalog if exists ${catalog_name} """
     }

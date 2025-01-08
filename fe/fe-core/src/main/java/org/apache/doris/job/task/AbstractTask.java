@@ -129,16 +129,16 @@ public abstract class AbstractTask implements Task {
     /**
      * Cancels the ongoing task, updating its status to {@link TaskStatus#CANCELED} and releasing associated resources.
      * This method encapsulates the core cancellation logic, calling the abstract method
-     * {@link #executeCancelLogic()} for task-specific actions.
+     * {@link #executeCancelLogic(boolean)} for task-specific actions.
      *
      * @throws JobException If an error occurs during the cancellation process, a new JobException is thrown wrapping
      *                      the original exception.
      */
     @Override
-    public void cancel() throws JobException {
+    public void cancel(boolean needWaitCancelComplete) throws JobException {
         try {
             status = TaskStatus.CANCELED;
-            executeCancelLogic();
+            executeCancelLogic(needWaitCancelComplete);
         } catch (Exception e) {
             log.warn("cancel task failed, job id is {}, task id is {}", jobId, taskId, e);
             throw new JobException(e);
@@ -153,7 +153,7 @@ public abstract class AbstractTask implements Task {
      *
      * @throws Exception Any exception that might occur during the cancellation process in the subclass.
      */
-    protected abstract void executeCancelLogic() throws Exception;
+    protected abstract void executeCancelLogic(boolean needWaitCancelComplete) throws Exception;
 
     @Override
     public void before() throws JobException {

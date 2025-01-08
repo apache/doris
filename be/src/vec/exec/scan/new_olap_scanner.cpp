@@ -524,14 +524,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    // olap scan node will call scanner.close() when finished
-    // will release resources here
-    // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but
-    // deconstructor in reader references runtime state
-    // so that it will core
-    _tablet_reader_params.rs_splits.clear();
-    _tablet_reader.reset();
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
@@ -648,6 +640,47 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+
+    COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,
+                   stats.tablet_reader_capture_rs_readers_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_return_columns_timer,
+                   stats.tablet_reader_init_return_columns_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_keys_param_timer,
+                   stats.tablet_reader_init_keys_param_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_orderby_keys_param_timer,
+                   stats.tablet_reader_init_orderby_keys_param_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_conditions_param_timer,
+                   stats.tablet_reader_init_conditions_param_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_delete_condition_param_timer,
+                   stats.tablet_reader_init_delete_condition_param_timer_ns);
+    COUNTER_UPDATE(local_state->_block_reader_vcollect_iter_init_timer,
+                   stats.block_reader_vcollect_iter_init_timer_ns);
+    COUNTER_UPDATE(local_state->_block_reader_rs_readers_init_timer,
+                   stats.block_reader_rs_readers_init_timer_ns);
+    COUNTER_UPDATE(local_state->_block_reader_build_heap_init_timer,
+                   stats.block_reader_build_heap_init_timer_ns);
+
+    COUNTER_UPDATE(local_state->_rowset_reader_get_segment_iterators_timer,
+                   stats.rowset_reader_get_segment_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_create_iterators_timer,
+                   stats.rowset_reader_create_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_init_iterators_timer,
+                   stats.rowset_reader_init_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_load_segments_timer,
+                   stats.rowset_reader_load_segments_timer_ns);
+
+    COUNTER_UPDATE(local_state->_segment_iterator_init_timer, stats.segment_iterator_init_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_return_column_iterators_timer,
+                   stats.segment_iterator_init_return_column_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_bitmap_index_iterators_timer,
+                   stats.segment_iterator_init_bitmap_index_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_inverted_index_iterators_timer,
+                   stats.segment_iterator_init_inverted_index_iterators_timer_ns);
+
+    COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
+                   stats.segment_create_column_readers_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_load_index_timer, stats.segment_load_index_timer_ns);
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(

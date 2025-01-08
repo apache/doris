@@ -329,6 +329,15 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             this.orderkeys = ImmutableList.copyOf(orderkeys);
             this.limit = limit;
         }
+
+        @Override
+        public String toString() {
+            StringBuilder builder = new StringBuilder("[");
+            builder.append("orderkeys=").append(orderkeys);
+            builder.append(", limit=").append(limit);
+            builder.append("]");
+            return builder.toString();
+        }
     }
 
     public TopnPushInfo getTopnPushInfo() {

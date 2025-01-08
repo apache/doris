@@ -76,9 +76,6 @@ Status FullCompaction::execute_compact() {
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
 
-    tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
-                                                                      _output_rowset);
-
     Version last_version = _input_rowsets.back()->version();
     tablet()->cumulative_compaction_policy()->update_cumulative_point(tablet(), _input_rowsets,
                                                                       _output_rowset, last_version);

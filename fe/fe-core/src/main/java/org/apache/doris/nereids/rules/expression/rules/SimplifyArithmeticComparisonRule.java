@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -82,6 +83,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class)
                         .thenApply(ctx -> simplify(ctx.expr, new ExpressionRewriteContext(ctx.cascadesContext)))
+                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC_COMPARISON)
         );
     }
 

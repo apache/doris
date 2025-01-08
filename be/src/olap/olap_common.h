@@ -74,7 +74,7 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
-    std::string bvar_name;
+    std::string metric_name;
 };
 struct PredicateFilterInfo {
     int type = 0;
@@ -389,6 +389,30 @@ struct OlapReaderStatistics {
     int64_t collect_iterator_merge_next_timer = 0;
     int64_t collect_iterator_normal_next_timer = 0;
     int64_t delete_bitmap_get_agg_ns = 0;
+
+    int64_t tablet_reader_init_timer_ns = 0;
+    int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
+    int64_t tablet_reader_init_return_columns_timer_ns = 0;
+    int64_t tablet_reader_init_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_conditions_param_timer_ns = 0;
+    int64_t tablet_reader_init_delete_condition_param_timer_ns = 0;
+    int64_t block_reader_vcollect_iter_init_timer_ns = 0;
+    int64_t block_reader_rs_readers_init_timer_ns = 0;
+    int64_t block_reader_build_heap_init_timer_ns = 0;
+
+    int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
+    int64_t rowset_reader_create_iterators_timer_ns = 0;
+    int64_t rowset_reader_init_iterators_timer_ns = 0;
+    int64_t rowset_reader_load_segments_timer_ns = 0;
+
+    int64_t segment_iterator_init_timer_ns = 0;
+    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
+
+    int64_t segment_create_column_readers_timer_ns = 0;
+    int64_t segment_load_index_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;
@@ -396,8 +420,6 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
-struct RowsetId;
-RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -418,7 +440,7 @@ struct RowsetId {
             if (ec != std::errc {}) [[unlikely]] {
                 if (config::force_regenerate_rowsetid_on_start_error) {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                    high = next_rowset_id().hi;
+                    high = MAX_ROWSET_ID - 1;
                 } else {
                     throw Exception(
                             Status::FatalError("failed to init rowset id: {}", rowset_id_str));

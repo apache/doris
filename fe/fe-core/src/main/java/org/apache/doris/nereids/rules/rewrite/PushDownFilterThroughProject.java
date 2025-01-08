@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeStrToInteger;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeString;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -149,7 +149,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     }
 
     private static Expression eliminateDecodeAndEncode(Expression expression) {
-        if (expression instanceof DecodeAsVarchar && expression.child(0) instanceof EncodeStrToInteger) {
+        if (expression instanceof DecodeAsVarchar && expression.child(0) instanceof EncodeString) {
             return expression.child(0).child(0);
         }
         boolean hasNewChild = false;

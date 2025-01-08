@@ -123,7 +123,7 @@ class ExplainAction implements SuiteAction {
             for (Map.Entry entry : multiContainsStrings) {
                 int count = explainString.count(entry.key);
                 if (count != entry.value) {
-                    String msg = ("Explain and check failed, expect multiContains '${string}' , '${entry.value}' times, actural '${count}' times."
+                    String msg = ("Explain and check failed, expect multiContains '${entry.key}' , '${entry.value}' times, actural '${count}' times."
                             + "Actual explain string is:\n${explainString}").toString()
                     def t = new IllegalStateException(msg)
                     throw t

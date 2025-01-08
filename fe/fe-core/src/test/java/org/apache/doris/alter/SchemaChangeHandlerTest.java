@@ -556,4 +556,40 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
     }
+
+    @Test
+    public void testAddDuplicateInvertedIndexException() throws Exception {
+
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+
+        String addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
+                + "add index idx_error_msg1(error_msg)";
+        AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        try {
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        } catch (Exception e) {
+            // Verify the error message contains relevant info
+            Assertions.assertTrue(e.getMessage().contains("INVERTED index for columns (error_msg) already exist"));
+        }
+        addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
+                + "add index idx_error_msg(error_msg)";
+        addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        try {
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        } catch (Exception e) {
+            // Verify the error message contains relevant info
+            Assertions.assertTrue(e.getMessage().contains("index `idx_error_msg` already exist."));
+        }
+    }
 }
