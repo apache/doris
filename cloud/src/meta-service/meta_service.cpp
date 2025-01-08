@@ -1067,6 +1067,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                                     CreateRowsetResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_rowset);
+    TEST_INJECTION_POINT_CALLBACK("MetaServiceImpl::commit_rowset", request);
     if (!request->has_rowset_meta()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "no rowset meta";
@@ -1166,6 +1167,16 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     }
 
     auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
+    std::string recycle_rs_val;
+    err = txn->get(recycle_rs_key, &recycle_rs_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << "failed to get recycle_rowset_key when commit rowset instance_id=" << instance_id
+           << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+        code = cast_as<ErrCategory::READ>(err);
+        msg = ss.str();
+        return;
+    }
     txn->remove(recycle_rs_key);
 
     DCHECK_GT(rowset_meta.txn_expiration(), 0);

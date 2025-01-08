@@ -91,6 +91,26 @@ static void register_suites() {
             }
         });
     });
+
+    suite_map.emplace("sleep_before_execute_commit_rowset", [] {
+        int duration_ms = 15000;
+        std::shared_ptr<std::atomic_long> hit(new std::atomic_long(0));
+        LOG(INFO) << "register injection point sleep_before_execute_commit_rowset sleep for "
+                  << duration_ms << " ms";
+        auto sp = SyncPoint::get_instance();
+
+        sp->set_call_back("MetaServiceImpl::commit_rowset", [duration_ms, hit](auto&& args) {
+            if (hit->fetch_add(1) == 0) {
+                const CreateRowsetRequest* req = try_any_cast<const CreateRowsetRequest*>(args[0]);
+                LOG(INFO) << "hit injection point sleep_before_execute_commit_rowset sleep for "
+                          << duration_ms << " ms, request=" << req->ShortDebugString();
+                std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
+                return;
+            }
+            LOG(WARNING) << "injection point sleep_before_execute_commit_rowset without sleep, hit="
+                         << hit->load();
+        });
+    });
 }
 
 bool url_decode(const std::string& in, std::string* out) {
