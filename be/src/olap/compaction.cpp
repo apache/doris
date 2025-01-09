@@ -315,9 +315,25 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
 
 void CompactionMixin::build_basic_info() {
     for (auto& rowset : _input_rowsets) {
-        _input_rowsets_data_size += rowset->data_disk_size();
-        _input_rowsets_index_size += rowset->index_disk_size();
-        _input_rowsets_total_size += rowset->total_disk_size();
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto index_size = rowset_meta->index_disk_size();
+        auto total_size = rowset_meta->total_disk_size();
+        auto data_size = rowset_meta->data_disk_size();
+        // corrupted index size caused by bug before 2.1.5 or 3.0.0 version
+        // try to get real index size from disk.
+        if (index_size < 0 || index_size > total_size * 2) {
+            LOG(ERROR) << "invalid index size:" << index_size << " total size:" << total_size
+                       << " data size:" << data_size << " tablet:" << rowset_meta->tablet_id()
+                       << " rowset:" << rowset_meta->rowset_id();
+            index_size = 0;
+            auto st = rowset->get_inverted_index_size(&index_size);
+            if (!st.ok()) {
+                LOG(ERROR) << "failed to get inverted index size. res=" << st;
+            }
+        }
+        _input_rowsets_data_size += data_size;
+        _input_rowsets_index_size += index_size;
+        _input_rowsets_total_size += total_size;
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
