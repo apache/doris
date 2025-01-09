@@ -55,6 +55,7 @@ suite("test_select_column_auth","p0,auth") {
     sql """create view ${dbName}.${mv_name} as select * from ${dbName}.${tableName};"""
     sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
     
+    sleep(3*1000)
     waitForSchemaChangeDone {
         sql """show alter table rollup where tablename='${tableName}' order by createtime desc limit 1"""
         time 600
