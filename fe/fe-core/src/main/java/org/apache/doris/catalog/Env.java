@@ -140,7 +140,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.deploy.DeployManager;
@@ -556,7 +555,7 @@ public class Env {
 
     private FollowerColumnSender followerColumnSender;
 
-    private HiveTransactionMgr hiveTransactionMgr;
+    private QueryCallBackMgr queryCallBackMgr;
 
     private TopicPublisherThread topicPublisherThread;
 
@@ -810,7 +809,7 @@ public class Env {
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
-        this.hiveTransactionMgr = new HiveTransactionMgr();
+        this.queryCallBackMgr = new QueryCallBackMgr();
         this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
@@ -990,12 +989,12 @@ public class Env {
         return checkpointer;
     }
 
-    public HiveTransactionMgr getHiveTransactionMgr() {
-        return hiveTransactionMgr;
+    public QueryCallBackMgr getQueryCallBackMgr() {
+        return queryCallBackMgr;
     }
 
-    public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
-        return getCurrentEnv().getHiveTransactionMgr();
+    public static QueryCallBackMgr getCurrentQueryCallBackMgr() {
+        return getCurrentEnv().getQueryCallBackMgr();
     }
 
     public DNSCache getDnsCache() {

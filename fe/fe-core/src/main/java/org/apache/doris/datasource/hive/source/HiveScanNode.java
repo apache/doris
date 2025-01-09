@@ -28,19 +28,18 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveAcidTransaction;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
-import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -64,6 +63,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -80,7 +80,7 @@ public class HiveScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
     protected final HMSExternalTable hmsTable;
-    private HiveTransaction hiveTransaction = null;
+    private HiveAcidTransaction hiveAcidTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
     @Setter
@@ -116,9 +116,10 @@ public class HiveScanNode extends FileQueryScanNode {
         super.doInitialize();
 
         if (hmsTable.isHiveTransactionalTable()) {
-            this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
-                    ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
-            Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
+            HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) hmsTable.getCatalog();
+            this.hiveAcidTransaction = hmsCatalog.getHiveAcidTransactionMgr().beginQueryTransaction(
+                    ConnectContext.get().queryId(), ConnectContext.get().getQualifiedUser(), hmsCatalog, hmsTable
+            );
             skipCheckingAcidVersionFile = ConnectContext.get().getSessionVariable().skipCheckingAcidVersionFile;
         }
     }
@@ -265,15 +266,8 @@ public class HiveScanNode extends FileQueryScanNode {
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
             List<Split> allFiles, String bindBrokerName, int numBackends) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
-        if (hiveTransaction != null) {
-            try {
-                fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
-            } catch (Exception e) {
-                // Release shared load (getValidWriteIds acquire Lock).
-                // If no exception is throw, the lock will be released when `finalizeQuery()`.
-                Env.getCurrentHiveTransactionMgr().deregister(hiveTransaction.getQueryId());
-                throw e;
-            }
+        if (hmsTable.isHiveTransactionalTable()) {
+            fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
@@ -293,8 +287,7 @@ public class HiveScanNode extends FileQueryScanNode {
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
-                && hiveTransaction != null) {
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT && hiveAcidTransaction != null) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {
@@ -365,18 +358,21 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions,
-                                                           String bindBrokerName) {
+                                                           String bindBrokerName) throws UserException {
+        List<String> partitionNames  = new ArrayList<>();
         for (HivePartition partition : partitions) {
             if (partition.getPartitionValues() == null || partition.getPartitionValues().isEmpty()) {
                 // this is unpartitioned table.
                 continue;
             }
-            hiveTransaction.addPartition(partition.getPartitionName(hmsTable.getPartitionColumns()));
+            partitionNames.add(partition.getPartitionName(hmsTable.getPartitionColumns()));
         }
-        Map<String, String> txnValidIds = hiveTransaction.getValidWriteIds(
-                ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
+        boolean isFullAcid = hmsTable.isFullAcidTable();
 
-        return cache.getFilesByTransaction(partitions, txnValidIds, hiveTransaction.isFullAcid(), bindBrokerName);
+        Map<String, String> txnValidIds = hiveAcidTransaction.getValidWriteIds(
+                ((HMSExternalCatalog) hmsTable.getCatalog()).getClient(), partitionNames);
+
+        return cache.getFilesByTransaction(partitions, txnValidIds, isFullAcid, bindBrokerName);
     }
 
     @Override
