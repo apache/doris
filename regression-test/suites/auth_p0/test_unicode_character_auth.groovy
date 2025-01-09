@@ -228,7 +228,7 @@ suite("test_unicode_character_auth") {
         logger.info(e.getMessage())
     }
 
-    sql """GRANT '${role1}' TO ${user1};"""
+    sql """GRANT '${role1}' TO '${user1}';"""
     sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role1}'"""
     connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
@@ -243,7 +243,7 @@ suite("test_unicode_character_auth") {
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role1}'"""
 
-    sql """GRANT '${role2}' TO ${user2};"""
+    sql """GRANT '${role2}' TO '${user2}';"""
     sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role2}'"""
     connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
@@ -259,7 +259,7 @@ suite("test_unicode_character_auth") {
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role2}'"""
 
 
-    sql """GRANT '${role3}' TO ${user3};"""
+    sql """GRANT '${role3}' TO '${user3}';"""
     sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role3}'"""
     connect(user3, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
@@ -274,7 +274,7 @@ suite("test_unicode_character_auth") {
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role3}'"""
 
-    sql """GRANT '${role4}' TO ${user4};"""
+    sql """GRANT '${role4}' TO '${user4}';"""
     sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role4}'"""
     connect(user4, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
