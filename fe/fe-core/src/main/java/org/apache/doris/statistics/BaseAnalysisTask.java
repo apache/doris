@@ -81,7 +81,7 @@ public abstract class BaseAnalysisTask {
             + "         NOW() AS `update_time` "
             + " FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
 
-    protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
+    protected static final String LINEAR_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             + "${catalogId} AS `catalog_id`, "
             + "${dbId} AS `db_id`, "
