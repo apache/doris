@@ -148,7 +148,8 @@ public:
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        DCHECK(0 <= static_cast<search_key_type>(key_holder) < hash_table_size);
+        DCHECK(0 <= static_cast<search_key_type>(key_holder) &&
+               static_cast<search_key_type>(key_holder) < hash_table_size);
         if (_hash_table[static_cast<search_key_type>(key_holder)] == not_set_flag) {
             auto ctor = [&](auto& key_value) {
                 _size++;
@@ -161,7 +162,8 @@ public:
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key, LookupResult& it, size_t hash_value,
                                     Func&& f) {
-        DCHECK(0 <= static_cast<search_key_type>(key) < hash_table_size);
+        DCHECK(0 <= static_cast<search_key_type>(key) &&
+               static_cast<search_key_type>(key) < hash_table_size);
         if (_hash_table[static_cast<search_key_type>(key)] == not_set_flag) {
             auto ctor = [&](auto& key_value) {
                 _size++;
