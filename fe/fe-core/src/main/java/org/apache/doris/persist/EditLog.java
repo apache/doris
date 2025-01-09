@@ -55,6 +55,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
@@ -236,7 +237,8 @@ public class EditLog {
                     LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
                             .getId());
                     env.replayCreateTable(info);
-                    if (Strings.isNullOrEmpty(info.getCtlName())) {
+                    if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName().equals(
+                            InternalCatalog.INTERNAL_CATALOG_NAME)) {
                         CreateTableRecord record = new CreateTableRecord(logId, info);
                         env.getBinlogManager().addCreateTableRecord(record);
                     }
@@ -244,17 +246,18 @@ public class EditLog {
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect alter external table schema. db = " + info.getDbName() + " table = "
-                            + info.getTableName());
+                    LOG.info("Begin to unprotect alter external table schema. db = {} table = {}", info.getDbName(),
+                            info.getTableName());
                     env.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    if (Strings.isNullOrEmpty(info.getCtl())) {
+                    if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(
+                            InternalCatalog.INTERNAL_CATALOG_NAME)) {
                         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
-                        LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
-                                + info.getTableId());
+                        LOG.info("Begin to unprotect drop table. db = {} table = {}", db.getFullName(),
+                                info.getTableId());
                         env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
                         DropTableRecord record = new DropTableRecord(logId, info);
                         env.getBinlogManager().addDropTableRecord(record);
@@ -1450,7 +1453,8 @@ public class EditLog {
 
     public void logCreateTable(CreateTableInfo info) {
         long logId = logEdit(OperationType.OP_CREATE_TABLE, info);
-        if (Strings.isNullOrEmpty(info.getCtlName())) {
+        if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
+                .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             CreateTableRecord record = new CreateTableRecord(logId, info);
             Env.getCurrentEnv().getBinlogManager().addCreateTableRecord(record);
         }
@@ -1497,7 +1501,7 @@ public class EditLog {
 
     public void logDropTable(DropInfo info) {
         long logId = logEdit(OperationType.OP_DROP_TABLE, info);
-        if (Strings.isNullOrEmpty(info.getCtl())) {
+        if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             DropTableRecord record = new DropTableRecord(logId, info);
             Env.getCurrentEnv().getBinlogManager().addDropTableRecord(record);
         }
@@ -1738,7 +1742,7 @@ public class EditLog {
     public void logTruncateTable(TruncateTableInfo info) {
         long logId = logEdit(OperationType.OP_TRUNCATE_TABLE, info);
         LOG.info("log truncate table, logId:{}, infos: {}", logId, info);
-        if (Strings.isNullOrEmpty(info.getCtl())) {
+        if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
         }
     }

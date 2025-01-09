@@ -1124,6 +1124,9 @@ public abstract class ExternalCatalog
                 partitions = tableRef.getPartitionNames().getPartitionNames();
             }
             metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), tableName.getDb(), tableName.getTbl(),
+                    partitions);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
                     stmt.getTblRef().getName().getTbl(), getName(), e);
@@ -1133,12 +1136,7 @@ public abstract class ExternalCatalog
 
     public void replayTruncateTable(TruncateTableInfo info) {
         if (metadataOps != null) {
-            try {
-                metadataOps.truncateTable(info.getDb(), info.getTable(), info.getExtPartNames());
-            } catch (DdlException e) {
-                LOG.warn("Failed to replay truncate table {}.{} in catalog {}", info.getDb(), info.getTable(),
-                        getName(), e);
-            }
+            metadataOps.afterTruncateTable(info.getDb(), info.getTable());
         }
     }
 

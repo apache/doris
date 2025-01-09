@@ -4176,7 +4176,8 @@ public class Env {
     }
 
     public void replayCreateTable(CreateTableInfo info) throws MetaNotFoundException {
-        if (Strings.isNullOrEmpty(info.getCtlName())) {
+        if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
+                .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             getInternalCatalog().replayCreateTable(info.getDbName(), info.getTable());
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());

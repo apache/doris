@@ -40,7 +40,6 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -339,8 +338,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }
-        TruncateTableInfo info = new TruncateTableInfo(catalog.getName(), dbName, tblName, partitions);
-        Env.getCurrentEnv().getEditLog().logTruncateTable(info);
     }
 
     @Override
