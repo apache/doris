@@ -387,8 +387,8 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_EQ(num_rows_read, num_segments * rows_per_segment);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
-            EXPECT_TRUE(beta_rowset->load_segment_num_rows().ok());
-            const auto& segment_num_rows = beta_rowset->get_segment_num_rows();
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -893,8 +893,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
-            EXPECT_TRUE(beta_rowset->load_segment_num_rows().ok());
-            const auto& segment_num_rows = beta_rowset->get_segment_num_rows();
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -1158,8 +1158,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
-            EXPECT_TRUE(beta_rowset->load_segment_num_rows().ok());
-            const auto& segment_num_rows = beta_rowset->get_segment_num_rows();
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;

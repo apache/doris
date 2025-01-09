@@ -89,8 +89,7 @@ public:
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
 
-    Status load_segment_num_rows();
-    const std::vector<uint32_t>& get_segment_num_rows();
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,

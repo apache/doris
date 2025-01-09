@@ -178,8 +178,8 @@ Status ParallelScannerBuilder::_load() {
             const auto rowset_id = rowset->rowset_id();
 
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
-            RETURN_IF_ERROR(beta_rowset->load_segment_num_rows());
-            const auto& segment_rows = beta_rowset->get_segment_num_rows();
+            std::vector<uint32_t> segment_rows;
+            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows));
             auto segment_count = rowset->num_segments();
             for (int64_t i = 0; i != segment_count; i++) {
                 _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);

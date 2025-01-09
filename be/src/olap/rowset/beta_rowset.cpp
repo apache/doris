@@ -69,10 +69,10 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::load_segment_num_rows() {
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
     DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
 
-    return _load_segment_rows_once.call([this] {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
         auto segment_count = num_segments();
         _segments_rows.resize(segment_count);
         for (int64_t i = 0; i != segment_count; ++i) {
@@ -84,12 +84,9 @@ Status BetaRowset::load_segment_num_rows() {
             _segments_rows[i] = tmp_segments[0]->num_rows();
         }
         return Status::OK();
-    });
-}
-
-const std::vector<uint32_t>& BetaRowset::get_segment_num_rows() {
-    DCHECK(_load_segment_rows_once.has_called() && _load_segment_rows_once.stored_result().ok());
-    return _segments_rows;
+    }));
+    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
+    return Status::OK();
 }
 
 Status BetaRowset::get_inverted_index_size(size_t* index_size) {

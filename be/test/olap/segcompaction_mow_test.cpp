@@ -280,8 +280,8 @@ protected:
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), expect_total_rows);
             EXPECT_EQ(num_rows_read, expect_total_rows - rows_mark_deleted);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
-            EXPECT_TRUE(beta_rowset->load_segment_num_rows().ok());
-            const auto& segment_num_rows = beta_rowset->get_segment_num_rows();
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
