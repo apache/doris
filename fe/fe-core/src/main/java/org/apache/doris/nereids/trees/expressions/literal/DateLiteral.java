@@ -188,19 +188,23 @@ public class DateLiteral extends Literal {
                 if (len == 4 || len == 2) {
                     sb.append(s, i, j);
                 } else if (len == 3) {
-                    if (partNumber == 0) {
-                        String yy = s.substring(i, i + 2);
-                        int year = Integer.parseInt(yy);
-                        if (year >= 0 && year <= 69) {
-                            sb.append("20");
-                        } else if (year >= 70 && year <= 99) {
-                            sb.append("19");
+                    if (s.charAt(j) == '.') {
+                        if (partNumber == 0) {
+                            String yy = s.substring(i, i + 2);
+                            int year = Integer.parseInt(yy);
+                            if (year >= 0 && year <= 69) {
+                                sb.append("20");
+                            } else if (year >= 70 && year <= 99) {
+                                sb.append("19");
+                            }
+                            sb.append(yy).append('-');
+                        } else {
+                            sb.append(s, i, i + 2).append(' ');
                         }
-                        sb.append(yy).append('-');
+                        j = j - 1;
                     } else {
-                        sb.append(s, i, i + 2).append(' ');
+                        sb.append("0").append(s, i, j);
                     }
-                    j = j - 1;
                 } else if (len == 1) {
                     if (partNumber == 0) {
                         sb.append("000").append(c);
