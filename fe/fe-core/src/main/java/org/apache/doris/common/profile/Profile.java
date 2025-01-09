@@ -490,7 +490,8 @@ public class Profile {
                         > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, current time {} query finished time: {}",
-                    getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
+                    getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis,
+                    this.queryFinishTimestamp);
 
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
@@ -717,7 +718,7 @@ public class Profile {
 
         return;
     }
-    
+
     public String debugInfo() {
         StringBuilder builder = new StringBuilder();
         builder.append("ProfileId:").append(getId()).append("|");

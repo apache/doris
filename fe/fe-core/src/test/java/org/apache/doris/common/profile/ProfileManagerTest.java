@@ -1,8 +1,23 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.ProfilePersistentTest;
-import org.apache.doris.common.util.RuntimeProfile;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -11,7 +26,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -19,8 +33,6 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-
 
 class ProfileManagerTest {
     // We need a logger.
@@ -58,8 +70,8 @@ class ProfileManagerTest {
 
     @Test
     void getProfileByOrder() {
-        final int NORMAL_PROFILES = 100;
-        for (int i = 0; i < NORMAL_PROFILES; i++) {
+        final int normalProfiles = 100;
+        for (int i = 0; i < normalProfiles; i++) {
             Profile profile = constructProfile(String.valueOf(i));
             Random random = new Random();
             profile.setQueryFinishTimestamp(random.nextInt(200 - 101) + 101);
@@ -116,7 +128,7 @@ class ProfileManagerTest {
         PriorityQueue<ProfileManager.ProfileElement> orderedResults = profileManager.getProfileOrderByQueryFinishTimeDesc();
         assert orderedResults != null;
         assert !orderedResults.isEmpty();
-        Assertions.assertEquals(106,orderedResults.size(), profileManager.getDebugInfo());
+        Assertions.assertEquals(106, orderedResults.size(), profileManager.getDebugInfo());
 
         for (int i = 0; i < profileThatHasDefaultQueryFinishTime.size(); i++) {
             ProfileManager.ProfileElement result = orderedResults.poll();
@@ -130,7 +142,7 @@ class ProfileManagerTest {
         }
 
         long prevQueryFinishTime = 1000L;
-        for (int i = 0; i < NORMAL_PROFILES; i++) {
+        for (int i = 0; i < normalProfiles; i++) {
             ProfileManager.ProfileElement result = orderedResults.poll();
             Assertions.assertNotEquals(result, null);
             Assertions.assertTrue(result.profile.getQueryFinishTimestamp() <= prevQueryFinishTime);
@@ -141,7 +153,7 @@ class ProfileManagerTest {
         Assertions.assertEquals(orderedResults.size(), 106);
         // Profile should be ordered by query finish time in ascending order.
         prevQueryFinishTime = Long.MIN_VALUE;
-        for (int i = 0; i < NORMAL_PROFILES; i++) {
+        for (int i = 0; i < normalProfiles; i++) {
             ProfileManager.ProfileElement result = orderedResults.poll();
             Assertions.assertNotEquals(result, null);
             Assertions.assertTrue(result.profile.getQueryFinishTimestamp() >= prevQueryFinishTime);
@@ -167,10 +179,9 @@ class ProfileManagerTest {
             Assertions.assertNotEquals(result, null);
             Assertions.assertTrue(profileThatHasDefaultQueryStartTime.contains(result.profile.getId()),
                                 result.profile.getId() + " " + result.profile.getSummaryProfile().getQueryBeginTime());
-                    
         }
 
-        for (int i = 0; i < NORMAL_PROFILES; i++) {
+        for (int i = 0; i < normalProfiles; i++) {
             ProfileManager.ProfileElement result = orderedResults.poll();
             Assertions.assertNotEquals(result, null);
             Assertions.assertTrue(result.profile.getSummaryProfile().getQueryBeginTime() >= prevQueryStartTime);
@@ -188,14 +199,14 @@ class ProfileManagerTest {
     @Test
     void getProfileByOrderParallel() throws InterruptedException {
         // Test the parallel case.
-        // Create a thread pool with 10 threads.
-        final int THREADS = 3;
+        // Create a thread pool with 3 threads.
+        final int threadNum = 3;
         List<Thread> threads = new ArrayList<>();
         AtomicBoolean stopFlag = new AtomicBoolean(false);
 
         // These threads keep adding profiles to the profile manager.
         // The profile they create has random name, random query finish time and random query start time.
-        for (int i = 0; i < THREADS; i++) {
+        for (int i = 0; i < threadNum; i++) {
             threads.add(new Thread(() -> {
                 Random random = new Random();
                 for (int j = 0; j < 100; j++) {
@@ -207,7 +218,7 @@ class ProfileManagerTest {
             }));
         }
         // Create another thread to get the profile by different order.
-        for (int i = 0; i < THREADS; i++) {
+        for (int i = 0; i < threadNum; i++) {
             threads.add(new Thread(() -> {
                 while (!stopFlag.get()) {
                     PriorityQueue<ProfileManager.ProfileElement> orderedResults = profileManager.getProfileOrderByQueryFinishTimeDesc();
@@ -221,7 +232,7 @@ class ProfileManagerTest {
             }));
         }
 
-        for (int i = 0; i < THREADS; i++) {
+        for (int i = 0; i < threadNum; i++) {
             threads.add(new Thread(() -> {
                 while (!stopFlag.get()) {
                     PriorityQueue<ProfileManager.ProfileElement> orderedResults = profileManager.getProfileOrderByQueryStartTime();
@@ -235,7 +246,7 @@ class ProfileManagerTest {
             }));
         }
 
-        for (int i = 0; i < THREADS; i++) {
+        for (int i = 0; i < threadNum; i++) {
             threads.add(new Thread(() -> {
                 while (!stopFlag.get()) {
                     PriorityQueue<ProfileManager.ProfileElement> orderedResults = profileManager.getProfileOrderByQueryFinishTime();

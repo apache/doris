@@ -241,7 +241,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.info("Receive profile {} report from {}, isDone {}, fragments {}",
                         DebugUtil.printId(params.getQueryProfile().getQueryId()), beAddr.toString(),
                         params.isDone(), params.getQueryProfile().fragment_id_to_profile.size());
-                
+
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
                 if (backend == null) {
                     LOG.warn("Invalid report profile req, backend {} not found, query id: {}",
