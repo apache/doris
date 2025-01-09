@@ -534,24 +534,33 @@ std::string BlockFileCache::clear_file_cache_async() {
     int64_t num_cells_to_delete = 0;
     int64_t num_cells_wait_recycle = 0;
     int64_t num_files_all = 0;
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_async");
     {
         SCOPED_CACHE_LOCK(_mutex);
 
+        std::vector<FileBlockCell*> deleting_cells;
         for (auto& [_, offset_to_cell] : _files) {
             ++num_files_all;
             for (auto& [_, cell] : offset_to_cell) {
                 ++num_cells_all;
-                if (!cell.releasable()) {
-                    cell.file_block->set_deleting();
-                    ++num_cells_wait_recycle;
-                    continue;
-                }
-                FileBlockSPtr file_block = cell.file_block;
-                if (file_block) {
-                    std::lock_guard block_lock(file_block->_mutex);
-                    remove(file_block, cache_lock, block_lock, false);
-                    ++num_cells_to_delete;
-                }
+                deleting_cells.push_back(&cell);
+            }
+        }
+
+        // we cannot delete the element in the loop above, because it will break the iterator
+        for (auto& cell : deleting_cells) {
+            if (!cell->releasable()) {
+                LOG(INFO) << "cell is not releasable, hash="
+                          << " offset=" << cell->file_block->offset();
+                cell->file_block->set_deleting();
+                ++num_cells_wait_recycle;
+                continue;
+            }
+            FileBlockSPtr file_block = cell->file_block;
+            if (file_block) {
+                std::lock_guard block_lock(file_block->_mutex);
+                remove(file_block, cache_lock, block_lock, false);
+                ++num_cells_to_delete;
             }
         }
     }
@@ -1291,6 +1300,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto expiration_time = file_block->expiration_time();
     auto* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell);
+    DCHECK(cell->queue_iterator);
     if (cell->queue_iterator) {
         auto& queue = get_queue(file_block->cache_type());
         queue.remove(*cell->queue_iterator, cache_lock);
@@ -1298,7 +1308,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
             << file_block->range().size();
     *_total_evict_size_metrics << file_block->range().size();
-    if (cell->file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
+    if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
         FileCacheKey key;
         key.hash = hash;
         key.offset = offset;
@@ -1322,8 +1332,9 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 }
             }
         }
-    } else if (cell->file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADING) {
-        cell->file_block->set_deleting();
+    } else if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADING) {
+        file_block->set_deleting();
+        return;
     }
     _cur_cache_size -= file_block->range().size();
     if (FileCacheType::TTL == type) {

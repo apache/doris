@@ -132,7 +132,7 @@ public:
 
     // block is being using by other thread when deleting, so tag it is_deleting and delete later on¬
     void set_deleting() { _is_deleting = true; }
-    ¬ bool is_deleting() const { return _is_deleting; };
+    bool is_deleting() const { return _is_deleting; };
 
 private:
     std::string get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const;
