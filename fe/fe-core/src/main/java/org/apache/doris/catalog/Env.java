@@ -3262,8 +3262,15 @@ public class Env {
         getInternalCatalog().unprotectCreateDb(db);
     }
 
-    public void replayCreateDb(Database db) {
-        getInternalCatalog().replayCreateDb(db, "");
+    public void replayCreateDb(CreateDbInfo dbInfo) {
+        if (dbInfo.getInternalDb() != null) {
+            getInternalCatalog().replayCreateDb(dbInfo.getInternalDb(), "");
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(dbInfo.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayCreateDb(dbInfo.getDbName());
+            }
+        }
     }
 
     public void replayNewCreateDb(CreateDbInfo info) {
