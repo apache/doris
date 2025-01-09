@@ -297,7 +297,7 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
     RETURN_IF_ERROR(_process_nested_columns(container_variant, nested_subcolumns));
 
     RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
-    container_variant.set_num_rows(nrows);
+    container_variant.set_num_rows_and_align(nrows);
     return Status::OK();
 }
 
