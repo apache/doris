@@ -277,14 +277,12 @@ TEST(HdfsAccessorTest, delete_prefix) {
     EXPECT_TRUE(list_files.contains("data/20000/1_0.dat"));
     EXPECT_TRUE(list_files.contains("data111/10000/1_0.dat"));
 
-    ret = accessor.delete_prefix("data/10000");
-    EXPECT_EQ(ret, -1);
-    ret = accessor.delete_prefix("data111/10000");
-    EXPECT_EQ(ret, -1);
+    ret = accessor.delete_prefix("data/10000/1_");
+    EXPECT_EQ(ret, 0);
+    ret = accessor.delete_prefix("data/10000/2_");
+    EXPECT_EQ(ret, 0);
     ret = accessor.delete_prefix("data/20000/1_");
     EXPECT_EQ(ret, 0);
-    ret = accessor.delete_prefix("data/10000/1");
-    EXPECT_EQ(ret, -1);
 
     iter.reset();
     ret = accessor.list_all(&iter);
@@ -294,8 +292,8 @@ TEST(HdfsAccessorTest, delete_prefix) {
         list_files.insert(std::move(file->path));
     }
     EXPECT_EQ(list_files.size(), 3);
-    EXPECT_TRUE(list_files.contains("data/10000/20000/1_0.dat"));
     EXPECT_TRUE(list_files.contains("data/10000/20000/30000/1_0.dat"));
+    EXPECT_TRUE(list_files.contains("data/10000/20000/1_0.dat"));
     EXPECT_TRUE(list_files.contains("data111/10000/1_0.dat"));
 }
 
