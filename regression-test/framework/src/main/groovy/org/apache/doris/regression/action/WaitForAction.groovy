@@ -66,6 +66,10 @@ class WaitForAction implements SuiteAction {
                 .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
+            if (result.size() == 0) {
+                // job not start
+                return false
+            }
             String res = result.get(0).get(num)
             if (res == "FINISHED" || res == "CANCELLED") {
                 Assert.assertEquals("FINISHED", res)
