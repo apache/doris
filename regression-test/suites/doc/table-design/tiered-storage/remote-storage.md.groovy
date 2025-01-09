@@ -36,7 +36,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
         clean()
         multi_sql """
             DROP TABLE IF EXISTS create_table_use_created_policy;
-            DROP STORAGE POLICY IF EXISTS test_policy;
+            DROP STORAGE POLICY IF EXISTS test_policy_${suffix};
             DROP RESOURCE IF EXISTS 'remote_s3_${suffix}';
 
             CREATE RESOURCE "remote_s3_${suffix}"
