@@ -137,7 +137,7 @@ suite("test_unicode_character_auth") {
             "replication_num" = "1"
         );"""
 
-    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user1}"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to '${user1}'"""
     connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
@@ -149,9 +149,9 @@ suite("test_unicode_character_auth") {
         }
         assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
     }
-    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user1}"""
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from '${user1}'"""
 
-    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user2}"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to '${user2}'"""
     connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
@@ -163,9 +163,9 @@ suite("test_unicode_character_auth") {
         }
         assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
     }
-    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user2}"""
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from '${user2}'"""
 
-    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user3}"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to '${user3}'"""
     connect(user3, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
@@ -177,10 +177,9 @@ suite("test_unicode_character_auth") {
         }
         assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
     }
-    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user3}"""
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from '${user3}'"""
 
-
-    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user4}"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to '${user4}'"""
     connect(user4, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
@@ -192,7 +191,7 @@ suite("test_unicode_character_auth") {
         }
         assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
     }
-    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user4}"""
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from '${user4}'"""
 
     try_sql("DROP role ${role1}")
     try_sql("DROP role ${role2}")
