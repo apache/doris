@@ -65,6 +65,8 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         return Status::RpcError("Client rpc client failed");
     }
 
+    VLOG_DEBUG << fmt::format("Sending profile");
+
     try {
         try {
             rpc_client->reportExecStatus(res, req);
@@ -272,13 +274,13 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
 void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
     decltype(_profile_map) profile_copy;
     decltype(_load_channel_profile_map) load_channel_profile_copy;
-
+    VLOG_DEBUG << "Beging reporting profile";
     {
         std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
         _profile_map.swap(profile_copy);
         _load_channel_profile_map.swap(load_channel_profile_copy);
     }
-
+    VLOG_DEBUG << "After swap profile map";
     // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
     for (auto& entry : profile_copy) {
         const auto& query_id = entry.first;

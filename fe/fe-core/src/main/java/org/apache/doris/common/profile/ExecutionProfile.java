@@ -235,7 +235,9 @@ public class ExecutionProfile {
             String suffix = " (host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                 String name = "";
-                if (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level) {
+                boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
+                if (isFragmentLevel) {
+                    // Fragment Level profile is also represented by TDetailedReportParams.
                     name = "Fragment Level Profile: " + suffix;
                 } else {
                     name = "Pipeline :" + pipelineIdx + " " + suffix;
@@ -243,9 +245,9 @@ public class ExecutionProfile {
                 }
 
                 RuntimeProfile profileNode = new RuntimeProfile(name);
-                // The taskprofile is used to save the profile of the pipeline, without
+                // The taskProfile is used to save the profile of the pipeline, without
                 // considering the FragmentLevel.
-                if (!(pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level)) {
+                if (!isFragmentLevel) {
                     taskProfile.add(profileNode);
                 }
                 if (!pipelineProfile.isSetProfile()) {
@@ -259,6 +261,9 @@ public class ExecutionProfile {
             }
             setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
         }
+
+        LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
+                DebugUtil.printId(getQueryId()), profile.getFragmentIdToProfile().size(), isDone);
 
         if (profile.isSetLoadChannelProfiles()) {
             for (TRuntimeProfileTree loadChannelProfile : profile.getLoadChannelProfiles()) {

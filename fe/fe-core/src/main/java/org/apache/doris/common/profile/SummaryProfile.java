@@ -543,8 +543,8 @@ public class SummaryProfile {
         this.nereidsDistributeFinishTime = TimeUtils.getStartTimeMs();
     }
 
-    public void setQueryBeginTime() {
-        this.queryBeginTime = TimeUtils.getStartTimeMs();
+    public void setQueryBeginTime(long queryBeginTime) {
+        this.queryBeginTime = queryBeginTime;
     }
 
     public void setQueryAnalysisFinishTime() {
