@@ -132,8 +132,6 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
-    }
-    if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
     return Status::OK();
