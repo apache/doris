@@ -1136,6 +1136,12 @@ Status TabletManager::start_trash_sweep() {
     for_each_tablet([](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
                     filter_all_tablets);
 
+    if (config::enable_remove_useless_delete_bitmaps) {
+        for_each_tablet(
+                [](const TabletSharedPtr& tablet) { tablet->remove_useless_delete_bitmaps(); },
+                filter_all_tablets);
+    }
+
     std::list<TabletSharedPtr>::iterator last_it;
     {
         std::shared_lock rdlock(_shutdown_tablets_lock);

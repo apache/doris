@@ -710,6 +710,30 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
     VLOG_NOTICE << "delete stale rowset. tablet=" << tablet_id() << ", version=" << version;
 }
 
+void Tablet::remove_useless_delete_bitmaps() {
+    std::vector<RowsetId> useless_rowsets;
+    {
+        // hold read lock to find out delete bitmaps to remove
+        std::shared_lock<std::shared_mutex> rlock {_meta_lock};
+        _tablet_meta->delete_bitmap().traverse_rowset_id_prefix([&](const RowsetId& rowset_id) {
+            if (!_contains_rowset(rowset_id)) {
+                // delete bitmaps on these rowsets will never be used
+                useless_rowsets.emplace_back(rowset_id);
+            }
+        });
+    }
+
+    {
+        // hold write lock to remove useless delete bitmaps
+        std::lock_guard<std::shared_mutex> wlock {_meta_lock};
+        for (const auto& rowset_id : useless_rowsets) {
+            _tablet_meta->delete_bitmap().remove_by_rowset_prefix(rowset_id);
+        }
+    }
+    LOG_WARNING("removed useless delete bitmaps on {} rowsets, tablet_id={}",
+                useless_rowsets.size(), tablet_id());
+}
+
 void Tablet::delete_expired_stale_rowset() {
     int64_t now = UnixSeconds();
     // hold write lock while processing stable rowset

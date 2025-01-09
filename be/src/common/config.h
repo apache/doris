@@ -1494,6 +1494,8 @@ DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 DECLARE_mInt32(compaction_num_per_round);
 
+DECLARE_mBool(enable_remove_useless_delete_bitmaps);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

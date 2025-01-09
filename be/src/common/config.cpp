@@ -1407,6 +1407,8 @@ DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 DEFINE_mInt32(compaction_num_per_round, "1");
 
+DEFINE_mBool(enable_remove_useless_delete_bitmaps, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

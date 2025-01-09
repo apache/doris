@@ -182,6 +182,8 @@ public:
     /// need to delete flag.
     void delete_expired_stale_rowset();
 
+    void remove_useless_delete_bitmaps();
+
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
     // If skip_missing_version is true, return ok even there are missing versions.
