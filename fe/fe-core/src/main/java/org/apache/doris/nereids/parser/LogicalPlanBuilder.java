@@ -4323,11 +4323,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         long limit = 20;
-        Optional<LimitClauseContext> limitCtx = Optional.ofNullable(ctx.limitClause());
         if (ctx.limitClause() != null) {
-            limit = Long.parseLong(limitCtx.get().limit.getText());
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
             if (limit < 0) {
-                throw new ParseException("Limit requires non-negative number", limitCtx.get());
+                throw new ParseException("Limit requires non-negative number, got " + String.valueOf(limit));
             }
         }
         return new ShowLoadProfileCommand(loadIdPath, limit);
@@ -5369,11 +5368,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         long limit = 20;
-        Optional<LimitClauseContext> limitCtx = Optional.ofNullable(ctx.limitClause());
         if (ctx.limitClause() != null) {
-            limit = Long.parseLong(limitCtx.get().limit.getText());
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
             if (limit < 0) {
-                throw new ParseException("Limit requires non-negative number", limitCtx.get());
+                throw new ParseException("Limit requires non-negative number, got " + String.valueOf(limit));
             }
         }
         return new ShowQueryProfileCommand(queryIdPath, limit);
