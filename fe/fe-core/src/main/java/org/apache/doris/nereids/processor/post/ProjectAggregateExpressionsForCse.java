@@ -105,7 +105,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) aggregate.child();
             List<NamedExpression> newProjections = Lists.newArrayList();
             for (NamedExpression expr : project.getProjects()) {
-                if (aggOutputReplaced.contains(expr)) {
+                if (!(expr instanceof SlotReference) || aggOutputReplaced.contains(expr)) {
                     newProjections.add(expr);
                 }
             }
