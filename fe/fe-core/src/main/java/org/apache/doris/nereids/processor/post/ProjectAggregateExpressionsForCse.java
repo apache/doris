@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * create project under aggregate to enable CSE
@@ -102,10 +103,13 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         }
 
         if (aggregate.child() instanceof PhysicalProject) {
-            PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) aggregate.child();
             List<NamedExpression> newProjections = Lists.newArrayList();
+            PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) aggregate.child();
+            Set<Slot> newInputSlots = aggOutputReplaced.stream()
+                    .flatMap(expr -> expr.getInputSlots().stream())
+                    .collect(Collectors.toSet());
             for (NamedExpression expr : project.getProjects()) {
-                if (!(expr instanceof SlotReference) || aggOutputReplaced.contains(expr)) {
+                if (!(expr instanceof SlotReference) || newInputSlots.contains(expr)) {
                     newProjections.add(expr);
                 }
             }
