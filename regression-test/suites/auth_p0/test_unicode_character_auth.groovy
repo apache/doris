@@ -233,7 +233,7 @@ suite("test_unicode_character_auth") {
     connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
-        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        assertTrue(res[0][3] == role1)
         if (isCloudMode()) {
             assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
         } else {
@@ -248,7 +248,7 @@ suite("test_unicode_character_auth") {
     connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
-        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        assertTrue(res[0][3] == role2)
         if (isCloudMode()) {
             assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
         } else {
@@ -264,7 +264,7 @@ suite("test_unicode_character_auth") {
     connect(user3, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
-        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        assertTrue(res[0][3] == role3)
         if (isCloudMode()) {
             assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
         } else {
@@ -279,7 +279,7 @@ suite("test_unicode_character_auth") {
     connect(user4, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
-        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        assertTrue(res[0][3] == role4)
         if (isCloudMode()) {
             assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
         } else {
