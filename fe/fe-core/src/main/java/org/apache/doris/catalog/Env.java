@@ -3273,17 +3273,6 @@ public class Env {
         }
     }
 
-    public void replayNewCreateDb(CreateDbInfo info) {
-        if (info.getCtlName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            getInternalCatalog().replayCreateDb(info.getInternalDb(), "");
-        } else {
-            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
-            if (externalCatalog != null) {
-                externalCatalog.replayCreateDb(info.getDbName());
-            }
-        }
-    }
-
     public void dropDb(DropDbStmt stmt) throws DdlException {
         dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
@@ -3299,7 +3288,8 @@ public class Env {
     }
 
     public void replayDropDb(DropDbInfo info) throws DdlException {
-        if (Strings.isNullOrEmpty(info.getCtlName())) {
+        if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
+                .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             getInternalCatalog().replayDropDb(info.getDbName(), info.isForceDrop(), info.getRecycleTime());
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
@@ -5900,7 +5890,7 @@ public class Env {
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
-        if (Strings.isNullOrEmpty(info.getCtl())) {
+        if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
             // So if the catalog info is empty, we assume it's internal table.
             getInternalCatalog().replayTruncateTable(info);
