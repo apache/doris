@@ -1070,6 +1070,36 @@ suite("aggregate_with_roll_up") {
     order_qt_query26_0_before "${query26_0}"
     async_mv_rewrite_fail(db, mv26_0, query26_0, "mv26_0")
     order_qt_query26_0_after "${query26_0}"
+    
+	sql """
+	CREATE MATERIALIZED VIEW `table_mv` AS  select o_orderdate, o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment;
+	"""
+	Thread.sleep(1000)
+
+	mv_rewrite_fail("""select o_orderdate, o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment;""", "table_mv")
+
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv26_0"""
 
 

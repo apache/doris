@@ -160,48 +160,36 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        if (version >= BITMAP_SERDE) {
-            auto& col = assert_cast<ColumnBitmap&>(*dst);
-            char place[sizeof(Data)];
-            col.resize(num_rows);
-            auto* data = col.get_data().data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                assert_cast<const Derived*>(this)->create(place);
-                DEFER({ assert_cast<const Derived*>(this)->destroy(place); });
-                assert_cast<const Derived*>(this)->add(place, columns, i, arena);
-                data[i] = std::move(this->data(place).value);
-            }
-        } else {
-            BaseHelper::streaming_agg_serialize_to_column(columns, dst, num_rows, arena);
+        auto& col = assert_cast<ColumnBitmap&>(*dst);
+        char place[sizeof(Data)];
+        col.resize(num_rows);
+        auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            assert_cast<const Derived*>(this)->create(place);
+            DEFER({ assert_cast<const Derived*>(this)->destroy(place); });
+            assert_cast<const Derived*>(this)->add(place, columns, i, arena);
+            data[i] = std::move(this->data(place).value);
         }
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        if (version >= BITMAP_SERDE) {
-            auto& col = assert_cast<ColumnBitmap&>(*dst);
-            col.resize(num_rows);
-            auto* data = col.get_data().data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                data[i] = std::move(this->data(places[i] + offset).value);
-            }
-        } else {
-            BaseHelper::serialize_to_column(places, offset, dst, num_rows);
+        auto& col = assert_cast<ColumnBitmap&>(*dst);
+        col.resize(num_rows);
+        auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            data[i] = std::move(this->data(places[i] + offset).value);
         }
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
-        if (version >= BITMAP_SERDE) {
-            auto& col = assert_cast<const ColumnBitmap&>(column);
-            const size_t num_rows = column.size();
-            auto* data = col.get_data().data();
+        auto& col = assert_cast<const ColumnBitmap&>(column);
+        const size_t num_rows = column.size();
+        auto* data = col.get_data().data();
 
-            for (size_t i = 0; i != num_rows; ++i) {
-                this->data(place).merge(data[i]);
-            }
-        } else {
-            BaseHelper::deserialize_and_merge_from_column(place, column, arena);
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->data(place).merge(data[i]);
         }
     }
 
@@ -210,74 +198,49 @@ public:
                                                  Arena* arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
-        if (version >= BITMAP_SERDE) {
-            auto& col = assert_cast<const ColumnBitmap&>(column);
-            auto* data = col.get_data().data();
-            for (size_t i = begin; i <= end; ++i) {
-                this->data(place).merge(data[i]);
-            }
-        } else {
-            BaseHelper::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
+        auto& col = assert_cast<const ColumnBitmap&>(column);
+        auto* data = col.get_data().data();
+        for (size_t i = begin; i <= end; ++i) {
+            this->data(place).merge(data[i]);
         }
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
-        if (version >= BITMAP_SERDE) {
-            const auto& col = assert_cast<const ColumnBitmap&>(*column);
-            const auto* data = col.get_data().data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                this->data(places[i] + offset).merge(data[i]);
-            }
-        } else {
-            BaseHelper::deserialize_and_merge_vec(places, offset, rhs, column, arena, num_rows);
+        const auto& col = assert_cast<const ColumnBitmap&>(*column);
+        const auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->data(places[i] + offset).merge(data[i]);
         }
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
-        if (version >= BITMAP_SERDE) {
-            const auto& col = assert_cast<const ColumnBitmap&>(*column);
-            const auto* data = col.get_data().data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                if (places[i]) {
-                    this->data(places[i] + offset).merge(data[i]);
-                }
+        const auto& col = assert_cast<const ColumnBitmap&>(*column);
+        const auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                this->data(places[i] + offset).merge(data[i]);
             }
-        } else {
-            BaseHelper::deserialize_and_merge_vec_selected(places, offset, rhs, column, arena,
-                                                           num_rows);
         }
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
-        if (version >= BITMAP_SERDE) {
-            auto& col = assert_cast<ColumnBitmap&>(to);
-            size_t old_size = col.size();
-            col.resize(old_size + 1);
-            col.get_data()[old_size] = std::move(this->data(place).value);
-        } else {
-            BaseHelper::serialize_without_key_to_column(place, to);
-        }
+        auto& col = assert_cast<ColumnBitmap&>(to);
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        col.get_data()[old_size] = std::move(this->data(place).value);
     }
 
     [[nodiscard]] MutableColumnPtr create_serialize_column() const override {
-        if (version >= BITMAP_SERDE) {
-            return ColumnBitmap::create();
-        } else {
-            return ColumnString::create();
-        }
+        return ColumnBitmap::create();
     }
 
     [[nodiscard]] DataTypePtr get_serialized_type() const override {
-        if (version >= BITMAP_SERDE) {
-            return std::make_shared<DataTypeBitMap>();
-        } else {
-            return IAggregateFunction::get_serialized_type();
-        }
+        return std::make_shared<DataTypeBitMap>();
     }
 
 protected:
