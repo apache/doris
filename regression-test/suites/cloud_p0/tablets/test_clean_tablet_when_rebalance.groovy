@@ -102,7 +102,7 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         }
 
         // TODO(freemandealer)
-        // Once the freemandealer implements file cache cleanup during restart, and after enabling the current rebalance, the tablets in the tablet manager will be cleared, but the file cache will not be cleaned up. 
+        // Once the freemandealer implements file cache cleanup during restart, enabling lines 107 to 145 will allow testing to confirm that after the rebalance, the tablet file cache on the BE will be cleared. In the current implementation, after restarting the BE and triggering the rebalance, the tablets in the tablet manager will be cleared, but the file cache cannot be cleaned up.
         /*
         if (beDeadLong) {
             // check tablet file cache has been deleted
