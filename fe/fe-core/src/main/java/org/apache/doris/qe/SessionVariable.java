@@ -147,6 +147,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
+    public static final String ENABLE_GROUP_COMMIT_FULL_PREPARE = "enable_group_commit_full_prepare";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -1639,6 +1640,9 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, description = {
                 "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
     public int maxPreparedStmtCount = 100000;
+
+    @VariableMgr.VarAttr(name = ENABLE_GROUP_COMMIT_FULL_PREPARE)
+    public boolean enableGroupCommitFullPrepare = true;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
