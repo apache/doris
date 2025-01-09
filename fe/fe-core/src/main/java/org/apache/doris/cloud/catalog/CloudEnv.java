@@ -180,13 +180,12 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream().findFirst();
-        if (firstNonObserverNode.isPresent()) {
-            helperNodes.add(new HostInfo(
-                    Config.enable_fqdn_mode ? firstNonObserverNode.get().getHost()
-                            : firstNonObserverNode.get().getIp(),
-                    firstNonObserverNode.get().getEditLogPort()));
-        }
+        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream()
+                .filter(nodeInfoPB -> nodeInfoPB.getNodeType() != NodeInfoPB.NodeType.FE_OBSERVER).findFirst();
+        firstNonObserverNode.ifPresent(nodeInfoPB -> helperNodes.add(new HostInfo(
+                Config.enable_fqdn_mode ? nodeInfoPB.getHost()
+                : nodeInfoPB.getIp(),
+                nodeInfoPB.getEditLogPort())));
         Preconditions.checkState(helperNodes.size() == 1);
 
         Optional<NodeInfoPB> local = allNodes.stream().filter(n -> ((Config.enable_fqdn_mode ? n.getHost() : n.getIp())

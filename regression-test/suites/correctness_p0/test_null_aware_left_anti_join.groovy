@@ -56,7 +56,6 @@ suite("test_null_aware_left_anti_join") {
 
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 
-    sql """ set parallel_fragment_exec_instance_num=2; """
     sql """ set parallel_pipeline_task_num=2; """
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 

@@ -233,11 +233,15 @@ class DBManager(object):
                     cursor.execute(sql)
                     fields = [field_md[0] for field_md in cursor.description
                               ] if cursor.description else []
-                    return [dict(zip(fields, row)) for row in cursor.fetchall()]
+                    return [
+                        dict(zip(fields, row)) for row in cursor.fetchall()
+                    ]
             except Exception as e:
                 LOG.warn(f"Error occurred: {e}")
                 if "timed out" in str(e).lower() and attempt < retries - 1:
-                    LOG.warn(f"Query timed out. Retrying {attempt + 1}/{retries}...")
+                    LOG.warn(
+                        f"Query timed out. Retrying {attempt + 1}/{retries}..."
+                    )
                     self._reset_conn()
                 else:
                     raise e

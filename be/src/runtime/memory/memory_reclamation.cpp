@@ -27,9 +27,8 @@
 
 namespace doris {
 
-// step1: free all cache
-// step2: free resource groups memory that enable overcommit
-// step3: free global top overcommit query, if enable query memory overcommit
+// step1: free resource groups memory that enable overcommit
+// step2: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     MonotonicStopWatch watch;
@@ -76,11 +75,10 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     return false;
 }
 
-// step1: free all cache
-// step2: free resource groups memory that enable overcommit
-// step3: free global top memory query
-// step4: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step5: free top memory load
+// step1: free resource groups memory that enable overcommit
+// step2: free global top memory query
+// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step4: free top memory load
 bool MemoryReclamation::process_full_gc(std::string mem_info) {
     MonotonicStopWatch watch;
     watch.start();
@@ -277,6 +275,24 @@ int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_me
         total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc);
     }
     return total_free_memory;
+}
+
+void MemoryReclamation::je_purge_dirty_pages() {
+#ifdef USE_JEMALLOC
+    if (config::disable_memory_gc || !config::enable_je_purge_dirty_pages) {
+        return;
+    }
+    std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+
+    // Allow `purge_all_arena_dirty_pages` again after the process memory changes by 256M,
+    // otherwise execute `decay_all_arena_dirty_pages`, because `purge_all_arena_dirty_pages` is very expensive.
+    if (doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+        doris::MemInfo::je_purge_all_arena_dirty_pages();
+        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+    } else {
+        doris::MemInfo::je_decay_all_arena_dirty_pages();
+    }
+#endif
 }
 
 } // namespace doris

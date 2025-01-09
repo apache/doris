@@ -409,7 +409,10 @@ public:
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             if (index.index_type() == IndexType::INVERTED) {
-                return true;
+                //if index_id == -1, ignore it.
+                if (!index.col_unique_ids().empty() && index.col_unique_ids()[0] >= 0) {
+                    return true;
+                }
             }
         }
         return false;

@@ -71,6 +71,7 @@ suite("test_inverted_index_cache", "nonConcurrent") {
     load_httplogs_data.call(indexTbName, 'test_index_inlist_fault_injection', 'true', 'json', 'documents-1000.json')
     sql "sync"
 
+    sql """ set enable_common_expr_pushdown = true; """
     qt_sql """ select count() from ${indexTbName} where (request match 'images');  """
 
     // query cache hit

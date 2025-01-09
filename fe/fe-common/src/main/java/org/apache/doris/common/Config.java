@@ -641,6 +641,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
     public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
 
+    @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
+            "Default timeout for ingestion load job, in seconds."})
+    public static int ingestion_load_default_timeout_second = 86400; // 1 day
+
     @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交间隔，单位是秒。",
             "Maximal intervals between two sync job's commits."})
     public static long sync_commit_interval_second = 10;
@@ -1257,6 +1261,12 @@ public class Config extends ConfigBase {
     public static int routine_load_task_timeout_multiplier = 10;
 
     /**
+     * routine load task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_min_timeout_sec = 60;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1654,7 +1664,7 @@ public class Config extends ConfigBase {
      * two clusters must be the same.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean restore_reset_index_id = true;
+    public static boolean restore_reset_index_id = false;
 
     /**
      * Control the max num of tablets per backup job involved.
@@ -2953,7 +2963,7 @@ public class Config extends ConfigBase {
             "Whether to advance the ID generator after becoming Master to ensure that the id "
                     + "generator will not be rolled back even when metadata is rolled back."
     })
-    public static boolean enable_advance_next_id = false;
+    public static boolean enable_advance_next_id = true;
 
     // The count threshold to do manual GC when doing checkpoint but not enough memory.
     // Set zero to disable it.
@@ -3358,4 +3368,8 @@ public class Config extends ConfigBase {
             "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
     public static String block_sql_ast_names = "";
+
+    public static long meta_service_rpc_reconnect_interval_ms = 5000;
+
+    public static long meta_service_rpc_retry_cnt = 10;
 }
