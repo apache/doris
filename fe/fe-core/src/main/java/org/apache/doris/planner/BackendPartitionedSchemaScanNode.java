@@ -89,8 +89,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private Map<Long, Long> partitionIDToBackendID;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
-    public BackendPartitionedSchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc);
+    public BackendPartitionedSchemaScanNode(PlanNodeId id, TupleDescriptor desc,
+                                            String schemaCatalog, String schemaDatabase, String schemaTable) {
+        super(id, desc, schemaCatalog, schemaDatabase, schemaTable);
     }
 
     @Override

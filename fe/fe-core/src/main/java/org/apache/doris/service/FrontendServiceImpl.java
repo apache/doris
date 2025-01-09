@@ -626,6 +626,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                         table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
+                        if (matcher != null && !matcher.match(table.getName())) {
+                            continue;
+                        }
                         // For the follower node in cloud mode,
                         // when querying the information_schema table,
                         // the version needs to be updated.
@@ -642,9 +645,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         table.readLock();
                         try {
-                            if (matcher != null && !matcher.match(table.getName())) {
-                                continue;
-                            }
                             long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
