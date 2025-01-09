@@ -720,8 +720,8 @@ for compose in "${!pids[@]}"; do
         cat start_${compose}.log
 
         echo ""
-        echo "print last 100 docker logs of unhealthy containers"
-        docker ps -a --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+        echo "print last 100 logs of the latest unhealthy container"
+        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
 
         exit 1
     fi
