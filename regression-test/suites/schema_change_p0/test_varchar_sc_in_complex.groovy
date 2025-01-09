@@ -77,6 +77,44 @@ suite ("test_varchar_sc_in_complex") {
             exception "Cannot shorten string length"
         }
 
+        // add case alter modify array/map/struct to other type
+        // test array to struct
+        test {
+            sql """ alter table ${tableName} modify column c_a struct<col:varchar(3)>
+                """
+            exception "Cannot chang"
+        }
+        // test array to map
+        test {
+            sql """ alter table ${tableName} modify column c_a map<varchar(3),varchar(3)>
+                """
+            exception "Cannot chang"
+        }
+        // test map to array
+        test {
+            sql """ alter table ${tableName} modify column c_m array<varchar(3)>
+                """
+            exception "Cannot chang"
+        }
+        // test map to struct
+        test {
+            sql """ alter table ${tableName} modify column c_m struct<col:varchar(3)>
+                """
+            exception "Cannot chang"
+        }
+        // test struct to array
+        test {
+            sql """ alter table ${tableName} modify column c_s array<varchar(3)>
+                """
+            exception "Cannot chang"
+        }
+        // test struct to map
+        test {
+            sql """ alter table ${tableName} modify column c_s map<varchar(3),varchar(3)>
+                """
+            exception "Cannot chang"
+        }
+
 
         sql """ alter table ${tableName} modify column c_a array<varchar(20)> """
         int max_try_secs = 300

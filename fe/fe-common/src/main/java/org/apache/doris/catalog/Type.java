@@ -513,29 +513,28 @@ public abstract class Type {
 
     // This method defines the char type or complex type nested char type
     // to support the schema-change behavior of length growth.
-    public boolean isSupportSchemaChangeForCharType(Type other) {
+    public boolean isSupportSchemaChangeForCharType(Type other) throws TypeException {
         if ((this.getPrimitiveType() == PrimitiveType.VARCHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR) || (
                 this.getPrimitiveType() == PrimitiveType.CHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR) || (
                 this.getPrimitiveType() == PrimitiveType.CHAR && other.getPrimitiveType() == PrimitiveType.CHAR)) {
             if (this.getLength() > other.getLength()) {
-                return false;
+                throw new TypeException("Cannot shorten string length for type "
+                        + this.toSql() + " to " + other.toSql());
             } else {
                 return true;
             }
-        }
-        if (this.isStructType() && other.isStructType()) {
+        } else if (this.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) this;
             StructType otherStructType = (StructType) other;
             if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
-                return false;
+                throw new TypeException("Cannot change struct type with different field size");
             }
             for (int i = 0; i < thisStructType.getFields().size(); i++) {
                 if (!thisStructType.getFields().get(i).getType().isSupportSchemaChangeForCharType(
                         otherStructType.getFields().get(i).getType())) {
-                    return false;
+                    throw new TypeException("Cannot change struct type with different field type");
                 }
             }
-            return true;
         } else if (this.isArrayType() && other.isArrayType()) {
             return ((ArrayType) this).getItemType().isSupportSchemaChangeForCharType(((ArrayType) other).getItemType());
         } else if (this.isMapType() && other.isMapType()) {

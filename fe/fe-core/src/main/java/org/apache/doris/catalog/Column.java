@@ -882,8 +882,12 @@ public class Column implements GsonPostProcessable {
 
         // Nested types only support changing the order and increasing the length of the nested char type
         // Char-type only support length growing
-        if (!type.isSupportSchemaChangeForCharType(other.type)) {
-            throw new DdlException("Cannot shorten string length for type " + type.toSql() + " to " + other.toSql());
+        try {
+            if (!type.isSupportSchemaChangeForCharType(other.type)) {
+                throw new DdlException("Can not change " + type.toSql() + " to " + other.type.toSql());
+            }
+        } catch (TypeException e) {
+            throw new DdlException(e.getMessage());
         }
 
         // now we support convert decimal to varchar type
