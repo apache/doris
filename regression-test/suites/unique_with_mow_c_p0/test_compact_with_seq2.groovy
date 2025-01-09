@@ -17,6 +17,8 @@
 
 // do compaction during publish
 suite("test_compact_with_seq2", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_compact_with_seq2"
     def dbId = getDbId()
 
