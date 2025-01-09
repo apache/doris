@@ -116,25 +116,23 @@ private:
 template <typename KeyType>
 class SmallFixedSizeHashSet {
 public:
+    static_assert(std::is_integral_v<KeyType>);
+    static_assert(sizeof(KeyType) <= 2);
+
     using key_type = KeyType;
     using mapped_type = void;
     using value_type = void;
     using Value = void*;
-    static_assert(std::is_integral_v<KeyType>);
-    using search_key_type = std::make_unsigned_t<KeyType>;
-    using SetType = uint8_t;
-
-    static constexpr int hash_table_size = 1 << sizeof(KeyType) * 8;
-
     using LookupResult = void*;
-    static constexpr auto End = static_cast<SetType>(0xFFFF);
 
-    static constexpr SetType set_flag = 1;
+    using search_key_type = std::make_unsigned_t<KeyType>;
+    using SetType = bool;
+    static constexpr SetType set_flag = true;
+    static constexpr SetType not_set_flag = false;
+    static constexpr int hash_table_size = 1 << sizeof(KeyType) * 8;
+    static_assert(sizeof(SetType) == 1);
 
-    SmallFixedSizeHashSet() {
-        memset(_hash_table, 0, sizeof(SetType) * hash_table_size);
-        _hash_table[hash_table_size] = End;
-    }
+    SmallFixedSizeHashSet() { memset(_hash_table, not_set_flag, hash_table_size); }
 
     SmallFixedSizeHashSet(size_t reserve_for_num_elements) {}
 
@@ -142,16 +140,16 @@ public:
 
     SmallFixedSizeHashSet& operator=(SmallFixedSizeHashSet&& rhs) {
         _size = rhs._size;
-        memcpy(_hash_table, rhs._hash_table, sizeof(SetType) * hash_table_size);
-        _hash_table[hash_table_size] = End;
+        memcpy(_hash_table, rhs._hash_table, hash_table_size);
         return *this;
     }
 
-    size_t hash(const KeyType& x) const { return x; }
+    size_t hash(const KeyType& x) const { return static_cast<search_key_type>(x); }
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        if (_hash_table[static_cast<search_key_type>(key_holder)] != set_flag) {
+        DCHECK(0 <= static_cast<search_key_type>(key_holder) < hash_table_size);
+        if (_hash_table[static_cast<search_key_type>(key_holder)] == not_set_flag) {
             auto ctor = [&](auto& key_value) {
                 _size++;
                 _hash_table[static_cast<search_key_type>(key_value)] = set_flag;
@@ -163,7 +161,8 @@ public:
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key, LookupResult& it, size_t hash_value,
                                     Func&& f) {
-        if (_hash_table[static_cast<search_key_type>(key)] != set_flag) {
+        DCHECK(0 <= static_cast<search_key_type>(key) < hash_table_size);
+        if (_hash_table[static_cast<search_key_type>(key)] == not_set_flag) {
             auto ctor = [&](auto& key_value) {
                 _size++;
                 _hash_table[static_cast<search_key_type>(key_value)] = set_flag;
@@ -185,7 +184,7 @@ public:
         }
     }
 
-    size_t get_buffer_size_in_bytes() const { return sizeof(SetType) * hash_table_size; }
+    size_t get_buffer_size_in_bytes() const { return hash_table_size; }
 
     size_t get_buffer_size_in_cells() const { return hash_table_size; }
 
@@ -208,5 +207,5 @@ public:
 
 private:
     size_t _size = 0;
-    uint8_t _hash_table[hash_table_size + 1];
+    uint8_t _hash_table[hash_table_size];
 };
