@@ -80,7 +80,7 @@ suite("test_unicode_character_auth") {
         try {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user7}'"""
         } catch (Exception e) {
-            logger.info(e.getMessage())
+            logger.info("zfr_e.getMessage()" + e.getMessage(), e)
         }
         test {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user8}'"""
