@@ -73,14 +73,9 @@ suite("test_unicode_character_auth") {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user6}'"""
             exception "invalid user name"
         }
-//        test {
-//            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user7}'"""
-//            exception "invalid user name"
-//        }
-        try {
+        test {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user7}'"""
-        } catch (Exception e) {
-            logger.info("zfr_e.getMessage()" + e.getMessage(), e)
+            exception "invalid user name"
         }
         test {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user8}'"""
@@ -106,9 +101,14 @@ suite("test_unicode_character_auth") {
         sql """CREATE USER '${user6}' IDENTIFIED BY '${pwd}'"""
         exception "invalid user name"
     }
-    test {
+//    test {
+//        sql """CREATE USER '${user7}' IDENTIFIED BY '${pwd}'"""
+//        exception "invalid user name"
+//    }
+    try {
         sql """CREATE USER '${user7}' IDENTIFIED BY '${pwd}'"""
-        exception "invalid user name"
+    } catch (Exception e) {
+        logger.info("zfr_e.getMessage()" + e.getMessage(), e)
     }
     test {
         sql """CREATE USER '${user8}' IDENTIFIED BY '${pwd}'"""
