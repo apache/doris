@@ -69,28 +69,27 @@ public:
 private:
     friend class AnalyticSinkOperatorX;
     Status _execute_impl();
-    Status _get_next_for_partition();
-    Status _get_next_for_unbounded_range();
-    Status _get_next_for_range_between();
-    Status _get_next_for_unbounded_rows();
-    Status _get_next_for_sliding_rows();
+    bool _get_next_for_partition(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_unbounded_range(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_range_between(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_unbounded_rows(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_sliding_rows(int64_t batch_rows, int64_t current_block_base_pos);
 
-    void _execute_for_win_func(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+    void _init_result_columns();
+    void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
     void _insert_result_info(int64_t real_deal_with_width);
-    Status output_current_block(vectorized::Block* block);
-    void _init_result_columns();
+    void _output_current_block(vectorized::Block* block);
+    void _reset_state_for_next_partition();
+    void _refresh_buffer_and_dependency_state(vectorized::Block* block);
 
-    void _reset_agg_status();
     void _create_agg_status();
+    void _reset_agg_status();
     void _destroy_agg_status();
 
-    void _update_order_by_range();
     void _get_partition_by_end();
-
-    void _refresh_buffer_and_dependency_state(vectorized::Block* block);
-    void _reset_state_for_next_partition();
     void _find_candidate_partition_ends();
+    void _update_order_by_range();
     void _find_candidate_order_by_ends();
     int64_t find_first_not_equal(vectorized::IColumn* reference_column,
                                  vectorized::IColumn* compared_column, int64_t target,
@@ -117,24 +116,26 @@ private:
     vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
+    std::vector<size_t> _offsets_of_aggregate_states;
+    std::vector<bool> _result_column_nullable_flags;
 
-    using vectorized_get_next = Status (AnalyticSinkLocalState::*)();
+    using vectorized_get_next = bool (AnalyticSinkLocalState::*)(int64_t, int64_t);
     struct executor {
         vectorized_get_next get_next_impl;
     };
     executor _executor;
 
     bool _current_window_empty = false;
+    int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;
     std::vector<vectorized::MutableColumnPtr> _result_window_columns;
 
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
-    int64_t _current_row_position = 0;
     int64_t _input_total_rows = 0;
-    std::vector<vectorized::Block> _input_blocks;
     bool _input_eos = false;
     std::vector<int64_t> _input_col_ids;
+    std::vector<vectorized::Block> _input_blocks;
     std::vector<int64_t> _input_block_first_row_positions;
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
@@ -142,9 +143,6 @@ private:
     RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
     RuntimeProfile::Counter* _compute_order_by_function_timer = nullptr;
-    RuntimeProfile::Counter* _execute_timer = nullptr;
-    RuntimeProfile::Counter* _get_next_timer = nullptr;
-    RuntimeProfile::Counter* _get_result_timer = nullptr;
     RuntimeProfile::Counter* _partition_search_timer = nullptr;
     RuntimeProfile::Counter* _order_search_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;

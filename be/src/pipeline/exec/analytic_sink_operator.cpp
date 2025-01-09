@@ -33,14 +33,11 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _evaluation_timer = ADD_TIMER(profile(), "GetPartitionBoundTime");
+    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
     _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
     _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
     _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
     _compute_order_by_function_timer = ADD_TIMER(profile(), "ComputeOrderByFunctionTime");
-    _execute_timer = ADD_TIMER(profile(), "ExecuteTime");
-    _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
-    _get_result_timer = ADD_TIMER(profile(), "GetResultsTime");
     _partition_search_timer = ADD_TIMER(profile(), "PartitionSearchTime");
     _order_search_timer = ADD_TIMER(profile(), "OrderSearchTime");
     _blocks_memory_usage =
@@ -114,6 +111,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     _agg_expr_ctxs.resize(_agg_functions_size);
     _agg_functions.resize(_agg_functions_size);
     _agg_input_columns.resize(_agg_functions_size);
+    _offsets_of_aggregate_states.resize(_agg_functions_size);
+    _result_column_nullable_flags.resize(_agg_functions_size);
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
@@ -123,6 +122,10 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
             RETURN_IF_ERROR(p._agg_expr_ctxs[i][j]->clone(state, _agg_expr_ctxs[i][j]));
             _agg_input_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
         }
+        _offsets_of_aggregate_states[i] = p._offsets_of_aggregate_states[i];
+        _result_column_nullable_flags[i] =
+                !_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _agg_functions[i]->data_type()->is_nullable();
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -173,10 +176,8 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return PipelineXSinkLocalState<AnalyticSharedState>::close(state, exec_status);
 }
 
-Status AnalyticSinkLocalState::_get_next_for_sliding_rows() {
-    auto batch_size = _input_blocks[_output_block_index].rows();
-    auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
-
+bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
+                                                        int64_t current_block_base_pos) {
     while (_current_row_position < _partition_by_pose.end) {
         int64_t current_row_start = 0;
         int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
@@ -189,87 +190,80 @@ Status AnalyticSinkLocalState::_get_next_for_sliding_rows() {
         }
         // Make sure range_start <= range_end
         current_row_start = std::min(current_row_start, current_row_end);
-        _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
                               current_row_end);
         _insert_result_info(1);
         _current_row_position++;
-        if (_current_row_position - current_block_base_pos >= batch_size) {
-            break;
+        if (_current_row_position - current_block_base_pos >= batch_rows) {
+            return true;
         }
     }
-    return Status::OK();
+    return false;
 }
 
-Status AnalyticSinkLocalState::_get_next_for_unbounded_rows() {
-    auto batch_size = _input_blocks[_output_block_index].rows();
-    auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
-
+bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
+                                                          int64_t current_block_base_pos) {
     while (_current_row_position < _partition_by_pose.end) {
         // [preceding, current_row], [current_row, following] rewrite it's same
         // as could reuse the previous calculate result, so don't call _reset_agg_status function
         // going on calculate, add up data, no need to reset state
-        int64_t current_row_start = _current_row_position;
-        int64_t current_row_end = _current_row_position + 1;
-        _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
-                              current_row_end);
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
+                              _current_row_position, _current_row_position + 1);
         _insert_result_info(1);
         _current_row_position++;
-        if (_current_row_position - current_block_base_pos >= batch_size) {
-            break;
+        if (_current_row_position - current_block_base_pos >= batch_rows) {
+            return true;
         }
     }
-    return Status::OK();
+    return false;
 }
 
-Status AnalyticSinkLocalState::_get_next_for_partition() {
+bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
+                                                     int64_t current_block_base_pos) {
     if (_current_row_position == _partition_by_pose.start) {
-        _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end,
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _partition_by_pose.start, _partition_by_pose.end);
     }
-    auto batch_size = _input_blocks[_output_block_index].rows();
-    auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
 
     // the end pos maybe after multis blocks, but should output by batch size and should not exceed partition end
-    auto window_end_pos = _current_row_position + batch_size;
+    auto window_end_pos = _current_row_position + batch_rows;
     window_end_pos = std::min<int64_t>(window_end_pos, _partition_by_pose.end);
 
     auto previous_window_frame_width = _current_row_position - current_block_base_pos;
     auto current_window_frame_width = window_end_pos - current_block_base_pos;
     // should not exceed block batch size
-    current_window_frame_width = std::min<int64_t>(current_window_frame_width, batch_size);
+    current_window_frame_width = std::min<int64_t>(current_window_frame_width, batch_rows);
     auto real_deal_with_width = current_window_frame_width - previous_window_frame_width;
 
     _insert_result_info(real_deal_with_width);
     _current_row_position += real_deal_with_width;
-    return Status::OK();
+    return _current_row_position - current_block_base_pos >= batch_rows;
 }
 
-Status AnalyticSinkLocalState::_get_next_for_unbounded_range() {
-    auto batch_size = _input_blocks[_output_block_index].rows();
-    auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
+bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
+                                                           int64_t current_block_base_pos) {
     while (_current_row_position < _partition_by_pose.end) {
         _update_order_by_range();
         if (_current_row_position == _order_by_pose.start) {
-            _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end,
+            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                                   _order_by_pose.start, _order_by_pose.end);
         }
         auto previous_window_frame_width = _current_row_position - current_block_base_pos;
         auto current_window_frame_width = _order_by_pose.end - current_block_base_pos;
-        current_window_frame_width = std::min<int64_t>(current_window_frame_width, batch_size);
+        current_window_frame_width = std::min<int64_t>(current_window_frame_width, batch_rows);
         auto real_deal_with_width = current_window_frame_width - previous_window_frame_width;
 
         _insert_result_info(real_deal_with_width);
         _current_row_position += real_deal_with_width;
-        if (_current_row_position - current_block_base_pos >= batch_size) {
-            break;
+        if (_current_row_position - current_block_base_pos >= batch_rows) {
+            return true;
         }
     }
-    return Status::OK();
+    return false;
 }
 
-Status AnalyticSinkLocalState::_get_next_for_range_between() {
-    auto batch_size = _input_blocks[_output_block_index].rows();
-    auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
+bool AnalyticSinkLocalState::_get_next_for_range_between(int64_t batch_rows,
+                                                         int64_t current_block_base_pos) {
     while (_current_row_position < _partition_by_pose.end) {
         _reset_agg_status();
         if (!_parent->cast<AnalyticSinkOperatorX>()._window.__isset.window_start) {
@@ -289,19 +283,19 @@ Status AnalyticSinkLocalState::_get_next_for_range_between() {
         }
         // Make sure range_start <= range_end
         // current_row_start = std::min(current_row_start, current_row_end);
-        _execute_for_win_func(_partition_by_pose.start, _partition_by_pose.end,
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _order_by_pose.start, _order_by_pose.end);
         _insert_result_info(1);
         _current_row_position++;
-        if (_current_row_position - current_block_base_pos >= batch_size) {
-            break;
+        if (_current_row_position - current_block_base_pos >= batch_rows) {
+            return true;
         }
     }
     if (_current_row_position == _partition_by_pose.end) {
         _order_by_pose.start = _partition_by_pose.end; // update to next partition pos
         _order_by_pose.end = _partition_by_pose.end;
     }
-    return Status::OK();
+    return false;
 }
 
 Status AnalyticSinkLocalState::_execute_impl() {
@@ -312,14 +306,19 @@ Status AnalyticSinkLocalState::_execute_impl() {
                 break;
             }
             _init_result_columns();
-            auto batch_size = _input_blocks[_output_block_index].rows();
+            auto batch_rows = _input_blocks[_output_block_index].rows();
             auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
+            bool should_output = false;
 
-            RETURN_IF_ERROR((this->*_executor.get_next_impl)());
+            {
+                SCOPED_TIMER(_evaluation_timer);
+                should_output =
+                        (this->*_executor.get_next_impl)(batch_rows, current_block_base_pos);
+            }
 
-            if (_current_row_position - current_block_base_pos >= batch_size) {
+            if (should_output) {
                 vectorized::Block block;
-                RETURN_IF_ERROR(output_current_block(&block));
+                _output_current_block(&block);
                 _refresh_buffer_and_dependency_state(&block);
             }
             if (_current_row_position == _partition_by_pose.end) {
@@ -330,9 +329,9 @@ Status AnalyticSinkLocalState::_execute_impl() {
     return Status::OK();
 }
 
-void AnalyticSinkLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
+void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int64_t partition_end,
                                                    int64_t frame_start, int64_t frame_end) {
-    SCOPED_TIMER(_execute_timer);
+    // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
@@ -340,9 +339,8 @@ void AnalyticSinkLocalState::_execute_for_win_func(int64_t partition_start, int6
         }
         _agg_functions[i]->function()->add_range_single_place(
                 partition_start, partition_end, frame_start, frame_end,
-                _fn_place_ptr +
-                        _parent->cast<AnalyticSinkOperatorX>()._offsets_of_aggregate_states[i],
-                agg_columns.data(), _agg_arena_pool.get());
+                _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
+                _agg_arena_pool.get());
 
         // If the end is not greater than the start, the current window should be empty.
         // _current_window_empty = false;
@@ -352,13 +350,10 @@ void AnalyticSinkLocalState::_execute_for_win_func(int64_t partition_start, int6
 }
 
 void AnalyticSinkLocalState::_insert_result_info(int64_t real_deal_with_width) {
-    SCOPED_TIMER(_get_result_timer);
-    const auto& offsets_of_aggregate_states =
-            _parent->cast<AnalyticSinkOperatorX>()._offsets_of_aggregate_states;
+    // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         for (size_t j = 0; j < real_deal_with_width; ++j) {
-            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
-                _result_window_columns[i]->is_nullable()) {
+            if (_result_column_nullable_flags[i]) {
                 if (_current_window_empty) {
                     _result_window_columns[i]->insert_default();
                 } else {
@@ -366,18 +361,18 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t real_deal_with_width) {
                             _result_window_columns[i].get());
                     dst->get_null_map_data().push_back(0);
                     _agg_functions[i]->insert_result_info(
-                            _fn_place_ptr + offsets_of_aggregate_states[i],
+                            _fn_place_ptr + _offsets_of_aggregate_states[i],
                             &dst->get_nested_column());
                 }
                 continue;
             }
-            _agg_functions[i]->insert_result_info(_fn_place_ptr + offsets_of_aggregate_states[i],
+            _agg_functions[i]->insert_result_info(_fn_place_ptr + _offsets_of_aggregate_states[i],
                                                   _result_window_columns[i].get());
         }
     }
 }
 
-Status AnalyticSinkLocalState::output_current_block(vectorized::Block* block) {
+void AnalyticSinkLocalState::_output_current_block(vectorized::Block* block) {
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
     if (_input_col_ids.size() < block->columns()) {
@@ -399,7 +394,6 @@ Status AnalyticSinkLocalState::output_current_block(vectorized::Block* block) {
     }
 
     _output_block_index++;
-    return Status::OK();
 }
 
 void AnalyticSinkLocalState::_init_result_columns() {
@@ -448,7 +442,6 @@ void AnalyticSinkLocalState::_update_order_by_range() {
             _order_by_pose.start = _order_by_pose.end;
             _order_by_pose.end = peek;
             _order_by_pose.is_ended = true;
-
             _order_by_statistics.update(_order_by_pose.end - _order_by_pose.start);
             return;
         }
@@ -525,7 +518,7 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
 
     if (_partition_by_pose.end < partition_column_rows) {
         _partition_by_pose.is_ended = true;
-        // here maybe find candidate ends;
+        _find_candidate_partition_ends();
         return;
     }
 
@@ -650,14 +643,15 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
     }
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+    _change_to_nullable_flags.resize(_agg_functions_size);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
-        _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
-                                            !_agg_functions[i]->data_type()->is_nullable());
+        _change_to_nullable_flags[i] =
+                output_slot_desc->is_nullable() && (!_agg_functions[i]->data_type()->is_nullable());
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -711,11 +705,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
     local_state._input_eos = eos;
     RETURN_IF_ERROR(_add_input_block(state, input_block));
-    {
-        SCOPED_TIMER(local_state._evaluation_timer);
-        RETURN_IF_ERROR(local_state._execute_impl());
-    }
-
+    RETURN_IF_ERROR(local_state._execute_impl());
     if (local_state._input_eos) {
         std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
         local_state._shared_state->sink_eos = true;
@@ -781,6 +771,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
     }
 
     COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
+    COUNTER_UPDATE(local_state._blocks_memory_usage, input_block->allocated_bytes());
     local_state._input_blocks.emplace_back(std::move(*input_block));
     return Status::OK();
 }
@@ -798,23 +789,17 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
 
 void AnalyticSinkLocalState::_reset_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        _agg_functions[i]->reset(
-                _fn_place_ptr +
-                _parent->cast<AnalyticSinkOperatorX>()._offsets_of_aggregate_states[i]);
+        _agg_functions[i]->reset(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
 }
 
 void AnalyticSinkLocalState::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         try {
-            _agg_functions[i]->create(
-                    _fn_place_ptr +
-                    _parent->cast<AnalyticSinkOperatorX>()._offsets_of_aggregate_states[i]);
+            _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
         } catch (...) {
             for (int j = 0; j < i; ++j) {
-                _agg_functions[j]->destroy(
-                        _fn_place_ptr +
-                        _parent->cast<AnalyticSinkOperatorX>()._offsets_of_aggregate_states[j]);
+                _agg_functions[j]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[j]);
             }
             throw;
         }
@@ -827,9 +812,7 @@ void AnalyticSinkLocalState::_destroy_agg_status() {
         return;
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        _agg_functions[i]->destroy(
-                _fn_place_ptr +
-                _parent->cast<AnalyticSinkOperatorX>()._offsets_of_aggregate_states[i]);
+        _agg_functions[i]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }
 }
 
