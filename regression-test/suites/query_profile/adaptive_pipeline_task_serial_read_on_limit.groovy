@@ -159,14 +159,8 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
 
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
     def String profileModifyTo20 = getProfile(queryIdModifyTo20).toString()
-    
-    if (!profileWithLimit1.contains("- MaxScannerThreadNum: 1")) {
-        logger.info("profileWithLimit1:\n{}", profileWithLimit1)
-    }
+    logger.info("profileWithLimit1:\n${profileWithLimit1}")
     assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
-
-    if (!profileModifyTo20.contains("- MaxScannerThreadNum: 1")) {
-        logger.info("profileModifyTo20:\n{}", profileModifyTo20)
-    }
+    logger.info("profileModifyTo20:\n${profileModifyTo20}")
     assertTrue(profileModifyTo20.contains("- MaxScannerThreadNum: 1"))
 }

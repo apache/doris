@@ -104,5 +104,5 @@ suite('scanner_profile') {
 
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
     logger.info("Profile of ${queryIdWithLimit1} ${profileWithLimit1}")
-    assertTrue(profileWithLimit1.contains("- PeakRunningScanner: 1"))
+    assertTrue(profileWithLimit1.contains("- PeakRunningScannerPeak: 1"))
 }
