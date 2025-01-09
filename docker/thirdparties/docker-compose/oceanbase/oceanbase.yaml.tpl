@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--oceanbase:
-    image: oceanbase/oceanbase-ce:4.2.1
+    image: oceanbase/oceanbase-ce:4.2.1-lts
     restart: always
     environment:
       MODE: slim
