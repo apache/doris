@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
 
 suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docker_mysql") {
