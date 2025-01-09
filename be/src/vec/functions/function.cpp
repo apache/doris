@@ -39,6 +39,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            uint32_t result, size_t input_rows_count) {
@@ -143,7 +144,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     // now all columns are const.
     Block temporary_block;
 
-    size_t arguments_size = args.size();
+    uint32_t arguments_size = cast_set<uint32_t>(args.size());
     for (size_t arg_num = 0; arg_num < arguments_size; ++arg_num) {
         const ColumnWithTypeAndName& column = block.get_by_position(args[arg_num]);
         // Columns in const_list --> column_const,    others --> nested_column
@@ -162,7 +163,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     temporary_block.insert(block.get_by_position(result));
 
     ColumnNumbers temporary_argument_numbers(arguments_size);
-    for (size_t i = 0; i < arguments_size; ++i) {
+    for (uint32_t i = 0; i < arguments_size; ++i) {
         temporary_argument_numbers[i] = i;
     }
 
@@ -364,4 +365,5 @@ bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
     }
     return false;
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

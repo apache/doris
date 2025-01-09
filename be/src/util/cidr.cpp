@@ -29,6 +29,7 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr std::uint8_t kIPv4Bits = 32;
 constexpr std::uint8_t kIPv6Bits = 128;
@@ -72,7 +73,7 @@ bool CIDR::reset(const std::string& cidr_str) {
         LOG(WARNING) << "Wrong CIDR mask format. network=" << cidr_str;
         return false;
     }
-    _netmask_len = len;
+    _netmask_len = (uint8_t)len; // len <= _netmask_len
     return true;
 }
 
@@ -93,4 +94,5 @@ bool CIDR::contains(const CIDR& ip) const {
     return (_address[bytes] & mask) == (ip._address[bytes] & mask);
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

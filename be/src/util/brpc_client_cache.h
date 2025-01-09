@@ -45,6 +45,7 @@
 #include "util/network_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
 } // namespace doris
@@ -112,7 +113,7 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host_port) {
-        int pos = host_port.rfind(':');
+        auto pos = host_port.rfind(':');
         std::string host = host_port.substr(0, pos);
         int port = 0;
         try {
@@ -231,4 +232,5 @@ private:
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;
 using FunctionServiceClientCache = BrpcClientCache<PFunctionService_Stub>;
+#include "common/compile_check_end.h"
 } // namespace doris

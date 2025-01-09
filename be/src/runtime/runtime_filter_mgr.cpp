@@ -43,6 +43,7 @@
 #include "util/ref_count_closure.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state,
                                    const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker,
@@ -371,7 +372,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         RETURN_IF_ERROR(cnt_val->filter->merge_from(holder.getHandle()->get()));
 
         cnt_val->arrive_id.insert(UniqueId(request->fragment_instance_id()));
-        merged_size = cnt_val->arrive_id.size();
+        merged_size = cast_set<int>(cnt_val->arrive_id.size());
         // TODO: avoid log when we had acquired a lock
         VLOG_ROW << "merge size:" << merged_size << ":" << cnt_val->producer_size;
         DCHECK_LE(merged_size, cnt_val->producer_size);
@@ -508,4 +509,5 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
     return params;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
