@@ -271,4 +271,13 @@ suite("test_unicode_character_auth") {
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role3}'"""
 
+    try_sql("DROP USER ${user1}")
+    try_sql("DROP USER ${user2}")
+    try_sql("DROP USER ${user3}")
+    try_sql("DROP USER ${user4}")
+    try_sql("DROP USER ${user5}")
+    try_sql("DROP USER ${user6}")
+    try_sql("DROP USER ${user7}")
+    try_sql("DROP USER ${user8}")
+
 }
