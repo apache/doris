@@ -2893,9 +2893,9 @@ int InstanceRecycler::recycle_expired_stage_objects() {
     int ret = 0;
     for (const auto& stage : instance_info_.stages()) {
         std::stringstream ss;
-        ss << "instance_id=" << instance_id_ << ", stage_id=" << stage.stage_id()
-           << ", user_name=" << stage.mysql_user_name().at(0)
-           << ", user_id=" << stage.mysql_user_id().at(0)
+        ss << "instance_id=" << instance_id_ << ", stage_id=" << stage.stage_id() << ", user_name="
+           << (stage.mysql_user_name().empty() ? "null" : stage.mysql_user_name().at(0))
+           << ", user_id=" << (stage.mysql_user_id().empty() ? "null" : stage.mysql_user_id().at(0))
            << ", prefix=" << stage.obj_info().prefix();
 
         if (stopped()) break;

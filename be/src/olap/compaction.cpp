@@ -469,6 +469,9 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
+    // Currently, updates are only made in the time_series.
+    update_compaction_level();
+
     RETURN_IF_ERROR(modify_rowsets());
 
     auto* cumu_policy = tablet()->cumulative_compaction_policy();
@@ -1317,6 +1320,15 @@ bool CompactionMixin::_check_if_includes_input_rowsets(
                          input_rowset_ids.begin(), input_rowset_ids.end());
 }
 
+void CompactionMixin::update_compaction_level() {
+    auto* cumu_policy = tablet()->cumulative_compaction_policy();
+    if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+        int64_t compaction_level =
+                cumu_policy->get_compaction_level(tablet(), _input_rowsets, _output_rowset);
+        _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
+    }
+}
+
 Status Compaction::check_correctness() {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + _stats.merged_rows + _stats.filtered_rows) {
@@ -1395,6 +1407,9 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
                   << _output_rowset->rowset_meta()->rowset_id().to_string();
     })
 
+    // Currently, updates are only made in the time_series.
+    update_compaction_level();
+
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
@@ -1440,11 +1455,6 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
 
-    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
-        ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
-                                       ->new_compaction_level(_input_rowsets);
-    }
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
@@ -1469,6 +1479,16 @@ void CloudCompactionMixin::garbage_collection() {
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached(file_key);
         }
+    }
+}
+
+void CloudCompactionMixin::update_compaction_level() {
+    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+    auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
+    if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+        int64_t compaction_level =
+                cumu_policy->get_compaction_level(cloud_tablet(), _input_rowsets, _output_rowset);
+        _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
     }
 }
 

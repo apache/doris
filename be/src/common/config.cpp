@@ -529,7 +529,7 @@ DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
-DEFINE_Int32(webserver_num_workers, "48");
+DEFINE_Int32(webserver_num_workers, "128");
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
@@ -915,7 +915,7 @@ DEFINE_String(rpc_load_balancer, "rr");
 
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
-DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
+DEFINE_Int32(string_type_length_soft_limit_bytes, "1048576");
 
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });

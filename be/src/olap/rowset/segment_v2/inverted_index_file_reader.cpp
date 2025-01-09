@@ -41,6 +41,7 @@ Status InvertedIndexFileReader::init(int32_t read_buffer_size, const io::IOConte
         if (_storage_format == InvertedIndexStorageFormatPB::V2) {
             if (_stream) {
                 _stream->setIoContext(io_ctx);
+                _stream->setIndexFile(true);
             }
         }
     }
@@ -83,6 +84,7 @@ Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::I
         }
         _stream = std::unique_ptr<CL_NS(store)::IndexInput>(index_input);
         _stream->setIoContext(io_ctx);
+        _stream->setIndexFile(true);
 
         // 3. read file
         int32_t version = _stream->readInt(); // Read version number

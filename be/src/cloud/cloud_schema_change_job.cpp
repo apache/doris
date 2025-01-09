@@ -283,7 +283,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
+        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
+        bool vertical = false;
+        if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
+            // see VBaseSchemaChangeWithSorting::_external_sorting
+            vertical = true;
+        }
+        auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, vertical));
 
         RowsetMetaSharedPtr existed_rs_meta;
         auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),

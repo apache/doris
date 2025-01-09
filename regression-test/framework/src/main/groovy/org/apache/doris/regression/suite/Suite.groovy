@@ -25,6 +25,7 @@ import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.common.util.concurrent.Uninterruptibles
 import com.google.gson.Gson
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -37,7 +38,6 @@ import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
-import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
@@ -59,13 +59,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 import java.sql.Connection
-import java.io.File
-import java.math.BigDecimal;
-import java.sql.PreparedStatement
-import java.sql.ResultSetMetaData
-import java.util.Map;
 import java.util.concurrent.Callable
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
@@ -409,6 +403,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    List<List<Object>> master_sql(String sqlStr, boolean isOrder = false) {
+        return sql_impl(context.getMasterConnection(), sqlStr, isOrder)
+    }
+
     List<List<Object>> multi_sql(String sqlStr, boolean isOrder = false) {
         String[] sqls = sqlStr.split(";")
         def result = new ArrayList<Object>();
@@ -518,6 +516,10 @@ class Suite implements GroovyInterceptable {
 
     def jdbc_sql_return_maparray(String sqlStr) {
         return sql_return_maparray_impl(sqlStr, context.getConnection())
+    }
+
+    def master_sql_return_maparray(String sqlStr) {
+        return sql_return_maparray_impl(sqlStr, context.getMasterConnection())
     }
 
     def arrow_flight_sql_return_maparray(String sqlStr) {
@@ -701,6 +703,23 @@ class Suite implements GroovyInterceptable {
         return sql
     }
 
+    <T> T retry(int executeTimes = 3, int intervalMillis = 1000, Closure<Integer> closure) {
+        Throwable throwable = null
+        for (int i = 1; i <= executeTimes; ++i) {
+            try {
+                return closure(i) as T
+            } catch (Throwable t) {
+                logger.warn("Retry failed: $t", t)
+                throwable = t
+                Uninterruptibles.sleepUninterruptibly(intervalMillis, TimeUnit.MILLISECONDS)
+            }
+        }
+        if (throwable != null) {
+            throw throwable
+        }
+        return null
+    }
+
     void explain(Closure actionSupplier) {
         if (context.useArrowFlightSql()) {
             runAction(new ExplainAction(context, "ARROW_FLIGHT_SQL"), actionSupplier)
@@ -837,6 +856,10 @@ class Suite implements GroovyInterceptable {
         String host = context.config.otherConfigs.get("extHiveHmsHost")
         String port = context.config.otherConfigs.get("extHdfsPort")
         return "hdfs://" + host + ":" + port;
+    }
+
+    String getHmsUser() {
+        return context.config.otherConfigs.get("extHiveHmsUser")
     }
 
     String getHdfsUser() {
@@ -1069,6 +1092,20 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void foreachFrontends(Closure action) {
+        def rows = sql_return_maparray("show frontends")
+        for (def row in rows) {
+            action(row)
+        }
+    }
+
+    void foreachBackends(Closure action) {
+        def rows = sql_return_maparray("show backends")
+        for (def row in rows) {
+            action(row)
+        }
+    }
+
     List<String> getFrontendIpHttpPort() {
         return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
     }
@@ -1239,6 +1276,8 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else if (tag.contains("master_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
@@ -1252,6 +1291,8 @@ class Suite implements GroovyInterceptable {
                             (String) ("USE ${context.dbName};" + (String) arg))
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else if (tag.contains("master_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
@@ -1407,8 +1448,12 @@ class Suite implements GroovyInterceptable {
     }
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database) {
+        return getServerPrepareJdbcUrl(jdbcUrl, database, true)
+    }
+
+    String getServerPrepareJdbcUrl(String jdbcUrl, String database, boolean useMasterIp) {
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = getMasterIp()
+        def sql_ip = useMasterIp ? getMasterIp() : urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
         def sql_port
         if (urlWithoutSchema.indexOf("/") >= 0) {
             // e.g: jdbc:mysql://locahost:8080/?a=b
@@ -1445,7 +1490,16 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        def show_tables = sql """
+        show tables from ${result.last().get(6)};
+        """
+        def db_id = getDbId(result.last().get(6))
+        def table_id = getTableId(result.last().get(6), mvName)
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + mvName
+                + ", db name is " + result.last().get(6)
+                + ", show_tables are " + show_tables
+                + ", db_id is " + db_id
+                + ", table_id " + table_id)
         sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
     }
 
@@ -1543,8 +1597,23 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals("SUCCESS", status)
         // Need to analyze materialized view for cbo to choose the materialized view accurately
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        def show_tables = sql """
+        show tables from ${result.last().get(6)};
+        """
+        def db_id = getDbId(result.last().get(6))
+        def table_id = getTableId(result.last().get(6), result.last().get(5))
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5)
+                + ", db name is " + result.last().get(6)
+                + ", show_tables are " + show_tables
+                + ", db_id is " + db_id
+                + ", table_id " + table_id)
         sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
+        String db = result.last().get(6)
+        String table = result.last().get(5)
+        result = sql("show table stats ${db}.${table}")
+        logger.info("table stats: " + result.toString())
+        result = sql("show index stats ${db}.${table} ${table}")
+        logger.info("index stats: " + result.toString())
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {

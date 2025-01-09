@@ -166,7 +166,6 @@ Status IndexBuilder::update_inverted_index_info() {
                     LOG(WARNING) << "referenced column was missing. "
                                  << "[column=" << t_inverted_index.columns[0]
                                  << " referenced_column=" << column_uid << "]";
-                    output_rs_tablet_schema->append_index(std::move(index));
                     continue;
                 }
                 const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
