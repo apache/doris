@@ -1318,9 +1318,10 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
     // We can reach the limit of subcolumns, and in this case
     // the rest of subcolumns from src will be inserted into sparse column.
     std::map<std::string_view, Subcolumn> src_path_and_subcoumn_for_sparse_column;
+    int idx_hint = 0;
     for (const auto& entry : src_object.subcolumns) {
         // Check if we already have such dense column path.
-        if (auto* subcolumn = get_subcolumn(entry->path); subcolumn != nullptr) {
+        if (auto* subcolumn = get_subcolumn(entry->path, idx_hint); subcolumn != nullptr) {
             subcolumn->insert_range_from(entry->data, start, length);
         } else if (try_add_new_subcolumn(entry->path)) {
             subcolumn = get_subcolumn(entry->path);
@@ -1329,6 +1330,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
         } else {
             src_path_and_subcoumn_for_sparse_column.emplace(entry->path.get_path(), entry->data);
         }
+        ++idx_hint;
     }
 
     // Paths in sparse column are sorted, so paths from src_dense_column_path_for_sparse_column should be inserted properly
@@ -1345,7 +1347,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             src_object, std::move(sorted_src_subcolumn_for_sparse_column), start, length);
 
     num_rows += length;
-    finalize();
+    // finalize();
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -1946,6 +1948,12 @@ void ColumnObject::clear_sparse_column() {
 }
 
 Status ColumnObject::finalize(FinalizeMode mode) {
+    if (is_finalized() && mode == FinalizeMode::READ_MODE) {
+        doc_structure = nullptr;
+        _prev_positions.clear();
+        ENABLE_CHECK_CONSISTENCY(this);
+        return Status::OK();
+    }
     Subcolumns new_subcolumns;
 
     if (auto root = subcolumns.get_mutable_root(); root == nullptr) {

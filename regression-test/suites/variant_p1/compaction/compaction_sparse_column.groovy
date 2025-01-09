@@ -47,7 +47,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
 
     try {
         set_be_config.call("write_buffer_size", "10240")
-        set_be_config.call("variant_max_subcolumns_count", "3")
+        set_be_config.call("variant_max_subcolumns_count", "2")
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
