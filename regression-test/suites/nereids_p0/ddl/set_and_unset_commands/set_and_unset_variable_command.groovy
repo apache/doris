@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_and_unset_variable_command") {
+suite("set_and_unset_variable_command", "nonConcurrent") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 

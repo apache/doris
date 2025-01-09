@@ -137,6 +137,7 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -1167,8 +1168,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
+        // Get tables that require commit lock - only MOW tables need this:
+        // 1. Filter to keep only OlapTables with MOW enabled
+        // 2. Sort by table ID to maintain consistent locking order and prevent deadlocks
         List<Table> mowTableList = tableList.stream()
                 .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                .sorted(Comparator.comparingLong(Table::getId))
                 .collect(Collectors.toList());
         increaseWaitingLockCount(mowTableList);
         if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {

@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.planner.GroupCommitPlanner;
 
 import java.util.Optional;
 
@@ -28,6 +29,7 @@ public class PreparedStatementContext {
     StatementContext statementContext;
     public String stmtString;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
+    public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
 
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;

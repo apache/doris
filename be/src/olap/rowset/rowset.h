@@ -321,9 +321,6 @@ protected:
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;
 
-    // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual Status do_load(bool use_cache) = 0;
-
     // release resources in this api
     virtual void do_close() = 0;
 
