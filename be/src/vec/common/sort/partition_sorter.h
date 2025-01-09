@@ -66,6 +66,7 @@ public:
         }
         return true;
     }
+
     int row = 0;
     std::shared_ptr<MergeSortCursorImpl> impl = nullptr;
 };
@@ -89,17 +90,30 @@ public:
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
     size_t data_size() const override { return _state->data_size(); }
-
-    Status partition_sort_read(Block* block, bool* eos, int batch_size);
     int64 get_output_rows() const { return _output_total_rows; }
     void reset_sorter_state(RuntimeState* runtime_state);
 
 private:
+    Status _read_row_num(Block* block, bool* eos, int batch_size);
+    Status _read_row_rank(Block* block, bool* eos, int batch_size);
+    bool _get_enough_data() const {
+        if (_top_n_algorithm == TopNAlgorithm::DENSE_RANK) {
+            // dense_rank(): 1,1,1,2,2,2,2,.......,2,3,3,3, if SQL: where rk < 3, need output all 1 and 2
+            // dense_rank() maybe need distinct rows of partition_inner_limit
+            // so check have output distinct rows, not _output_total_rows
+            return _output_distinct_rows >= _partition_inner_limit;
+        } else {
+            // rank(): 1,1,1,4,5,6,6,6.....,6,100,101. if SQL where rk < 7, need output all 1,1,1,4,5,6,6,....6
+            // rank() maybe need check when have get a distinct row
+            // so when the cmp_res is get a distinct row, need check have output all rows num
+            return _output_total_rows >= _partition_inner_limit;
+        }
+    }
+
     std::unique_ptr<MergeSorterState> _state;
     const RowDescriptor& _row_desc;
     int64 _output_total_rows = 0;
     int64 _output_distinct_rows = 0;
-    bool _has_global_limit = false;
     int _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
     SortCursorCmp* _previous_row = nullptr;

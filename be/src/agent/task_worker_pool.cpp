@@ -454,6 +454,7 @@ bvar::Adder<uint64_t> CLONE_count("task", "CLONE");
 bvar::Adder<uint64_t> STORAGE_MEDIUM_MIGRATE_count("task", "STORAGE_MEDIUM_MIGRATE");
 bvar::Adder<uint64_t> GC_BINLOG_count("task", "GC_BINLOG");
 bvar::Adder<uint64_t> UPDATE_VISIBLE_VERSION_count("task", "UPDATE_VISIBLE_VERSION");
+bvar::Adder<uint64_t> CALCULATE_DELETE_BITMAP_count("task", "CALCULATE_DELETE_BITMAP");
 
 void add_task_count(const TAgentTaskRequest& task, int n) {
     // clang-format off
@@ -481,6 +482,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
     ADD_TASK_COUNT(UPDATE_VISIBLE_VERSION)
+    ADD_TASK_COUNT(CALCULATE_DELETE_BITMAP)
     #undef ADD_TASK_COUNT
     case TTaskType::REALTIME_PUSH:
     case TTaskType::PUSH:

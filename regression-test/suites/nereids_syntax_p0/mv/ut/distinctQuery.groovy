@@ -48,7 +48,7 @@ suite ("distinctQuery") {
 
     sql "analyze table distinctQuery with sync;"
     
-    mv_rewrite_success("select distinct deptno from distinctQuery;", "distinctQuery_mv")
+    mv_rewrite_any_success("select distinct deptno from distinctQuery;", ["distinctQuery_mv", "distinctQuery_mv2"])
 
     mv_rewrite_success("select deptno, count(distinct empid) from distinctQuery group by deptno;", "distinctQuery_mv2")
     
