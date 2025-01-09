@@ -239,7 +239,6 @@ protected:
         reader_context.stats = &_stats;
         reader_context.delete_bitmap = delete_bitmap.get();
 
-        std::vector<uint32_t> segment_num_rows;
         Status s;
 
         // without predicates
@@ -280,7 +279,9 @@ protected:
             EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), expect_total_rows);
             EXPECT_EQ(num_rows_read, expect_total_rows - rows_mark_deleted);
-            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -307,7 +308,6 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
                                                      // rows_per_segment
     config::segcompaction_batch_size = 10;
-    std::vector<uint32_t> segment_num_rows;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
     uint32_t rows_mark_deleted = 0;
     { // write `num_segments * rows_per_segment` rows to rowset
@@ -413,7 +413,6 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
     uint32_t rows_mark_deleted = 0;
     uint32_t total_written_rows = 0;
-    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20048, tablet_schema, &writer_context);
@@ -641,7 +640,6 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
     RowsetSharedPtr rowset;
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
     config::segcompaction_batch_size = 5;
-    std::vector<uint32_t> segment_num_rows;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
     uint32_t rows_mark_deleted = 0;
     uint32_t total_written_rows = 0;
@@ -832,7 +830,6 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
                                                      // rows_per_segment
     config::segcompaction_batch_size = 10;
-    std::vector<uint32_t> segment_num_rows;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
     uint32_t rows_mark_deleted = 0;
     { // write `num_segments * rows_per_segment` rows to rowset
