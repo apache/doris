@@ -50,8 +50,6 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
     private final boolean ifExists;
     private final FunctionName functionName;
     private final FunctionArgTypesInfo argsDef;
-    // set after analyzed
-    private FunctionSearchDesc function;
 
     /**
      * DropFunctionCommand
@@ -71,8 +69,8 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        argsDef.validate();
-        function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
+        argsDef.analyze();
+        FunctionSearchDesc function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
         if (SetType.GLOBAL.equals(setType)) {
             Env.getCurrentEnv().getGlobalFunctionMgr().dropFunction(function, ifExists);
         } else {
@@ -94,7 +92,6 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
             LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
         }
         AgentTaskExecutor.submit(batchTask);
-
     }
 
     @Override
