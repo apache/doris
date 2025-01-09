@@ -78,12 +78,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
 
-    [[noreturn]] Field get_default() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_default() is not implemented for data type {}.",
-                               get_name());
-        __builtin_unreachable();
-    }
+    Field get_default() const override { return Null(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
