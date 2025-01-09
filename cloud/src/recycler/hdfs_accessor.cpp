@@ -368,14 +368,14 @@ int HdfsAccessor::init() {
     return 0;
 }
 
-    // Currently, the hdfs accessor deletes files on hdfs through a prefix parameter.
-    // The format of the prefix parameter is data/{tablet id}/{rowset_prefix}, 
-    // for example: data/492211/02000000008a012957476a3e174dfdaa71ee5f80a3abafa3_.
-    // Since the hdfs cpp sdk doesn't provide an interface for deleting by prefix,
-    // we need to extract the tablet id path from the given prefix, 
-    // traverse all files in the tablet id path, and delete the files that match the prefix.
-    // This implementation is not ideal because the hdfs accessor needs to be aware of the path structure.
-    // We will optimize this in the future.
+// Currently, the hdfs accessor deletes files on hdfs through a prefix parameter.
+// The format of the prefix parameter is data/{tablet id}/{rowset_prefix},
+// for example: data/492211/02000000008a012957476a3e174dfdaa71ee5f80a3abafa3_.
+// Since the hdfs cpp sdk doesn't provide an interface for deleting by prefix,
+// we need to extract the tablet id path from the given prefix,
+// traverse all files in the tablet id path, and delete the files that match the prefix.
+// This implementation is not ideal because the hdfs accessor needs to be aware of the path structure.
+// We will optimize this in the future.
 int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
     auto uri = to_uri(path_prefix);
     LOG(INFO) << "delete prefix, uri=" << uri;
