@@ -193,7 +193,8 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_DB: {
                     Database db = (Database) journal.getData();
-                    env.replayCreateDb(db);
+                    CreateDbInfo info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    env.replayCreateDb(info);
                     break;
                 }
                 case OperationType.OP_NEW_CREATE_DB: {
