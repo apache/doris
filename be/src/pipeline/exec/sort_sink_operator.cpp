@@ -71,6 +71,11 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     _shared_state->sorter->init_profile(_profile);
 
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+    _profile->add_info_string(
+            "SortAlgorithm",
+            p._algorithm == TSortAlgorithm::HEAP_SORT
+                    ? "HEAP_SORT"
+                    : (p._algorithm == TSortAlgorithm::TOPN_SORT ? "TOPN_SORT" : "FULL_SORT"));
     return Status::OK();
 }
 
