@@ -546,14 +546,15 @@ suite("test_stream_load_properties", "p0") {
     i = 0
     try {
         for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
             if (isCloudMode()) {
                 if (tableName.contains("mow") || tableName.contains("uniq")) {
+                    i++
                     continue
                 }
             }
-
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
             String txnId
             def tableName1 =  "stream_load_" + tableName
