@@ -527,7 +527,7 @@ suite('test_manager_interface_1',"p0") {
                     assertTrue(result[i]["SHUFFLE_SEND_BYTES"].toBigInteger() ==0) // SHUFFLE_SEND_BYTES     
                     assertTrue(result[i]["SHUFFLE_SEND_ROWS"].toBigInteger() ==0) // SHUFFLE_SEND_ROWS   
                     assertTrue(result[i]["CURRENT_USED_MEMORY_BYTES"]!=null) // CURRENT_USED_MEMORY_BYTES   
-                    assertTrue(result[i]["WORKLOAD_GROUP_ID"]!=null) // WORKLOAD_GROUP_NAME              
+                    assertTrue(result[i]["WORKLOAD_GROUP_NAME"]!=null) // WORKLOAD_GROUP_NAME              
                 }
             }
             assertTrue(x == 1)
