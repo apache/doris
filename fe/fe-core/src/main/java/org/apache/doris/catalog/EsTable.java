@@ -46,6 +46,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Elasticsearch table.
@@ -86,7 +87,7 @@ public class EsTable extends Table implements GsonPostProcessable {
     @SerializedName("pi")
     private PartitionInfo partitionInfo;
     private EsTablePartitions esTablePartitions;
-    private Set<EsNodeInfo> availableNodesInfo;
+    private Set<EsNodeInfo> availableNodesInfo = ConcurrentHashMap.newKeySet();
 
     // Whether to enable docvalues scan optimization for fetching fields more fast, default to true
     private boolean enableDocValueScan = Boolean.parseBoolean(EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE);
