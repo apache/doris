@@ -23,7 +23,11 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
 
     sql """
         DROP TABLE IF EXISTS dwd_com_abtest_result_inc_ymds;
-	DROP TABLE IF EXISTS dwd_tracking_sensor_init_tmp_ymds;
+	      DROP TABLE IF EXISTS dwd_tracking_sensor_init_tmp_ymds;
+    """
+
+    sql """
+      set topn_opt_limit_threshold=1024;
     """
 
     sql """
