@@ -18,6 +18,8 @@
 
 set -e -x
 
+parallel=$(getconf _NPROCESSORS_ONLN)
+
 nohup /opt/hive/bin/hive --service metastore &
 
 # wait metastore start
@@ -37,7 +39,7 @@ done
 touch "${lockfile1}"
 
 DATA_DIR="/mnt/scripts/data/"
-find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P 10 -I {} sh -c '
+find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P "${parallel}" -I {} sh -c '
     START_TIME=$(date +%s)
     chmod +x "{}" && "{}"
     END_TIME=$(date +%s)
@@ -92,45 +94,58 @@ fi
 rm -f "${lockfile2}"
 
 # put data file
+hadoop_put_pids=()
+hadoop fs -mkdir -p /user/doris/
+
+
 ## put tpch1
 if [[ -z "$(ls /mnt/scripts/tpch1.db)" ]]; then
     echo "tpch1.db does not exist"
     exit 1
 fi
-hadoop fs -mkdir -p /user/doris/
-hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
-if [[ -z "$(hadoop fs -ls /user/doris/tpch1.db)" ]]; then
-    echo "tpch1.db put failed"
-    exit 1
-fi
+hadoop fs -copyFromLocal -f /mnt/scripts/tpch1.db /user/doris/ &
+hadoop_put_pids+=($!)
 
 ## put paimon1
 if [[ -z "$(ls /mnt/scripts/paimon1)" ]]; then
     echo "paimon1 does not exist"
     exit 1
 fi
-hadoop fs -put /mnt/scripts/paimon1 /user/doris/
-if [[ -z "$(hadoop fs -ls /user/doris/paimon1)" ]]; then
-    echo "paimon1 put failed"
-    exit 1
-fi
+hadoop fs -copyFromLocal -f /mnt/scripts/paimon1 /user/doris/ &
+hadoop_put_pids+=($!)
 
 ## put tvf_data
 if [[ -z "$(ls /mnt/scripts/tvf_data)" ]]; then
     echo "tvf_data does not exist"
     exit 1
 fi
-hadoop fs -put /mnt/scripts/tvf_data /user/doris/
+hadoop fs -copyFromLocal -f /mnt/scripts/tvf_data /user/doris/ &
+hadoop_put_pids+=($!)
+
+## put other preinstalled data
+hadoop fs -copyFromLocal -f /mnt/scripts/preinstalled_data /user/doris/ &
+hadoop_put_pids+=($!)
+
+
+# wait put finish
+set +e
+wait "${hadoop_put_pids[@]}"
+set -e
+if [[ -z "$(hadoop fs -ls /user/doris/paimon1)" ]]; then
+    echo "paimon1 put failed"
+    exit 1
+fi
+if [[ -z "$(hadoop fs -ls /user/doris/tpch1.db)" ]]; then
+    echo "tpch1.db put failed"
+    exit 1
+fi
 if [[ -z "$(hadoop fs -ls /user/doris/tvf_data)" ]]; then
     echo "tvf_data put failed"
     exit 1
 fi
 
-## put other preinstalled data
-hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
-
 # create tables
-ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P 10 -I {} bash -c '
+ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P "${parallel}" -I {} bash -c '
     START_TIME=$(date +%s)
     hive -f {}
     END_TIME=$(date +%s)
