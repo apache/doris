@@ -4176,10 +4176,23 @@ public:
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
+        // if all input string is ascii, we can use ascii function to handle it
+        const bool is_all_ascii =
+                simd::VStringFunctions::is_ascii(StringRef {col_origin->get_chars().data(),
+                                                            col_origin->get_chars().size()}) &&
+                simd::VStringFunctions::is_ascii(
+                        StringRef {col_insert->get_chars().data(), col_insert->get_chars().size()});
         std::visit(
                 [&](auto origin_const, auto pos_const, auto len_const, auto insert_const) {
-                    vector<origin_const, pos_const, len_const, insert_const>(
-                            col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
+                    if (is_all_ascii) {
+                        vector_ascii<origin_const, pos_const, len_const, insert_const>(
+                                col_origin, col_pos, col_len, col_insert, col_res,
+                                input_rows_count);
+                    } else {
+                        vector_utf8<origin_const, pos_const, len_const, insert_const>(
+                                col_origin, col_pos, col_len, col_insert, col_res,
+                                input_rows_count);
+                    }
                 },
                 vectorized::make_bool_variant(col_const[0]),
                 vectorized::make_bool_variant(col_const[1]),
@@ -4191,9 +4204,9 @@ public:
 
 private:
     template <bool origin_const, bool pos_const, bool len_const, bool insert_const>
-    static void vector(const ColumnString* col_origin, int const* col_pos, int const* col_len,
-                       const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
-                       size_t input_rows_count) {
+    static void vector_ascii(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+                             const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
+                             size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
         StringRef origin_str, insert_str;
@@ -4219,6 +4232,55 @@ private:
                                      insert_str.end()); // copy all of insert_str.
                 col_res_chars.insert(
                         origin_str.data + pos + len,
+                        origin_str.end()); // copy origin_str from pos+len-1 to the end of the line.
+            }
+            ColumnString::check_chars_length(col_res_chars.size(), col_res_offsets.size());
+            col_res_offsets.push_back(col_res_chars.size());
+        }
+    }
+
+    template <bool origin_const, bool pos_const, bool len_const, bool insert_const>
+    static void vector_utf8(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+                            const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
+                            size_t input_rows_count) {
+        auto& col_res_chars = col_res->get_chars();
+        auto& col_res_offsets = col_res->get_offsets();
+        StringRef origin_str, insert_str;
+        // utf8_origin_offsets is used to store the offset of each utf8 character in the original string.
+        // for example, if the original string is "丝多a睿", utf8_origin_offsets will be {0, 3, 6, 7}.
+        std::vector<size_t> utf8_origin_offsets;
+        for (size_t i = 0; i < input_rows_count; i++) {
+            origin_str = col_origin->get_data_at(index_check_const<origin_const>(i));
+            // pos is 1-based index,so we need to minus 1
+            const auto pos = col_pos[index_check_const<pos_const>(i)] - 1;
+            const auto len = col_len[index_check_const<len_const>(i)];
+            insert_str = col_insert->get_data_at(index_check_const<insert_const>(i));
+            utf8_origin_offsets.clear();
+
+            for (size_t i = 0, char_size = 0; i < origin_str.size; i += char_size) {
+                utf8_origin_offsets.push_back(i);
+                char_size = get_utf8_byte_length(origin_str.data[i]);
+            }
+
+            const size_t utf8_origin_size = utf8_origin_offsets.size();
+
+            if (pos >= utf8_origin_size || pos < 0) {
+                // If pos is not within the length of the string, the original string is returned.
+                col_res->insert_data(origin_str.data, origin_str.size);
+                continue;
+            }
+            col_res_chars.insert(
+                    origin_str.data,
+                    origin_str.data +
+                            utf8_origin_offsets[pos]); // copy origin_str with index 0 to pos - 1
+            if (pos + len >= utf8_origin_size || len < 0) {
+                col_res_chars.insert(insert_str.begin(),
+                                     insert_str.end()); // copy all of insert_str.
+            } else {
+                col_res_chars.insert(insert_str.begin(),
+                                     insert_str.end()); // copy all of insert_str.
+                col_res_chars.insert(
+                        origin_str.data + utf8_origin_offsets[pos + len],
                         origin_str.end()); // copy origin_str from pos+len-1 to the end of the line.
             }
             ColumnString::check_chars_length(col_res_chars.size(), col_res_offsets.size());
