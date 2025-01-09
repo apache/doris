@@ -36,12 +36,12 @@ public class PartitionPhase implements SearchPhase {
     @Override
     public void execute(SearchContext context) throws DorisEsException {
         shardPartitions = client.searchShards(context.sourceIndex());
+        nodesInfo = new HashMap<>();
         if (context.nodesDiscovery() && !context.getAvailableNodesInfo().isEmpty()) {
             for (EsNodeInfo nodeInfo : context.getAvailableNodesInfo()) {
                 nodesInfo.put(nodeInfo.getId(), nodeInfo);
             }
         } else {
-            nodesInfo = new HashMap<>();
             String[] seeds = context.esTable().getSeeds();
             for (int i = 0; i < seeds.length; i++) {
                 nodesInfo.put(String.valueOf(i), new EsNodeInfo(String.valueOf(i), seeds[i]));
