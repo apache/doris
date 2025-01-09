@@ -41,4 +41,12 @@ class DelayEvent
    def event
       @event
    end
+
+   def documents
+      @event[0]
+   end
+
+   def first_retry
+      @event[3] == 2
+   end
 end
