@@ -940,7 +940,7 @@ public abstract class ExternalCatalog
         try {
             metadataOps.createDb(stmt);
             CreateDbInfo info = new CreateDbInfo(getName(), stmt.getFullDbName(), null);
-            Env.getCurrentEnv().getEditLog().logNewCreateDb(info);
+            Env.getCurrentEnv().getEditLog().logCreateDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to create database {} in catalog {}.", stmt.getFullDbName(), getName(), e);
             throw e;

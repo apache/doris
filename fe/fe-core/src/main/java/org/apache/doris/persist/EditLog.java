@@ -1427,11 +1427,7 @@ public class EditLog {
         logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
     }
 
-    public void logCreateDb(Database db) {
-        logEdit(OperationType.OP_CREATE_DB, db);
-    }
-
-    public void logNewCreateDb(CreateDbInfo info) {
+    public void logCreateDb(CreateDbInfo info) {
         logEdit(OperationType.OP_NEW_CREATE_DB, info);
     }
 
