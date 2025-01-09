@@ -44,14 +44,14 @@ suite("test_unicode_character_auth") {
     String dbName = 'test_unicode_character_auth_db'
     String tableName = 'test_unicode_character_auth_tb'
 
-    try_sql("DROP USER ${user1}")
-    try_sql("DROP USER ${user2}")
-    try_sql("DROP USER ${user3}")
-    try_sql("DROP USER ${user4}")
-    try_sql("DROP USER ${user5}")
-    try_sql("DROP USER ${user6}")
-    try_sql("DROP USER ${user7}")
-    try_sql("DROP USER ${user8}")
+    try_sql("DROP USER '${user1}'")
+    try_sql("DROP USER '${user2}'")
+    try_sql("DROP USER '${user3}'")
+    try_sql("DROP USER '${user4}'")
+    try_sql("DROP USER '${user5}'")
+    try_sql("DROP USER '${user6}'")
+    try_sql("DROP USER '${user7}'")
+    try_sql("DROP USER '${user8}'")
 
     //cloud-mode
     if (isCloudMode()) {
@@ -193,37 +193,37 @@ suite("test_unicode_character_auth") {
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from '${user4}'"""
 
-    try_sql("DROP role ${role1}")
-    try_sql("DROP role ${role2}")
-    try_sql("DROP role ${role3}")
-    try_sql("DROP role ${role4}")
-    try_sql("DROP role ${role5}")
-    try_sql("DROP role ${role6}")
-    try_sql("DROP role ${role7}")
-    try_sql("DROP role ${role8}")
+    try_sql("DROP role '${role1}'")
+    try_sql("DROP role '${role2}'")
+    try_sql("DROP role '${role3}'")
+    try_sql("DROP role '${role4}'")
+    try_sql("DROP role '${role5}'")
+    try_sql("DROP role '${role6}'")
+    try_sql("DROP role '${role7}'")
+    try_sql("DROP role '${role8}'")
 
-    sql """CREATE ROLE ${role1}"""
-    sql """CREATE ROLE ${role2}"""
-    sql """CREATE ROLE ${role3}"""
-    sql """CREATE ROLE ${role4}"""
+    sql """CREATE ROLE '${role1}'"""
+    sql """CREATE ROLE '${role2}'"""
+    sql """CREATE ROLE '${role3}'"""
+    sql """CREATE ROLE '${role4}'"""
 
     try {
-        sql """CREATE ROLE ${role5}"""
+        sql """CREATE ROLE '${role5}'"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
     try {
-        sql """CREATE ROLE ${role6}"""
+        sql """CREATE ROLE '${role6}'"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
     try {
-        sql """CREATE ROLE ${role7}"""
+        sql """CREATE ROLE '${role7}'"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
     try {
-        sql """CREATE ROLE ${role8}"""
+        sql """CREATE ROLE '${role8}'"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
@@ -289,13 +289,13 @@ suite("test_unicode_character_auth") {
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role4}'"""
 
-    try_sql("DROP USER ${user1}")
-    try_sql("DROP USER ${user2}")
-    try_sql("DROP USER ${user3}")
-    try_sql("DROP USER ${user4}")
-    try_sql("DROP USER ${user5}")
-    try_sql("DROP USER ${user6}")
-    try_sql("DROP USER ${user7}")
-    try_sql("DROP USER ${user8}")
+    try_sql("DROP USER '${user1}'")
+    try_sql("DROP USER '${user2}'")
+    try_sql("DROP USER '${user3}'")
+    try_sql("DROP USER '${user4}'")
+    try_sql("DROP USER '${user5}'")
+    try_sql("DROP USER '${user6}'")
+    try_sql("DROP USER '${user7}'")
+    try_sql("DROP USER '${user8}'")
 
 }
