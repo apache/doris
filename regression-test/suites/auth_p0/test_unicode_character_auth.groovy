@@ -18,11 +18,13 @@
 // There will be no problem when the user or role is a Unicode character.
 suite("test_unicode_character_auth") {
 
+    sql """set enable_unicode_name_support=true;"""
+
     String user1 = 'test_unicode_character_auth_userA'
     String user2 = 'test_unicode_character_auth_userΩ'
-    String user3 = 'test_unicode_character_auth_user.,!?©'
-    String user4 = 'test_unicode_character_auth_user一飞$'
-    String user5 = 'test_unicode_character_auth_user+-*÷>=≥'
+    String user3 = 'test_unicode_character_auth_user一飞'
+    String user4 = 'test_unicode_character_auth_user.,!?©'
+    String user5 = 'test_unicode_character_auth_user+-*÷>=≥$&'
     String user6 = 'test_unicode_character_auth_user😊😢🎉'
     String user7 = 'test_unicode_character_auth_user𝓐Δ'
     String user8 = 'test_unicode_character_auth_user𝔸⌘'
@@ -30,9 +32,9 @@ suite("test_unicode_character_auth") {
 
     String role1 = 'test_unicode_character_auth_roleA'
     String role2 = 'test_unicode_character_auth_roleΩ'
-    String role3 = 'test_unicode_character_auth_role.,!?©'
-    String role4 = 'test_unicode_character_auth_role一飞$'
-    String role5 = 'test_unicode_character_auth_role+-*÷>=≥'
+    String role3 = 'test_unicode_character_auth_role一飞'
+    String role4 = 'test_unicode_character_auth_role.,!?©'
+    String role5 = 'test_unicode_character_auth_role+-*÷>=≥$&'
     String role6 = 'test_unicode_character_auth_role😊😢🎉'
     String role7 = 'test_unicode_character_auth_role𝓐Δ'
     String role8 = 'test_unicode_character_auth_role𝔸⌘'
@@ -57,14 +59,8 @@ suite("test_unicode_character_auth") {
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user1}'"""
-        test {
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user2}'"""
-            exception "invalid user name"
-        }
-        test {
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user3}'"""
-            exception "invalid user name"
-        }
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user2}'"""
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user3}'"""
         test {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO '${user4}'"""
             exception "invalid user name"
@@ -90,14 +86,9 @@ suite("test_unicode_character_auth") {
     try_sql """drop database if exists ${dbName}"""
 
     sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
-    test {
-        sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
-        exception "invalid user name"
-    }
-    test {
-        sql """CREATE USER '${user3}' IDENTIFIED BY '${pwd}'"""
-        exception "invalid user name"
-    }
+    sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
+    sql """CREATE USER '${user3}' IDENTIFIED BY '${pwd}'"""
+
     test {
         sql """CREATE USER '${user4}' IDENTIFIED BY '${pwd}'"""
         exception "invalid user name"
@@ -120,14 +111,9 @@ suite("test_unicode_character_auth") {
     }
 
     sql """grant select_priv on regression_test to '${user1}'"""
-    test {
-        sql """grant select_priv on regression_test to '${user2}'"""
-        exception "invalid user name"
-    }
-    test {
-        sql """grant select_priv on regression_test to '${user3}'"""
-        exception "invalid user name"
-    }
+    sql """grant select_priv on regression_test to '${user2}'"""
+    sql """grant select_priv on regression_test to '${user3}'"""
+
     test {
         sql """grant select_priv on regression_test to '${user4}'"""
         exception "invalid user name"
@@ -160,8 +146,35 @@ suite("test_unicode_character_auth") {
         );"""
 
     sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user1}"""
-
     connect(user1, "${pwd}", context.config.jdbcUrl) {
+        sql """select * from ${dbName}.${tableName}"""
+        def res = sql """show grants"""
+        assertTrue(res[0][3] == "")
+        if (isCloudMode()) {
+            assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
+        } else {
+            assertTrue(res[0][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+        }
+        assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
+    }
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user1}"""
+
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user1}"""
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
+        sql """select * from ${dbName}.${tableName}"""
+        def res = sql """show grants"""
+        assertTrue(res[0][3] == "")
+        if (isCloudMode()) {
+            assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
+        } else {
+            assertTrue(res[0][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+        }
+        assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
+    }
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from ${user1}"""
+
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to ${user1}"""
+    connect(user3, "${pwd}", context.config.jdbcUrl) {
         sql """select * from ${dbName}.${tableName}"""
         def res = sql """show grants"""
         assertTrue(res[0][3] == "")
@@ -184,16 +197,9 @@ suite("test_unicode_character_auth") {
     try_sql("DROP role ${role8}")
 
     sql """CREATE ROLE ${role1}"""
+    sql """CREATE ROLE ${role2}"""
+    sql """CREATE ROLE ${role3}"""
 
-    test {
-        sql """CREATE ROLE ${role2}"""
-        exception "invalid role format"
-    }
-    try {
-        sql """CREATE ROLE ${role3}"""
-    } catch (Exception e) {
-        logger.info(e.getMessage())
-    }
     test {
         sql """CREATE ROLE ${role4}"""
         exception "invalid role format"
@@ -234,5 +240,35 @@ suite("test_unicode_character_auth") {
     }
     sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role1}'"""
 
+    sql """GRANT '${role2}' TO ${user2};"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role2}'"""
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
+        sql """select * from ${dbName}.${tableName}"""
+        def res = sql """show grants"""
+        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        if (isCloudMode()) {
+            assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
+        } else {
+            assertTrue(res[0][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+        }
+        assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
+    }
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role2}'"""
+
+
+    sql """GRANT '${role3}' TO ${user3};"""
+    sql """grant SELECT_PRIV on ${dbName}.${tableName} to role '${role3}'"""
+    connect(user3, "${pwd}", context.config.jdbcUrl) {
+        sql """select * from ${dbName}.${tableName}"""
+        def res = sql """show grants"""
+        assertTrue(res[0][3] == "test_unicode_character_auth_roleA")
+        if (isCloudMode()) {
+            assertTrue(res[0][6].contains("""internal.regression_test: Select_priv"""))
+        } else {
+            assertTrue(res[0][6] == """internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.regression_test: Select_priv""")
+        }
+        assertTrue(res[0][7] == "internal.test_unicode_character_auth_db.test_unicode_character_auth_tb: Select_priv")
+    }
+    sql """revoke SELECT_PRIV on ${dbName}.${tableName} from role '${role3}'"""
 
 }
