@@ -65,8 +65,4 @@ public class CleanLabelCommand extends Command implements ForwardWithSync {
     public StmtType stmtType() {
         return StmtType.CLEAN;
     }
-
-    public String toSql() {
-        return "CLEAN LABEL" + (Strings.isNullOrEmpty(label) ? " " : " " + label) + " FROM " + dbName;
-    }
 }

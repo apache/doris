@@ -5029,7 +5029,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Object visitCleanLabel(CleanLabelContext ctx) {
         String label = ctx.label == null ? null : ctx.label.getText();
         IdentifierContext database = ctx.database;
-        return new CleanLabelCommand(database.getText(), label);
+        return new CleanLabelCommand(stripQuotes(database.getText()), label);
     }
 
     @Override
