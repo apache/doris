@@ -101,8 +101,12 @@ import java.util.stream.Collectors;
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
     private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, "
-            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING";
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, SIMPLIFY_AGG_GROUP_BY, "
+            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING, INFER_PREDICATES, INFER_AGG_NOT_NULL, "
+            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, MAX_MIN_FILTER_PUSH_DOWN, "
+            + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
+            + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
+            + "ELIMINATE_FILTER_GROUP_BY_KEY";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -474,19 +478,23 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private void setKeyForSelectItems(List<MVColumnItem> selectItems, ValidateContext ctx) {
             if (ctx.orderByExprs != null) {
+                int nonAggNumber = 0;
+                for (MVColumnItem mvColumnItem : selectItems) {
+                    if (mvColumnItem.getAggregationType() != null) {
+                        break;
+                    }
+                    nonAggNumber++;
+                }
                 int size = ctx.orderByExprs.size();
+                if (size != nonAggNumber) {
+                    throw new AnalysisException("The number of columns in order clause must be equal with the number of"
+                            + " non-agg columns in select clause");
+                }
                 for (int i = 0; i < size; ++i) {
                     MVColumnItem mvColumnItem = selectItems.get(i);
                     Preconditions.checkState(mvColumnItem.getAggregationType() == null, String.format(
                             "key column's agg type should be null, but it's %s", mvColumnItem.getAggregationType()));
                     selectItems.get(i).setIsKey(true);
-                }
-                for (int i = size; i < selectItems.size(); ++i) {
-                    MVColumnItem mvColumnItem = selectItems.get(i);
-                    if (mvColumnItem.getAggregationType() != null) {
-                        break;
-                    }
-                    mvColumnItem.setAggregationType(AggregateType.NONE, true);
                 }
             } else {
                 /*
