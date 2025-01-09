@@ -202,28 +202,28 @@ suite("test_unicode_character_auth") {
     try_sql("DROP role '${role7}'")
     try_sql("DROP role '${role8}'")
 
-    sql """CREATE ROLE '${role1}'"""
-    sql """CREATE ROLE '${role2}'"""
-    sql """CREATE ROLE '${role3}'"""
-    sql """CREATE ROLE '${role4}'"""
+    sql """CREATE ROLE ${role1}"""
+    sql """CREATE ROLE ${role2}"""
+    sql """CREATE ROLE ${role3}"""
+    sql """CREATE ROLE ${role4}"""
 
     try {
-        sql """CREATE ROLE '${role5}'"""
+        sql """CREATE ROLE ${role5}"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
     try {
-        sql """CREATE ROLE '${role6}'"""
+        sql """CREATE ROLE ${role6}"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
     try {
-        sql """CREATE ROLE '${role7}'"""
+        sql """CREATE ROLE ${role7}"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
     try {
-        sql """CREATE ROLE '${role8}'"""
+        sql """CREATE ROLE ${role8}"""
     } catch (Exception e) {
         logger.info(e.getMessage())
     }
