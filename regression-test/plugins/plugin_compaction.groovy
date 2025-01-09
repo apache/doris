@@ -106,7 +106,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else {
+            } else if (trigger_status.status.contains("E-2000")) {
+                // ignore this tablet compaction.
+            }
+            else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
             }
         } else {
