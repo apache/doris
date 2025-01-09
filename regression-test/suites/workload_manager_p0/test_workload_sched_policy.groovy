@@ -270,12 +270,14 @@ suite("test_workload_sched_policy") {
                 try {
                     sql "select k0,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
                 } catch (Exception e) {
+                    logger.info("exception: ${e.getMessage()}")
                     assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
                 }
 
                 try {
                     sql "select count(1) from regression_test_load_p0_insert.baseall"
                 } catch (Exception e) {
+                    logger.info("exception: ${e.getMessage()}")
                     assertTrue(e.getMessage().contains("query canceled by workload scheduler"))
                 }
 
