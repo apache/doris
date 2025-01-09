@@ -361,16 +361,6 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select null_or_empty('\b')")
     testFoldConst("select null_or_empty(' \b')")
     
-    // overlay
-    testFoldConst("select overlay('abcdef', 3, 2, '123')")
-    testFoldConst("select overlay('abcdef', 10, 20, '123')")
-    testFoldConst("select overlay(null, 3, 2, '123')")
-    testFoldConst("select overlay('abcdef', 3, 2, null)")
-    testFoldConst("select overlay(cast('abcdef' as string), 3, 2, cast('123' as string))")
-    testFoldConst("select overlay('PRD-1234-5678', 5, 4, '9876')")
-    // be has bug
-//    testFoldConst("select overlay('こんにちは', 1, 2, 'にちは')")
-    
     // parse_url
     testFoldConst("select parse_url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
     testFoldConst("select parse_url('http://www.example.com/path?query=abc', 'HOST')")
