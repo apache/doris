@@ -21,8 +21,10 @@ suite("test_clean_label_nereids") {
     String tableName2 = "test_table2"
     String insertLabel = "label_" + System.currentTimeMillis()
 
-    sql """DROP TABLE IF EXISTS ${dbName}"""
+    sql """DROP DATABASE IF EXISTS ${dbName}"""
     sql """create database ${dbName}"""
+    // Clean up the label in advance
+    sql """clean label from ${dbName}"""
     sql """use ${dbName}"""
     sql """
             CREATE TABLE ${dbName}.${tableName1}(
@@ -72,8 +74,15 @@ suite("test_clean_label_nereids") {
         INSERT INTO ${dbName}.${tableName2} (user_id, name, age)
                 VALUES (7, "Simba", 31);
         """
+    //
+    def totalLabel = sql """show load from ${dbName}"""
+    println totalLabel
+    assert totalLabel.size() == 4
     // clean label
     checkNereidsExecute("clean label ${insertLabel} from ${dbName};")
     checkNereidsExecute("clean label  from ${dbName};")
+    def labelResult = sql """show load from ${dbName}"""
+    println labelResult
+    assert labelResult.size() == 0
     sql """drop database ${dbName}"""
 }
