@@ -264,6 +264,36 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     order_qt_null_partition "SELECT * FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
+    // date type will has problem
+    order_qt_date_partition_base_table "SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition"
+    test {
+         sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (`create_date`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition;
+            """
+          exception "Unable to find a suitable base table"
+      }
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition;
+        """
+    sql """
+         REFRESH MATERIALIZED VIEW ${mvName} auto;
+     """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_date_partition "SELECT * FROM ${mvName} "
+
+    sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 
 }
