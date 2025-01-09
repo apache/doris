@@ -55,7 +55,7 @@ public class FunctionArgTypesInfo {
     /**
      * validate
      */
-    public void validate() {
+    public void analyze() {
         argTypes = new Type[argTypeDefs.size()];
         int i = 0;
         for (DataType dataType : argTypeDefs) {

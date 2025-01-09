@@ -819,12 +819,13 @@ passwordOption
     ;
 
 functionArguments
-    : functionArgument (COMMA functionArgument)*
+    : DOTDOTDOT
+    | dataTypeList
+    | dataTypeList COMMA DOTDOTDOT
     ;
 
-functionArgument
-    : DOTDOTDOT
-    | dataType
+dataTypeList
+    : dataType (COMMA dataType)*
     ;
 
 supportedSetStatement

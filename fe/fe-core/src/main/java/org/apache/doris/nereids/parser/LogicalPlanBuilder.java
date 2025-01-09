@@ -130,6 +130,7 @@ import org.apache.doris.nereids.DorisParser.CreateUserDefineFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateViewContext;
 import org.apache.doris.nereids.DorisParser.CreateWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
+import org.apache.doris.nereids.DorisParser.DataTypeListContext;
 import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
@@ -163,8 +164,8 @@ import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
-import org.apache.doris.nereids.DorisParser.FunctionArgumentContext;
 import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
+import org.apache.doris.nereids.DorisParser.FunctionIdentifierContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
@@ -4169,9 +4170,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean ifNotExists = ctx.EXISTS() != null;
         boolean isAggFunction = ctx.AGGREGATE() != null;
         boolean isTableFunction = ctx.TABLES() != null;
-        String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
-        String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
-        FunctionName function = new FunctionName(dbName, functionName);
+        FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
         FunctionArgTypesInfo functionArgTypesInfo;
         if (ctx.functionArguments() != null) {
             functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
@@ -4196,9 +4195,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitCreateAliasFunction(CreateAliasFunctionContext ctx) {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifNotExists = ctx.EXISTS() != null;
-        String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
-        String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
-        FunctionName function = new FunctionName(dbName, functionName);
+        FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
         FunctionArgTypesInfo functionArgTypesInfo;
         if (ctx.functionArguments() != null) {
             functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
@@ -4216,9 +4213,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitDropFunction(DropFunctionContext ctx) {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifExists = ctx.EXISTS() != null;
-        String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
-        String dbName = ctx.functionIdentifier().dbName != null ? ctx.functionIdentifier().dbName.getText() : null;
-        FunctionName function = new FunctionName(dbName, functionName);
+        FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
         FunctionArgTypesInfo functionArgTypesInfo;
         if (ctx.functionArguments() != null) {
             functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
@@ -4230,24 +4225,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public FunctionArgTypesInfo visitFunctionArguments(FunctionArgumentsContext ctx) {
-        boolean isVariadic = false;
-        List<DataType> argTypeDefs = new ArrayList<>(4);
-        for (Object child : ctx.children) {
-            if (child instanceof FunctionArgumentContext) {
-                DataType dataType = visitFunctionArgument((FunctionArgumentContext) child);
-                if (dataType != null) {
-                    argTypeDefs.add(dataType.conversion());
-                } else {
-                    isVariadic = true;
-                }
-            }
+        boolean isVariadic = ctx.DOTDOTDOT() != null;
+        List<DataType> argTypeDefs;
+        if (ctx.dataTypeList() != null) {
+            argTypeDefs = visitDataTypeList(ctx.dataTypeList());
+        } else {
+            argTypeDefs = new ArrayList<>();
         }
         return new FunctionArgTypesInfo(argTypeDefs, isVariadic);
     }
 
     @Override
-    public DataType visitFunctionArgument(FunctionArgumentContext ctx) {
-        return ctx.dataType() != null ? typedVisit(ctx.dataType()) : null;
+    public FunctionName visitFunctionIdentifier(FunctionIdentifierContext ctx) {
+        String functionName = ctx.functionNameIdentifier().getText();
+        String dbName = ctx.dbName != null ? ctx.dbName.getText() : null;
+        return new FunctionName(dbName, functionName);
+    }
+
+    @Override
+    public List<DataType> visitDataTypeList(DataTypeListContext ctx) {
+        List<DataType> dataTypeList = new ArrayList<>(ctx.getChildCount());
+        for (DorisParser.DataTypeContext dataTypeContext : ctx.dataType()) {
+            DataType dataType = typedVisit(dataTypeContext);
+            dataTypeList.add(dataType.conversion());
+        }
+        return dataTypeList;
     }
 
     @Override
