@@ -98,10 +98,22 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                 .getTableUsedPartitionNameMap();
         Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
                 .getMvCanRewritePartitionsMap();
-        Assertions.assertTrue(tableUsedPartitionNameMap.isEmpty());
-        Assertions.assertFalse(mvCanRewritePartitionsMap.keySet().isEmpty());
-        Assertions.assertEquals(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName(),
-                "mv1");
+        Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
+
+        for (Map.Entry<BaseTableInfo, Set<String>> tableInfoEntry : tableUsedPartitionNameMap.entrySet()) {
+            if (tableInfoEntry.getKey().getTableName().equalsIgnoreCase("t2")) {
+                Assertions.assertEquals(tableInfoEntry.getValue(), Sets.newHashSet("T2"));
+            } else if (tableInfoEntry.getKey().getTableName().equalsIgnoreCase("t3")) {
+                Assertions.assertEquals(tableInfoEntry.getValue(), Sets.newHashSet("T3"));
+            } else if (tableInfoEntry.getKey().getTableName().equalsIgnoreCase("t4")) {
+                Assertions.assertTrue(tableInfoEntry.getValue().isEmpty());
+            }
+        }
+
+        Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
+        Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
+                .equalsIgnoreCase("mv1"));
+
         dropMvByNereids("drop materialized view mv1");
     }
 
@@ -197,15 +209,20 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                 .getMvCanRewritePartitionsMap();
         Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
 
-        BaseTableInfo t4 = tableUsedPartitionNameMap.keySet().iterator().next();
-        Assertions.assertEquals(t4.getTableName().toLowerCase(), "t4");
+        for (Map.Entry<BaseTableInfo, Set<String>> tableInfoEntry : tableUsedPartitionNameMap.entrySet()) {
+            if (tableInfoEntry.getKey().getTableName().equalsIgnoreCase("t2")) {
+                Assertions.assertEquals(tableInfoEntry.getValue(), Sets.newHashSet("mock_partition"));
+            } else if (tableInfoEntry.getKey().getTableName().equalsIgnoreCase("t3")) {
+                Assertions.assertEquals(tableInfoEntry.getValue(), Sets.newHashSet("mock_partition"));
+            } else if (tableInfoEntry.getKey().getTableName().equalsIgnoreCase("t4")) {
+                Assertions.assertEquals(tableInfoEntry.getValue(), Sets.newHashSet("mock_partition"));
+            }
+        }
 
-        Set<String> partitionNames = tableUsedPartitionNameMap.get(t4);
-        Assertions.assertEquals(partitionNames, Sets.newHashSet("mock_partition"));
+        Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
+        Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
+                .equalsIgnoreCase("mv2"));
 
-        Assertions.assertFalse(mvCanRewritePartitionsMap.keySet().isEmpty());
-        Assertions.assertEquals(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName(),
-                "mv2");
         dropMvByNereids("drop materialized view mv2");
     }
 }

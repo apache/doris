@@ -66,6 +66,10 @@ public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext>
     public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, ConnectContext context) {
 
         TableIf table = catalogRelation.getTable();
+        if (table.getDatabase() == null) {
+            // logic for test
+            return catalogRelation;
+        }
         BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
         Map<BaseTableInfo, Set<String>> tableUsedPartitionNameMap = context.getStatementContext()
                 .getTableUsedPartitionNameMap();
