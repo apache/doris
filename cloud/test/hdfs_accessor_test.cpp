@@ -295,6 +295,31 @@ TEST(HdfsAccessorTest, delete_prefix) {
     EXPECT_TRUE(list_files.contains("data/10000/20000/30000/1_0.dat"));
     EXPECT_TRUE(list_files.contains("data/10000/20000/1_0.dat"));
     EXPECT_TRUE(list_files.contains("data111/10000/1_0.dat"));
+
+    ret = accessor.delete_prefix("data/10000/20000");
+    EXPECT_EQ(ret, 0);
+
+    iter.reset();
+    ret = accessor.list_all(&iter);
+    EXPECT_EQ(ret, 0);
+    list_files.clear();
+    for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        list_files.insert(std::move(file->path));
+    }
+    EXPECT_EQ(list_files.size(), 1);
+    EXPECT_TRUE(list_files.contains("data111/10000/1_0.dat"));
+
+    ret = accessor.delete_prefix("data111/10000/1_0.dat");
+    EXPECT_EQ(ret, 0);
+
+    iter.reset();
+    ret = accessor.list_all(&iter);
+    EXPECT_EQ(ret, 0);
+    list_files.clear();
+    for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        list_files.insert(std::move(file->path));
+    }
+    EXPECT_EQ(list_files.size(), 0);
 }
 
 } // namespace doris::cloud
