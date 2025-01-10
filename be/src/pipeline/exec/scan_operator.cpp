@@ -265,7 +265,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
+            bool is_runtime_filter_predicate = conjunct_expr_root->is_rf_wrapper();
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -289,9 +289,12 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
+                            bool is_whole_range_before_push_down =
+                                    value_range.is_whole_value_range();
                             Defer mark_runtime_filter_flag {[&]() {
                                 value_range.mark_runtime_filter_predicate(
-                                        _is_runtime_filter_predicate);
+                                        is_whole_range_before_push_down &&
+                                        is_runtime_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
