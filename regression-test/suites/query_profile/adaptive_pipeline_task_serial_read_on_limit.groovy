@@ -130,8 +130,8 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
         }
     }
 
-    logger.info("profileShouldHaveOnePeakRunningScanner: {}", profileShouldHaveOnePeakRunningScanner)    
-    logger.info("profileShouldHaveMoreThanOnePeakRunningScanner: {}", profileShouldHaveMoreThanOnePeakRunningScanner)
+    logger.info("profileShouldHaveOnePeakRunningScanner: ${profileShouldHaveOnePeakRunningScanner}")    
+    logger.info("profileShouldHaveMoreThanOnePeakRunningScanner: ${profileShouldHaveMoreThanOnePeakRunningScanner}")
 
     assertTrue(profileShouldHaveOnePeakRunningScanner.size() == queryShouldHaveOnePeakRunningScanner.size())
     assertTrue(profileShouldHaveMoreThanOnePeakRunningScanner.size() == queryShouldHasMoreThanOnePeakRunningScanner.size())
