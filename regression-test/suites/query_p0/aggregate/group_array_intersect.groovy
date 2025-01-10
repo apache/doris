@@ -103,4 +103,6 @@ suite("group_array_intersect") {
     qt_notnull_4 """select group_array_intersect(c_array_string) from group_array_intersect_test_not_null where id between 1 and 2;"""
     qt_notnull_5 """select group_array_intersect(c_array_int), group_array_intersect(c_array_float), group_array_intersect(c_array_string) from group_array_intersect_test_not_null where id between 3 and 4;"""
     qt_notnull_6 """select group_array_intersect(c_array_string) from group_array_intersect_test_not_null where id between 1 and 5;"""
+    qt_notnull_7 """select array_sort(group_array_intersect(c_array_float)) from group_array_intersect_test_not_null where id between 1 and 5;"""
+
 }

@@ -88,7 +88,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         `v` text NULL,
         INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         ) ENGINE = OLAP DUPLICATE KEY(`k`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k`) BUCKETS 4 PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1", "inverted_index_storage_format"= "v2"
         );
     """
 

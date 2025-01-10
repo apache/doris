@@ -122,7 +122,7 @@ struct AggregateFunctionGroupArrayIntersectData {
                 set->insert(src_data);
             }
             init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
+        } else if (!set->empty()) {
             Set new_set = std::make_unique<NullableNumericOrDateSetType>();
 
             for (size_t i = 0; i < arr_size; ++i) {
@@ -210,10 +210,7 @@ public:
                 it->next();
             }
             init = true;
-            return;
-        }
-
-        if (set->size() != 0) {
+        } else if (!set->empty()) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set =
                         std::make_unique<typename State::NullableNumericOrDateSetType>();
@@ -414,7 +411,7 @@ public:
                 set->insert((void*)src.data, src.size);
             }
             init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
+        } else if (!set->empty()) {
             typename State::Set new_set = std::make_unique<NullableStringSet>();
 
             for (size_t i = 0; i < arr_size; ++i) {
@@ -447,7 +444,7 @@ public:
                 it->next();
             }
             init = true;
-        } else if (set->size() != 0) {
+        } else if (!set->empty()) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set = std::make_unique<NullableStringSet>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
