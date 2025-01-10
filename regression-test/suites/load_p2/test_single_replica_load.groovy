@@ -50,6 +50,7 @@ suite("test_single_replica_load", "p2, nonConcurrent") {
 
     def tableName = "test_single_replica_load"
 
+    context.reconnectToMasterFe()
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """ set disable_inverted_index_v1_for_variant = false """
     sql """
