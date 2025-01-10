@@ -907,6 +907,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return result;
     }
 
+    // get schemas with a copied column list
+    public Map<Long, List<Column>> getCopiedIndexIdToSchema(boolean full) {
+        Map<Long, List<Column>> result = Maps.newHashMap();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            result.put(entry.getKey(), new ArrayList<>(entry.getValue().getSchema(full)));
+        }
+        return result;
+    }
+
     public List<Column> getSchemaByIndexId(Long indexId) {
         return getSchemaByIndexId(indexId, Util.showHiddenColumns());
     }
