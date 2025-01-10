@@ -84,7 +84,7 @@ services:
       - doris--iceberg
     entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh
     healthcheck:
-      test: ["CMD", "curl, "--fail", "http://localhost:8181/v1/config"]
+      test: ["CMD", "curl", --fail", "http://localhost:8181/v1/config"]
       interval: 10s
       timeout: 60s
       retries: 30
