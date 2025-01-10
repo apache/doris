@@ -472,7 +472,6 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
-
     bool enable_verbose_profile() const {
         return enable_profile() && _query_options.__isset.enable_verbose_profile &&
                _query_options.enable_verbose_profile;
