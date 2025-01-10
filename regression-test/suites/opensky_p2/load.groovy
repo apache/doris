@@ -23,10 +23,7 @@ suite("load"){
     def sourceFiles=["reorder_flightlist_20190101_20190131.csv.gz", "reorder_flightlist_20190201_20190228.csv.gz", "reorder_flightlist_20190301_20190331.csv.gz", "reorder_flightlist_20190401_20190430.csv.gz", "reorder_flightlist_20190501_20190531.csv.gz", "reorder_flightlist_20190601_20190630.csv.gz", "reorder_flightlist_20190701_20190731.csv.gz", "reorder_flightlist_20190801_20190831.csv.gz", "reorder_flightlist_20190901_20190930.csv.gz", "reorder_flightlist_20191001_20191031.csv.gz", "reorder_flightlist_20191101_20191130.csv.gz", "reorder_flightlist_20191201_20191231.csv.gz", "reorder_flightlist_20200101_20200131.csv.gz", "reorder_flightlist_20200201_20200229.csv.gz", "reorder_flightlist_20200301_20200331.csv.gz", "reorder_flightlist_20200401_20200430.csv.gz", "reorder_flightlist_20200501_20200531.csv.gz", "reorder_flightlist_20200601_20200630.csv.gz", "reorder_flightlist_20200701_20200731.csv.gz", "reorder_flightlist_20200801_20200831.csv.gz", "reorder_flightlist_20200901_20200930.csv.gz", "reorder_flightlist_20201001_20201031.csv.gz", "reorder_flightlist_20201101_20201130.csv.gz", "reorder_flightlist_20201201_20201231.csv.gz", "reorder_flightlist_20210101_20210131.csv.gz", "reorder_flightlist_20210201_20210228.csv.gz", "reorder_flightlist_20210301_20210331.csv.gz", "reorder_flightlist_20210401_20210430.csv.gz", "reorder_flightlist_20210501_20210530.csv.gz", "reorder_flightlist_20210601_20210630.csv.gz"]
 
     sql """ DROP TABLE IF EXISTS $tableName """
-
-    def scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
-
-    sql new File("""${scriptDir}/ddl/${tableName}.sql""").text
+    sql new File("""${context.file.parent}/ddl/${tableName}.sql""").text
 
     for (String sourceFile in sourceFiles) {
         streamLoad {
