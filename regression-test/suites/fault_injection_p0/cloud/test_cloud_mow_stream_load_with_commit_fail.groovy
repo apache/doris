@@ -63,19 +63,57 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
         }
     }
 
-    def customFeConfig = [
-            calculate_delete_bitmap_task_timeout_seconds: 2,
-            meta_service_rpc_retry_times                : 5
-    ]
+    def customFeConfig1 = [calculate_delete_bitmap_task_timeout_seconds: 2, meta_service_rpc_retry_times: 5]
+    def customFeConfig2 = [delete_bitmap_lock_expiration_seconds: 1, meta_service_rpc_retry_times: 5]
+    String[][] backends = sql """ show backends """
+    assertTrue(backends.size() > 0)
+    String backendId;
+    def backendIdToBackendIP = [:]
+    def backendIdToBackendBrpcPort = [:]
+    for (String[] backend in backends) {
+        if (backend[9].equals("true")) {
+            backendIdToBackendIP.put(backend[0], backend[1])
+            backendIdToBackendBrpcPort.put(backend[0], backend[5])
+        }
+    }
 
-    // store the original value
-    get_be_param("mow_stream_load_commit_retry_times")
-    // disable retry to make this problem more clear
-    set_be_param("mow_stream_load_commit_retry_times", "1")
+    backendId = backendIdToBackendIP.keySet()[0]
+    def getMetricsMethod = { check_func ->
+        httpTest {
+            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+            uri "/brpc_metrics"
+            op "get"
+            check check_func
+        }
+    }
 
+    int total_retry = 0;
 
-    def tableName = "tbl_basic"
-    setFeConfigTemporary(customFeConfig) {
+    def getTotalRetry = {
+        getMetricsMethod.call() { respCode, body ->
+            logger.info("get total retry resp Code {}", "${respCode}".toString())
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            for (String line in strs) {
+                if (line.startsWith("stream_load_commit_retry_counter_for_test")) {
+                    logger.info("find: {}", line)
+                    total_retry = line.replaceAll("stream_load_commit_retry_counter_for_test ", "").toInteger()
+                    break
+                }
+            }
+        }
+    }
+
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs('FE.mow.check.lock.release', null)
+        // store the original value
+        get_be_param("mow_stream_load_commit_retry_times")
+        set_be_param("mow_stream_load_commit_retry_times", "2")
+        def tableName = "tbl_basic"
+
+        // 1.test normal load
+
         try {
             // create table
             sql """ drop table if exists ${tableName}; """
@@ -93,8 +131,6 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             "replication_num" = "1"
         );
         """
-            // this streamLoad will fail on fe commit phase
-            GetDebugPoint().enableDebugPointForAllFEs('FE.mow.commit.exception', null)
             streamLoad {
                 table "${tableName}"
 
@@ -113,8 +149,9 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             }
             qt_sql """ select * from ${tableName} order by id"""
 
-            // this streamLoad will success because of removing exception injection
-            GetDebugPoint().disableDebugPointForAllFEs('FE.mow.commit.exception')
+            getTotalRetry.call()
+            assertEquals(0, total_retry)
+
             streamLoad {
                 table "${tableName}"
 
@@ -131,12 +168,162 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
                 }
             }
             qt_sql """ select * from ${tableName} order by id"""
+
+            getTotalRetry.call()
+            assertEquals(0, total_retry)
         } finally {
-            reset_be_param("mow_stream_load_commit_retry_times")
-            GetDebugPoint().disableDebugPointForAllFEs('FE.mow.commit.exception')
             sql "DROP TABLE IF EXISTS ${tableName};"
-            GetDebugPoint().clearDebugPointsForAllFEs()
         }
 
+        //2. test commit_fail
+
+        setFeConfigTemporary(customFeConfig1) {
+            try {
+                // create table
+                sql """ drop table if exists ${tableName}; """
+
+                sql """
+        CREATE TABLE `${tableName}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1"
+        );
+        """
+                // this streamLoad will fail on fe commit phase
+                GetDebugPoint().enableDebugPointForAllFEs('FE.mow.commit.exception', null)
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("fail", json.Status.toLowerCase())
+                        assertTrue(json.Message.contains("FE.mow.commit.exception"))
+                    }
+                }
+                qt_sql """ select * from ${tableName} order by id"""
+
+                // not DELETE_BITMAP_LOCK_ERR will not retry
+                getTotalRetry.call()
+                assertEquals(0, total_retry)
+
+                // this streamLoad will success because of removing exception injection
+                GetDebugPoint().disableDebugPointForAllFEs('FE.mow.commit.exception')
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("success", json.Status.toLowerCase())
+                    }
+                }
+                qt_sql """ select * from ${tableName} order by id"""
+                getTotalRetry.call()
+                assertEquals(0, total_retry)
+            } finally {
+                reset_be_param("mow_stream_load_commit_retry_times")
+                GetDebugPoint().disableDebugPointForAllFEs('FE.mow.commit.exception')
+                sql "DROP TABLE IF EXISTS ${tableName};"
+                GetDebugPoint().clearDebugPointsForAllFEs()
+            }
+
+        }
+
+        //3.test calculate delete bitmap task timeout
+        setFeConfigTemporary(customFeConfig1) {
+            try {
+                // create table
+                sql """ drop table if exists ${tableName}; """
+
+                sql """
+        CREATE TABLE `${tableName}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1"
+        );
+        """
+                // this streamLoad will fail on calculate delete bitmap timeout
+                GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+
+                def now = System.currentTimeMillis()
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("fail", json.Status.toLowerCase())
+                        assertTrue(json.Message.contains("Timeout"))
+                    }
+                }
+                def time_cost = System.currentTimeMillis() - now
+                getTotalRetry.call()
+                assertEquals(2, total_retry)
+                assertTrue(time_cost > 4000, "wait time should bigger than total retry interval")
+                qt_sql """ select * from ${tableName} order by id"""
+
+                // this streamLoad will success because of removing timeout simulation
+                GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("success", json.Status.toLowerCase())
+                    }
+                }
+                getTotalRetry.call()
+                assertEquals(2, total_retry)
+                qt_sql """ select * from ${tableName} order by id"""
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+                sql "DROP TABLE IF EXISTS ${tableName};"
+            }
+        }
+        //4. test
+    } finally {
+        reset_be_param("mow_stream_load_commit_retry_times")
+        GetDebugPoint().disableDebugPointForAllFEs('FE.mow.check.lock.release')
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().clearDebugPointsForAllFEs()
     }
+
 }
