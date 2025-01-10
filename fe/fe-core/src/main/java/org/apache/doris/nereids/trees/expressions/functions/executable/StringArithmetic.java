@@ -798,22 +798,22 @@ public class StringArithmetic {
      * Executable arithmetic functions overlay
      */
     @ExecFunction(name = "overlay")
-    public static Expression overlay(StringLikeLiteral first,
-                                        IntegerLiteral second, IntegerLiteral third, StringLikeLiteral four) {
+    public static Expression overlay(StringLikeLiteral originStr,
+            IntegerLiteral pos, IntegerLiteral len, StringLikeLiteral insertStr) {
         StringBuilder sb = new StringBuilder();
-        if (second.getValue() <= 0 || second.getValue() > first.getValue().length()) {
-            return first;
+        if (pos.getValue() <= 0 || pos.getValue() > originStr.getValue().length()) {
+            return originStr;
         } else {
-            if (third.getValue() < 0 || third.getValue() > (first.getValue().length() - third.getValue())) {
-                sb.append(first.getValue().substring(0, second.getValue() - 1));
-                sb.append(four.getValue());
-                return castStringLikeLiteral(first, sb.toString());
+            if (len.getValue() < 0 || (pos.getValue() + len.getValue()) > originStr.getValue().length()) {
+                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+                sb.append(insertStr.getValue());
+                return castStringLikeLiteral(originStr, sb.toString());
             } else {
-                sb.append(first.getValue().substring(0, second.getValue() - 1));
-                sb.append(four.getValue());
-                sb.append(first.getValue().substring(second.getValue()
-                        + third.getValue() - 1, first.getValue().length()));
-                return castStringLikeLiteral(first, sb.toString());
+                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+                sb.append(insertStr.getValue());
+                sb.append(originStr.getValue().substring(pos.getValue()
+                        + len.getValue() - 1, originStr.getValue().length()));
+                return castStringLikeLiteral(originStr, sb.toString());
             }
         }
     }

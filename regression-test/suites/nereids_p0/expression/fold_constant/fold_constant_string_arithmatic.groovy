@@ -369,6 +369,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select overlay(cast('abcdef' as string), 3, 2, cast('123' as string))")
     testFoldConst("select overlay('PRD-1234-5678', 5, 4, '9876')")
     testFoldConst("select overlay('こんにちは', 1, 2, 'にちは')")
+    testFoldConst("select overlay('123456789123456789', 3, 12, 'abc')")
     
     // parse_url
     testFoldConst("select parse_url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
