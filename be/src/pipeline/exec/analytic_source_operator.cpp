@@ -17,6 +17,7 @@
 
 #include "analytic_source_operator.h"
 
+#include <cstddef>
 #include <string>
 
 #include "pipeline/exec/operator.h"
@@ -34,6 +35,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
+    _filtered_rows_counter = ADD_COUNTER(profile(), "FilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -55,6 +57,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         if (!local_state._shared_state->blocks_buffer.empty()) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
+            auto output_rows = output_block->rows();
             //if buffer have no data and sink not eos, block reading and wait for signal again
             RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
                     local_state._conjuncts, output_block, output_block->columns()));
@@ -69,7 +72,9 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                 }
             }
             if (!output_block->empty()) {
-                local_state._num_rows_returned += output_block->rows();
+                auto return_rows = output_block->rows();
+                local_state._num_rows_returned += return_rows;
+                COUNTER_UPDATE(local_state._filtered_rows_counter, output_rows - return_rows);
             }
         } else {
             //iff buffer have no data and sink eos, set eos
@@ -77,6 +82,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             *eos = local_state._shared_state->sink_eos;
         }
     }
+    local_state.reached_limit(output_block, eos);
     return Status::OK();
 }
 

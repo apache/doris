@@ -38,6 +38,7 @@ public:
 private:
     friend class AnalyticSourceOperatorX;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
 };
 
 class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
