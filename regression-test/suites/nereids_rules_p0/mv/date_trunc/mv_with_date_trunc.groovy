@@ -1447,7 +1447,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    mv_rewrite_success_without_check_chosen(query4_0, "mv4_0")
+    mv_rewrite_success(query4_0, "mv4_0", true, is_partition_statistics_ready(db, ["lineitem", "mv4_0"]))
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
@@ -1464,7 +1464,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    mv_rewrite_success_without_check_chosen(query4_1, "mv4_1")
+    mv_rewrite_success(query4_1, "mv4_1", true, is_partition_statistics_ready(db, ["lineitem", "mv4_1"]))
     order_qt_query4_1_after "${query4_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
@@ -1502,7 +1502,7 @@ suite("mv_with_date_trunc") {
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
     // should success because as datetime would be datetime(6)
-    mv_rewrite_success_without_check_chosen(db, mv5_0, query5_0, "mv5_0")
+    async_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
@@ -1572,7 +1572,7 @@ suite("mv_with_date_trunc") {
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
     // data is not valid
-    mv_rewrite_success_without_check_chosen(db, mv5_3, query5_3, "mv5_3")
+    async_mv_rewrite_success(db, mv5_3, query5_3, "mv5_3")
     order_qt_query5_3_after "${query5_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_3"""
 }
