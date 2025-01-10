@@ -42,11 +42,6 @@ template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
-    // only use in outer join as the bool column to mark for function of `tuple_is_null`
-    if (p._is_outer_join) {
-        _tuple_is_null_left_flag_column = vectorized::ColumnUInt8::create();
-        _tuple_is_null_right_flag_column = vectorized::ColumnUInt8::create();
-    }
     _output_expr_ctxs.resize(p._output_expr_ctxs.size());
     for (size_t i = 0; i < _output_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_ctxs[i]->clone(state, _output_expr_ctxs[i]));
@@ -94,14 +89,6 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     }
     output_block->swap(*origin_block);
     return Status::OK();
-}
-
-template <typename SharedStateArg, typename Derived>
-void JoinProbeLocalState<SharedStateArg, Derived>::_reset_tuple_is_null_column() {
-    if (Base::_parent->template cast<typename Derived::Parent>()._is_outer_join) {
-        reinterpret_cast<vectorized::ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
-        reinterpret_cast<vectorized::ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
-    }
 }
 
 template <typename LocalStateType>

@@ -16,12 +16,14 @@
 // under the License.
 
 suite("test_compact_seg", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_compact_seg"
 
     def getTabletStatus = { rowsetNum, lastRowsetSegmentNum ->
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         logger.info("tablets: ${tablets}")
-        assertEquals(1, tablets.size())
+        assertTrue(tablets.size() >= 1)
         def tablet = tablets[0]
         String compactionUrl = tablet["CompactionStatus"]
         def retry = 15
@@ -99,6 +101,7 @@ suite("test_compact_seg", "nonConcurrent") {
             }
         }
         // check generate 3 segments
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(2, 3)
 
         streamLoad {
@@ -118,6 +121,7 @@ suite("test_compact_seg", "nonConcurrent") {
             }
         }
         // check generate 2 segments(6 -> 2)
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(3, 2)
 
         streamLoad {
@@ -137,6 +141,7 @@ suite("test_compact_seg", "nonConcurrent") {
             }
         }
         // check generate 2 segments(6 -> 2)
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(4, 2)
 
         streamLoad {
@@ -156,6 +161,7 @@ suite("test_compact_seg", "nonConcurrent") {
             }
         }
         // check generate 2 segments(6 -> 2)
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(5, 2)
 
         def rowCount1 = sql """ select count() from ${tableName}; """

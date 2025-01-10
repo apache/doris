@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit;
+import org.awaitility.Awaitility;
+
 suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docker_mysql") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -23,6 +26,18 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-5.1.49.jar"
     String mysql_port = context.config.otherConfigs.get("mysql_57_port");
+
+    def wait_db_sync = { String ctl ->
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+            try {
+                def res = sql "show databases from ${ctl}"
+                return res.size() > 0;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+    }
     // String driver_url = "mysql-connector-java-5.1.49.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "test_jdbc_catalog_ddl";
@@ -38,6 +53,11 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
                 "driver_class" = "com.mysql.jdbc.Driver",
                 "use_meta_cache" = "${useMetaCache}"
             );"""
+
+            if (useMetaCache.equals("false")) {
+                wait_db_sync("${catalog_name}")
+            }
+
             def res = sql(""" show databases from ${catalog_name}; """).collect {x -> x[0] as String}
             println("show databases result " + res);
             def containedDb = ['mysql', 'doris_test', 'information_schema']
@@ -68,6 +88,7 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
 
             if (useMetaCache.equals("false")) {
                 sql """refresh catalog ${catalog_name}"""
+                wait_db_sync("${catalog_name}")
             }
             sql "use ${catalog_name}.temp_database"
             qt_sql01 """select * from temp_table"""

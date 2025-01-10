@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
@@ -859,9 +858,7 @@ public class LoadManager implements Writable {
         }
     }
 
-    public void cleanLabel(CleanLabelStmt stmt) throws DdlException {
-        String dbName = stmt.getDb();
-        String label = stmt.getLabel();
+    public void cleanLabel(String dbName, String label) throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         cleanLabelInternal(db.getId(), label, false);
     }

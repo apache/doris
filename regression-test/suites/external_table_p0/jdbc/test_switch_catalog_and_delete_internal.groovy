@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_switch_catalog_and_delete_internal") {
+suite("test_switch_catalog_and_delete_internal", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String mysql_port = context.config.otherConfigs.get("mysql_57_port");
