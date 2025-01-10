@@ -77,6 +77,7 @@ suite("test_audit_log_behavior") {
         sql "set enable_nereids_planner=${on}"
         sql "truncate table  __internal_schema.audit_log"
         // run queries
+        sql "set global audit_plugin_max_sql_length = 58"
         for (int i = 0; i < cnt; i++) {
             def tuple2 = sqls.get(i)
             sql tuple2[0]
@@ -103,7 +104,7 @@ suite("test_audit_log_behavior") {
                 sleep(1000)
                 res = sql "${query}"
             }
-            assertEquals(res[0][0].toString(), tuple2[1].toString())
+            assertEquals(tuple2[1].toString(), res[0][0].toString());
         }
     }
     // do not turn off
