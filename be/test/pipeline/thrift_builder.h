@@ -86,7 +86,7 @@ private:
 class TPlanNodeBuilder {
 public:
     explicit TPlanNodeBuilder(TPlanNodeId node_id, TPlanNodeType::type node_type,
-                              int num_children = 0, int64_t limit = 0, bool compact_data = true)
+                              int num_children = 0, int64_t limit = -1, bool compact_data = true)
             : _plan_node() {
         _plan_node.node_id = node_id;
         _plan_node.node_type = node_type;
