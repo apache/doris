@@ -333,8 +333,6 @@ suite("null_aware_anti") {
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
-
-    // multi not in with 'and'
     def mv3_1 =
             """
             select  lineitem.L_LINENUMBER
@@ -363,6 +361,36 @@ suite("null_aware_anti") {
     async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
+
+
+    // multi not in with 'and'
+    def mv3_2 =
+            """
+            select  lineitem.L_LINENUMBER
+            from lineitem
+            where L_ORDERKEY not in (
+                select o_custkey from orders_nullable
+            )
+            and
+            l_partkey not in (
+                select ps_suppkey from partsupp_nullable
+            );
+            """
+    def query3_2 = """
+            select  lineitem.L_LINENUMBER
+            from lineitem
+            where L_ORDERKEY not in (
+                select o_custkey from orders_nullable
+            )
+            and
+            l_partkey not in (
+                select ps_suppkey from partsupp_nullable
+            );
+            """
+    order_qt_query3_2_before "${query3_2}"
+    async_mv_rewrite_success(db, mv3_2, query3_2, "mv3_2")
+    order_qt_query3_2_after "${query3_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
 
     // not in [null literal]
@@ -547,5 +575,94 @@ suite("null_aware_anti") {
     async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
+
+
+    // with window function
+    def mv7_0 =
+            """
+            select *
+            from
+            (
+            select
+            lineitem.L_LINENUMBER,
+            sum(L_LINENUMBER) over
+            (
+            partition by L_ORDERKEY
+            order by L_ORDERKEY
+            rows between 1 preceding and 1 following
+            ) as sum_window
+            from lineitem
+            ) t
+            where 
+            sum_window
+            not in (
+                select bin(o_custkey) from orders_nullable
+                left join
+                partsupp_nullable on o_orderkey = ps_partkey
+            );
+            """
+    def query7_0 = """
+            select *
+            from
+            (
+            select
+            lineitem.L_LINENUMBER,
+            sum(L_LINENUMBER) over
+            (
+            partition by L_ORDERKEY
+            order by L_ORDERKEY
+            rows between 1 preceding and 1 following
+            ) as sum_window
+            from lineitem
+            ) t
+            where 
+            sum_window
+            not in (
+                select bin(o_custkey) from orders_nullable
+                left join
+                partsupp_nullable on o_orderkey = ps_partkey
+            );
+            """
+    order_qt_query7_0_before "${query7_0}"
+    async_mv_rewrite_fail(db, mv7_0, query7_0, "mv7_0")
+    order_qt_query7_0_after "${query7_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
+
+
+    def mv7_1 =
+            """
+            select bin(o_custkey) from orders_nullable
+            where
+            o_custkey
+            not in (
+            select
+            sum(L_LINENUMBER) over
+            (
+            partition by L_ORDERKEY
+            order by L_ORDERKEY
+            rows between 1 preceding and 1 following
+            ) as sum_window
+            from lineitem
+            );
+            """
+    def query7_1 = """
+            select bin(o_custkey) from orders_nullable
+            where
+            o_custkey
+            not in (
+            select
+            sum(L_LINENUMBER) over
+            (
+            partition by L_ORDERKEY
+            order by L_ORDERKEY
+            rows between 1 preceding and 1 following
+            ) as sum_window
+            from lineitem
+            );
+            """
+    order_qt_query7_1_before "${query7_1}"
+    async_mv_rewrite_fail(db, mv7_1, query7_1, "mv7_1")
+    order_qt_query7_1_after "${query7_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
 
 }
