@@ -1106,6 +1106,9 @@ DECLARE_Int64(file_cache_recycle_keys_size);
 // If your file cache is ample enough to accommodate all the data in your database,
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
+// encoding segment file info into file cache key for tracing, clean cache
+// after change
+DECLARE_Bool(enable_file_cache_debug_hash);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

@@ -226,14 +226,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
 }
 
-/*
-UInt128Wrapper BlockFileCache::hash(const std::string& path) {
-    uint128_t value;
-    sip_hash128(path.data(), path.size(), reinterpret_cast<char*>(&value));
-    return UInt128Wrapper(value);
-}
-*/
-
 bool is_valid_hex(const std::string& hex) {
     for (char c : hex) {
         if (!std::isxdigit(c)) {
@@ -267,26 +259,29 @@ std::vector<uint64_t> process_hex_string(const std::string& hex) {
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
     uint128_t value;
 
-    size_t underscore_pos = path.find('_');
-    std::string hex = path.substr(0, underscore_pos);
-    std::string remain = path.substr(underscore_pos + 1);
+    if (!config::enable_file_cache_debug_hash) {
+        sip_hash128(path.data(), path.size(), reinterpret_cast<char*>(&value));
+    } else {
+        size_t underscore_pos = path.find('_');
+        std::string hex = path.substr(0, underscore_pos);
+        std::string remain = path.substr(underscore_pos + 1);
 
-    size_t dot_pos = remain.find('.');
-    std::string segment_num_hex = remain.substr(0, dot_pos);
+        size_t dot_pos = remain.find('.');
+        std::string segment_num_hex = remain.substr(0, dot_pos);
 
-    try {
-        std::vector<uint64_t> data = process_hex_string(hex);
-        uint8_t segment_num = (uint8_t)std::stoi(segment_num_hex);
+        try {
+            std::vector<uint64_t> data = process_hex_string(hex);
+            uint8_t segment_num = (uint8_t)std::stoi(segment_num_hex);
 
-        uint64_t high = data[0];
-        uint64_t low = (data[2] & 0xFFFFFFFFFFFFFF00) | segment_num;
+            uint64_t high = data[0];
+            uint64_t low = (data[2] & 0xFFFFFFFFFFFFFF00) | segment_num;
 
-        value = (static_cast<uint128_t>(high) << 64) | low;
-    } catch (const std::invalid_argument& e) {
-        // Handle the error
-        LOG(WARNING) << "Invalid path: " << path << " error: " << e.what();
+            value = (static_cast<uint128_t>(high) << 64) | low;
+        } catch (const std::invalid_argument& e) {
+            // Handle the error
+            LOG(WARNING) << "Invalid path: " << path << " error: " << e.what();
+        }
     }
-
     return UInt128Wrapper(value);
 }
 
