@@ -207,8 +207,7 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
     }
     LOG(INFO) << debug_msg;
 
-    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-            state->get_query_ctx()->shared_from_this(), reserve_size, st);
+    state->get_query_ctx()->set_low_memory_mode();
 }
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
