@@ -1279,11 +1279,15 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         /// If `group_by_limit_opt` is true, then it might not need to spill at all.
         const bool enable_spill = _runtime_state->enable_spill() &&
                                   !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt;
+        const bool is_streaming_agg = tnode.agg_node.__isset.use_streaming_preaggregation &&
+                                      tnode.agg_node.use_streaming_preaggregation &&
+                                      !tnode.agg_node.grouping_exprs.empty();
+        const bool can_use_distinct_streaming_agg =
+                is_streaming_agg && tnode.agg_node.aggregate_functions.empty() &&
+                request.query_options.__isset.enable_distinct_streaming_aggregation &&
+                request.query_options.enable_distinct_streaming_aggregation;
 
-        if (tnode.agg_node.aggregate_functions.empty() && !enable_spill &&
-            request.query_options.__isset.enable_distinct_streaming_aggregation &&
-            request.query_options.enable_distinct_streaming_aggregation &&
-            !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt) {
+        if (can_use_distinct_streaming_agg) {
             if (enable_query_cache) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
@@ -1305,9 +1309,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 RETURN_IF_ERROR(cur_pipe->add_operator(
                         op, request.__isset.parallel_instances ? request.parallel_instances : 0));
             }
-        } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
-                   tnode.agg_node.use_streaming_preaggregation &&
-                   !tnode.agg_node.grouping_exprs.empty()) {
+        } else if (is_streaming_agg) {
             if (enable_query_cache) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));

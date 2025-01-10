@@ -426,11 +426,8 @@ Status PipelineTask::execute(bool* eos) {
                         debug_msg += fmt::format(", debug info: {}",
                                                  GlobalMemoryArbitrator::process_mem_log_str());
                     }
-                    LOG(INFO) << debug_msg;
-
-                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                            _state->get_query_ctx()->shared_from_this(), reserve_size, st);
-                    continue;
+                    LOG_EVERY_N(INFO, 100) << debug_msg;
+                    _state->get_query_ctx()->set_low_memory_mode();
                 }
             }
 
@@ -443,11 +440,13 @@ Status PipelineTask::execute(bool* eos) {
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
             auto workload_group = _state->get_query_ctx()->workload_group();
             if (_state->enable_reserve_memory() && workload_group &&
                 !(wake_up_early() || _dry_run)) {
-                status = thread_context()->try_reserve_memory(sink_reserve_size);
+                const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
+                status = sink_reserve_size != 0
+                                 ? thread_context()->try_reserve_memory(sink_reserve_size)
+                                 : Status::OK();
 
                 if (status.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
                     _sink->revocable_mem_size(_state) >=
@@ -468,16 +467,21 @@ Status PipelineTask::execute(bool* eos) {
                         debug_msg += fmt::format(", debug info: {}",
                                                  GlobalMemoryArbitrator::process_mem_log_str());
                     }
-                    VLOG_DEBUG << debug_msg;
 
-                    DCHECK_EQ(_pending_block.get(), nullptr);
-                    _pending_block = std::move(_block);
-                    _block = vectorized::Block::create_unique(_pending_block->clone_empty());
-                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                            _state->get_query_ctx()->shared_from_this(), sink_reserve_size, status);
-                    _pending_eos = *eos;
-                    *eos = false;
-                    continue;
+                    if (_sink->revocable_mem_size(_state) >= _state->spill_min_revocable_mem()) {
+                        VLOG_DEBUG << debug_msg;
+                        DCHECK_EQ(_pending_block.get(), nullptr);
+                        _pending_block = std::move(_block);
+                        _block = vectorized::Block::create_unique(_pending_block->clone_empty());
+                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                                _state->get_query_ctx()->shared_from_this(), sink_reserve_size,
+                                status);
+                        _pending_eos = *eos;
+                        *eos = false;
+                        continue;
+                    } else {
+                        _state->get_query_ctx()->set_low_memory_mode();
+                    }
                 }
             }
 
