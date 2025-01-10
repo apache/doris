@@ -92,6 +92,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
 
+    //for read hms acid table.
+    private HiveAcidTransactionMgr hiveAcidTransactionMgr;
+
     @VisibleForTesting
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -187,6 +190,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
                 fileSystemExecutor);
         metadataOps = hiveOps;
+        hiveAcidTransactionMgr = new HiveAcidTransactionMgr();
     }
 
     @Override
@@ -398,6 +402,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
             icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
         }
         return icebergMetadataOps;
+    }
+
+    public HiveAcidTransactionMgr getHiveAcidTransactionMgr() {
+        return hiveAcidTransactionMgr;
     }
 }
 

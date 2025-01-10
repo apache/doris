@@ -828,18 +828,28 @@ public class StmtExecutor {
             if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
                 statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
+            boolean planHasException = false;
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
             } catch (MustFallbackException e) {
+                planHasException = true;
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (Exception e) {
+                planHasException = true;
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
+            } finally {
+                if (planHasException) {
+                    Env.getCurrentQueryCallBackMgr().planFailCallback(queryId);
+                }
             }
+
             profile.getSummaryProfile().setQueryPlanFinishTime();
+
             handleQueryWithRetry(queryId);
+            Env.getCurrentQueryCallBackMgr().queryEndCallback(queryId);
         }
     }
 

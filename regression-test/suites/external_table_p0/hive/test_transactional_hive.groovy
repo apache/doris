@@ -115,6 +115,93 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         }
     }
 
+    def test_acid_join = { String catalogname2 -> 
+        sql """set enable_fallback_to_original_planner=false;"""
+        
+        qt_acid_join_1 """ 
+            SELECT 
+                a.id AS compacted_id,
+                a.value AS compacted_value,
+                b.id AS minor_id,
+                b.value AS minor_value
+            FROM 
+                orc_to_acid_compacted_tb a
+            JOIN 
+                orc_acid_minor b
+            ON 
+                a.id = b.id
+            WHERE 
+                a.id > 1
+            ORDER BY 
+                a.id;
+        """
+
+        qt_acid_join_2 """ 
+            SELECT 
+                c.id AS compacted_id,
+                c.value AS compacted_value,
+                m.id AS minor_id,
+                m.value AS minor_value,
+                a.id AS major_id,
+                a.value AS major_value
+            FROM 
+                orc_to_acid_compacted_tb c
+            JOIN 
+                orc_acid_minor m ON c.id = m.id
+            JOIN 
+                orc_acid_major a ON c.id = a.id
+            WHERE 
+                a.value = 'BB' 
+            ORDER BY 
+                c.id;
+        """
+
+        qt_acid_join_3 """
+            SELECT 
+                c.id AS compacted_id,
+                c.value AS compacted_value,
+                a.id AS major_id,
+                a.value AS major_value
+            FROM 
+                orc_to_acid_compacted_tb c
+            LEFT JOIN 
+                orc_acid_major a ON c.id = a.id
+            WHERE 
+                c.part_col = 102 
+            ORDER BY 
+                c.id;
+        """
+
+
+        qt_acid_join_4 """
+            SELECT a.id, a.value AS value_a, b.value AS value_b
+            FROM orc_full_acid_par a
+            JOIN orc_full_acid_par b
+            ON a.id = b.id
+            WHERE a.part_col = 20230101
+            AND b.part_col = 20230102;
+            """
+
+
+        qt_acid_join_5 """
+            SELECT a.id, a.value AS value_a, b.value AS value_b
+            FROM orc_full_acid_par a
+            JOIN orc_full_acid_par b
+            ON a.id = b.id
+            WHERE a.part_col = 20230101
+            order by a.id;
+            """
+
+        qt_acid_join_6 """
+            SELECT a.id, a.value AS value_a, b.value AS value_b
+            FROM orc_full_acid_par a
+            JOIN  ${catalogname2}.`default`.orc_full_acid_par b
+            ON a.id = b.id
+            WHERE a.part_col = 20230102
+            order by a.id;
+            """
+    }
+
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -127,6 +214,8 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "test_transactional_${hivePrefix}"
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """drop catalog if exists ${catalog_name}_2"""    
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -148,7 +237,18 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
             test_acid()
             test_acid_write()
 
+
+            sql """ create catalog if not exists ${catalog_name}_2 properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+                ,'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+            );"""
+
+            test_acid_join("${catalog_name}_2")
+
             sql """drop catalog if exists ${catalog_name}"""
+            sql """drop catalog if exists ${catalog_name}_2"""
+        
         } finally {
         }
     }

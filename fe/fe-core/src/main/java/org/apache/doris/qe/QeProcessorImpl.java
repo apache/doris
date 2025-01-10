@@ -193,9 +193,6 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
             }
         }
-
-        // commit hive tranaction if needed
-        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
     }
 
     @Override

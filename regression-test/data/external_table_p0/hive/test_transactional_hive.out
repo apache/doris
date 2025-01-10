@@ -122,3 +122,26 @@ F
 -- !16 --
 4	DD
 
+-- !acid_join_1 --
+2	BB	2	BB
+4	D	4	DD
+
+-- !acid_join_2 --
+2	BB	2	BB	2	BB
+
+-- !acid_join_3 --
+2	BB	2	BB
+4	D	4	DD
+
+-- !acid_join_4 --
+
+-- !acid_join_5 --
+1	A	A
+2	BB	BB
+3	C	C
+
+-- !acid_join_6 --
+4	D	D
+5	E	E
+6	F	F
+
