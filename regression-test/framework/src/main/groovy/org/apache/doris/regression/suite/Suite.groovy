@@ -1481,9 +1481,9 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
-    void waitingMTMVTaskFinishedByMvName(String mvName) {
+    def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${context.dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -1491,7 +1491,7 @@ class Suite implements GroovyInterceptable {
         List<String> toCheckTaskRow = new ArrayList<>();
         while (timeoutTimestamp > System.currentTimeMillis() && (status != "SUCCESS")) {
             result = sql(showTasks)
-            logger.info("current db is " + context.dbName + "showTasks is " + showTasks)
+            logger.info("current db is " + dbName + ", showTasks is " + showTasks)
             if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
                 Thread.sleep(1000);
@@ -1519,9 +1519,9 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${toCheckTaskRow.get(6)}.${mvName} with sync;"
     }
 
-    void waitingMTMVTaskFinishedByMvNameAllowCancel(String mvName) {
+    def waitingMTMVTaskFinishedByMvNameAllowCancel = {mvName, dbName = context.dbName ->
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${context.dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
 
         String status = "NULL"
         List<List<Object>> result
@@ -1530,7 +1530,7 @@ class Suite implements GroovyInterceptable {
         List<String> toCheckTaskRow = new ArrayList<>();
         while (timeoutTimestamp > System.currentTimeMillis() && (status != "SUCCESS")) {
             result = sql(showTasks)
-            logger.info("current db is " + context.dbName + "showTasks result: " + result.toString())
+            logger.info("current db is " + dbName + ", showTasks result: " + result.toString())
             if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
                 Thread.sleep(1000);
@@ -1560,7 +1560,7 @@ class Suite implements GroovyInterceptable {
         List<String> toCheckTaskRow = new ArrayList<>();
         while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED')) {
             result = sql(showTasks)
-            logger.info("crrent db is " + dbName + "showTasks result: " + result.toString())
+            logger.info("crrent db is " + dbName + ", showTasks result: " + result.toString())
             // just consider current db
             for (List<String> taskRow : result) {
                 if (taskRow.get(5).equals(indexName)) {
