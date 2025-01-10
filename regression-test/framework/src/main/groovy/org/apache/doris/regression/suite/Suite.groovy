@@ -374,6 +374,21 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    List<List<Object>> master_multi_sql(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
+        def conn = context.getMasterConnection()
+
+        String[] sqls = sqlStr.split(";")
+        def result = new ArrayList<Object>();
+        for (String query : sqls) {
+            if (!query.trim().isEmpty()) {
+                def (r, meta) = JdbcUtils.executeToList(conn, sqlStr)
+                result.add(r)
+            }
+        }
+        return result
+    }
+
     List<List<Object>> arrow_flight_sql_no_prepared (String sqlStr, boolean isOrder = false){
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
         def (result, meta) = JdbcUtils.executeQueryToList(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))

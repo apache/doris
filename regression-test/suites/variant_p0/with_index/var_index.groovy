@@ -46,10 +46,10 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """insert into var_index values(9, '{"timestamp": 17.0}'),(10, '{"timestamp": "17.0"}')"""
     qt_sql "select * from var_index order by k limit 10"
 
-    sql """ set disable_inverted_index_v1_for_variant = true """
-    sql "DROP TABLE IF EXISTS var_index"
     try {
-        sql """
+        master_multi_sql """
+            set disable_inverted_index_v1_for_variant = true;
+            DROP TABLE IF EXISTS var_index;
             CREATE TABLE IF NOT EXISTS var_index (
                 k bigint,
                 v variant,
@@ -81,9 +81,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
         assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
     }
 
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    sql "DROP TABLE IF EXISTS var_index"
-    sql """
+    master_multi_sql """
+        set disable_inverted_index_v1_for_variant = false;
+        DROP TABLE IF EXISTS var_index;
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
             v variant,
@@ -94,8 +94,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
     """
 
-    sql "DROP TABLE IF EXISTS var_index"
-    sql """
+    master_multi_sql """
+        set disable_inverted_index_v1_for_variant = false;
+        DROP TABLE IF EXISTS var_index";
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
             v variant
@@ -103,7 +104,8 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+        ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED;
+        set disable_inverted_index_v1_for_variant = true 
     """
-    sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-    sql """ set disable_inverted_index_v1_for_variant = true """
+
 }

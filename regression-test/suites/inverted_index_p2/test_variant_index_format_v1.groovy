@@ -59,9 +59,9 @@ suite("test_variant_index_format_v1", "p2, nonConcurrent") {
     }
 
     def table_name = "github_events"
-    sql """DROP TABLE IF EXISTS ${table_name}"""
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    sql """
+    master_multi_sql """
+        DROP TABLE IF EXISTS ${table_name};
+        set disable_inverted_index_v1_for_variant = false;
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
             v variant,
@@ -70,8 +70,9 @@ suite("test_variant_index_format_v1", "p2, nonConcurrent") {
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+        set disable_inverted_index_v1_for_variant = true;
     """
-    sql """ set disable_inverted_index_v1_for_variant = true """
+    
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")

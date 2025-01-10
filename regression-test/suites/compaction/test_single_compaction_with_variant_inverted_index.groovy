@@ -127,10 +127,9 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
         return tabletStatus
     }
 
-
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    sql """
+    master_multi_sql """
+        DROP TABLE IF EXISTS ${tableName};
+        set disable_inverted_index_v1_for_variant = false;
         CREATE TABLE ${tableName} (
             `id` int(11) NULL,
             `name` varchar(255) NULL,
@@ -147,8 +146,8 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
             "inverted_index_storage_format" = "V1",
             "compaction_policy" = "time_series"
         );
+        set disable_inverted_index_v1_for_variant = true;
     """
-    sql """ set disable_inverted_index_v1_for_variant = true """
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
