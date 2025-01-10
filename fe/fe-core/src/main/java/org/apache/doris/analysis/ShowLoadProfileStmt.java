@@ -17,32 +17,70 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-// deprecated stmt, use will be guided to a specific url to get profile from
-// web browser
-public class ShowLoadProfileStmt extends ShowStmt implements NotFallbackInParser {
-    private String loadIdPath;
+import com.google.common.base.Strings;
 
-    public ShowLoadProfileStmt(String path) {
-        this.loadIdPath = path;
+// For stmt like:
+// show load profile "/" limit 10;
+public class ShowLoadProfileStmt extends ShowStmt implements NotFallbackInParser {
+    // This should be same as ProfileManager.PROFILE_HEADERS
+    public static final ShowResultSetMetaData META_DATA_QUERY_IDS;
+    private static final long DefaultLimit = 20;
+
+    static {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String key : SummaryProfile.SUMMARY_KEYS) {
+            if (key.equals(SummaryProfile.DISTRIBUTED_PLAN)) {
+                continue;
+            }
+            builder.addColumn(new Column(key, ScalarType.createStringType()));
+        }
+        META_DATA_QUERY_IDS = builder.build();
+    }
+
+    public ShowLoadProfileStmt(String useless, LimitElement limit) {
+        this.path = useless;
+        this.limitElement = limit;
+    }
+
+    private String path;
+    private final LimitElement limitElement;
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SHOW LOAD PROFILE");
+        if (!Strings.isNullOrEmpty(path)) {
+            sb.append(" ");
+            sb.append(path);
+        }
+
+        if (limitElement != null && limitElement.getLimit() != -1) {
+            sb.append(" LIMIT ").append(getLimit());
+        }
+
+        return sb.toString();
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
-        int httpPort = Config.http_port;
-        String terminalMsg = String.format(
-                "try visit http://%s:%d/QueryProfile/%s, show query/load profile syntax is a deprecated feature",
-                selfHost, httpPort, this.loadIdPath);
-        throw new UserException(terminalMsg);
+    public String toString() {
+        return toSql();
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return null;
+        return META_DATA_QUERY_IDS;
+    }
+
+    public long getLimit() {
+        if (limitElement == null) {
+            return DefaultLimit;
+        } else {
+            return limitElement.getLimit() == -1 ? DefaultLimit : limitElement.getLimit();
+        }
     }
 }
