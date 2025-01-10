@@ -321,7 +321,7 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
     RETURN_IF_ERROR(_download_files(tablet()->data_dir(), remote_url_prefix, local_path));
     _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
             local_path, _tablet->tablet_id(), tablet()->replica_id(), _tablet->table_id(),
-            _tablet->partition_id(), _tablet->schema_hash()));
+            _tablet->partition_id(), _tablet->schema_hash(), false, 0));
     // 4: finish_clone: create output_rowset and link file
     return _finish_clone(local_data_path, rowset_version);
 }

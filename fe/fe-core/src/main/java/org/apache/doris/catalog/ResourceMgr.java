@@ -82,6 +82,13 @@ public class ResourceMgr implements Writable {
         }
     }
 
+    public void createResource(Resource resource) throws DdlException {
+        if (createResource(resource, false)) {
+            Env.getCurrentEnv().getEditLog().logCreateResource(resource);
+            LOG.info("Create resource success. Resource: {}", resource.getName());
+        }
+    }
+
     // Return true if the resource is truly added,
     // otherwise, return false or throw exception.
     public boolean createResource(Resource resource, boolean ifNotExists) throws DdlException {
