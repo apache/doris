@@ -472,6 +472,17 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
+    bool enable_verbose_profile() const {
+        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
+               _query_options.enable_verbose_profile;
+    }
+
+    int rpc_verbose_profile_max_instance_count() const {
+        return _query_options.__isset.rpc_verbose_profile_max_instance_count
+                       ? _query_options.rpc_verbose_profile_max_instance_count
+                       : 0;
+    }
+
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
@@ -591,6 +602,11 @@ public:
     bool enable_local_merge_sort() const {
         return _query_options.__isset.enable_local_merge_sort &&
                _query_options.enable_local_merge_sort;
+    }
+
+    bool enable_shared_exchange_sink_buffer() const {
+        return _query_options.__isset.enable_shared_exchange_sink_buffer &&
+               _query_options.enable_shared_exchange_sink_buffer;
     }
 
     int64_t min_revocable_mem() const {

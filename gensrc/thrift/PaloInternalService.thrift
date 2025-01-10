@@ -355,6 +355,8 @@ struct TQueryOptions {
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
   141: optional bool ignore_runtime_filter_error = false;
+  142: optional bool enable_fixed_len_to_uint32_v2 = false;
+  143: optional bool enable_shared_exchange_sink_buffer = true;
 
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;
