@@ -318,7 +318,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * get the target table of the insert command
      */
     public TableIf getTable(ConnectContext ctx) throws Exception {
-        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        TableIf targetTableIf = InsertUtils.getTargetTable(originalLogicalQuery, ctx);
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
                         targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
@@ -334,12 +334,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * get the target columns of the insert command
      */
     public List<String> getTargetColumns() {
-        if (originLogicalQuery instanceof UnboundTableSink) {
-            UnboundLogicalSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) originLogicalQuery;
+        if (originalLogicalQuery instanceof UnboundTableSink) {
+            UnboundLogicalSink<? extends Plan> unboundTableSink
+                    = (UnboundTableSink<? extends Plan>) originalLogicalQuery;
             return CollectionUtils.isEmpty(unboundTableSink.getColNames()) ? null : unboundTableSink.getColNames();
         } else {
             throw new AnalysisException(
-                    "the root of plan should be [UnboundTableSink], but it is " + originLogicalQuery.getType());
+                    "the root of plan should be [UnboundTableSink], but it is " + originalLogicalQuery.getType());
         }
     }
 
