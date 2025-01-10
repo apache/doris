@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.util.ProfilePersistentTest;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;

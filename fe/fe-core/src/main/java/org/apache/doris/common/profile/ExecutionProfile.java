@@ -20,7 +20,6 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
