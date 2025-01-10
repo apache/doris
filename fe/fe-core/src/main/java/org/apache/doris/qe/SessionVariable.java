@@ -128,7 +128,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TIME_ZONE = "time_zone";
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
-    public static final String CODEGEN_LEVEL = "codegen_level";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
@@ -148,6 +147,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
+    public static final String ENABLE_GROUP_COMMIT_FULL_PREPARE = "enable_group_commit_full_prepare";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -403,9 +403,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
 
     public static final String INTERNAL_SESSION = "internal_session";
-
-    public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
-    public static final String PARTITIONED_HASH_AGG_ROWS_THRESHOLD = "partitioned_hash_agg_rows_threshold";
 
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
@@ -937,10 +934,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NET_BUFFER_LENGTH, flag = VariableMgr.READ_ONLY)
     public int netBufferLength = 16384;
 
-    // if true, need report to coordinator when plan fragment execute successfully.
-    @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
-    public int codegenLevel = 0;
-
     @VariableMgr.VarAttr(name = HAVE_QUERY_CACHE, flag = VariableMgr.READ_ONLY)
     public boolean haveQueryCache = false;
 
@@ -985,8 +978,8 @@ public class SessionVariable implements Serializable, Writable {
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
-    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
-                        setter = "setFragmentInstanceNum")
+    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = false,
+                        setter = "setFragmentInstanceNum", varType = VariableAnnotation.DEPRECATED)
     public int parallelExecInstanceNum = 8;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
@@ -1535,7 +1528,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, flag = VariableMgr.INVISIBLE,
+            varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
     /**
@@ -1611,14 +1605,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 
-    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD, fuzzy = true)
-    public int partitionedHashJoinRowsThreshold = 0;
-
-    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD, fuzzy = true)
-    public int partitionedHashAggRowsThreshold = 0;
-
     @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
     public int partitionPruningExpandThreshold = 10;
 
@@ -1654,6 +1640,9 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, description = {
                 "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
     public int maxPreparedStmtCount = 100000;
+
+    @VariableMgr.VarAttr(name = ENABLE_GROUP_COMMIT_FULL_PREPARE)
+    public boolean enableGroupCommitFullPrepare = true;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -2433,7 +2422,6 @@ public class SessionVariable implements Serializable, Writable {
     @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
-        this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
@@ -2444,8 +2432,6 @@ public class SessionVariable implements Serializable, Writable {
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
-        this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
-        this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
@@ -2866,10 +2852,6 @@ public class SessionVariable implements Serializable, Writable {
         return netBufferLength;
     }
 
-    public int getCodegenLevel() {
-        return codegenLevel;
-    }
-
     public boolean getHaveQueryCache() {
         return haveQueryCache;
     }
@@ -2950,10 +2932,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = val;
     }
 
-    public void setFragmentInstanceNum(String value) throws Exception {
-        int val = checkFieldValue(PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, 1, value);
-        this.parallelExecInstanceNum = val;
-    }
+    public void setFragmentInstanceNum(String value) {}
 
     public void setOrcTinyStripeThresholdBytes(String value) throws Exception {
         long val = checkFieldLongValue(ORC_TINY_STRIPE_THRESHOLD_BYTES, 0, value);
@@ -3143,14 +3122,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryCacheEntryMaxRows(long queryCacheEntryMaxRows) {
         this.queryCacheEntryMaxRows = queryCacheEntryMaxRows;
-    }
-
-    public int getPartitionedHashJoinRowsThreshold() {
-        return partitionedHashJoinRowsThreshold;
-    }
-
-    public void setPartitionedHashJoinRowsThreshold(int threshold) {
-        this.partitionedHashJoinRowsThreshold = threshold;
     }
 
     // Serialize to thrift object
@@ -3951,7 +3922,6 @@ public class SessionVariable implements Serializable, Writable {
             // we should modify BE in the future.
             tResult.setIsReportSuccess(true);
         }
-        tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnableLocalShuffle(enableLocalShuffle);
         tResult.setParallelInstance(getParallelExecInstanceNum());
@@ -4003,9 +3973,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
-
-        tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
-        tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 

@@ -685,11 +685,11 @@ public class Auth implements Writable {
     private void grantInternal(UserIdentity userIdent, String role, TablePattern tblPattern, PrivBitSet privs,
             Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist, boolean isReplay)
             throws DdlException {
+        if (!isReplay) {
+            checkTablePatternExist(tblPattern, privs);
+        }
         writeLock();
         try {
-            if (!isReplay) {
-                checkTablePatternExist(tblPattern, privs);
-            }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");

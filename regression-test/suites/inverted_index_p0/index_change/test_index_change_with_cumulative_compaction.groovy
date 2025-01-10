@@ -40,6 +40,23 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    def trigger_compaction_with_retry = {table_name, compaction_type = "cumulative", max_retries = 10, delay_ms = 2000 ->
+        def retry_count = 0
+        while (true) {
+            try {
+                trigger_and_wait_compaction(table_name, compaction_type)
+                return // Success
+            } catch (Exception e) {
+                retry_count++
+                if (retry_count >= max_retries) {
+                    throw new Exception("Failed to complete ${compaction_type} compaction after ${max_retries} attempts", e)
+                }
+                logger.warn("Compaction attempt ${retry_count} failed: ${e.getMessage()}")
+                Thread.sleep(delay_ms)
+            }
+        }
+    }
+
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
         String[][] backends = sql """ show backends; """
@@ -150,7 +167,7 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
         }
 
         // trigger compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_compaction_with_retry(tableName, "cumulative")
 
         int rowCount = 0
         for (def tablet in tablets) {
