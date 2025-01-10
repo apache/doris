@@ -83,12 +83,22 @@ services:
     networks:
       - doris--iceberg
     entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh
+    healthcheck:
+      test: ["CMD", "curl, "--fail", "http://localhost:8181/v1/config"]
+      interval: 10s
+      timeout: 60s
+      retries: 30
 
   minio:
     image: minio/minio
     container_name: doris--minio
     ports:
       - ${MINIO_API_PORT}:9000
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 10s
+      timeout: 60s
+      retries: 10
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
