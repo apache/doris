@@ -396,8 +396,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         int random_value = std::rand() % 100;
         if (random_value < 50) {
-            LOG(INFO) << "test txn conflict";
-            return Status::Error<ErrorCode::TXN_CONFLICT>("test txn conflict");
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("test txn conflict");
         }
     });
     auto st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);

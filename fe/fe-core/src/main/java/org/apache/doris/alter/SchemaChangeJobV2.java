@@ -580,10 +580,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             for (AgentTask task : tasks) {
                 int maxFailedTimes = 0;
                 if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode().equals(TStatusCode.TXN_CONFLICT)) {
+                    if (task.getErrorCode() != null && task.getErrorCode()
+                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
                         maxFailedTimes = Config.schema_change_max_retry_time;
                     }
-                    LOG.warn("schema change task failed: {}, maxFailedTimes {}", task.getErrorMsg(), maxFailedTimes);
+                    LOG.warn("schema change task failed: {}, set maxFailedTimes {}", task.getErrorMsg(),
+                            maxFailedTimes);
                 }
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);

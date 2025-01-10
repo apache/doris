@@ -78,7 +78,6 @@ namespace ErrorCode {
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
-    TStatusError(TXN_CONFLICT, false);                    \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \

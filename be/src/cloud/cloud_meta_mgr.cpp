@@ -387,8 +387,8 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
                                                                      res->status().msg());
         } else if (res->status().code() ==
                    MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
-            return Status::Error<ErrorCode::TXN_CONFLICT, false>("failed to {}: {}", op_name,
-                                                                 res->status().msg());
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                    "failed to {}: {}", op_name, res->status().msg());
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
@@ -397,6 +397,10 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         }
 
         if (++retry_times > config::meta_service_rpc_retry_times) {
+            if (res->status().code() == MetaServiceCode::LOCK_CONFLICT) {
+                return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                        "failed to {}: {}", op_name, res->status().msg());
+            }
             break;
         }
 
