@@ -158,7 +158,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "inverted_index_storage_format"= "v2");
     """
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     // 2015
@@ -169,7 +169,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     // build inverted index at middle of loading the data
     // ADD INDEX
-    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") """
+    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true", "inverted_index_storage_format"= "v2") """
     wait_for_latest_op_on_table_finish("github_events", timeout)
 
     // 2022
