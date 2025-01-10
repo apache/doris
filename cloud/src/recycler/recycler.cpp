@@ -1646,9 +1646,8 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     internal_get_rowset(txn.get(), 0, std::numeric_limits<int64_t>::max() - 1, instance_id_,
                         tablet_id, code, msg, &resp);
     if (code != MetaServiceCode::OK) {
-        LOG_WARNING("failed to delete rowset kv of tablet ")
+        LOG_WARNING("failed to get rowsets of tablet when recycle tablet")
                 .tag("tablet id", tablet_id)
-                .tag("reason", "failed to internal get rowset")
                 .tag("msg", msg)
                 .tag("code", code);
         ret = -1;
