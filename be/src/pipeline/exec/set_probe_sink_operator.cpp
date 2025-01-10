@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "vec/common/hash_table/hash_table_set_probe.h"
 #include "vec/exec/vset_operation_node.h"
 
@@ -130,7 +131,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 *local_state._shared_state->hash_table_variants));
     }
 
-    if (eos) {
+    if (eos && !state->get_task()->wake_up_early()) {
         _finalize_probe(local_state);
     }
     return Status::OK();
