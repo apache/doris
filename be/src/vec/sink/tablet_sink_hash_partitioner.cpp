@@ -95,6 +95,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             number_input_rows));
+    convert_block.reset();
     if (_row_distribution.batching_rows() > 0) {
         SCOPED_TIMER(_local_state->send_new_partition_timer());
         RETURN_IF_ERROR(_send_new_partition_batch(state, block));

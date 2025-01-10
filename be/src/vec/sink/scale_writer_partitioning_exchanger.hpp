@@ -30,6 +30,7 @@ namespace doris::vectorized {
 
 class ScaleWriterPartitioner final : public PartitionerBase {
 public:
+    ENABLE_FACTORY_CREATOR(ScaleWriterPartitioner);
     using HashValType = uint32_t;
     ScaleWriterPartitioner(int channel_size, int partition_count, int task_count,
                            int task_bucket_count,
@@ -49,7 +50,7 @@ public:
                       min_partition_data_processed_rebalance_threshold),
               _min_data_processed_rebalance_threshold(min_data_processed_rebalance_threshold) {
         _crc_partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>::create_unique(
                         _partition_count);
     }
 
@@ -112,13 +113,18 @@ public:
         return Status::OK();
     }
 
+    std::string debug_string() const override {
+        return fmt::format("ScaleWriterPartitioner(partition = {}, channel size = {})",
+                           _partition_count, _channel_size);
+    }
+
 private:
     int _get_next_writer_id(int partition_id) const {
         return _partition_rebalancer.get_task_id(partition_id,
                                                  _partition_writer_indexes[partition_id]++);
     }
 
-    int _channel_size;
+    const int _channel_size;
     std::unique_ptr<PartitionerBase> _crc_partitioner;
     mutable SkewedPartitionRebalancer _partition_rebalancer;
     mutable std::vector<int> _partition_row_counts;

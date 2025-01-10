@@ -55,6 +55,8 @@ public:
 
     size_t partition_count() const { return _partition_count; }
 
+    virtual std::string debug_string() const = 0;
+
 protected:
     const size_t _partition_count;
 };
@@ -62,7 +64,8 @@ protected:
 template <typename ChannelIds>
 class Crc32HashPartitioner : public PartitionerBase {
 public:
-    Crc32HashPartitioner(int partition_count) : PartitionerBase(partition_count) {}
+    ENABLE_FACTORY_CREATOR(Crc32HashPartitioner);
+    Crc32HashPartitioner(size_t partition_count) : PartitionerBase(partition_count) {}
     ~Crc32HashPartitioner() override = default;
 
     Status init(const std::vector<TExpr>& texprs) override {
@@ -82,6 +85,10 @@ public:
     ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+    std::string debug_string() const override {
+        return fmt::format("Crc32HashPartitioner({})", _partition_count);
+    }
 
 protected:
     Status _get_partition_column_result(Block* block, std::vector<int>& result) const {

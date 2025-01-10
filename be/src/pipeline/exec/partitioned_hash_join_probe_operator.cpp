@@ -519,7 +519,7 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
     for (auto& conjunct : tnode.hash_join_node.eq_join_conjuncts) {
         _probe_exprs.emplace_back(conjunct.left);
     }
-    _partitioner = std::make_unique<SpillPartitionerType>(_partition_count);
+    _partitioner = SpillPartitionerType::create_unique(_partition_count);
     RETURN_IF_ERROR(_partitioner->init(_probe_exprs));
 
     return Status::OK();

@@ -79,22 +79,37 @@ public:
 #ifdef BE_TEST
     BlockSerializer() : _batch_size(0) {};
 #endif
-    Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
-                                 bool eos, const uint32_t* data = nullptr,
-                                 const uint32_t offset = 0, const uint32_t size = 0);
+    Status next_serialized_block(Block* src, bool* serialized, bool eos);
     Status serialize_block(PBlock* dest, size_t num_receivers = 1);
     Status serialize_block(const Block* src, PBlock* dest, size_t num_receivers = 1);
 
+    void swap_data(Block* block) {
+        DCHECK(block->empty());
+        auto tmp_block = vectorized::MutableBlock::build_mutable_block(block);
+        _mutable_block->swap(tmp_block);
+        *block = tmp_block.to_block();
+    }
     MutableBlock* get_block() const { return _mutable_block.get(); }
+    Block* get_result_block() const { return _result_block.get(); }
 
     void reset_block() { _mutable_block.reset(); }
+    void init_block(vectorized::Block* block) {
+        _mutable_block = MutableBlock::create_unique(block->clone_empty());
+        _result_block = Block::create_unique(block->clone_empty());
+    }
 
     void set_is_local(bool is_local) { _is_local = is_local; }
     bool is_local() const { return _is_local; }
 
 private:
     pipeline::ExchangeSinkLocalState* _parent;
+    /**
+     * `_mutable_block` is used in some case.
+     * 1. For hash shuffle and broadcast shuffle, `_mutable_block` is used to accumulate data until its size is bigger than batch size.
+     * 2. `_mutable_block` is used to store rows copied for data queue in exchanger. To reuse memory, `_mutable_block` should always keep its memory.
+     */
     std::unique_ptr<MutableBlock> _mutable_block;
+    std::unique_ptr<Block> _result_block;
 
     bool _is_local;
     const int _batch_size;
@@ -122,19 +137,22 @@ public:
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
     Status init(RuntimeState* state);
-    Status open(RuntimeState* state);
+    Status open(RuntimeState* state, bool need_to_accumulate_data);
 
-    Status send_local_block(Block* block, bool eos, bool can_be_moved);
+    Status send_block(MutableBlock* block, bool* sent);
+    Status _send_last_block(Block* block);
+    Status send_local_block(Block* block, bool eos);
+    // Asynchronously sends a block
+    // Returns the status of the most recently finished transmit_data
+    // rpc (or OK if there wasn't one that hasn't been reported yet).
+    // if batch is nullptr, send the eof packet
+    Status send_remote_block(Block* block, bool eos = false);
+    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    Status close(RuntimeState* state);
-
-    std::string get_fragment_instance_id_str() {
-        UniqueId uid(_fragment_instance_id);
-        return uid.to_string();
-    }
+    Status close(RuntimeState* state, Status status);
 
     bool is_local() const { return _is_local; }
 
@@ -143,32 +161,7 @@ public:
     void set_receiver_eof(Status st) { _receiver_status = st; }
 
     int64_t mem_usage() const;
-
-    // Asynchronously sends a block
-    // Returns the status of the most recently finished transmit_data
-    // rpc (or OK if there wasn't one that hasn't been reported yet).
-    // if batch is nullptr, send the eof packet
-    Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
-    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
-
-    Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
-                    bool eos) {
-        if (_fragment_instance_id.lo == -1) {
-            return Status::OK();
-        }
-
-        bool serialized = false;
-        if (_pblock == nullptr) {
-            _pblock = std::make_unique<PBlock>();
-        }
-        RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
-                                                          data, offset, size));
-        if (serialized) {
-            RETURN_IF_ERROR(_send_current_block(eos));
-        }
-
-        return Status::OK();
-    }
+    BlockSerializer* serializer() { return &_serializer; }
 
     void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 
@@ -188,9 +181,6 @@ public:
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
 
 protected:
-    Status _send_local_block(bool eos);
-    Status _send_current_block(bool eos);
-
     Status _recvr_status() const {
         if (_local_recvr && !_local_recvr->is_closed()) {
             return Status::OK();
@@ -224,16 +214,10 @@ protected:
     bool _eos_send = false;
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback;
     std::unique_ptr<PBlock> _pblock;
+    // Data need to be accumulated iff this channel is belongs to an exchange sink which does hash
+    // shuffling may have lots of small block.
+    bool _need_to_accumulate_data;
 };
-
-#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
-    do {                                                 \
-        if (status.is<ErrorCode::END_OF_FILE>()) {       \
-            _handle_eof_channel(state, channel, status); \
-        } else {                                         \
-            RETURN_IF_ERROR(status);                     \
-        }                                                \
-    } while (0)
 
 } // namespace vectorized
 } // namespace doris

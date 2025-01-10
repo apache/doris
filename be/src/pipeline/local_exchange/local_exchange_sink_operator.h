@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::vectorized {
@@ -26,8 +27,11 @@ class PartitionerBase;
 namespace doris::pipeline {
 
 class ExchangerBase;
+template <typename QueueType>
 class ShuffleExchanger;
+template <typename QueueType>
 class PassthroughExchanger;
+template <typename QueueType>
 class BroadcastExchanger;
 class PassToOneExchanger;
 class LocalMergeSortExchanger;
@@ -49,14 +53,17 @@ public:
 
 private:
     friend class LocalExchangeSinkOperatorX;
+    template <typename QueueType>
     friend class ShuffleExchanger;
     friend class BucketShuffleExchanger;
+    template <typename QueueType>
     friend class PassthroughExchanger;
+    template <typename QueueType>
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
     friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
-    template <typename BlockType>
+    template <typename QueueType>
     friend class Exchanger;
 
     ExchangerBase* _exchanger = nullptr;
@@ -65,9 +72,11 @@ private:
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
+    RuntimeProfile::Counter* _enqueue_blocks_counter = nullptr;
 
-    // Used by random passthrough exchanger
+    // Used by passthrough exchanger
     int _channel_id = 0;
+    std::unique_ptr<ChannelSelector> _channel_selector;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -110,6 +119,7 @@ public:
 
 private:
     friend class LocalExchangeSinkLocalState;
+    template <typename QueueType>
     friend class ShuffleExchanger;
     ExchangeType _type;
     const int _num_partitions;

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -37,16 +38,15 @@ public:
 
     Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
                  bool eos) const;
-
-private:
-    template <typename ChannelIdType>
-    Status _channel_add_rows(RuntimeState* state,
-                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                             size_t partition_count, const ChannelIdType* __restrict channel_ids,
-                             size_t rows, vectorized::Block* block, bool eos) const;
-
-    template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
+    Status send_to_channels(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                            vectorized::Channel* channel, int channel_id, bool eos,
+                            std::shared_ptr<vectorized::BroadcastPBlockHolder> broadcasted_block,
+                            RuntimeProfile::Counter* test_timer1,
+                            RuntimeProfile::Counter* test_timer2,
+                            RuntimeProfile::Counter* test_timer3,
+                            RuntimeProfile::Counter* test_timer4) const;
+    Status finish(ExchangerBase* exchanger, RuntimeState* state, vectorized::Channel* channel,
+                  int channel_id, Status status) const;
 };
 #include "common/compile_check_end.h"
 } // namespace pipeline

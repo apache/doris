@@ -31,6 +31,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
             ADD_COUNTER_WITH_LEVEL(profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
+    _dequeue_blocks_counter = ADD_COUNTER(profile(), "DequeueRows", TUnit::UNIT);
     if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE ||
         _exchanger->get_type() == ExchangeType::BUCKET_HASH_SHUFFLE) {
         _copy_data_timer = ADD_TIMER(profile(), "CopyDataTime");
@@ -117,8 +118,10 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state._exchanger->get_block(
-            state, block, eos, {nullptr, nullptr, local_state._copy_data_timer},
-            {local_state._channel_id, &local_state}));
+            state, block, eos,
+            {nullptr, nullptr, local_state._copy_data_timer, nullptr,
+             local_state._dequeue_blocks_counter, local_state._get_block_failed_counter},
+            {local_state._channel_id, &local_state, nullptr}));
     local_state.reached_limit(block, eos);
     return Status::OK();
 }

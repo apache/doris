@@ -184,7 +184,7 @@ suite("test_union") {
            FROM `${db}`.`baseall` a LEFT OUTER JOIN 
            `${db}`.`bigtable` b ON `a`.`k1` = `b`.`k1` + 10
            WHERE `b`.`k2` IS NULL"""
-    order_qt_union37 """select n1 from ${viewName} union all select n2 from ${viewName}"""
+    order_qt_union37 """select n1 from ${viewName} union all select n2 from ${viewName} order by n1"""
     qt_union38 """(select n1 from ${viewName}) union all (select n2 from ${viewName} order by n1) order by n1"""
     qt_union39 """(select n1 from ${viewName}) union all (select n2 from ${viewName}) order by n1"""
 

@@ -752,13 +752,14 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                     : LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
-        shared_state->exchanger = ShuffleExchanger::create_unique(
-                std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
-                use_global_hash_shuffle ? _total_instances : _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? cast_set<int>(
-                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
+        shared_state->exchanger =
+                ShuffleExchanger<ConcurrentBlockQueue<PartitionedBlock>>::create_unique(
+                        std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
+                        use_global_hash_shuffle ? _total_instances : _num_instances,
+                        _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                                ? cast_set<int>(_runtime_state->query_options()
+                                                        .local_exchange_free_blocks_limit)
+                                : 0);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
@@ -769,20 +770,22 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case ExchangeType::PASSTHROUGH:
-        shared_state->exchanger = PassthroughExchanger::create_unique(
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? cast_set<int>(
-                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
+        shared_state->exchanger =
+                PassthroughExchanger<ConcurrentBlockQueue<BlockWrapperSPtr>>::create_unique(
+                        cur_pipe->num_tasks(), _num_instances,
+                        _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                                ? cast_set<int>(_runtime_state->query_options()
+                                                        .local_exchange_free_blocks_limit)
+                                : 0);
         break;
     case ExchangeType::BROADCAST:
-        shared_state->exchanger = BroadcastExchanger::create_unique(
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? cast_set<int>(
-                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
+        shared_state->exchanger =
+                BroadcastExchanger<ConcurrentBlockQueue<BroadcastBlock>>::create_unique(
+                        cur_pipe->num_tasks(), _num_instances,
+                        _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                                ? cast_set<int>(_runtime_state->query_options()
+                                                        .local_exchange_free_blocks_limit)
+                                : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
         if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
@@ -794,12 +797,13 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                                                     .local_exchange_free_blocks_limit)
                             : 0);
         } else {
-            shared_state->exchanger = BroadcastExchanger::create_unique(
-                    cur_pipe->num_tasks(), _num_instances,
-                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                            ? cast_set<int>(_runtime_state->query_options()
-                                                    .local_exchange_free_blocks_limit)
-                            : 0);
+            shared_state->exchanger =
+                    BroadcastExchanger<ConcurrentBlockQueue<BroadcastBlock>>::create_unique(
+                            cur_pipe->num_tasks(), _num_instances,
+                            _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                                    ? cast_set<int>(_runtime_state->query_options()
+                                                            .local_exchange_free_blocks_limit)
+                                    : 0);
         }
         break;
     case ExchangeType::LOCAL_MERGE_SORT: {
