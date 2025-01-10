@@ -104,6 +104,28 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
 
         if (aggregate.child() instanceof PhysicalProject) {
             List<NamedExpression> newProjections = Lists.newArrayList();
+            // do column prune
+            // case 1:
+            // original plan
+            //   agg(groupKey[C+1, abs(C+1)]
+            //     -->project(A+B as C)
+            //
+            //  "A+B as C" should be reserved
+            //  new plan
+            //  agg(groupKey=[D, abs(D)])
+            //    -->project(A+B as C, C+1 as D)
+            //  case 2:
+            // original plan
+            //  agg(groupKey[A+1, abs(A+1)], output[sum(B)])
+            //    --> project(A, B)
+            // "A+1" is extracted, we have
+            //  plan1:
+            //    agg(groupKey[X, abs(X)], output[sum(B)])
+            //         --> project(A, B, A+1 as X)
+            // then column prune(A should be pruned, because it is not used directly by AGG)
+            // we have plan2:
+            //     agg(groupKey[X, abs(X)], output[sum(B)])
+            //          -->project(B, A+1 as X)
             PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) aggregate.child();
             Set<Slot> newInputSlots = aggOutputReplaced.stream()
                     .flatMap(expr -> expr.getInputSlots().stream())
