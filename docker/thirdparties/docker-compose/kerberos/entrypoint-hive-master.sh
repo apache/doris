@@ -23,7 +23,22 @@ mkdir -p /etc/hadoop-init.d/
 cp /etc/trino/conf/* /keytabs/
 /usr/local/hadoop-run.sh &
 
-sleep 30
+# check healthy hear
+echo "Waiting for hadoop to be healthy"
+
+for i in {1..120}; do
+    if /usr/local/health.sh; then
+        echo "Hadoop is healthy"
+        break
+    fi
+    echo "Hadoop is not healthy yet. Retrying in 20 seconds..."
+    sleep 20
+done
+
+if [ $i -eq 120 ]; then
+    echo "Hadoop did not become healthy after 120 attempts. Exiting."
+    exit 1
+fi
 
 echo "Init kerberos test data"
 kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master@LABS.TERADATA.COM
