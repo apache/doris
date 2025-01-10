@@ -48,7 +48,7 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
                         .when(inPredicate -> inPredicate.getOptions().size()
                                 <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE)
                         .then(this::rewrite)
-                        .toRule(ExpressionRuleType.IN_PREDICATE_EXTRACT_COLUMN)
+                        .toRule(ExpressionRuleType.IN_PREDICATE_EXTRACT_NON_CONSTANT)
         );
     }
 
