@@ -65,7 +65,7 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         return Status::RpcError("Client rpc client failed");
     }
 
-    VLOG_DEBUG << fmt::format("Sending profile");
+    VLOG_DEBUG << "Sending profile";
 
     try {
         try {
