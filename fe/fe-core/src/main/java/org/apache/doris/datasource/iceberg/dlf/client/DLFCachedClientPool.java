@@ -31,13 +31,14 @@ import java.util.concurrent.TimeUnit;
 
 public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TException> {
 
-    private static volatile Cache<String, DLFClientPool> clientPoolCache;
-    private static final Object clientPoolCacheLock = new Object();
+    private Cache<String, DLFClientPool> clientPoolCache;
     private final Configuration conf;
     private final String endpoint;
     private final int clientPoolSize;
     private final long evictionInterval;
 
+    // This cached client pool should belong to the catalog level,
+    // each catalog has its own pool
     public DLFCachedClientPool(Configuration conf, Map<String, String> properties) {
         this.conf = conf;
         this.endpoint = conf.get("", "");
@@ -63,16 +64,10 @@ public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TExcept
     }
 
     private void initializeClientPoolCache() {
-        if (clientPoolCache == null) {
-            synchronized (clientPoolCacheLock) {
-                if (clientPoolCache == null) {
-                    clientPoolCache = Caffeine.newBuilder()
-                            .expireAfterAccess(evictionInterval, TimeUnit.MILLISECONDS)
-                            .removalListener((key, value, cause) -> ((DLFClientPool) value).close())
-                            .build();
-                }
-            }
-        }
+        clientPoolCache = Caffeine.newBuilder()
+                .expireAfterAccess(evictionInterval, TimeUnit.MILLISECONDS)
+                .removalListener((key, value, cause) -> ((DLFClientPool) value).close())
+                .build();
     }
 
     protected DLFClientPool clientPool() {
