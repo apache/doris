@@ -20,6 +20,7 @@
 
 #include <glog/logging.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -40,6 +41,9 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _compute_order_by_function_timer = ADD_TIMER(profile(), "ComputeOrderByFunctionTime");
     _partition_search_timer = ADD_TIMER(profile(), "PartitionSearchTime");
     _order_search_timer = ADD_TIMER(profile(), "OrderSearchTime");
+    _remove_rows_timer = ADD_TIMER(profile(), "RemoveRowsTime");
+    _remove_rows = ADD_COUNTER(profile(), "RemoveRows", TUnit::UNIT);
+    _remove_count = ADD_COUNTER(profile(), "RemoveCount", TUnit::UNIT);
     _blocks_memory_usage =
             profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
@@ -307,7 +311,8 @@ Status AnalyticSinkLocalState::_execute_impl() {
             }
             _init_result_columns();
             auto batch_rows = _input_blocks[_output_block_index].rows();
-            auto current_block_base_pos = _input_block_first_row_positions[_output_block_index];
+            auto current_block_base_pos =
+                    _input_block_first_row_positions[_output_block_index] - _have_removed_rows;
             bool should_output = false;
 
             {
@@ -397,7 +402,8 @@ void AnalyticSinkLocalState::_output_current_block(vectorized::Block* block) {
 }
 
 void AnalyticSinkLocalState::_init_result_columns() {
-    if (_current_row_position == _input_block_first_row_positions[_output_block_index]) {
+    if (_current_row_position + _have_removed_rows ==
+        _input_block_first_row_positions[_output_block_index]) {
         _result_window_columns.resize(_agg_functions_size);
         // return type create result column
         for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -422,8 +428,8 @@ void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(vectorized::Bl
 }
 
 void AnalyticSinkLocalState::_reset_state_for_next_partition() {
-    _partition_statistics.update(_partition_by_pose.end - _partition_by_pose.start);
-    _order_by_statistics.reset();
+    _partition_column_statistics.update(_partition_by_pose.end - _partition_by_pose.start);
+    _order_by_column_statistics.reset();
     _partition_by_pose.start = _partition_by_pose.end;
     _current_row_position = _partition_by_pose.start;
     _reset_agg_status();
@@ -435,14 +441,14 @@ void AnalyticSinkLocalState::_update_order_by_range() {
         return;
     }
     SCOPED_TIMER(_order_search_timer);
-    while (!_candidate_order_by_ends.empty()) {
-        int64_t peek = _candidate_order_by_ends.front();
-        _candidate_order_by_ends.pop();
+    while (!_next_order_by_ends.empty()) {
+        int64_t peek = _next_order_by_ends.front();
+        _next_order_by_ends.pop();
         if (peek > _order_by_pose.end) {
             _order_by_pose.start = _order_by_pose.end;
             _order_by_pose.end = peek;
             _order_by_pose.is_ended = true;
-            _order_by_statistics.update(_order_by_pose.end - _order_by_pose.start);
+            _order_by_column_statistics.update(_order_by_pose.end - _order_by_pose.start);
             return;
         }
     }
@@ -463,9 +469,9 @@ void AnalyticSinkLocalState::_update_order_by_range() {
     }
 
     if (_order_by_pose.end < _partition_by_pose.end) {
-        _order_by_statistics.update(_order_by_pose.end - _order_by_pose.start);
+        _order_by_column_statistics.update(_order_by_pose.end - _order_by_pose.start);
         _order_by_pose.is_ended = true;
-        _find_candidate_order_by_ends();
+        _find_next_order_by_ends();
         return;
     }
     DCHECK_EQ(_partition_by_pose.end, _order_by_pose.end);
@@ -488,9 +494,9 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
         return;
     }
     SCOPED_TIMER(_partition_search_timer);
-    while (!_candidate_partition_ends.empty()) {
-        int64_t peek = _candidate_partition_ends.front();
-        _candidate_partition_ends.pop();
+    while (!_next_partition_ends.empty()) {
+        int64_t peek = _next_partition_ends.front();
+        _next_partition_ends.pop();
         if (peek > _partition_by_pose.end) {
             _partition_by_pose.end = peek;
             _partition_by_pose.is_ended = true;
@@ -518,7 +524,7 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
 
     if (_partition_by_pose.end < partition_column_rows) {
         _partition_by_pose.is_ended = true;
-        _find_candidate_partition_ends();
+        _find_next_partition_ends();
         return;
     }
 
@@ -526,8 +532,8 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
     _partition_by_pose.is_ended = _input_eos;
 }
 
-void AnalyticSinkLocalState::_find_candidate_partition_ends() {
-    if (!_partition_statistics.is_high_cardinality()) {
+void AnalyticSinkLocalState::_find_next_partition_ends() {
+    if (!_partition_column_statistics.is_high_cardinality()) {
         return;
     }
 
@@ -536,15 +542,15 @@ void AnalyticSinkLocalState::_find_candidate_partition_ends() {
         for (auto& column : _partition_by_columns) {
             auto cmp = column->compare_at(i - 1, i, *column, 1);
             if (cmp != 0) {
-                _candidate_partition_ends.push(i);
+                _next_partition_ends.push(i);
                 break;
             }
         }
     }
 }
 
-void AnalyticSinkLocalState::_find_candidate_order_by_ends() {
-    if (!_order_by_statistics.is_high_cardinality()) {
+void AnalyticSinkLocalState::_find_next_order_by_ends() {
+    if (!_order_by_column_statistics.is_high_cardinality()) {
         return;
     }
 
@@ -553,7 +559,7 @@ void AnalyticSinkLocalState::_find_candidate_order_by_ends() {
         for (auto& column : _order_by_columns) {
             auto cmp = column->compare_at(i - 1, i, *column, 1);
             if (cmp != 0) {
-                _candidate_order_by_ends.push(i);
+                _next_order_by_ends.push(i);
                 break;
             }
         }
@@ -704,6 +710,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
     local_state._input_eos = eos;
+    local_state._remove_unused_rows();
     RETURN_IF_ERROR(_add_input_block(state, input_block));
     RETURN_IF_ERROR(local_state._execute_impl());
     if (local_state._input_eos) {
@@ -774,6 +781,61 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
     COUNTER_UPDATE(local_state._blocks_memory_usage, input_block->allocated_bytes());
     local_state._input_blocks.emplace_back(std::move(*input_block));
     return Status::OK();
+}
+
+void AnalyticSinkLocalState::_remove_unused_rows() {
+    const size_t block_num = 256;
+    if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
+        return;
+    }
+    const int64_t unused_rows_pos =
+            _input_block_first_row_positions[_removed_block_index + block_num];
+
+    if (_have_removed_rows + _partition_by_pose.start <= unused_rows_pos) {
+        return;
+    }
+
+    const int64_t remove_rows = unused_rows_pos - _have_removed_rows;
+    auto left_rows = _input_total_rows - _have_removed_rows - remove_rows;
+    {
+        SCOPED_TIMER(_remove_rows_timer);
+        for (size_t i = 0; i < _agg_functions_size; i++) {
+            for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
+                _agg_input_columns[i][j] =
+                        _agg_input_columns[i][j]->cut(remove_rows, left_rows)->assume_mutable();
+            }
+        }
+        for (size_t i = 0; i < _partition_exprs_size; i++) {
+            _partition_by_columns[i] =
+                    _partition_by_columns[i]->cut(remove_rows, left_rows)->assume_mutable();
+        }
+        for (size_t i = 0; i < _order_by_exprs_size; i++) {
+            _order_by_columns[i] =
+                    _order_by_columns[i]->cut(remove_rows, left_rows)->assume_mutable();
+        }
+    }
+    COUNTER_UPDATE(_remove_count, 1);
+    COUNTER_UPDATE(_remove_rows, remove_rows);
+    _current_row_position -= remove_rows;
+    _partition_by_pose.remove_unused_rows(remove_rows);
+    _order_by_pose.remove_unused_rows(remove_rows);
+    int64_t candidate_partition_end_size = _next_partition_ends.size();
+    while (--candidate_partition_end_size >= 0) {
+        auto peek = _next_partition_ends.front();
+        _next_partition_ends.pop();
+        _next_partition_ends.push(peek - remove_rows);
+    }
+    int64_t candidate_peer_group_end_size = _next_order_by_ends.size();
+    while (--candidate_peer_group_end_size >= 0) {
+        auto peek = _next_order_by_ends.front();
+        _next_order_by_ends.pop();
+        _next_order_by_ends.push(peek - remove_rows);
+    }
+    _removed_block_index += block_num;
+    _have_removed_rows += remove_rows;
+
+    DCHECK_GE(_current_row_position, 0);
+    DCHECK_GE(_partition_by_pose.end, 0);
 }
 
 Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,

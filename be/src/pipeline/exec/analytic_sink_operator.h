@@ -32,6 +32,10 @@ struct BoundaryPose {
     int64_t start = 0;
     int64_t end = 0;
     bool is_ended = false;
+    void remove_unused_rows(int64_t cnt) {
+        start -= cnt;
+        end -= cnt;
+    }
 };
 
 class PartitionStatistics {
@@ -86,11 +90,12 @@ private:
     void _create_agg_status();
     void _reset_agg_status();
     void _destroy_agg_status();
+    void _remove_unused_rows();
 
     void _get_partition_by_end();
-    void _find_candidate_partition_ends();
+    void _find_next_partition_ends();
     void _update_order_by_range();
-    void _find_candidate_order_by_ends();
+    void _find_next_order_by_ends();
     int64_t find_first_not_equal(vectorized::IColumn* reference_column,
                                  vectorized::IColumn* compared_column, int64_t target,
                                  int64_t start, int64_t end);
@@ -106,10 +111,10 @@ private:
     size_t _order_by_exprs_size = 0;
     BoundaryPose _partition_by_pose;
     BoundaryPose _order_by_pose;
-    PartitionStatistics _partition_statistics;
-    PartitionStatistics _order_by_statistics;
-    std::queue<int64_t> _candidate_partition_ends;
-    std::queue<int64_t> _candidate_order_by_ends;
+    PartitionStatistics _partition_column_statistics;
+    PartitionStatistics _order_by_column_statistics;
+    std::queue<int64_t> _next_partition_ends;
+    std::queue<int64_t> _next_order_by_ends;
 
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
@@ -137,6 +142,8 @@ private:
     std::vector<int64_t> _input_col_ids;
     std::vector<vectorized::Block> _input_blocks;
     std::vector<int64_t> _input_block_first_row_positions;
+    int64_t _removed_block_index = 0;
+    int64_t _have_removed_rows = 0;
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
@@ -145,6 +152,9 @@ private:
     RuntimeProfile::Counter* _compute_order_by_function_timer = nullptr;
     RuntimeProfile::Counter* _partition_search_timer = nullptr;
     RuntimeProfile::Counter* _order_search_timer = nullptr;
+    RuntimeProfile::Counter* _remove_rows_timer = nullptr;
+    RuntimeProfile::Counter* _remove_count = nullptr;
+    RuntimeProfile::Counter* _remove_rows = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 };
 
