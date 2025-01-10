@@ -921,7 +921,7 @@ public class OlapScanNode extends ScanNode {
                                 replica.getId());
                     }
                     String err = "replica " + replica.getId() + "'s backend " + backendId
-                            + " with tag " + backend.getLocationTag() + " does not exist or not alive";
+                                + " does not exist or not alive";
                     errs.add(err);
                     continue;
                 }
