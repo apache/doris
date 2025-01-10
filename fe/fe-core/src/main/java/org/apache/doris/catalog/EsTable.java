@@ -152,15 +152,24 @@ public class EsTable extends Table implements GsonPostProcessable {
     }
 
     public Map<String, String> fieldsContext() throws UserException {
+        makeSureEsMetaSynced();
         return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
     public Map<String, String> docValueContext() throws UserException {
+        makeSureEsMetaSynced();
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
     public List<String> needCompatDateFields() throws UserException {
+        makeSureEsMetaSynced();
         return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
+    private void makeSureEsMetaSynced() {
+        if (esMetaStateTracker == null) {
+            syncTableMetaData();
+        }
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
