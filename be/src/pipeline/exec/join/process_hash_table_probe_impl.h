@@ -39,16 +39,6 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
         : _parent(parent),
           _batch_size(batch_size),
           _build_block(parent->build_block()),
-          _tuple_is_null_left_flags(parent->is_outer_join()
-                                            ? &(reinterpret_cast<vectorized::ColumnUInt8&>(
-                                                        *parent->_tuple_is_null_left_flag_column)
-                                                        .get_data())
-                                            : nullptr),
-          _tuple_is_null_right_flags(parent->is_outer_join()
-                                             ? &(reinterpret_cast<vectorized::ColumnUInt8&>(
-                                                         *parent->_tuple_is_null_right_flag_column)
-                                                         .get_data())
-                                             : nullptr),
           _have_other_join_conjunct(parent->have_other_join_conjunct()),
           _is_right_semi_anti(parent->is_right_semi_anti()),
           _left_output_slot_flags(parent->left_output_slot_flags()),
@@ -70,26 +60,12 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         bool have_other_join_conjunct, bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
 
-    constexpr auto probe_all =
-            JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
-
     // indicates whether build_indexs contain 0
     bool build_index_has_zero =
             (JoinOpType != TJoinOp::INNER_JOIN && JoinOpType != TJoinOp::RIGHT_OUTER_JOIN) ||
             have_other_join_conjunct || is_mark_join;
     if (!size) {
         return;
-    }
-    // Dispose right tuple is null flags columns
-    if (probe_all && !have_other_join_conjunct) {
-        _tuple_is_null_right_flags->resize(size);
-        auto* __restrict null_data = _tuple_is_null_right_flags->data();
-        for (int i = 0; i < size; ++i) {
-            null_data[i] = _build_indexs[i] == 0;
-        }
-        if (_need_calculate_build_index_has_zero) {
-            build_index_has_zero = simd::contain_byte(null_data, size, 1);
-        }
     }
 
     if (!build_index_has_zero && _build_column_has_null.empty()) {
@@ -141,14 +117,14 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
         vectorized::MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
-        int last_probe_index, bool all_match_one, bool have_other_join_conjunct) {
+        bool all_match_one, bool have_other_join_conjunct) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
     for (int i = 0; i < output_slot_flags.size(); ++i) {
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
-                mcol[i]->insert_range_from(*column, last_probe_index, size);
+                mcol[i]->insert_range_from(*column, _probe_indexs[0], size);
             } else {
                 mcol[i]->insert_indices_from(*column, _probe_indexs.data(),
                                              _probe_indexs.data() + size);
@@ -156,12 +132,6 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
         } else {
             mcol[i]->insert_default();
             mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), size);
-        }
-    }
-
-    if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
-        if (!have_other_join_conjunct) {
-            _tuple_is_null_left_flags->resize_fill(size, 0);
         }
     }
 }
@@ -212,7 +182,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     auto& probe_index = _parent->_probe_index;
     auto& build_index = _parent->_build_index;
-    auto last_probe_index = probe_index;
     {
         SCOPED_TIMER(_init_probe_side_timer);
         _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts, null_map);
@@ -277,9 +246,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     if constexpr (with_other_conjuncts || (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                                            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
-        auto check_all_match_one = [](const std::vector<uint32_t>& vecs, uint32_t probe_idx,
-                                      int size) {
-            if (!size || vecs[0] != probe_idx || vecs[size - 1] != probe_idx + size - 1) {
+        auto check_all_match_one = [](const std::vector<uint32_t>& vecs, int size) {
+            if (!size || vecs[size - 1] != vecs[0] + size - 1) {
                 return false;
             }
             for (int i = 1; i < size; i++) {
@@ -290,10 +258,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             return true;
         };
 
-        probe_side_output_column(
-                mcol, *_left_output_slot_flags, current_offset, last_probe_index,
-                check_all_match_one(_probe_indexs, last_probe_index, current_offset),
-                with_other_conjuncts);
+        probe_side_output_column(mcol, *_left_output_slot_flags, current_offset,
+                                 check_all_match_one(_probe_indexs, current_offset),
+                                 with_other_conjuncts);
     }
 
     output_block->swap(mutable_block.to_block());
@@ -540,8 +507,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
 
         for (size_t i = 0; i < row_count; ++i) {
             if (filter_map[i]) {
-                _tuple_is_null_right_flags->emplace_back(!_build_indexs[i] ||
-                                                         !filter_column_ptr[i]);
                 if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
                     visited[_build_indexs[i]] = 1;
                 }
@@ -585,12 +550,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
             visited[_build_indexs[i]] |= filter_column_ptr[i];
         }
     } else if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
-        auto filter_size = 0;
         for (int i = 0; i < row_count; ++i) {
             visited[_build_indexs[i]] |= filter_column_ptr[i];
-            filter_size += filter_column_ptr[i];
         }
-        _tuple_is_null_left_flags->resize_fill(filter_size, 0);
     }
 
     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
@@ -659,7 +621,6 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                 assert_cast<vectorized::ColumnNullable*>(mcol[i].get())
                         ->insert_many_defaults(block_size);
             }
-            _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
         output_block->swap(mutable_block.to_block(0));
         DCHECK(block_size <= _batch_size);

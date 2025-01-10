@@ -1809,7 +1809,8 @@ public class Coordinator implements CoordInterface {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
                 // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
-                if (leftMostNode.getNumInstances() == 1) {
+                boolean isNereids = context != null && context.getState().isNereids();
+                if (!isNereids && leftMostNode.getNumInstances() == 1) {
                     exchangeInstances = 1;
                 }
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
