@@ -523,48 +523,6 @@ public abstract class Type {
         return false;
     }
 
-    // This method defines the char type
-    // to support the schema-change behavior of length growth.
-    public boolean isSupportSchemaChangeForCharType(Type other) throws TypeException {
-        if ((this.getPrimitiveType() == PrimitiveType.VARCHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR) || (
-                this.getPrimitiveType() == PrimitiveType.CHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR) || (
-                this.getPrimitiveType() == PrimitiveType.CHAR && other.getPrimitiveType() == PrimitiveType.CHAR)) {
-            if (this.getLength() > other.getLength()) {
-                throw new TypeException("Cannot shorten string length");
-            } else {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // This method defines the complex type which is struct, array, map if nested char-type
-    // to support the schema-change behavior of length growth.
-    public boolean isSupportSchemaChangeForComplexType(Type other) throws TypeException {
-        if (this.isStructType() && other.isStructType()) {
-            StructType thisStructType = (StructType) this;
-            StructType otherStructType = (StructType) other;
-            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
-                throw new TypeException("Cannot change struct type with different field size");
-            }
-            for (int i = 0; i < thisStructType.getFields().size(); i++) {
-                if (!thisStructType.getFields().get(i).getType().isSupportSchemaChangeForComplexType(
-                        otherStructType.getFields().get(i).getType())) {
-                    throw new TypeException("Cannot change struct type with different field type");
-                }
-            }
-        } else if (this.isArrayType() && other.isArrayType()) {
-            return ((ArrayType) this).getItemType().isSupportSchemaChangeForComplexType(
-                    ((ArrayType) other).getItemType());
-        } else if (this.isMapType() && other.isMapType()) {
-            return ((MapType) this).getKeyType().isSupportSchemaChangeForComplexType(((MapType) other).getKeyType())
-                    &&
-                    ((MapType) this).getValueType().isSupportSchemaChangeForComplexType(
-                            ((MapType) other).getValueType());
-        }
-        return isSupportSchemaChangeForCharType(other);
-    }
-
     public boolean isDecimalV3() {
         return isScalarType(PrimitiveType.DECIMAL32) || isScalarType(PrimitiveType.DECIMAL64)
                 || isScalarType(PrimitiveType.DECIMAL128) || isScalarType(PrimitiveType.DECIMAL256);

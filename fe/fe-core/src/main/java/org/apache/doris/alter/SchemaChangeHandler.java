@@ -38,6 +38,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -67,7 +68,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.catalog.TypeException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -630,23 +630,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     // TODO:the case where columnPos is not empty has not been considered
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
-                        try {
-                            if (col.getType().isSupportSchemaChangeForCharType(modColumn.getType())) {
-                                lightSchemaChange = olapTable.getEnableLightSchemaChange();
-                            }
-                        } catch (TypeException e) {
-                            throw new DdlException(e.getMessage());
-                        }
+                        ColumnType.checkSupportSchemaChangeForCharType(col.getType(), modColumn.getType());
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (columnPos == null && col.getDataType().isComplexType()
                             && modColumn.getDataType().isComplexType()) {
-                        try {
-                            if (col.getType().isSupportSchemaChangeForComplexType(modColumn.getType())) {
-                                lightSchemaChange = olapTable.getEnableLightSchemaChange();
-                            }
-                        } catch (TypeException e) {
-                            throw new DdlException(e.getMessage());
-                        }
+                        ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType());
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());

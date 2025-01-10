@@ -82,37 +82,37 @@ suite ("test_varchar_sc_in_complex") {
         test {
             sql """ alter table ${tableName} modify column c_a struct<col:varchar(3)>
                 """
-            exception "Cannot chang"
+            exception "Can not change ARRAY to STRUCT"
         }
         // test array to map
         test {
             sql """ alter table ${tableName} modify column c_a map<varchar(3),varchar(3)>
                 """
-            exception "Cannot chang"
+            exception "Can not change ARRAY to MAP"
         }
         // test map to array
         test {
             sql """ alter table ${tableName} modify column c_m array<varchar(3)>
                 """
-            exception "Cannot chang"
+            exception "Can not change MAP to ARRAY"
         }
         // test map to struct
         test {
             sql """ alter table ${tableName} modify column c_m struct<col:varchar(3)>
                 """
-            exception "Cannot chang"
+            exception "Can not change MAP to STRUCT"
         }
         // test struct to array
         test {
             sql """ alter table ${tableName} modify column c_s array<varchar(3)>
                 """
-            exception "Cannot chang"
+            exception "Can not change STRUCT to ARRAY"
         }
         // test struct to map
         test {
             sql """ alter table ${tableName} modify column c_s map<varchar(3),varchar(3)>
                 """
-            exception "Cannot chang"
+            exception "Can not change STRUCT to MAP"
         }
 
 
@@ -155,7 +155,7 @@ suite ("test_varchar_sc_in_complex") {
 
         // insert some data to modified map with varchar(20)
         qt_sc_origin " select * from ${tableName} order by c0; "
-        sql """ insert into ts values
+        sql """ insert into ${tableName} values
                 (3,['2025-01-03-22-33'], {'doris111111111':'better2222222222'}, named_struct('col','amory'));
             """
         qt_sc_after " select * from ${tableName} order by c0; "

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -166,6 +167,48 @@ public abstract class ColumnType {
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
         return schemaChangeMatrix[lhs.getPrimitiveType().ordinal()][rhs.getPrimitiveType().ordinal()];
+    }
+
+    // This method defines the char type
+    // to support the schema-change behavior of length growth.
+    public static void checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
+        if ((checkType.getPrimitiveType() == PrimitiveType.VARCHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR)
+                || (checkType.getPrimitiveType() == PrimitiveType.CHAR
+                && other.getPrimitiveType() == PrimitiveType.VARCHAR)
+                || (checkType.getPrimitiveType() == PrimitiveType.CHAR
+                && other.getPrimitiveType() == PrimitiveType.CHAR)) {
+            if (checkType.getLength() > other.getLength()) {
+                throw new DdlException("Cannot shorten string length");
+            }
+        } else {
+            throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+        }
+    }
+
+    // This method defines the complex type which is struct, array, map if nested char-type
+    // to support the schema-change behavior of length growth.
+    public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other) throws DdlException {
+        if (checkType.isStructType() && other.isStructType()) {
+            StructType thisStructType = (StructType) checkType;
+            StructType otherStructType = (StructType) other;
+            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
+                throw new DdlException("Cannot change struct type with different field size");
+            }
+            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
+                        otherStructType.getFields().get(i).getType());
+            }
+        } else if (checkType.isArrayType() && other.isArrayType()) {
+            checkSupportSchemaChangeForComplexType(((ArrayType) checkType).getItemType(),
+                    ((ArrayType) other).getItemType());
+        } else if (checkType.isMapType() && other.isMapType()) {
+            checkSupportSchemaChangeForComplexType(((MapType) checkType).getKeyType(),
+                    ((MapType) other).getKeyType());
+            checkSupportSchemaChangeForComplexType(((MapType) checkType).getValueType(),
+                    ((MapType) other).getValueType());
+        } else {
+            checkSupportSchemaChangeForCharType(checkType, other);
+        }
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
