@@ -16,20 +16,5 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -euo pipefail
-
-if test $# -gt 0; then
-    echo "$0 does not accept arguments" >&2
-    exit 32
-fi
-
-set -x
-
-HEALTH_D=${HEALTH_D:-/etc/health.d/}
-
-if test -d "${HEALTH_D}"; then
-    for health_script in "${HEALTH_D}"/*; do
-        "${health_script}" &>> /var/log/container-health.log || exit 1
-    done
-fi
-exit 0
+kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master-2@OTHERREALM.COM
+beeline -u "jdbc:hive2://localhost:10000/default;principal=hive/hadoop-master-2@OTHERREALM.COM" -e "show databases;"

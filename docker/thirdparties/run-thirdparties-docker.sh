@@ -708,6 +708,11 @@ if [[ "${RUN_MINIO}" -eq 1 ]]; then
     pids["minio"]=$!
 fi
 
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    start_kerberos > start_kerberos.log 2>&1 &
+    pids["kerberos"]=$!
+fi
+
 echo "waiting all dockers starting done"
 
 for compose in "${!pids[@]}"; do
@@ -727,15 +732,6 @@ for compose in "${!pids[@]}"; do
     fi
 done
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    echo "Starting Kerberos after all other components..."
-    start_kerberos > start_kerberos.log 2>&1
-    if [ $? -ne 0 ]; then
-        echo "Kerberos startup failed"
-        cat start_kerberos.log
-        exit 1
-    fi
-fi
 echo "docker started"
 docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"
