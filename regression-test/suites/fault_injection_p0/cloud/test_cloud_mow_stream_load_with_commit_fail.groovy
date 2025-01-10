@@ -108,6 +108,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
     try {
         GetDebugPoint().enableDebugPointForAllFEs('FE.mow.check.lock.release', null)
+        GetDebugPoint().enableDebugPointForAllBEs("CloudStreamLoadExecutor.enable_record_retry_for_test")
         // store the original value
         get_be_param("mow_stream_load_commit_retry_times")
         set_be_param("mow_stream_load_commit_retry_times", "2")
@@ -536,6 +537,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
     } finally {
         reset_be_param("mow_stream_load_commit_retry_times")
         GetDebugPoint().disableDebugPointForAllFEs('FE.mow.check.lock.release')
+        GetDebugPoint().disableDebugPointForAllBEs("CloudStreamLoadExecutor.enable_record_retry_for_test")
         GetDebugPoint().clearDebugPointsForAllBEs()
         GetDebugPoint().clearDebugPointsForAllFEs()
     }
