@@ -28,7 +28,7 @@ cp /keytabs/update-location.sh /etc/hadoop-init.d/update-location.sh
 # check healthy hear
 echo "Waiting for hadoop to be healthy"
 
-for i in {1..120}; do
+for i in {1..10}; do
     if /usr/local/health.sh; then
         echo "Hadoop is healthy"
         break
@@ -37,7 +37,7 @@ for i in {1..120}; do
     sleep 20
 done
 
-if [ $i -eq 120 ]; then
+if [ $i -eq 10 ]; then
     echo "Hadoop did not become healthy after 120 attempts. Exiting."
     exit 1
 fi
@@ -45,7 +45,6 @@ fi
 echo "Init kerberos test data"
 kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master-2@OTHERREALM.COM
 hive  -f /usr/local/sql/create_kerberos_hive_table.sql
-
-sleep 20
+touch /mnt/SUCCESS
 
 tail -f /dev/null

@@ -31,7 +31,7 @@ services:
     hostname: hadoop-master
     entrypoint: /usr/local/entrypoint-hive-master.sh
     healthcheck:
-      test: ["CMD", "sh", "-c", "/usr/local/health.sh"]
+      test: ["CMD", "ls", "/mnt/SUCCESS"]
       interval: 20s
       timeout: 60s
       retries: 120
@@ -61,7 +61,7 @@ services:
       - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
     entrypoint: /usr/local/entrypoint-hive-master-2.sh
     healthcheck:
-      test: ["CMD", "sh", "-c", "/usr/local/health.sh"]
+      test: ["CMD", "ls", "/mnt/SUCCESS"]
       interval: 20s
       timeout: 60s
       retries: 120
