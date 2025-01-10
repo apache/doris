@@ -19,6 +19,7 @@
 // TODO: date datetime comparison still has bug, need fix.
 suite('test_simplify_comparison_predicate', 'nonConcurrent') {
     def tbl = 'test_simplify_comparison_predicate_tbl'
+    def falseOrNull = { expr -> "${expr} IS NULL AND NULL" }
     def checkExplain = { expression, resExpression ->
         def checker = { explainString, exception, startTime, endTime ->
             assertNull(exception)
@@ -107,7 +108,7 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
             """
 
         testSimplify true, true, '{int_like_column} = CAST(1.00 as DOUBLE)',  '({int_like_column} = 1)'
-        testSimplify true, false, '{int_like_column} = CAST(1.01 as DOUBLE)',  'AND[{int_like_column} IS NULL,NULL]'
+        testSimplify true, false, '{int_like_column} = CAST(1.01 as DOUBLE)',  falseOrNull('{int_like_column}')
         testSimplify false, true, '{int_like_column} = CAST(1.01 as DOUBLE)',  'FALSE'
         testSimplify true, true, '{int_like_column} <=> CAST(1.01 as DOUBLE)',  'FALSE'
         testSimplify true, true, '{int_like_column} > CAST(1.00 as DOUBLE)',  '({int_like_column} > 1)'
@@ -119,7 +120,7 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify true, true, '{int_like_column} = 1.00',  '({int_like_column} = 1)'
         testSimplify true, true, '{int_like_column} > 1.00',  '({int_like_column} > 1)'
         testSimplify true, true, '{int_like_column} < 1.00',  '({int_like_column} < 1)'
-        testSimplify true, false, '{int_like_column} = 1.01',  'AND[{int_like_column} IS NULL,NULL]'
+        testSimplify true, false, '{int_like_column} = 1.01',  falseOrNull('{int_like_column}')
         testSimplify false, true, '{int_like_column} = 1.01',  'FALSE'
         testSimplify true, true, '{int_like_column} <=> 1.01',  'FALSE'
         testSimplify true, true, '{int_like_column} > 1.01',  '({int_like_column} > 1)'
@@ -127,7 +128,7 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify true, true, '{int_like_column} <= 1.01',  '({int_like_column} <= 1)'
         testSimplify true, true, '{int_like_column} < 1.01',  '({int_like_column} < 2)'
         testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.00 as DECIMAL(10, 5))',  '(c_decimal_3_0_null = 1)'
-        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.1 as DECIMAL(10, 5))',  'AND[c_decimal_3_0_null IS NULL,NULL]'
+        testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) = CAST(1.1 as DECIMAL(10, 5))',  falseOrNull('c_decimal_3_0_null')
         testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) > CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null > 1)'
         testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) >= CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null >= 2)'
         testSimplify false, false, 'CAST(c_decimal_3_0_null as DECIMAL(10, 5)) < CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_3_0_null < 2)'
@@ -135,7 +136,7 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify false, false, 'c_decimal_5_2_null = CAST(1.0 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.00)'
         testSimplify false, false, 'c_decimal_5_2_null = CAST(1.1 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.10)'
         testSimplify false, false, 'c_decimal_5_2_null = CAST(1.12 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.12)'
-        testSimplify false, false, 'c_decimal_5_2_null = CAST(1.123 as DECIMAL(10, 5))',  'AND[c_decimal_5_2_null IS NULL,NULL]'
+        testSimplify false, false, 'c_decimal_5_2_null = CAST(1.123 as DECIMAL(10, 5))',  falseOrNull('c_decimal_5_2_null')
         testSimplify false, false, 'c_decimal_5_2 = CAST(1.123 as DECIMAL(10, 5))',  'FALSE'
         testSimplify false, false, 'c_decimal_5_2_null > CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null > 1.12'
         testSimplify false, false, 'c_decimal_5_2_null >= CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null >= 1.13'
@@ -143,7 +144,7 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify false, false, 'c_decimal_5_2_null < CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null < 1.13'
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) = '2000-01-01'", "(c_datetime_0 = '2000-01-01 00:00:00')"
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'FALSE'
-        testSimplify false, false, "CAST(c_datetime_0_null AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'AND[c_datetime_0_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(c_datetime_0_null AS DATETIME(5)) = '2000-01-01 00:00:00.1'", falseOrNull('c_datetime_0_null')
         testSimplify false, false, "CAST(c_datetime_0_null AS DATETIME(5)) <=> '2000-01-01 00:00:00.1'", 'FALSE'
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) >= '2000-01-01 00:00:00.1'", "(c_datetime_0 >= '2000-01-01 00:00:01')"
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) > '2000-01-01 00:00:00.1'", "(c_datetime_0 > '2000-01-01 00:00:00')"
@@ -151,14 +152,14 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) < '2000-01-01 00:00:00.1'", "(c_datetime_0 < '2000-01-01 00:00:01')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) = '2000-01-01'", "(c_datetime_3 = '2000-01-01 00:00:00.000')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", 'FALSE'
-        testSimplify false, false, "CAST(c_datetime_3_null AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", 'AND[c_datetime_3_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(c_datetime_3_null AS DATETIME(5)) = '2000-01-01 00:00:00.1234'", falseOrNull('c_datetime_3_null')
         testSimplify false, false, "CAST(c_datetime_3_null AS DATETIME(5)) <=> '2000-01-01 00:00:00.1234'", 'FALSE'
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) >= '2000-01-01 00:00:00.1234'", "(c_datetime_3 >= '2000-01-01 00:00:00.124')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) > '2000-01-01 00:00:00.1234'", "(c_datetime_3 > '2000-01-01 00:00:00.123')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) <= '2000-01-01 00:00:00.1234'", "(c_datetime_3 <= '2000-01-01 00:00:00.123')"
         testSimplify false, false, "CAST(c_datetime_3 AS DATETIME(5)) < '2000-01-01 00:00:00.1234'", "(c_datetime_3 < '2000-01-01 00:00:00.124')"
         testSimplify false, false, "c_date = '2000-01-01 00:00:01'", 'FALSE'
-        testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", 'AND[c_date_null IS NULL,NULL]'
+        testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", falseOrNull('c_date_null')
         testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) <=> '2000-01-01 00:00:01'", 'FALSE'
         testSimplify false, false, "CAST(c_date AS DATETIME(5)) > '2000-01-01 00:00:01'", "c_date > '2000-01-01'"
         testSimplify false, false, "CAST(c_date AS DATETIME(5)) >= '2000-01-01 00:00:01'", "c_date >= '2000-01-02'"
