@@ -121,7 +121,10 @@ public class PolicyMgr implements Writable {
      * Create policy through stmt.
      **/
     public void createPolicy(CreatePolicyStmt stmt) throws UserException {
-        Policy policy = Policy.fromCreateStmt(stmt);
+        createPolicy(Policy.fromCreateStmt(stmt), stmt.isIfNotExists());
+    }
+
+    public void createPolicy(Policy policy, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
             boolean storagePolicyExists = false;
@@ -134,7 +137,7 @@ public class PolicyMgr implements Writable {
                         .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
             }
             if (storagePolicyExists || existPolicy(policy)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("the policy " + policy.getPolicyName() + " already create");

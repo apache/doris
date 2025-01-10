@@ -15,41 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.analysis.AlterTableClause;
+import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 
 import java.util.Map;
 
-public class BuildIndexClause extends AlterTableClause {
+/**
+ * BuildIndexOp
+ */
+public class BuildIndexOp extends AlterTableOp {
     // in which table the index on, only used when alter = false
-    private TableName tableName;
+    private TableNameInfo tableName;
     // index definition class
-    private IndexDef indexDef;
+    private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
     // when alter = false, clause like: create index xx on table xxxx
     private boolean alter;
     // index internal class
     private Index index;
 
-    public BuildIndexClause(TableName tableName, IndexDef indexDef, boolean alter) {
+    public BuildIndexOp(TableNameInfo tableName, IndexDefinition indexDef, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexDef = indexDef;
-        this.alter = alter;
-    }
-
-    // for nereids
-    public BuildIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
-        super(AlterOpType.SCHEMA_CHANGE);
-        this.tableName = tableName;
-        this.indexDef = indexDef;
-        this.index = index;
         this.alter = alter;
     }
 
@@ -62,7 +59,7 @@ public class BuildIndexClause extends AlterTableClause {
         return index;
     }
 
-    public IndexDef getIndexDef() {
+    public IndexDefinition getIndexDef() {
         return indexDef;
     }
 
@@ -70,19 +67,20 @@ public class BuildIndexClause extends AlterTableClause {
         return alter;
     }
 
-    public TableName getTableName() {
-        return tableName;
-    }
-
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws UserException {
         if (indexDef == null) {
             throw new AnalysisException("index definition expected.");
         }
-        indexDef.analyze();
-        this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
-                indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getProperties(), indexDef.getComment(), indexDef.getColumnUniqueIds());
+        indexDef.validate();
+        tableName.analyze(ctx);
+        index = indexDef.translateToCatalogStyle();
+    }
+
+    @Override
+    public AlterTableClause translateToLegacyAlterClause() {
+        return new BuildIndexClause(tableName.transferToTableName(), indexDef.translateToLegacyIndexDef(), index,
+                alter);
     }
 
     @Override
