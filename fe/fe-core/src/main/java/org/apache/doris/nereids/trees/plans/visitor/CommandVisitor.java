@@ -152,6 +152,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -563,6 +564,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCleanAllProfileCommand(CleanAllProfileCommand cleanAllProfileCommand, C context) {
         return visitCommand(cleanAllProfileCommand, context);
+    }
+
+    default R visitCleanLabelCommand(CleanLabelCommand cleanLabelCommand, C context) {
+        return visitCommand(cleanLabelCommand, context);
     }
 
     default R visitShowDataTypesCommand(ShowDataTypesCommand showDataTypesCommand, C context) {
