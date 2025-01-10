@@ -42,6 +42,15 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${jdbcUser}""";
+    }
+
     sql """grant all on *.*.* to ${jdbcUser}"""
 
     sql """drop database if exists internal.external_test_lower_with_conf; """
