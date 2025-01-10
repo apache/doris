@@ -371,13 +371,18 @@ int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expirati
     LOG(INFO) << "delete prefix, uri=" << uri;
     // If path prefix exists, assume it is a dir or a file.
     if (exists(path_prefix) == 0) {
-        // try to delete path prefix as a dir or a file.
+        // If it exists, then it is a dir or a file.
+        // delete_directory func can delete a dir or a file.
         if (delete_directory(path_prefix) == 0) {
             LOG(INFO) << "delete prefix succ"
                       << ", is dir or file = true"
                       << ", uri=" << uri;
             return 0;
         }
+        // delete failed, return err
+        LOG_WARNING("delete prefix failed, this is a dir or a file")
+                .tag("path prefix", path_prefix);
+        return -1;
     }
     // If path prefix is not a dir or a file,
     // for example: data/492211/02000000008a012957476a3e174dfdaa71ee5f80a3abafa3_.
