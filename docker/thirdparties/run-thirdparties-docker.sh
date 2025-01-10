@@ -614,7 +614,7 @@ start_minio() {
     fi
 }
 
-echo "starting dockers in parrallel"
+echo "starting dockers in parallel"
 
 declare -A pids
 
@@ -718,6 +718,11 @@ for compose in "${!pids[@]}"; do
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
         cat start_${compose}.log
+
+        echo ""
+        echo "print last 100 logs of the latest unhealthy container"
+        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+
         exit 1
     fi
 done

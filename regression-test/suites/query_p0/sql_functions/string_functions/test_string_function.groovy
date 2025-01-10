@@ -268,7 +268,7 @@ suite("test_string_function", "arrow_flight_sql") {
         ("aaaaaaaa", 1)
     """
     // bug fix
-    qt_sql_substring1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+    qt_sql_substring1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
 
     qt_sql "select substr('a',3,1);"
     qt_sql "select substr('a',2,1);"

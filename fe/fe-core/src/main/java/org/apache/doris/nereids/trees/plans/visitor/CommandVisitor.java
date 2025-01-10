@@ -93,10 +93,12 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -151,6 +153,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -527,6 +530,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showCreateCatalogCommand, context);
     }
 
+    default R visitShowCatalogCommand(ShowCatalogCommand showCatalogCommand, C context) {
+        return visitCommand(showCatalogCommand, context);
+    }
+
     default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
                         C context) {
         return visitCommand(showCreateMtlzViewCommand, context);
@@ -558,6 +565,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCleanAllProfileCommand(CleanAllProfileCommand cleanAllProfileCommand, C context) {
         return visitCommand(cleanAllProfileCommand, context);
+    }
+
+    default R visitCleanLabelCommand(CleanLabelCommand cleanLabelCommand, C context) {
+        return visitCommand(cleanLabelCommand, context);
     }
 
     default R visitShowDataTypesCommand(ShowDataTypesCommand showDataTypesCommand, C context) {
@@ -729,6 +740,10 @@ public interface CommandVisitor<R, C> {
     default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
                                            C context) {
         return visitCommand(showQueryProfileCommand, context);
+    }
+
+    default R visitShowConvertLscCommand(ShowConvertLSCCommand showConvertLSCCommand, C context) {
+        return visitCommand(showConvertLSCCommand, context);
     }
 
     default R visitSwitchCommand(SwitchCommand switchCommand, C context) {

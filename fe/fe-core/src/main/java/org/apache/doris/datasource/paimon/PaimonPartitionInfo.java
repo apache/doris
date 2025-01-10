@@ -45,4 +45,9 @@ public class PaimonPartitionInfo {
     public Map<String, PaimonPartition> getNameToPartition() {
         return nameToPartition;
     }
+
+    public boolean isPartitionInvalid() {
+        // when transfer to partitionItem failed, will not equal
+        return nameToPartitionItem.size() != nameToPartition.size();
+    }
 }

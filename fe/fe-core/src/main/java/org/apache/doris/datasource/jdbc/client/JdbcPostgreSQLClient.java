@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
@@ -115,9 +114,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "float8":
                 return Type.DOUBLE;
             case "bpchar":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize().orElse(0));
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "timestamp":
             case "timestamptz": {
                 // postgres can support microsecond

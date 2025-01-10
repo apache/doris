@@ -419,21 +419,18 @@ public class ThriftPlansBuilder {
         if (runtimeFiltersThriftBuilder.isMergeRuntimeFilterInstance(instance)) {
             runtimeFiltersThriftBuilder.setRuntimeFilterThriftParams(runtimeFilterParams);
         }
+        boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
+        if (isLocalShuffle) {
+            // a fragment in a backend only enable local shuffle once for the first local shuffle instance,
+            // because we just skip set scan params for LocalShuffleAssignedJob.receiveDataFromLocal == true
+            ignoreDataDistribution(currentFragmentParam);
+        }
         return instanceParam;
     }
 
     private static void setScanSourceParam(
             TPipelineFragmentParams currentFragmentParam, AssignedJob instance,
             TPipelineInstanceParams instanceParams) {
-
-        boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
-        if (isLocalShuffle && ((LocalShuffleAssignedJob) instance).receiveDataFromLocal) {
-            // save thrift rpc message size, don't need perNodeScanRanges,
-            // but the perNodeScanRanges is required rpc field
-            instanceParams.setPerNodeScanRanges(Maps.newLinkedHashMap());
-            return;
-        }
-
         ScanSource scanSource = instance.getScanSource();
         PerNodeScanParams scanParams;
         if (scanSource instanceof BucketScanSource) {
@@ -443,12 +440,6 @@ public class ThriftPlansBuilder {
         }
         // perNodeScanRanges is required
         instanceParams.setPerNodeScanRanges(scanParams.perNodeScanRanges);
-
-        if (isLocalShuffle) {
-            // a fragment in a backend only enable local shuffle once for the first local shuffle instance,
-            // because we just skip set scan params for LocalShuffleAssignedJob.receiveDataFromLocal == true
-            ignoreDataDistribution(currentFragmentParam);
-        }
     }
 
     // local shuffle has two functions:
