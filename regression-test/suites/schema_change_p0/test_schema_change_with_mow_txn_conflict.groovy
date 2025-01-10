@@ -114,65 +114,8 @@ suite("test_schema_change_with_mow_txn_conflict", "p0") {
             )
             sql """ insert into ${tableName3} values (10001, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
-//
-//            sql """ alter table ${tableName3} modify column k5 string NULL"""
-//            Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
-//                    {
-//                        String res = getJobState(tableName3)
-//                        if (res == "FINISHED" || res == "CANCELLED") {
-//                            assertEquals("FINISHED", res)
-//                            return true
-//                        }
-//                        execStreamLoad()
-//                        return false
-//                    }
-//            )
-//
-//            sql """ alter table ${tableName3} add column v14 int NOT NULL default "1" after k13 """
-//            sql """ insert into ${tableName3} values (10001, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-//    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
-//
-//            sql """ alter table ${tableName3} modify column v14 int NULL default "1" """
-//
-//            int cnt = 6000
-//            Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
-//                    {
-//                        String res = getJobState(tableName3)
-//                        if (res == "FINISHED" || res == "CANCELLED") {
-//                            assertEquals("FINISHED", res)
-//                            return true
-//                        }
-//                        cnt--;
-//                        int val = 100000 + cnt
-//                        sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-//    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
-//                        return false
-//                    }
-//            )
-//
-//            sql """ alter table ${tableName3} drop column v14 """
-//            execStreamLoad()
-//
-//            sql """ alter table ${tableName3} add column v14 int NOT NULL default "1" after k13 """
-//
-//            sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-//    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
-//
-//            sql """ alter table ${tableName3} drop column v14 """
-//
-//            sql """ alter table ${tableName3} add column v14 bitmap after k13 """
-//
-//            sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-//    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', to_bitmap(243)) """
-//
-//            sql """ alter table ${tableName3} drop column v14 """
-//
             List<List<Object>> result = sql """ select * from ${tableName3} """
             for (row : result) {
-                logger.info("r1=" +row[1] )
-                logger.info("r2=" +row[2] )
-                logger.info("r3=" +row[3] )
-                logger.info("r4=" +row[4] )
                 assertEquals(2, row[1]);
                 assertEquals(3, row[2]);
                 assertEquals("4", row[3]);
