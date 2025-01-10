@@ -839,7 +839,13 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    such as when index segment files are not generated
         // above case can downgrade without index query
         _opts.stats->inverted_index_downgrade_count++;
-        LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
+        if (!res.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
+            LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: "
+                      << res;
+        } else {
+            VLOG_DEBUG << "will downgrade without index to evaluate predicate, because of res: "
+                       << res;
+        }
         return true;
     }
     return false;

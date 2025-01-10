@@ -111,13 +111,12 @@ suite("insert_group_commit_with_exception") {
 
         // prepare insert
         def db = context.config.defaultDb + "_insert_p0"
-        String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, db)
+        String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, db, false)
 
         try (Connection connection = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword)) {
             Statement statement = connection.createStatement();
             statement.execute("use ${db}");
-            statement.execute("set group_commit = eventual_consistency;");
-            statement.execute("set enable_server_side_prepared_statement = true")
+            statement.execute("set group_commit = sync_mode");
             // without column
             try (PreparedStatement ps = connection.prepareStatement("insert into ${table} values(?, ?, ?, ?)")) {
                 ps.setObject(1, 8);
@@ -241,7 +240,7 @@ suite("insert_group_commit_with_exception") {
                     assertTrue(false)
                 } catch (Exception e) {
                     logger.info("exception : " + e)
-                    assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
+                    assertTrue(e.getMessage().contains("Column count doesn't match value count"))
                 }
             }
             getRowCount(14)

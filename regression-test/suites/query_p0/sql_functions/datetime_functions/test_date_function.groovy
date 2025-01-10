@@ -77,7 +77,7 @@ suite("test_date_function") {
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03");
     """
-    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
+    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
 
     sql """ truncate table ${tableName} """
 
@@ -122,7 +122,7 @@ suite("test_date_function") {
             (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
     """
 
-    sql "set parallel_fragment_exec_instance_num = 8"
+    sql "set parallel_pipeline_task_num = 8"
 
     qt_sql1 """
         SELECT

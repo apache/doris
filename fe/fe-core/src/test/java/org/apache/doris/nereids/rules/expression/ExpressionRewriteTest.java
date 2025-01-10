@@ -23,9 +23,8 @@ import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
-import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -170,20 +169,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testTpcdsCase() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                        SimplifyRange.INSTANCE,
-                        OrToIn.INSTANCE,
-                        ExtractCommonFactorRule.INSTANCE
-                )
-        ));
-        assertRewrite(
-                "(((((customer_address.ca_country = 'United States') AND ca_state IN ('DE', 'FL', 'TX')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('ID', 'IN', 'ND'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('IL', 'MT', 'OH'))))",
-                "((customer_address.ca_country = 'United States') AND ca_state IN ('DE', 'FL', 'TX', 'ID', 'IN', 'ND', 'IL', 'MT', 'OH'))");
-    }
-
-    @Test
     void testInPredicateToEqualToRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(InPredicateToEqualToRule.INSTANCE)
@@ -247,7 +232,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyDecimalV3Comparison() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(SimplifyDecimalV3Comparison.INSTANCE)
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
         ));
 
         // do rewrite

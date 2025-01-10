@@ -29,6 +29,8 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -159,13 +161,15 @@ public class InsertTask extends AbstractTask {
             ctx.setDatabase(currentDb);
         }
         TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
-        stmtExecutor = new StmtExecutor(ctx, (String) null);
+        StatementContext statementContext = new StatementContext();
         ctx.setQueryId(queryId);
+        ctx.setStatementContext(statementContext);
         if (StringUtils.isNotEmpty(sql)) {
             NereidsParser parser = new NereidsParser();
             this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
             this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
             this.command.setJobId(getTaskId());
+            stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         }
 
         super.before();
@@ -223,7 +227,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    protected void executeCancelLogic() {
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
         if (isFinished.get() || isCanceled.get()) {
             return;
         }

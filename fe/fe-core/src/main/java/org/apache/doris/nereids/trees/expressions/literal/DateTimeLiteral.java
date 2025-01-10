@@ -132,7 +132,7 @@ public class DateTimeLiteral extends DateLiteral {
 
     /** parseDateTimeLiteral */
     public static Result<DateTimeLiteral, AnalysisException> parseDateTimeLiteral(String s, boolean isV2) {
-        Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
+        Result<TemporalAccessor, ? extends Exception> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
         }
@@ -394,9 +394,10 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateTimeType.INSTANCE)
-                : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range: " + dateTime.toString());
+        }
+        return new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
 }

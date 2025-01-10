@@ -586,7 +586,7 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
-// threads to handle heavy api interface, such as transmit_data/transmit_block etc
+// threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
@@ -652,8 +652,8 @@ DECLARE_String(pprof_profile_dir);
 DECLARE_mString(jeprofile_dir);
 // Purge all unused dirty pages for all arenas.
 DECLARE_mBool(enable_je_purge_dirty_pages);
-// Purge all unused Jemalloc dirty pages for all arenas when exceed je_dirty_pages_mem_limit and process exceed soft limit.
-DECLARE_mString(je_dirty_pages_mem_limit_percent);
+// Jemalloc `arenas.dirty_decay_ms`, equal to `dirty_decay_ms` in JEMALLOC_CONF in be.conf.
+DECLARE_mInt32(je_dirty_decay_ms);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -1040,7 +1040,7 @@ DECLARE_Bool(hide_webserver_config_page);
 DECLARE_Bool(enable_segcompaction);
 
 // Max number of segments allowed in a single segcompaction task.
-DECLARE_Int32(segcompaction_batch_size);
+DECLARE_mInt32(segcompaction_batch_size);
 
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DECLARE_Int32(segcompaction_candidate_max_rows);
@@ -1352,6 +1352,8 @@ DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
+
+DECLARE_Int32(num_query_ctx_map_partitions);
 
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);

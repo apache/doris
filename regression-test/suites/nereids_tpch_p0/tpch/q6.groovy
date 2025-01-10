@@ -37,7 +37,7 @@ suite("nereids_tpch_q6") {
     """
 
     qt_select """
-    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
+    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_pipeline_task_num=1, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
         sum(l_extendedprice * l_discount) as revenue
     from
         lineitem

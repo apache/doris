@@ -25,6 +25,7 @@ import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.common.util.concurrent.Uninterruptibles
 import com.google.gson.Gson
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -37,7 +38,6 @@ import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
-import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
@@ -59,18 +59,13 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 import java.sql.Connection
-import java.io.File
-import java.math.BigDecimal;
-import java.sql.PreparedStatement
-import java.sql.ResultSetMetaData
-import java.util.Map;
 import java.util.concurrent.Callable
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.regex.Pattern
 import java.util.stream.Collectors
 import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
@@ -263,7 +258,7 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
-                         String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
+                        String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
     }
 
@@ -408,6 +403,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    List<List<Object>> master_sql(String sqlStr, boolean isOrder = false) {
+        return sql_impl(context.getMasterConnection(), sqlStr, isOrder)
+    }
+
     List<List<Object>> multi_sql(String sqlStr, boolean isOrder = false) {
         String[] sqls = sqlStr.split(";")
         def result = new ArrayList<Object>();
@@ -517,6 +516,10 @@ class Suite implements GroovyInterceptable {
 
     def jdbc_sql_return_maparray(String sqlStr) {
         return sql_return_maparray_impl(sqlStr, context.getConnection())
+    }
+
+    def master_sql_return_maparray(String sqlStr) {
+        return sql_return_maparray_impl(sqlStr, context.getMasterConnection())
     }
 
     def arrow_flight_sql_return_maparray(String sqlStr) {
@@ -640,7 +643,7 @@ class Suite implements GroovyInterceptable {
     }
 
     long getTableVersion(long dbId, String tableName) {
-       def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
+        def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
         for (def res : result) {
             if(res.TableName.equals(tableName)) {
                 log.info(res.toString())
@@ -698,6 +701,23 @@ class Suite implements GroovyInterceptable {
                 return sb.toString()
             }).collect(Collectors.joining("\nUNION ALL\n"))
         return sql
+    }
+
+    <T> T retry(int executeTimes = 3, int intervalMillis = 1000, Closure<Integer> closure) {
+        Throwable throwable = null
+        for (int i = 1; i <= executeTimes; ++i) {
+            try {
+                return closure(i) as T
+            } catch (Throwable t) {
+                logger.warn("Retry failed: $t", t)
+                throwable = t
+                Uninterruptibles.sleepUninterruptibly(intervalMillis, TimeUnit.MILLISECONDS)
+            }
+        }
+        if (throwable != null) {
+            throw throwable
+        }
+        return null
     }
 
     void explain(Closure actionSupplier) {
@@ -812,11 +832,11 @@ class Suite implements GroovyInterceptable {
         return randomBoolean ? "true" : "false"
     }
 
-    void expectExceptionLike(Closure userFunction, String errorMessage = null) {
+    void expectExceptionLike(Closure userFunction, String errMsg = null) {
         try {
             userFunction()
         } catch (Exception e) {
-            if (!e.getMessage().contains(errorMessage)) {
+            if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
                 throw e
             }
         }
@@ -836,6 +856,10 @@ class Suite implements GroovyInterceptable {
         String host = context.config.otherConfigs.get("extHiveHmsHost")
         String port = context.config.otherConfigs.get("extHdfsPort")
         return "hdfs://" + host + ":" + port;
+    }
+
+    String getHmsUser() {
+        return context.config.otherConfigs.get("extHiveHmsUser")
     }
 
     String getHdfsUser() {
@@ -884,6 +908,11 @@ class Suite implements GroovyInterceptable {
         def localFile = file.canonicalPath
         log.info("Set stream load input: ${file.canonicalPath}".toString())
         return localFile;
+    }
+
+    boolean enableJdbcTest() {
+        String enable = context.config.otherConfigs.get("enableJdbcTest")
+        return enable != null && enable.equalsIgnoreCase("true")
     }
 
     boolean enableBrokerLoad() {
@@ -989,7 +1018,7 @@ class Suite implements GroovyInterceptable {
                 if (exitcode != 0) {
                     staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
                     if (mustSuc == true) {
-                       Assert.assertEquals(0, exitcode)
+                        Assert.assertEquals(0, exitcode)
                     }
                 }
             } catch (IOException e) {
@@ -1063,6 +1092,20 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void foreachFrontends(Closure action) {
+        def rows = sql_return_maparray("show frontends")
+        for (def row in rows) {
+            action(row)
+        }
+    }
+
+    void foreachBackends(Closure action) {
+        def rows = sql_return_maparray("show backends")
+        for (def row in rows) {
+            action(row)
+        }
+    }
+
     List<String> getFrontendIpHttpPort() {
         return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
     }
@@ -1119,7 +1162,7 @@ class Suite implements GroovyInterceptable {
     Connection getTargetConnection() {
         return context.getTargetConnection(this)
     }
-    
+
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
@@ -1142,7 +1185,7 @@ class Suite implements GroovyInterceptable {
                 )
                 DISTRIBUTED BY HASH(id) BUCKETS 1
                 PROPERTIES (
-                  "replication_num" = "${backends.size()}"
+                    "replication_num" = "${backends.size()}"
                 )
             """
 
@@ -1233,6 +1276,8 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else if (tag.contains("master_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
@@ -1246,6 +1291,8 @@ class Suite implements GroovyInterceptable {
                             (String) ("USE ${context.dbName};" + (String) arg))
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else if (tag.contains("master_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
@@ -1314,13 +1361,24 @@ class Suite implements GroovyInterceptable {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
+                def allPlan = ""
+                if (arg instanceof String) {
+                    def query = (String) arg;
+                    def pattern = Pattern.compile("^\\s*explain\\s+shape\\s*plan\\s*", Pattern.MULTILINE)
+                    if (query =~ pattern) {
+                        def physical = query.replaceAll(pattern, "explain all plan ")
+                        try {
+                            allPlan = JdbcUtils.executeToStringList(context.getConnection(), physical)[0].join('\n')
+                        } catch (Throwable ignore) {}
+                    }
+                }
                 String csvRealResult = realResults.stream()
-                    .map {row -> OutputUtils.toCsvString(row)}
-                    .collect(Collectors.joining("\n"))
+                            .map { row -> OutputUtils.toCsvString(row) }
+                            .collect(Collectors.joining("\n"))
                 def outputFilePath = context.outputFile.getCanonicalPath().substring(context.config.dataPath.length() + 1)
                 def line = expectCsvResults.currentLine()
                 logger.warn("expect results in file: ${outputFilePath}, line: ${line}\nrealResults:\n" + csvRealResult)
-                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}\n\n${allPlan}")
             }
         }
     }
@@ -1390,8 +1448,12 @@ class Suite implements GroovyInterceptable {
     }
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database) {
+        return getServerPrepareJdbcUrl(jdbcUrl, database, true)
+    }
+
+    String getServerPrepareJdbcUrl(String jdbcUrl, String database, boolean useMasterIp) {
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = getMasterIp()
+        def sql_ip = useMasterIp ? getMasterIp() : urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
         def sql_port
         if (urlWithoutSchema.indexOf("/") >= 0) {
             // e.g: jdbc:mysql://locahost:8080/?a=b
@@ -1428,7 +1490,16 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("SUCCESS", status)
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        def show_tables = sql """
+        show tables from ${result.last().get(6)};
+        """
+        def db_id = getDbId(result.last().get(6))
+        def table_id = getTableId(result.last().get(6), mvName)
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + mvName
+                + ", db name is " + result.last().get(6)
+                + ", show_tables are " + show_tables
+                + ", db_id is " + db_id
+                + ", table_id " + table_id)
         sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
     }
 
@@ -1526,8 +1597,23 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals("SUCCESS", status)
         // Need to analyze materialized view for cbo to choose the materialized view accurately
-        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
+        def show_tables = sql """
+        show tables from ${result.last().get(6)};
+        """
+        def db_id = getDbId(result.last().get(6))
+        def table_id = getTableId(result.last().get(6), result.last().get(5))
+        logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5)
+                + ", db name is " + result.last().get(6)
+                + ", show_tables are " + show_tables
+                + ", db_id is " + db_id
+                + ", table_id " + table_id)
         sql "analyze table ${result.last().get(6)}.${result.last().get(5)} with sync;"
+        String db = result.last().get(6)
+        String table = result.last().get(5)
+        result = sql("show table stats ${db}.${table}")
+        logger.info("table stats: " + result.toString())
+        result = sql("show index stats ${db}.${table} ${table}")
+        logger.info("index stats: " + result.toString())
     }
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
@@ -1962,6 +2048,9 @@ class Suite implements GroovyInterceptable {
                     for (String mv_name : mv_names) {
                         success = success && result.contains("(${mv_name})")
                     }
+                    if (!success) {
+                        logger.info("mv_rewrite_all_success fail =" + result)
+                    }
                     Assert.assertEquals(true, success)
                 }
             }
@@ -1972,7 +2061,11 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    Assert.assertEquals(true, result.contains("${mv_name} chose"))
+                    def contains = result.contains("${mv_name} chose")
+                    if (!contains) {
+                        logger.info("mv_rewrite_all_success fail =" + result)
+                    }
+                    Assert.assertEquals(true, contains)
                 }
             }
         }
@@ -1999,6 +2092,9 @@ class Suite implements GroovyInterceptable {
                     for (String mv_name : mv_names) {
                         success = success || result.contains("(${mv_name})")
                     }
+                    if (!success) {
+                        logger.info("mv_rewrite_any_success fail =" + result)
+                    }
                     Assert.assertEquals(true, success)
                 }
             }
@@ -2010,6 +2106,9 @@ class Suite implements GroovyInterceptable {
                 boolean success = false;
                 for (String mv_name : mv_names) {
                     success = success || result.contains("${mv_name} chose")
+                }
+                if (!success) {
+                    logger.info("mv_rewrite_any_success fail =" + result)
                 }
                 Assert.assertEquals(true, success)
             }
@@ -2031,6 +2130,9 @@ class Suite implements GroovyInterceptable {
                         def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
                         success = success && (result.contains("(${mv_name})") || each_result)
                     }
+                    if (!success) {
+                        logger.info("mv_rewrite_all_success_without_check_chosen fail =" + result)
+                    }
                     Assert.assertEquals(true, success)
                 }
             }
@@ -2043,6 +2145,9 @@ class Suite implements GroovyInterceptable {
                 for (String mv_name : mv_names) {
                     boolean stepSuccess = result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
                     success = success && stepSuccess
+                }
+                if (!success) {
+                    logger.info("mv_rewrite_all_success_without_check_chosen fail =" + result)
                 }
                 Assert.assertEquals(true, success)
             }
@@ -2064,6 +2169,9 @@ class Suite implements GroovyInterceptable {
                         def each_result =  splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
                         success = success || (result.contains("(${mv_name})") || each_result)
                     }
+                    if (!success) {
+                        logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
+                    }
                     Assert.assertEquals(true, success)
                 }
             }
@@ -2075,6 +2183,9 @@ class Suite implements GroovyInterceptable {
                 boolean success = false
                 for (String mv_name : mv_names) {
                     success = success || result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                }
+                if (!success) {
+                    logger.info("mv_rewrite_any_success_without_check_chosen fail =" + result)
                 }
                 Assert.assertEquals(true, success)
             }
@@ -2134,6 +2245,9 @@ class Suite implements GroovyInterceptable {
                         boolean stepFail = !result.contains("(${mv_name})")
                         fail = fail && stepFail
                     }
+                    if (!fail) {
+                        logger.info("mv_rewrite_all_fail =" + result)
+                    }
                     Assert.assertEquals(true, fail)
                 }
             }
@@ -2146,6 +2260,9 @@ class Suite implements GroovyInterceptable {
                 for (String mv_name : mv_names) {
                     boolean stepFail = result.contains("${mv_name} fail")
                     fail = fail && stepFail
+                }
+                if (!fail) {
+                    logger.info("mv_rewrite_all_fail =" + result)
                 }
                 Assert.assertEquals(true, fail)
             }
@@ -2164,6 +2281,9 @@ class Suite implements GroovyInterceptable {
                     for (String mv_name : mv_names) {
                         fail = fail || !result.contains("(${mv_name})")
                     }
+                    if (!fail) {
+                        logger.info("mv_rewrite_any_fail =" + result)
+                    }
                     Assert.assertEquals(true, fail)
                 }
             }
@@ -2175,6 +2295,9 @@ class Suite implements GroovyInterceptable {
                 boolean fail = false
                 for (String mv_name : mv_names) {
                     fail = fail || result.contains("${mv_name} fail")
+                }
+                if (!fail) {
+                    logger.info("mv_rewrite_any_fail =" + result)
                 }
                 Assert.assertEquals(true, fail)
             }
@@ -2227,6 +2350,20 @@ class Suite implements GroovyInterceptable {
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
         mv_rewrite_fail(query_sql, mv_name, true)
+    }
+
+    def async_create_mv = { db, mv_sql, mv_name ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
     }
 
     def token = context.config.metaServiceToken

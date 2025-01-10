@@ -22,7 +22,7 @@ suite("test_catalog_hive_orc", "p0,external,hive,external_docker,external_docker
     def q01 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q01 """
@@ -53,7 +53,7 @@ order by
     def q02 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=2"""
+        sql """set parallel_pipeline_task_num=2"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         sql """set enable_projection=true"""
@@ -103,7 +103,7 @@ limit 100;
     def q03 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         sql """set enable_projection=true"""
@@ -137,7 +137,7 @@ limit 10;
     def q04 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=1"""
+        sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q04 """
@@ -167,7 +167,7 @@ order by
     def q05 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q05 """
@@ -189,7 +189,7 @@ order by revenue desc;
     def q06 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=1"""
+        sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q06 """
@@ -208,7 +208,7 @@ where
     def q07 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=4"""
+        sql """set parallel_pipeline_task_num=4"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q07 """
@@ -249,7 +249,7 @@ order by
     def q08 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=1"""
+        sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q08 """
@@ -296,7 +296,7 @@ order by
     def q09 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=4"""
+        sql """set parallel_pipeline_task_num=4"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q09 """
@@ -329,7 +329,7 @@ order by
     def q10 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q10 """
@@ -372,7 +372,7 @@ limit 20;
     def q11 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=2"""
+        sql """set parallel_pipeline_task_num=2"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q11 """
@@ -409,7 +409,7 @@ order by
     def q12 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=2"""
+        sql """set parallel_pipeline_task_num=2"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q12 """
@@ -446,7 +446,7 @@ order by
     def q13 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=4"""
+        sql """set parallel_pipeline_task_num=4"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q13 """
@@ -476,7 +476,7 @@ order by
     def q14 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q14 """
@@ -499,7 +499,7 @@ where
     def q15 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q15 """
@@ -539,7 +539,7 @@ order by
     def q16 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q16 """
@@ -579,7 +579,7 @@ order by
     def q17 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=1"""
+        sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q17 """
@@ -608,7 +608,7 @@ where
     def q18 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q18 """
@@ -656,7 +656,7 @@ limit 100;
     def q19 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
         qt_q19 """
@@ -701,7 +701,7 @@ where
     def q20 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q20 """
@@ -736,7 +736,7 @@ order by s_name;
     def q21 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q21 """
@@ -777,7 +777,7 @@ limit 100;
     def q22 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache=${enable_file_cache}"""
-        sql """set parallel_fragment_exec_instance_num=8"""
+        sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
         qt_q22 """
