@@ -64,7 +64,8 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
     }
 
     def customFeConfig1 = [calculate_delete_bitmap_task_timeout_seconds: 2, meta_service_rpc_retry_times: 5]
-    def customFeConfig2 = [delete_bitmap_lock_expiration_seconds: 1, meta_service_rpc_retry_times: 5]
+    def customFeConfig2 = [delete_bitmap_lock_expiration_seconds: 2, meta_service_rpc_retry_times: 5]
+    def customFeConfig3 = [meta_service_rpc_retry_times: 50]
     String[][] backends = sql """ show backends """
     assertTrue(backends.size() > 0)
     String backendId;
@@ -318,7 +319,220 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
                 sql "DROP TABLE IF EXISTS ${tableName};"
             }
         }
-        //4. test
+
+        //4. test update delete bitmap fail
+        setFeConfigTemporary(customFeConfig2) {
+            try {
+                // create table
+                sql """ drop table if exists ${tableName}; """
+
+                sql """
+        CREATE TABLE `${tableName}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1"
+        );
+        """
+                // this streamLoad will fail on calculate delete bitmap timeout
+                GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+
+                def now = System.currentTimeMillis()
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("fail", json.Status.toLowerCase())
+                        assertTrue(json.Message.contains("Timeout"))
+                    }
+                }
+                def time_cost = System.currentTimeMillis() - now
+                getTotalRetry.call()
+                assertEquals(4, total_retry)
+                assertTrue(time_cost > 4000, "wait time should bigger than total retry interval")
+                qt_sql """ select * from ${tableName} order by id"""
+
+                // this streamLoad will success because of removing timeout simulation
+                GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("success", json.Status.toLowerCase())
+                    }
+                }
+                getTotalRetry.call()
+                assertEquals(4, total_retry)
+                qt_sql """ select * from ${tableName} order by id"""
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+                sql "DROP TABLE IF EXISTS ${tableName};"
+            }
+        }
+
+        //5. test wait fe lock timeout
+        setFeConfigTemporary(customFeConfig1) {
+            try {
+                get_be_param("txn_commit_rpc_timeout_ms")
+                set_be_param("txn_commit_rpc_timeout_ms", "10000")
+                // create table
+                sql """ drop table if exists ${tableName}; """
+
+                sql """
+        CREATE TABLE `${tableName}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1"
+        );
+        """
+                GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.beforeCommitTransaction.sleep", [sleep_time: 5])
+
+                def now = System.currentTimeMillis()
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("fail", json.Status.toLowerCase())
+                        assertTrue(json.Message.contains("Timeout"))
+                    }
+                }
+                def time_cost = System.currentTimeMillis() - now
+                getTotalRetry.call()
+                assertEquals(6, total_retry)
+                assertTrue(time_cost > 10000, "wait time should bigger than total retry interval")
+                qt_sql """ select * from ${tableName} order by id"""
+
+                // this streamLoad will success because of removing timeout simulation
+                GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.beforeCommitTransaction.sleep")
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("success", json.Status.toLowerCase())
+                    }
+                }
+                getTotalRetry.call()
+                assertEquals(6, total_retry)
+                qt_sql """ select * from ${tableName} order by id"""
+            } finally {
+                reset_be_param("txn_commit_rpc_timeout_ms")
+                GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.beforeCommitTransaction.sleep")
+                sql "DROP TABLE IF EXISTS ${tableName};"
+            }
+        }
+        //6. test wait delete bitmap lock timeout
+        setFeConfigTemporary(customFeConfig3) {
+            try {
+                // create table
+                sql """ drop table if exists ${tableName}; """
+
+                sql """
+        CREATE TABLE `${tableName}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1"
+        );
+        """
+                GetDebugPoint().enableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.timeout")
+
+                def now = System.currentTimeMillis()
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("fail", json.Status.toLowerCase())
+                        assertTrue(json.Message.contains("Timeout"))
+                    }
+                }
+                def time_cost = System.currentTimeMillis() - now
+                getTotalRetry.call()
+                assertEquals(8, total_retry)
+                assertTrue(time_cost > 2000, "wait time should bigger than total retry interval")
+                qt_sql """ select * from ${tableName} order by id"""
+
+                // this streamLoad will success because of removing timeout simulation
+                GetDebugPoint().disableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.timeout")
+                streamLoad {
+                    table "${tableName}"
+
+                    set 'column_separator', ','
+                    set 'columns', 'id, name, score'
+                    file "test_stream_load.csv"
+
+                    time 10000 // limit inflight 10s
+
+                    check { result, exception, startTime, endTime ->
+                        log.info("Stream load result: ${result}")
+                        def json = parseJson(result)
+                        assertEquals("success", json.Status.toLowerCase())
+                    }
+                }
+                getTotalRetry.call()
+                assertEquals(8, total_retry)
+                qt_sql """ select * from ${tableName} order by id"""
+            } finally {
+                GetDebugPoint().disableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.timeout")
+                sql "DROP TABLE IF EXISTS ${tableName};"
+            }
+        }
+
     } finally {
         reset_be_param("mow_stream_load_commit_retry_times")
         GetDebugPoint().disableDebugPointForAllFEs('FE.mow.check.lock.release')

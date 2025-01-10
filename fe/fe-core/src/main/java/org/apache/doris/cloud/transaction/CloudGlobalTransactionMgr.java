@@ -862,6 +862,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             int retryTime = 0;
             while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
+                    if (DebugPointUtil.isEnable("FE.mow.get_delete_bitmap_lock.timeout")) {
+                        throw new UserException("test get_delete_bitmap_lock timeout");
+                    }
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}", transactionId,
@@ -1202,6 +1205,17 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                     + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
                 }
             }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.beforeCommitTransaction.sleep")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.beforeCommitTransaction.sleep");
+            int t = debugPoint.param("sleep_time", 5);
+            try {
+                Thread.sleep(t * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+            timeoutMillis = 0;
         }
         if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             decreaseWaitingLockCount(mowTableList);
