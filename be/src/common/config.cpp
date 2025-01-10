@@ -868,7 +868,7 @@ DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 // which can be insufficient and cause performance issues when the amount of user data is large.
 // To mitigate the problem of an inadequate cache,
 // we will take the larger of 1.5% of the total memory and 100MB as the delete bitmap cache size.
-DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "1.5%");
+DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "1.0%");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
